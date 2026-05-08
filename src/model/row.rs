@@ -19,6 +19,21 @@ pub struct DiffRow {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileMetadataKind {
+    BinarySummary,
+    ModeChange,
+    RenameSummary,
+    SubmoduleSummary,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct FileMetadataRow {
+    pub kind: FileMetadataKind,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ReviewRow {
     pub id: RowId,
 }

@@ -5,6 +5,10 @@ use crate::model::{DiffRow, DiffRowKind, HunkId, ReviewHunk};
 pub(crate) struct PatchFile {
     pub old_path: Option<String>,
     pub new_path: Option<String>,
+    pub old_mode: Option<String>,
+    pub new_mode: Option<String>,
+    pub similarity: Option<u16>,
+    pub is_binary: bool,
     pub hunks: Vec<ReviewHunk>,
 }
 
@@ -32,8 +36,12 @@ pub(crate) fn parse_patch(patch: &str) -> Result<Vec<PatchFile>> {
                 files.push(file);
             }
             current_file = Some(PatchFile {
-                old_path: None,
-                new_path: None,
+                old_path: diff_git_path(line, 'a'),
+                new_path: diff_git_path(line, 'b'),
+                old_mode: None,
+                new_mode: None,
+                similarity: None,
+                is_binary: false,
                 hunks: Vec::new(),
             });
             continue;
@@ -49,6 +57,41 @@ pub(crate) fn parse_patch(patch: &str) -> Result<Vec<PatchFile>> {
         }
         if let Some(path) = line.strip_prefix("+++ ") {
             current_file.as_mut().expect("current file").new_path = parse_patch_path(path);
+            continue;
+        }
+        if let Some(mode) = line.strip_prefix("old mode ") {
+            current_file.as_mut().expect("current file").old_mode = Some(mode.to_owned());
+            continue;
+        }
+        if let Some(mode) = line.strip_prefix("new mode ") {
+            current_file.as_mut().expect("current file").new_mode = Some(mode.to_owned());
+            continue;
+        }
+        if let Some(mode) = line.strip_prefix("new file mode ") {
+            current_file.as_mut().expect("current file").new_mode = Some(mode.to_owned());
+            continue;
+        }
+        if let Some(mode) = line.strip_prefix("deleted file mode ") {
+            current_file.as_mut().expect("current file").old_mode = Some(mode.to_owned());
+            continue;
+        }
+        if let Some(index) = line.strip_prefix("similarity index ") {
+            let similarity = index.trim_end_matches('%').parse().map_err(|error| {
+                ShoreError::Message(format!("invalid similarity index {index}: {error}"))
+            })?;
+            current_file.as_mut().expect("current file").similarity = Some(similarity);
+            continue;
+        }
+        if let Some(path) = line.strip_prefix("rename from ") {
+            current_file.as_mut().expect("current file").old_path = Some(path.to_owned());
+            continue;
+        }
+        if let Some(path) = line.strip_prefix("rename to ") {
+            current_file.as_mut().expect("current file").new_path = Some(path.to_owned());
+            continue;
+        }
+        if line.starts_with("Binary files ") || line == "GIT binary patch" {
+            current_file.as_mut().expect("current file").is_binary = true;
             continue;
         }
         if line.starts_with("@@ ") {
@@ -139,6 +182,19 @@ fn parse_patch_path(path: &str) -> Option<String> {
             .or(Some(path))
             .map(str::to_owned),
     }
+}
+
+fn diff_git_path(line: &str, prefix: char) -> Option<String> {
+    let needle = match prefix {
+        'a' => " a/",
+        'b' => " b/",
+        _ => return None,
+    };
+    line.split(needle)
+        .nth(1)
+        .and_then(|tail| tail.split(" b/").next())
+        .or_else(|| line.split(" b/").nth(1))
+        .map(str::to_owned)
 }
 
 #[derive(Debug)]

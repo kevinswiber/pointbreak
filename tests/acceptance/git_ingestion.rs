@@ -1,5 +1,5 @@
 use shore::git::ingest_tracked_diff;
-use shore::model::{DiffFile, DiffRowKind, FileStatus};
+use shore::model::{DiffFile, DiffRowKind, FileMetadataKind, FileStatus};
 
 use crate::support::git_repo::GitRepo;
 use crate::support::snapshots::normalize_path;
@@ -108,6 +108,91 @@ fn tracked_text_diff_ingests_modified_added_and_deleted_files() {
     assert_eq!(rows[3].new_line, Some(3));
 }
 
+#[test]
+fn file_level_git_entries_are_preserved_as_metadata_rows() {
+    let repo = GitRepo::new();
+    let submodule_source = GitRepo::new();
+    submodule_source.write("lib.rs", "pub fn submodule() -> u8 { 1 }\n");
+    submodule_source.commit_all("submodule initial");
+
+    repo.write("src/old_name.rs", "pub fn renamed() {}\n");
+    repo.write("assets/data.bin", [0, 159, 146, 150]);
+    repo.write("scripts/run.sh", "#!/bin/sh\necho shore\n");
+    repo.git(vec![
+        "-c".to_owned(),
+        "protocol.file.allow=always".to_owned(),
+        "submodule".to_owned(),
+        "add".to_owned(),
+        submodule_source.path().to_string_lossy().into_owned(),
+        "deps/sub".to_owned(),
+    ]);
+    repo.commit_all("initial file-level fixtures");
+
+    repo.git(["mv", "src/old_name.rs", "src/new_name.rs"]);
+    repo.write("assets/data.bin", [0, 159, 146, 151]);
+    make_executable(repo.path().join("scripts/run.sh"));
+
+    submodule_source.write("lib.rs", "pub fn submodule() -> u8 { 2 }\n");
+    submodule_source.commit_all("submodule update");
+    let submodule_branch = submodule_source.git(["branch", "--show-current"]).stdout;
+    let submodule_branch = submodule_branch.trim();
+    let submodule_path = repo.path().join("deps/sub").to_string_lossy().into_owned();
+    repo.git(vec![
+        "-C".to_owned(),
+        submodule_path.clone(),
+        "fetch".to_owned(),
+    ]);
+    repo.git(vec![
+        "-C".to_owned(),
+        submodule_path.clone(),
+        "checkout".to_owned(),
+        submodule_branch.to_owned(),
+    ]);
+    repo.git(vec!["-C".to_owned(), submodule_path, "pull".to_owned()]);
+
+    let snapshot = ingest_tracked_diff(repo.path()).expect("tracked diff ingests");
+
+    let renamed = file_by_path(&snapshot.files, "src/new_name.rs");
+    assert_eq!(renamed.status, FileStatus::Renamed);
+    assert_eq!(renamed.old_path.as_deref(), Some("src/old_name.rs"));
+    assert_eq!(renamed.new_path.as_deref(), Some("src/new_name.rs"));
+    assert_eq!(renamed.similarity, Some(100));
+    assert_eq!(
+        metadata_kinds(renamed),
+        vec![FileMetadataKind::RenameSummary]
+    );
+    assert!(renamed.hunks.is_empty());
+
+    let binary = file_by_path(&snapshot.files, "assets/data.bin");
+    assert_eq!(binary.status, FileStatus::Modified);
+    assert!(binary.is_binary);
+    assert_eq!(
+        metadata_kinds(binary),
+        vec![FileMetadataKind::BinarySummary]
+    );
+    assert!(binary.hunks.is_empty());
+
+    let mode_only = file_by_path(&snapshot.files, "scripts/run.sh");
+    assert_eq!(mode_only.status, FileStatus::Modified);
+    assert!(mode_only.is_mode_only);
+    assert_eq!(mode_only.old_mode.as_deref(), Some("100644"));
+    assert_eq!(mode_only.new_mode.as_deref(), Some("100755"));
+    assert_eq!(
+        metadata_kinds(mode_only),
+        vec![FileMetadataKind::ModeChange]
+    );
+    assert!(mode_only.hunks.is_empty());
+
+    let submodule = file_by_path(&snapshot.files, "deps/sub");
+    assert_eq!(submodule.status, FileStatus::Modified);
+    assert!(submodule.is_submodule);
+    assert_eq!(
+        metadata_kinds(submodule),
+        vec![FileMetadataKind::SubmoduleSummary]
+    );
+    assert!(submodule.hunks.is_empty());
+}
+
 fn file_by_path<'a>(files: &'a [DiffFile], path: &str) -> &'a DiffFile {
     files
         .iter()
@@ -115,4 +200,28 @@ fn file_by_path<'a>(files: &'a [DiffFile], path: &str) -> &'a DiffFile {
             file.old_path.as_deref() == Some(path) || file.new_path.as_deref() == Some(path)
         })
         .unwrap_or_else(|| panic!("missing diff file for {path}; files: {files:#?}"))
+}
+
+fn metadata_kinds(file: &DiffFile) -> Vec<FileMetadataKind> {
+    file.metadata_rows
+        .iter()
+        .map(|row| row.kind.clone())
+        .collect()
+}
+
+#[cfg(unix)]
+fn make_executable(path: impl AsRef<std::path::Path>) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = path.as_ref();
+    let mut permissions = std::fs::metadata(path)
+        .expect("read file metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(path, permissions).expect("set executable bit");
+}
+
+#[cfg(not(unix))]
+fn make_executable(path: impl AsRef<std::path::Path>) {
+    let _ = path;
 }
