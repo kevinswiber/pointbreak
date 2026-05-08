@@ -14,6 +14,18 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    run_git_allowing_statuses(cwd, args, &[0])
+}
+
+pub(crate) fn run_git_allowing_statuses<I, S>(
+    cwd: &Path,
+    args: I,
+    allowed_statuses: &[i32],
+) -> Result<GitOutput>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
     let args = args
         .into_iter()
         .map(|arg| arg.as_ref().to_owned())
@@ -24,7 +36,8 @@ where
         .output()
         .map_err(|error| ShoreError::Message(format!("run git {:?}: {error}", args)))?;
 
-    if !output.status.success() {
+    let status_code = output.status.code();
+    if !status_code.is_some_and(|code| allowed_statuses.contains(&code)) {
         return Err(ShoreError::GitCommand {
             command: format!("{args:?}"),
             status: output.status.to_string(),

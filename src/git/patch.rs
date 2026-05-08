@@ -185,16 +185,13 @@ fn parse_patch_path(path: &str) -> Option<String> {
 }
 
 fn diff_git_path(line: &str, prefix: char) -> Option<String> {
-    let needle = match prefix {
-        'a' => " a/",
-        'b' => " b/",
-        _ => return None,
-    };
-    line.split(needle)
-        .nth(1)
-        .and_then(|tail| tail.split(" b/").next())
-        .or_else(|| line.split(" b/").nth(1))
-        .map(str::to_owned)
+    match prefix {
+        'a' => line
+            .strip_prefix("diff --git a/")
+            .and_then(|tail| tail.split_once(" b/").map(|(path, _)| path.to_owned())),
+        'b' => line.split_once(" b/").map(|(_, path)| path.to_owned()),
+        _ => None,
+    }
 }
 
 #[derive(Debug)]

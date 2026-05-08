@@ -26,6 +26,7 @@ pub struct DiffFile {
     pub is_binary: bool,
     pub is_submodule: bool,
     pub is_mode_only: bool,
+    pub synthetic: bool,
     pub metadata_rows: Vec<super::FileMetadataRow>,
     pub hunks: Vec<ReviewHunk>,
 }

@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 
 use crate::error::{Result, ShoreError};
-use crate::git::command::run_git;
+use crate::git::command::{run_git, run_git_allowing_statuses};
 use crate::git::patch::{PatchFile, parse_patch};
-use crate::git::raw::parse_raw;
+use crate::git::raw::{RawFile, parse_raw};
 use crate::model::{
     DiffFile, DiffSnapshot, FileId, FileMetadataKind, FileMetadataRow, ReviewId, SnapshotId,
 };
@@ -49,16 +50,17 @@ pub fn ingest_tracked_diff(repo: impl AsRef<Path>) -> Result<DiffSnapshot> {
         .map(|file| (file.key(), file))
         .collect::<BTreeMap<_, _>>();
 
-    let files = raw_files
+    let mut files = raw_files
         .into_iter()
         .map(|raw_file| {
             let key = raw_file.key();
             let patch_file = patch_files
                 .get(&key)
                 .ok_or_else(|| ShoreError::Message(format!("missing patch entry for {key}")))?;
-            diff_file(raw_file, patch_file)
+            diff_file(raw_file, patch_file, false)
         })
         .collect::<Result<Vec<_>>>()?;
+    files.extend(synthesize_untracked_files(repo)?);
 
     Ok(DiffSnapshot::new(
         ReviewId::new("working-tree"),
@@ -67,7 +69,66 @@ pub fn ingest_tracked_diff(repo: impl AsRef<Path>) -> Result<DiffSnapshot> {
     ))
 }
 
-fn diff_file(raw_file: crate::git::raw::RawFile, patch_file: &PatchFile) -> Result<DiffFile> {
+fn synthesize_untracked_files(repo: &Path) -> Result<Vec<DiffFile>> {
+    discover_untracked_files(repo)?
+        .into_iter()
+        .map(|path| synthesize_untracked_file(repo, &path))
+        .collect()
+}
+
+fn discover_untracked_files(repo: &Path) -> Result<Vec<String>> {
+    let output = run_git(
+        repo,
+        ["ls-files", "--others", "--exclude-standard", "-z", "--"],
+    )?;
+    output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|field| !field.is_empty())
+        .map(|field| {
+            std::str::from_utf8(field)
+                .map(str::to_owned)
+                .map_err(|error| {
+                    ShoreError::Message(format!("untracked path is not utf-8: {error}"))
+                })
+        })
+        .collect()
+}
+
+fn synthesize_untracked_file(repo: &Path, path: &str) -> Result<DiffFile> {
+    let patch = no_index_patch(repo, path)?;
+    let patch_file = parse_patch(&String::from_utf8_lossy(&patch.stdout))?
+        .into_iter()
+        .next()
+        .ok_or_else(|| ShoreError::Message(format!("missing no-index patch for {path}")))?;
+    let raw_file = RawFile {
+        status: crate::model::FileStatus::Added,
+        old_mode: None,
+        new_mode: patch_file.new_mode.clone(),
+        old_oid: None,
+        new_oid: None,
+        similarity: None,
+        old_path: None,
+        new_path: Some(path.to_owned()),
+    };
+    diff_file(raw_file, &patch_file, true)
+}
+
+fn no_index_patch(repo: &Path, path: &str) -> Result<crate::git::command::GitOutput> {
+    let args = vec![
+        OsString::from("diff"),
+        OsString::from("--no-index"),
+        OsString::from("--no-ext-diff"),
+        OsString::from("--no-color"),
+        OsString::from("--full-index"),
+        OsString::from("--"),
+        OsString::from("/dev/null"),
+        OsString::from(PathBuf::from(path)),
+    ];
+    run_git_allowing_statuses(repo, args, &[0, 1])
+}
+
+fn diff_file(raw_file: RawFile, patch_file: &PatchFile, synthetic: bool) -> Result<DiffFile> {
     let is_submodule = raw_file.is_submodule();
     let is_mode_only = raw_file.is_mode_only();
     let is_binary = patch_file.is_binary;
@@ -91,6 +152,7 @@ fn diff_file(raw_file: crate::git::raw::RawFile, patch_file: &PatchFile) -> Resu
         is_binary,
         is_submodule,
         is_mode_only,
+        synthetic,
         metadata_rows,
         hunks,
     })

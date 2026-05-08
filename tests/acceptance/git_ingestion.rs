@@ -14,7 +14,7 @@ fn scratch_repo_can_create_commit_modify_and_report_status() {
     repo.write("obsolete.rs", "remove me\n");
     repo.remove("obsolete.rs");
 
-    let status = repo.git(["status", "--porcelain=v2"]);
+    let status = repo.git(["status", "--porcelain=v2", "--untracked-files=all"]);
 
     assert!(repo.path().join("src/lib.rs").exists());
     assert!(!repo.path().join("obsolete.rs").exists());
@@ -191,6 +191,72 @@ fn file_level_git_entries_are_preserved_as_metadata_rows() {
         vec![FileMetadataKind::SubmoduleSummary]
     );
     assert!(submodule.hunks.is_empty());
+}
+
+#[test]
+fn untracked_files_are_synthesized_without_staging_them() {
+    let repo = GitRepo::new();
+    repo.write("src/tracked.rs", "pub fn tracked() -> u8 { 1 }\n");
+    repo.commit_all("initial tracked file");
+
+    repo.write("src/tracked.rs", "pub fn tracked() -> u8 { 2 }\n");
+    repo.write("src/untracked.rs", "pub fn untracked() {}\n");
+    repo.write("assets/untracked.bin", [0, 159, 146, 150]);
+
+    let snapshot = ingest_tracked_diff(repo.path()).expect("working tree diff ingests");
+
+    assert_eq!(
+        snapshot
+            .files
+            .iter()
+            .map(|file| file
+                .new_path
+                .as_deref()
+                .or(file.old_path.as_deref())
+                .unwrap())
+            .collect::<Vec<_>>(),
+        vec!["src/tracked.rs", "assets/untracked.bin", "src/untracked.rs"]
+    );
+
+    let tracked = file_by_path(&snapshot.files, "src/tracked.rs");
+    assert_eq!(tracked.status, FileStatus::Modified);
+    assert!(!tracked.synthetic);
+
+    let untracked_text = file_by_path(&snapshot.files, "src/untracked.rs");
+    assert_eq!(untracked_text.status, FileStatus::Added);
+    assert!(untracked_text.synthetic);
+    assert_eq!(untracked_text.old_path, None);
+    assert_eq!(untracked_text.new_path.as_deref(), Some("src/untracked.rs"));
+    assert_eq!(untracked_text.hunks.len(), 1);
+    assert_eq!(untracked_text.hunks[0].old_start, 0);
+    assert_eq!(untracked_text.hunks[0].old_lines, 0);
+    assert_eq!(untracked_text.hunks[0].new_start, 1);
+    assert_eq!(untracked_text.hunks[0].new_lines, 1);
+    assert_eq!(untracked_text.hunks[0].rows[0].kind, DiffRowKind::Added);
+    assert_eq!(untracked_text.hunks[0].rows[0].old_line, None);
+    assert_eq!(untracked_text.hunks[0].rows[0].new_line, Some(1));
+
+    let untracked_binary = file_by_path(&snapshot.files, "assets/untracked.bin");
+    assert_eq!(untracked_binary.status, FileStatus::Added);
+    assert!(untracked_binary.synthetic);
+    assert!(untracked_binary.is_binary);
+    assert_eq!(
+        metadata_kinds(untracked_binary),
+        vec![FileMetadataKind::BinarySummary]
+    );
+    assert!(untracked_binary.hunks.is_empty());
+
+    let status = repo.git(["status", "--porcelain=v2", "--untracked-files=all"]);
+    assert!(
+        status.stdout.contains("? src/untracked.rs"),
+        "untracked text file should remain unstaged:\n{}",
+        status.stdout
+    );
+    assert!(
+        status.stdout.contains("? assets/untracked.bin"),
+        "untracked binary file should remain unstaged:\n{}",
+        status.stdout
+    );
 }
 
 fn file_by_path<'a>(files: &'a [DiffFile], path: &str) -> &'a DiffFile {
