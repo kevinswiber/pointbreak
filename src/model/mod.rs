@@ -6,8 +6,11 @@ mod ids;
 mod review;
 mod row;
 
-pub(crate) use annotation::hash_normalized_lines;
-pub use annotation::{Anchor, Annotation, AnnotationSource, LineRange, ResolutionStatus, Side};
+pub use annotation::{
+    Anchor, AnchorResolution, AnchorResolutionReason, Annotation, AnnotationSource, LineRange,
+    ResolutionStatus, Side, re_resolve_annotations,
+};
+pub(crate) use annotation::{hash_normalized_lines, rows_for_line_range};
 pub use cursor::CursorState;
 pub use file::{DiffFile, FileStatus};
 pub use hunk::ReviewHunk;

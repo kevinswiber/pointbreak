@@ -1,3 +1,5 @@
+#[path = "acceptance/anchor_resolution.rs"]
+mod anchor_resolution;
 #[path = "acceptance/geometry.rs"]
 mod geometry;
 #[path = "acceptance/git_ingestion.rs"]

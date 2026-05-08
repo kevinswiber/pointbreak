@@ -2,8 +2,8 @@ use serde::Deserialize;
 
 use crate::error::Result;
 use crate::model::{
-    Anchor, Annotation, AnnotationId, DiffFile, DiffRow, LineRange, ResolutionStatus, Side,
-    hash_normalized_lines,
+    Anchor, Annotation, AnnotationId, DiffFile, LineRange, ResolutionStatus, Side,
+    hash_normalized_lines, rows_for_line_range,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -231,39 +231,17 @@ pub fn resolve_annotations(
 
 fn resolve_anchor(file: &DiffFile, side: Side, range: Range) -> Option<Anchor> {
     file.hunks.iter().find_map(|hunk| {
-        let rows = rows_for_range(&hunk.rows, side, range)?;
+        let line_range = LineRange::from(range);
+        let rows = rows_for_line_range(&hunk.rows, side, &line_range)?;
         Some(Anchor {
             file_id: file.id.clone(),
             side,
-            line_range: range.into(),
+            line_range,
             hunk_signature: hunk.signature(),
             target_text_hash: hash_normalized_lines(rows.iter().map(|row| row.text.as_str())),
             status: ResolutionStatus::Exact,
         })
     })
-}
-
-fn rows_for_range(rows: &[DiffRow], side: Side, range: Range) -> Option<Vec<&DiffRow>> {
-    if range.start == 0 || range.end < range.start {
-        return None;
-    }
-
-    let rows = rows
-        .iter()
-        .filter(|row| {
-            row.line_on_side(side)
-                .is_some_and(|line| range.start <= line && line <= range.end)
-        })
-        .collect::<Vec<_>>();
-    let lines = rows
-        .iter()
-        .filter_map(|row| row.line_on_side(side))
-        .collect::<Vec<_>>();
-    if lines == (range.start..=range.end).collect::<Vec<_>>() {
-        Some(rows)
-    } else {
-        None
-    }
 }
 
 fn model_annotation(
