@@ -4,6 +4,8 @@ mod anchor_resolution;
 mod geometry;
 #[path = "acceptance/git_ingestion.rs"]
 mod git_ingestion;
+#[path = "acceptance/large_changeset.rs"]
+mod large_changeset;
 #[path = "acceptance/serialization.rs"]
 mod serialization;
 #[path = "acceptance/sidecar_order.rs"]
