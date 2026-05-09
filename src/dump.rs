@@ -1,7 +1,11 @@
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 
+use crate::error::Result;
+use crate::git::ingest_tracked_diff;
 use crate::model::{DiffSnapshot, ReviewNote, ReviewStream};
-use crate::sidecar::ReviewNotesDiagnostic;
+use crate::sidecar::{ParsedReviewNotes, ReviewNotesDiagnostic, apply_file_order, resolve_notes};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DumpDocument {
@@ -34,6 +38,47 @@ impl DumpDocument {
             notes,
             stream,
         }
+    }
+
+    pub fn from_repo(repo: impl AsRef<Path>) -> Result<Self> {
+        let snapshot = ingest_tracked_diff(repo)?;
+        let notes = Vec::new();
+        let stream = ReviewStream::from_snapshot_with_resolved_notes(&snapshot, &notes);
+        Ok(Self::new(
+            DumpInputSummary {
+                source: DumpInputSource::None,
+            },
+            snapshot,
+            notes,
+            stream,
+            Vec::new(),
+        ))
+    }
+
+    pub fn from_parsed_review_notes(
+        repo: impl AsRef<Path>,
+        parsed: ParsedReviewNotes,
+    ) -> Result<Self> {
+        let snapshot = ingest_tracked_diff(repo)?;
+        let ordered = apply_file_order(snapshot.files, &parsed.sidecar);
+        let ordered_snapshot =
+            DiffSnapshot::new(snapshot.review_id, snapshot.snapshot_id, ordered.files);
+        let resolved = resolve_notes(&ordered_snapshot.files, &parsed.sidecar);
+        let mut diagnostics = parsed.diagnostics;
+        extend_unique_diagnostics(&mut diagnostics, ordered.diagnostics);
+        extend_unique_diagnostics(&mut diagnostics, resolved.diagnostics);
+        let stream =
+            ReviewStream::from_snapshot_with_resolved_notes(&ordered_snapshot, &resolved.notes);
+
+        Ok(Self::new(
+            DumpInputSummary {
+                source: DumpInputSource::ReviewNotes,
+            },
+            ordered_snapshot,
+            resolved.notes,
+            stream,
+            diagnostics,
+        ))
     }
 }
 
@@ -72,6 +117,20 @@ impl DumpSummary {
             row_count: stream.rows.len(),
             note_count: notes.len(),
             diagnostic_count: diagnostics.len(),
+        }
+    }
+}
+
+fn extend_unique_diagnostics(
+    diagnostics: &mut Vec<ReviewNotesDiagnostic>,
+    new_diagnostics: Vec<ReviewNotesDiagnostic>,
+) {
+    for diagnostic in new_diagnostics {
+        if !diagnostics
+            .iter()
+            .any(|existing| existing.code == diagnostic.code && existing.path == diagnostic.path)
+        {
+            diagnostics.push(diagnostic);
         }
     }
 }

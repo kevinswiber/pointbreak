@@ -3,9 +3,14 @@ use shore::dump::{DumpDocument, DumpInputSource, DumpInputSummary};
 use shore::model::{
     Anchor, DiffFile, DiffRow, DiffRowKind, DiffSnapshot, FileId, FileStatus, HunkId, LineRange,
     ResolutionStatus, ReviewHunk, ReviewId, ReviewNote, ReviewNoteId, ReviewNoteSource,
-    ReviewStream, Side, SnapshotId,
+    ReviewRowKind, ReviewStream, Side, SnapshotId,
 };
-use shore::sidecar::{DiagnosticLevel, ReviewNotesDiagnostic, ReviewNotesDiagnosticCode};
+use shore::sidecar::{
+    DiagnosticLevel, ParsedReviewNotes, ReviewNoteEntry, ReviewNoteTarget, ReviewNotesDiagnostic,
+    ReviewNotesDiagnosticCode, ReviewNotesFile, ReviewNotesSidecar,
+};
+
+use crate::support::git_repo::GitRepo;
 
 #[test]
 fn dump_document_serializes_summary_diagnostics_and_stream_rows() {
@@ -91,12 +96,150 @@ fn dump_input_source_serializes_as_snake_case() {
     );
 }
 
+#[test]
+fn dump_from_repo_builds_stream_without_notes() {
+    let repo = dump_repo();
+
+    let document = DumpDocument::from_repo(repo.path()).expect("repo-only dump builds");
+
+    assert_eq!(document.input.source, DumpInputSource::None);
+    assert_eq!(document.summary.file_count, 2);
+    assert_eq!(document.summary.note_count, 0);
+    assert_eq!(document.summary.diagnostic_count, 0);
+    assert!(document.summary.row_count > 0);
+    assert!(document.notes.is_empty());
+}
+
+#[test]
+fn dump_from_parsed_review_notes_orders_files_and_resolves_notes() {
+    let repo = dump_repo();
+    let parsed = ParsedReviewNotes {
+        sidecar: dump_review_notes_sidecar(),
+        diagnostics: Vec::new(),
+    };
+
+    let document =
+        DumpDocument::from_parsed_review_notes(repo.path(), parsed).expect("dump builds");
+
+    assert_eq!(document.input.source, DumpInputSource::ReviewNotes);
+    assert_eq!(document.summary.file_count, 2);
+    assert_eq!(document.summary.note_count, 1);
+    assert_eq!(document.summary.diagnostic_count, 0);
+    assert_eq!(
+        snapshot_paths(&document.snapshot),
+        vec!["src/untracked.rs", "src/lib.rs"]
+    );
+    assert_eq!(
+        file_header_paths(&document.stream),
+        vec!["src/untracked.rs", "src/lib.rs"]
+    );
+    assert!(
+        document
+            .stream
+            .rows
+            .iter()
+            .any(|row| { matches!(row.kind, ReviewRowKind::Note { .. }) })
+    );
+}
+
+#[test]
+fn dump_from_parsed_review_notes_preserves_parser_diagnostics() {
+    let repo = dump_repo();
+    let parsed = ParsedReviewNotes {
+        sidecar: ReviewNotesSidecar {
+            schema: Some("shore.review-notes".to_owned()),
+            version: 1,
+            summary: None,
+            files: Vec::new(),
+        },
+        diagnostics: vec![ReviewNotesDiagnostic {
+            level: DiagnosticLevel::Warning,
+            code: ReviewNotesDiagnosticCode::MissingVersion,
+            path: "version".to_owned(),
+            message: "review notes sidecar is missing version".to_owned(),
+        }],
+    };
+
+    let document =
+        DumpDocument::from_parsed_review_notes(repo.path(), parsed).expect("dump builds");
+
+    assert_eq!(document.summary.diagnostic_count, 1);
+    assert_eq!(
+        document.diagnostics[0].code,
+        ReviewNotesDiagnosticCode::MissingVersion
+    );
+}
+
 fn input_source_value(source: DumpInputSource) -> Value {
     serde_json::to_value(DumpInputSummary { source })
         .expect("input summary serializes")
         .get("source")
         .expect("source field exists")
         .clone()
+}
+
+fn dump_repo() -> GitRepo {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    repo.write("src/untracked.rs", "pub fn untracked() -> u32 { 3 }\n");
+    repo
+}
+
+fn dump_review_notes_sidecar() -> ReviewNotesSidecar {
+    ReviewNotesSidecar {
+        schema: Some("shore.review-notes".to_owned()),
+        version: 1,
+        summary: None,
+        files: vec![
+            ReviewNotesFile {
+                path: "src/untracked.rs".to_owned(),
+                old_path: None,
+                summary: None,
+                notes: vec![ReviewNoteEntry {
+                    id: Some("note:untracked".to_owned()),
+                    title: Some("Untracked note".to_owned()),
+                    body: None,
+                    target: Some(ReviewNoteTarget {
+                        side: Side::New,
+                        start_line: 1,
+                        end_line: 1,
+                    }),
+                    tags: Vec::new(),
+                    confidence: None,
+                    source: None,
+                    author: None,
+                    created_at: None,
+                }],
+            },
+            ReviewNotesFile {
+                path: "src/lib.rs".to_owned(),
+                old_path: None,
+                summary: None,
+                notes: Vec::new(),
+            },
+        ],
+    }
+}
+
+fn snapshot_paths(snapshot: &DiffSnapshot) -> Vec<&str> {
+    snapshot
+        .files
+        .iter()
+        .filter_map(|file| file.new_path.as_deref().or(file.old_path.as_deref()))
+        .collect()
+}
+
+fn file_header_paths(stream: &ReviewStream) -> Vec<&str> {
+    stream
+        .rows
+        .iter()
+        .filter_map(|row| match &row.kind {
+            ReviewRowKind::FileHeader { path, .. } => Some(path.as_str()),
+            _ => None,
+        })
+        .collect()
 }
 
 fn snapshot_with_one_hunk() -> DiffSnapshot {
