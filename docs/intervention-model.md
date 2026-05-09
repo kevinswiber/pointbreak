@@ -102,6 +102,16 @@ Interventions should not expire automatically. Clearing an unresolved interventi
 explicit `intervention_resolved` or `intervention_cancelled` event. A future `expiresAt` field can be
 added if a concrete workflow needs advisory expiry, but it should not silently unblock a client.
 
+Every blocking intervention must have a defined exit event or escalation policy. That does not mean
+blocking states should clear themselves on a timer. For review workflows, the external decision is
+often the point. The requirement is that Shore can represent how the state ends: resolved,
+cancelled, superseded, escalated, or explicitly abandoned.
+
+Resolution events should preserve the audit trail even when the target is no longer live. For
+example, an `intervention_resolved` event targeting a closed work unit should still be recorded, but
+any resume or apply action derived from it should be a no-op. Distinguish "the event happened" from
+"the action still applies."
+
 ## Derived State
 
 Derived state should expose unresolved interventions in a way that every frontend can consume.
@@ -138,6 +148,8 @@ Plan 0005 should preserve these future requirements:
 - Do not assume local filesystem notification is available.
 - Do not require async storage yet, but avoid event semantics that depend on POSIX-only behavior such
   as atomic rename; remote backends may need conditional create, versioned writes, or transactions.
+- Re-read target state before applying a resolution or resume action; stale targets should preserve
+  the event but suppress the action.
 
 Intervention transport is independent of review-exchange transport. An intervention is not a review
 artifact, verdict, or review note. A future adapter may export or import intervention facts, but the

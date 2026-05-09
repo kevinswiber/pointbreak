@@ -81,9 +81,9 @@ That model should own:
 The TUI should be a projection of that model. Widgets may render state, but they should not become
 the authoritative owners of scroll, selection, or navigation semantics.
 
-Future workflow interruption and escalation semantics are captured in
-[docs/intervention-model.md](docs/intervention-model.md). Treat that as architecture guidance for
-durable event and state design, not current V1 implementation scope.
+Durable workflow guidance is captured in [docs/storage-model.md](docs/storage-model.md) and
+[docs/intervention-model.md](docs/intervention-model.md). Treat those as architecture guidance for
+storage, event, interruption, and escalation design, not current V1 implementation scope.
 
 ## Initial Scope
 
