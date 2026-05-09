@@ -195,6 +195,29 @@ IDs like `mcp:bac82d78-d68f-44aa-a980-2a3eaac3d77e:0` have an `mcp:` prefix that
 the workflow but hints at the daemon's MCP integration. Just an aesthetic note — agent-facing IDs
 should be opaque.
 
+## 13. JSON inspection commands can hang without a TTY
+
+**Severity: moderate (automation trap)**
+
+In Codex's non-TTY shell runner, even basic Hunk commands using the dev binary path hung with no
+output:
+
+```bash
+/Users/kevin/.local/share/hunk-dev/bin/hunk --help
+/Users/kevin/.local/share/hunk-dev/bin/hunk session comment list --repo /Users/kevin/src/shore --json
+```
+
+The same commands completed once the tool call allocated a TTY. The live comment-list command then
+returned Claude's reviewer notes successfully. This matters because review agents often run through
+non-interactive shells, Stop hooks, background monitors, CI jobs, or scripts where allocating a TTY
+is either impossible or not obvious.
+
+**For shore:** JSON/status/introspection commands must be non-interactive by default and must not
+depend on TTY allocation. If a command truly requires a terminal, detect that immediately and fail
+with a clear structured error instead of blocking. Machine-readable commands such as `shore dump`,
+future session/comment listing commands, and review mailbox checks should work through ordinary
+stdout/stderr pipes.
+
 ## General observations
 
 ### Three independent stateholders, no atomic handoff
