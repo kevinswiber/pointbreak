@@ -69,6 +69,7 @@ pub enum ReviewNotesDiagnosticCode {
     MissingNoteTarget,
     MissingNoteTitle,
     MissingNotes,
+    MissingVersion,
     StaleFilePath,
     UnresolvedNote,
 }
@@ -100,6 +101,14 @@ pub fn parse_review_notes_sidecar(json: &str) -> Result<ParsedReviewNotes> {
             message: "review notes sidecar schema must be shore.review-notes".to_owned(),
         });
     }
+    if raw.version.is_none() {
+        diagnostics.push(ReviewNotesDiagnostic {
+            level: DiagnosticLevel::Warning,
+            code: ReviewNotesDiagnosticCode::MissingVersion,
+            path: "version".to_owned(),
+            message: "review notes sidecar is missing version".to_owned(),
+        });
+    }
     let files = raw
         .files
         .into_iter()
@@ -110,7 +119,7 @@ pub fn parse_review_notes_sidecar(json: &str) -> Result<ParsedReviewNotes> {
     Ok(ParsedReviewNotes {
         sidecar: ReviewNotesSidecar {
             schema: raw.schema,
-            version: raw.version,
+            version: raw.version.unwrap_or_default(),
             summary: raw.summary,
             files,
         },
@@ -401,7 +410,7 @@ fn normalize_target(
 #[derive(Debug, Deserialize)]
 struct RawReviewNotesSidecar {
     schema: Option<String>,
-    version: u32,
+    version: Option<u32>,
     summary: Option<String>,
     #[serde(default)]
     files: Vec<RawReviewNotesFile>,

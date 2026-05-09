@@ -1,12 +1,15 @@
-use super::legacy_hunk_agent_context::{
+use agent_context::{
     AgentAnnotation, AgentContext, DiagnosticCode, Range, SidecarDiagnostic, parse_agent_context,
 };
+
 use super::review_notes::{
     ParsedReviewNotes, ReviewNoteEntry, ReviewNoteTarget, ReviewNotesDiagnostic,
     ReviewNotesDiagnosticCode, ReviewNotesFile, ReviewNotesSidecar,
 };
 use crate::error::Result;
 use crate::model::Side;
+
+mod agent_context;
 
 pub fn parse_hunk_agent_context(json: &str) -> Result<ParsedReviewNotes> {
     let parsed = parse_agent_context(json)?;
@@ -29,8 +32,8 @@ fn convert_context(context: AgentContext) -> ReviewNotesSidecar {
     }
 }
 
-impl From<super::legacy_hunk_agent_context::AgentFileContext> for ReviewNotesFile {
-    fn from(file: super::legacy_hunk_agent_context::AgentFileContext) -> Self {
+impl From<agent_context::AgentFileContext> for ReviewNotesFile {
+    fn from(file: agent_context::AgentFileContext) -> Self {
         Self {
             path: file.path,
             old_path: file.old_path,
@@ -123,6 +126,9 @@ fn convert_diagnostic(diagnostic: SidecarDiagnostic) -> ReviewNotesDiagnostic {
 }
 
 fn convert_path(path: &str) -> String {
+    // This remap is tied to the finite diagnostic path shapes emitted by
+    // `legacy_hunk::agent_context`: file paths and annotation oldRange/newRange/summary fields.
+    // If new legacy diagnostics are added, update this mapping with the new path shape.
     path.replace(".annotations[", ".notes[")
         .replace("annotations[", "notes[")
         .replace(".newRange", ".target")

@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use super::review_notes::DiagnosticLevel;
+use super::super::review_notes::DiagnosticLevel;
 use crate::error::Result;
 
 #[derive(Clone, Debug, Eq, PartialEq)]

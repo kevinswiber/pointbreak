@@ -135,7 +135,7 @@ fn core_review_state_round_trips_with_notes_cursor_and_layout() {
     };
     let snapshot = snapshot_with_diff(review.id.clone());
     let notes = vec![review_note_for_snapshot(&snapshot)];
-    let stream = ReviewStream::from_snapshot_and_notes(&snapshot, &notes);
+    let stream = ReviewStream::from_snapshot_with_resolved_notes(&snapshot, &notes);
     let note_row_id = stream
         .rows
         .iter()
@@ -173,7 +173,8 @@ fn core_review_state_round_trips_with_notes_cursor_and_layout() {
     assert_eq!(decoded_cursor, cursor);
     assert_eq!(decoded_layout, layout);
 
-    let rebuilt_stream = ReviewStream::from_snapshot_and_notes(&decoded_snapshot, &decoded_notes);
+    let rebuilt_stream =
+        ReviewStream::from_snapshot_with_resolved_notes(&decoded_snapshot, &decoded_notes);
     assert_eq!(row_ids(&rebuilt_stream), row_ids(&stream));
     assert_eq!(rebuilt_stream, stream);
 }

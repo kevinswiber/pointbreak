@@ -37,7 +37,7 @@ fn review_stream_emits_deterministic_rows_for_diff_metadata_and_notes() {
         vec![text_file(hunk), metadata_file()],
     );
 
-    let stream = ReviewStream::from_snapshot_and_notes(&snapshot, &[note]);
+    let stream = ReviewStream::from_snapshot_with_resolved_notes(&snapshot, &[note]);
 
     let row_ids = stream
         .rows
@@ -139,7 +139,7 @@ fn review_stream_emits_empty_state_when_snapshot_has_no_changes() {
         Vec::new(),
     );
 
-    let stream = ReviewStream::from_snapshot_and_notes(&snapshot, &[]);
+    let stream = ReviewStream::from_snapshot_with_resolved_notes(&snapshot, &[]);
 
     assert_eq!(stream.review_id, ReviewId::new("review-1"));
     assert_eq!(stream.snapshot_id, SnapshotId::new("snapshot-1"));
@@ -168,7 +168,7 @@ fn review_stream_from_review_notes_applies_order_and_dedupes_stale_path_diagnost
         files: vec![sidecar_file("src/b.rs"), sidecar_file("src/stale.rs")],
     };
 
-    let built = ReviewStream::from_snapshot_and_review_notes(&snapshot, &sidecar);
+    let built = ReviewStream::from_snapshot_and_review_notes_sidecar(&snapshot, &sidecar);
 
     let file_headers = built
         .stream
@@ -363,7 +363,7 @@ fn navigation_stream() -> ReviewStream {
         }],
     );
 
-    ReviewStream::from_snapshot_and_notes(&snapshot, &notes)
+    ReviewStream::from_snapshot_with_resolved_notes(&snapshot, &notes)
 }
 
 fn navigation_hunk(id: &str, start: u32, added_text: &str) -> ReviewHunk {

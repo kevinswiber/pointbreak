@@ -1,6 +1,5 @@
 {
   "schema": "shore.agent-context",
-  "version": 1,
   "summary": "Legacy Hunk parser fixture",
   "ownership": {
     "kind": "agent-authored",

@@ -1,5 +1,4 @@
 mod legacy_hunk;
-mod legacy_hunk_agent_context;
 mod review_notes;
 
 pub use legacy_hunk::parse_hunk_agent_context;

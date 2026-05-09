@@ -10,28 +10,31 @@ fn build_review_stream(snapshot: &DiffSnapshot, notes: &[ReviewNote]) -> ReviewS
 }
 
 impl ReviewStream {
-    pub fn from_snapshot_and_notes(snapshot: &DiffSnapshot, notes: &[ReviewNote]) -> Self {
+    pub fn from_snapshot_with_resolved_notes(
+        snapshot: &DiffSnapshot,
+        notes: &[ReviewNote],
+    ) -> Self {
         build_review_stream(snapshot, notes)
     }
 
-    pub fn from_snapshot_and_review_notes(
+    pub fn from_snapshot_and_review_notes_sidecar(
         snapshot: &DiffSnapshot,
         sidecar: &ReviewNotesSidecar,
-    ) -> BuiltReviewNotesStream {
-        build_review_stream_from_review_notes(snapshot, sidecar)
+    ) -> BuiltReviewStream {
+        build_review_stream_from_review_notes_sidecar(snapshot, sidecar)
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BuiltReviewNotesStream {
+pub struct BuiltReviewStream {
     pub stream: ReviewStream,
     pub diagnostics: Vec<ReviewNotesDiagnostic>,
 }
 
-fn build_review_stream_from_review_notes(
+fn build_review_stream_from_review_notes_sidecar(
     snapshot: &DiffSnapshot,
     sidecar: &ReviewNotesSidecar,
-) -> BuiltReviewNotesStream {
+) -> BuiltReviewStream {
     let ordered = apply_file_order(snapshot.files.clone(), sidecar);
     let ordered_snapshot = DiffSnapshot::new(
         snapshot.review_id.clone(),
@@ -42,7 +45,7 @@ fn build_review_stream_from_review_notes(
     let mut diagnostics = ordered.diagnostics;
     extend_unique_review_notes_diagnostics(&mut diagnostics, resolved.diagnostics);
 
-    BuiltReviewNotesStream {
+    BuiltReviewStream {
         stream: build_review_stream(&ordered_snapshot, &resolved.notes),
         diagnostics,
     }

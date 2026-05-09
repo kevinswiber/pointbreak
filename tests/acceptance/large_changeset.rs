@@ -33,7 +33,7 @@ fn bounded_large_changeset_exercises_full_read_only_pipeline() {
     );
     assert_eq!(resolved.notes.len(), 4);
 
-    let built = ReviewStream::from_snapshot_and_review_notes(&snapshot, &sidecar);
+    let built = ReviewStream::from_snapshot_and_review_notes_sidecar(&snapshot, &sidecar);
     assert!(built.diagnostics.is_empty(), "{:#?}", built.diagnostics);
     assert_eq!(
         file_header_paths(&built.stream),
@@ -78,7 +78,8 @@ fn bounded_large_changeset_exercises_full_read_only_pipeline() {
     let notes_json = serde_json::to_string(&resolved.notes).expect("notes serialize");
     let decoded_notes: Vec<ReviewNote> =
         shore::model::decode_json(&notes_json).expect("notes deserialize");
-    let rebuilt_stream = ReviewStream::from_snapshot_and_notes(&decoded_snapshot, &decoded_notes);
+    let rebuilt_stream =
+        ReviewStream::from_snapshot_with_resolved_notes(&decoded_snapshot, &decoded_notes);
 
     assert_eq!(stream_summary(&rebuilt_stream), summary);
     assert_eq!(row_ids(&rebuilt_stream), row_ids(&built.stream));

@@ -205,6 +205,9 @@ fn native_review_notes_parser_does_not_accept_hunk_aliases() {
         diagnostic.code == ReviewNotesDiagnosticCode::InvalidSchema && diagnostic.path == "schema"
     }));
     assert!(parsed.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == ReviewNotesDiagnosticCode::MissingVersion && diagnostic.path == "version"
+    }));
+    assert!(parsed.diagnostics.iter().any(|diagnostic| {
         diagnostic.code == ReviewNotesDiagnosticCode::MissingNotes
             && diagnostic.path == "files[0].notes"
     }));
