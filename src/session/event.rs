@@ -176,6 +176,7 @@ impl EventPayload for RevisionPublishedPayload {
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotObservedPayload {
     pub snapshot_id: SnapshotId,
+    pub revision_id: RevisionId,
 }
 
 impl EventPayload for SnapshotObservedPayload {

@@ -23,4 +23,7 @@ pub enum ShoreError {
 
     #[error("unsupported event schema/version: {schema} v{version}")]
     UnsupportedEventSchemaVersion { schema: String, version: u32 },
+
+    #[error("unsupported state schema/version: {schema} v{version}")]
+    UnsupportedStateSchemaVersion { schema: String, version: u32 },
 }
