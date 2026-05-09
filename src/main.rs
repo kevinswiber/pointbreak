@@ -7,6 +7,9 @@ use clap::{Args, Parser, Subcommand};
 use shore::dump::DumpDocument;
 use shore::sidecar::{parse_hunk_agent_context, parse_review_notes_sidecar};
 
+#[cfg_attr(not(test), allow(dead_code))]
+mod tui;
+
 #[derive(Debug, Parser)]
 #[command(name = "shore", version, about = "Inspect review streams")]
 struct Cli {
