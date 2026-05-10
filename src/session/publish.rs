@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -8,8 +8,8 @@ use serde::Serialize;
 
 use crate::canonical_hash::sha256_bytes_hex;
 use crate::error::{Result, ShoreError};
-use crate::git::{capture_worktree_diff_files, git_worktree_root};
-use crate::model::{ActorId, DiffFile, ReviewId, RevisionId, SnapshotId, WorkUnitId};
+use crate::git::{IngestOptions, git_worktree_root, ingest_tracked_diff_with_options};
+use crate::model::{ActorId, ReviewId, RevisionId, SnapshotId, WorkUnitId};
 use crate::session::{
     EventTarget, EventType, ProjectionDiagnostic, ReviewInitializedPayload,
     RevisionPublishedPayload, SessionState, ShoreEvent, SidecarObservedPayload, SidecarSource,
@@ -28,6 +28,7 @@ pub struct PublishOptions {
     repo: PathBuf,
     review_notes: Option<PathBuf>,
     legacy_hunk_agent_context: Option<PathBuf>,
+    excluded_helper_paths: Vec<PathBuf>,
 }
 
 impl PublishOptions {
@@ -36,6 +37,7 @@ impl PublishOptions {
             repo: repo.as_ref().to_path_buf(),
             review_notes: None,
             legacy_hunk_agent_context: None,
+            excluded_helper_paths: Vec::new(),
         }
     }
 
@@ -54,6 +56,14 @@ impl PublishOptions {
     /// `sidecar_observed` event is task 4.2's responsibility.
     pub fn with_legacy_hunk_agent_context(mut self, path: impl AsRef<Path>) -> Self {
         self.legacy_hunk_agent_context = Some(path.as_ref().to_path_buf());
+        self
+    }
+
+    /// Excludes an explicit command-helper path from the reviewed file set.
+    ///
+    /// This is CLI plumbing for files such as `--log-file`, not durable Shore state.
+    pub fn with_excluded_helper_path(mut self, path: impl AsRef<Path>) -> Self {
+        self.excluded_helper_paths.push(path.as_ref().to_path_buf());
         self
     }
 }
@@ -89,11 +99,9 @@ pub fn publish_worktree_review(options: PublishOptions) -> Result<PublishResult>
     ensure_store_dirs(&shore_dir)?;
     ensure_shore_ignored(&worktree_root)?;
 
-    let files = filter_explicit_sidecar_files(
-        capture_worktree_diff_files(&worktree_root)?,
-        &worktree_root,
-        &sidecar_observations,
-    );
+    let snapshot =
+        ingest_tracked_diff_with_options(&worktree_root, publish_ingest_options(&options))?;
+    let files = snapshot.files;
     let fingerprint = worktree_fingerprint_for_files(&worktree_root, &files)?;
     let event_store = EventStore::open(&shore_dir);
     let existing_state = SessionState::from_events(&event_store.list_events()?)?;
@@ -328,6 +336,20 @@ fn preflight_sidecar_inputs(options: &PublishOptions) -> Result<Vec<SidecarObser
     Ok(Vec::new())
 }
 
+fn publish_ingest_options(options: &PublishOptions) -> IngestOptions {
+    let mut ingest_options = IngestOptions::new();
+    if let Some(path) = &options.review_notes {
+        ingest_options = ingest_options.exclude_helper_path(path);
+    }
+    if let Some(path) = &options.legacy_hunk_agent_context {
+        ingest_options = ingest_options.exclude_helper_path(path);
+    }
+    for path in &options.excluded_helper_paths {
+        ingest_options = ingest_options.exclude_helper_path(path);
+    }
+    ingest_options
+}
+
 fn observe_native_review_notes(path: &Path) -> Result<SidecarObservation> {
     let input = read_review_notes_sidecar_file(path)?;
     let parsed = parse_review_notes_sidecar(&input.text)?;
@@ -402,54 +424,6 @@ fn diagnostic_level_key(level: &DiagnosticLevel) -> &'static str {
     match level {
         DiagnosticLevel::Warning => "warning",
     }
-}
-
-fn filter_explicit_sidecar_files(
-    files: Vec<DiffFile>,
-    worktree_root: &Path,
-    observations: &[SidecarObservation],
-) -> Vec<DiffFile> {
-    let excluded = observations
-        .iter()
-        .filter_map(|observation| worktree_relative_path(worktree_root, &observation.path))
-        .collect::<BTreeSet<_>>();
-    if excluded.is_empty() {
-        return files;
-    }
-
-    files
-        .into_iter()
-        .filter(|file| {
-            !file
-                .new_path
-                .as_ref()
-                .is_some_and(|path| excluded.contains(path))
-                && !file
-                    .old_path
-                    .as_ref()
-                    .is_some_and(|path| excluded.contains(path))
-        })
-        .collect()
-}
-
-fn worktree_relative_path(worktree_root: &Path, path: &str) -> Option<String> {
-    let path = Path::new(path);
-    let absolute_path = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        worktree_root.join(path)
-    };
-    let canonical_path = absolute_path.canonicalize().ok()?;
-    let canonical_root = worktree_root
-        .canonicalize()
-        .unwrap_or_else(|_| worktree_root.to_path_buf());
-    canonical_path
-        .strip_prefix(canonical_root)
-        .ok()
-        .map(|path| {
-            path.to_string_lossy()
-                .replace(std::path::MAIN_SEPARATOR, "/")
-        })
 }
 
 fn ensure_store_dirs(shore_dir: &Path) -> Result<()> {

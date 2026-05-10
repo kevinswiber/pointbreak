@@ -120,7 +120,8 @@ All commands accept optional tracing flags:
 Tracing writes to stderr by default. If stdout is being piped into JSON tools, prefer
 `--log-file <path>` instead of `2>&1`; mixing stderr into stdout will corrupt the JSON stream.
 `shore show` requires `--log-file` when tracing is enabled so trace lines do not scribble over the
-raw-mode TUI.
+raw-mode TUI. When `--log-file <path>` points inside the repository, Shore treats that path as a
+command helper for the current command and excludes it from the reviewed snapshot and fingerprint.
 
 `shore show` opens the first read-only terminal review view over the same headless review stream
 used by the JSON dump command:
@@ -135,6 +136,8 @@ Behavior:
 - `--review-notes <path>` loads Shore-native `review-notes.json`.
 - `--legacy-hunk-agent-context <path>` imports a Hunk-compatible `agent-context.json` through the
   explicit legacy adapter.
+- Explicit sidecar inputs are command helpers and are not themselves included in the reviewed
+  snapshot for that command. Other unrelated tracked and untracked files remain visible.
 - The view is read-only: it renders the working-tree diff, resolved review notes, and recoverable
   diagnostics, but it does not mutate notes or write session state.
 - Keybindings are intentionally small: `q`/Esc/Ctrl+C quits, `j`/`k` or Up/Down moves by row, `[` and
@@ -153,11 +156,14 @@ Behavior:
 - `--review-notes <path>` loads Shore-native `review-notes.json`.
 - `--legacy-hunk-agent-context <path>` imports a Hunk-compatible `agent-context.json` through the
   explicit legacy adapter.
+- Explicit sidecar inputs and `--log-file <path>` are command helpers and are not themselves
+  included in the reviewed snapshot for that command. Other unrelated tracked and untracked files
+  remain visible.
 - Output is compact by default for scripts. Use `--pretty` for human-readable formatting;
   `--compact` is accepted as an explicit compact-format request.
 - Recoverable review-note diagnostics stay in the JSON document and the command exits successfully.
 - Fatal errors, such as unreadable files or malformed JSON, are written to stderr and exit
-  non-zero.
+  non-zero; unreadable sidecar errors include the attempted path.
 
 The dump output is Shore introspection JSON and uses snake_case fields. Native `review-notes.json`
 input keeps its schema-defined camelCase fields such as `oldPath`, `startLine`, and `createdAt`.
@@ -179,6 +185,8 @@ Behavior:
 - `--review-notes <path>` and `--legacy-hunk-agent-context <path>` are recorded as sidecar
   observation provenance. Sidecars remain transport/import inputs; they are not Shore-owned
   persisted session state.
+- Explicit sidecar inputs and `--log-file <path>` are command helpers and are excluded from the
+  published reviewed file set and content-derived revision fingerprint for that command.
 - Output is compact `shore.publish` JSON with IDs, event counts, diagnostics, and the `statePath`.
 
 `shore review publish` does not add a daemon, delivery queue, acknowledgement flow, intervention

@@ -145,7 +145,7 @@ fn run_cli(cli: Cli, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::E
             tracing::debug!(command = "dump", "command_start");
             dump(args, &cli.tracing, stdout)
         }
-        Command::Review(args) => review(args, stdout),
+        Command::Review(args) => review(args, &cli.tracing, stdout),
         Command::Show(args) => {
             tracing::debug!(command = "show", "command_start");
             show(args, &cli.tracing)
@@ -175,20 +175,25 @@ fn show(args: ShowArgs, tracing: &TracingArgs) -> Result<(), Box<dyn std::error:
     tui::terminal::run(app)
 }
 
-fn review(args: ReviewArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
+fn review(
+    args: ReviewArgs,
+    tracing: &TracingArgs,
+    stdout: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         ReviewCommand::Publish(args) => {
             tracing::debug!(command = "review.publish", "command_start");
-            review_publish(args, stdout)
+            review_publish(args, tracing, stdout)
         }
     }
 }
 
 fn review_publish(
     args: PublishArgs,
+    tracing: &TracingArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result = publish_worktree_review(publish_options(&args.input))?;
+    let result = publish_worktree_review(publish_options(&args.input, tracing))?;
     let document = PublishDocument::from(result);
     writeln!(stdout, "{}", serde_json::to_string(&document)?)?;
     Ok(())
@@ -243,13 +248,16 @@ fn dump_options(args: &ReviewInputArgs, tracing: &TracingArgs) -> DumpOptions {
     options
 }
 
-fn publish_options(args: &ReviewInputArgs) -> PublishOptions {
+fn publish_options(args: &ReviewInputArgs, tracing: &TracingArgs) -> PublishOptions {
     let mut options = PublishOptions::new(&args.repo);
     if let Some(review_notes) = &args.review_notes {
         options = options.with_review_notes(review_notes);
     }
     if let Some(agent_context) = &args.legacy_hunk_agent_context {
         options = options.with_legacy_hunk_agent_context(agent_context);
+    }
+    if let Some(log_file) = &tracing.log_file {
+        options = options.with_excluded_helper_path(log_file);
     }
     options
 }

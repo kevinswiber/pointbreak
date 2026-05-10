@@ -294,6 +294,34 @@ fn sidecar_content_change_records_new_observation_without_changing_revision() {
 }
 
 #[test]
+fn excluded_helper_path_does_not_affect_publish_revision() {
+    let repo = modified_repo();
+    let log_path = repo.path().join("shore.log");
+    std::fs::write(&log_path, "first log\n").unwrap();
+
+    let first = publish_worktree_review(
+        PublishOptions::new(repo.path()).with_excluded_helper_path(&log_path),
+    )
+    .unwrap();
+
+    std::fs::write(&log_path, "changed log\n").unwrap();
+    let second = publish_worktree_review(
+        PublishOptions::new(repo.path()).with_excluded_helper_path(&log_path),
+    )
+    .unwrap();
+
+    repo.write("src/unrelated.rs", "pub fn unrelated() {}\n");
+    let third = publish_worktree_review(
+        PublishOptions::new(repo.path()).with_excluded_helper_path(&log_path),
+    )
+    .unwrap();
+
+    assert_eq!(first.revision_id, second.revision_id);
+    assert_eq!(second.events_created, 0);
+    assert_ne!(second.revision_id, third.revision_id);
+}
+
+#[test]
 fn malformed_sidecar_fails_before_writing_events() {
     let repo = modified_repo();
     let sidecar = repo.path().join("bad-review-notes.json");

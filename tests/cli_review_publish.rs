@@ -173,6 +173,52 @@ fn review_publish_with_review_notes_records_sidecar_observation() {
     assert_eq!(state["sidecarCount"], 1);
 }
 
+#[test]
+fn review_publish_excludes_explicit_in_repo_log_file_from_fingerprint() {
+    let repo = modified_repo();
+    let log_path = repo.path().join("shore.log");
+
+    let first = shore([
+        "--log",
+        "shore=debug",
+        "--log-file",
+        log_path.to_str().unwrap(),
+        "review",
+        "publish",
+        "--repo",
+        repo.path().to_str().unwrap(),
+    ]);
+
+    assert!(
+        first.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let first_json = parse_json(&first.stdout);
+    assert!(log_path.exists());
+
+    fs::write(&log_path, "changed log contents\n").expect("write changed log");
+    let second = shore([
+        "--log",
+        "shore=debug",
+        "--log-file",
+        log_path.to_str().unwrap(),
+        "review",
+        "publish",
+        "--repo",
+        repo.path().to_str().unwrap(),
+    ]);
+
+    assert!(
+        second.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let second_json = parse_json(&second.stdout);
+    assert_eq!(first_json["revisionId"], second_json["revisionId"]);
+    assert_eq!(second_json["eventsCreated"], 0);
+}
+
 fn shore<I, S>(args: I) -> std::process::Output
 where
     I: IntoIterator<Item = S>,
