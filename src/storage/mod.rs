@@ -1,9 +1,12 @@
+mod event_store;
+
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
+pub use event_store::{EventStore, EventWriteOutcome};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
