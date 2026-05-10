@@ -186,6 +186,28 @@ fn dump_cli_rejects_malformed_review_notes_json() {
 }
 
 #[test]
+fn dump_cli_missing_review_notes_error_names_path() {
+    let repo = dump_repo();
+    let missing_path = repo.path().join("missing-review-notes.json");
+
+    let output = shore([
+        "dump",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--review-notes",
+        missing_path.to_str().unwrap(),
+    ]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("review notes"), "stderr:\n{stderr}");
+    assert!(
+        stderr.contains("missing-review-notes.json"),
+        "stderr:\n{stderr}"
+    );
+}
+
+#[test]
 fn dump_cli_imports_legacy_hunk_agent_context() {
     let repo = dump_repo();
     let sidecar_dir = tempfile::tempdir().expect("create sidecar tempdir");
@@ -240,6 +262,31 @@ fn dump_cli_imports_legacy_hunk_diagnostics_as_review_note_diagnostics() {
     assert_eq!(json["summary"]["diagnostic_count"], 1);
     assert_eq!(json["diagnostics"][0]["code"], "missing_note_title");
     assert_eq!(json["diagnostics"][0]["path"], "files[0].notes[0].title");
+}
+
+#[test]
+fn dump_cli_missing_legacy_hunk_agent_context_error_names_path() {
+    let repo = dump_repo();
+    let missing_path = repo.path().join("missing-agent-context.json");
+
+    let output = shore([
+        "dump",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--legacy-hunk-agent-context",
+        missing_path.to_str().unwrap(),
+    ]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("legacy Hunk agent context"),
+        "stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("missing-agent-context.json"),
+        "stderr:\n{stderr}"
+    );
 }
 
 #[test]

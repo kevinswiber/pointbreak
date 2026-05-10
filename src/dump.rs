@@ -5,7 +5,11 @@ use serde::{Deserialize, Serialize};
 use crate::error::Result;
 use crate::git::ingest_tracked_diff;
 use crate::model::{DiffSnapshot, ReviewNote, ReviewStream};
-use crate::sidecar::{ParsedReviewNotes, ReviewNotesDiagnostic, apply_file_order, resolve_notes};
+use crate::sidecar::{
+    ParsedReviewNotes, ReviewNotesDiagnostic, apply_file_order, parse_hunk_agent_context,
+    parse_review_notes_sidecar, read_legacy_hunk_agent_context_file,
+    read_review_notes_sidecar_file, resolve_notes,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DumpDocument {
@@ -62,11 +66,26 @@ impl DumpDocument {
         Self::from_parsed_notes(repo, parsed, DumpInputSource::ReviewNotes)
     }
 
+    pub fn from_review_notes_file(repo: impl AsRef<Path>, path: impl AsRef<Path>) -> Result<Self> {
+        let input = read_review_notes_sidecar_file(path.as_ref())?;
+        let parsed = parse_review_notes_sidecar(&input.text)?;
+        Self::from_parsed_review_notes(repo, parsed)
+    }
+
     pub fn from_legacy_hunk_agent_context(
         repo: impl AsRef<Path>,
         parsed: ParsedReviewNotes,
     ) -> Result<Self> {
         Self::from_parsed_notes(repo, parsed, DumpInputSource::LegacyHunkAgentContext)
+    }
+
+    pub fn from_legacy_hunk_agent_context_file(
+        repo: impl AsRef<Path>,
+        path: impl AsRef<Path>,
+    ) -> Result<Self> {
+        let input = read_legacy_hunk_agent_context_file(path.as_ref())?;
+        let parsed = parse_hunk_agent_context(&input.text)?;
+        Self::from_legacy_hunk_agent_context(repo, parsed)
     }
 
     fn from_parsed_notes(

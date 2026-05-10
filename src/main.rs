@@ -1,4 +1,3 @@
-use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -7,7 +6,6 @@ use clap::error::ErrorKind;
 use clap::{Args, Parser, Subcommand};
 use shore::dump::DumpDocument;
 use shore::session::{PublishOptions, PublishResult, publish_worktree_review};
-use shore::sidecar::{parse_hunk_agent_context, parse_review_notes_sidecar};
 use shore::stream::ViewportSpec;
 
 mod cli_tracing;
@@ -203,14 +201,10 @@ fn document_for_show(args: &ShowArgs) -> Result<DumpDocument, Box<dyn std::error
 fn load_dump_document(args: &ReviewInputArgs) -> Result<DumpDocument, Box<dyn std::error::Error>> {
     let document = match (&args.review_notes, &args.legacy_hunk_agent_context) {
         (Some(review_notes), None) => {
-            let json = fs::read_to_string(review_notes)?;
-            let parsed = parse_review_notes_sidecar(&json)?;
-            DumpDocument::from_parsed_review_notes(&args.repo, parsed)?
+            DumpDocument::from_review_notes_file(&args.repo, review_notes)?
         }
         (None, Some(agent_context)) => {
-            let json = fs::read_to_string(agent_context)?;
-            let parsed = parse_hunk_agent_context(&json)?;
-            DumpDocument::from_legacy_hunk_agent_context(&args.repo, parsed)?
+            DumpDocument::from_legacy_hunk_agent_context_file(&args.repo, agent_context)?
         }
         (None, None) => DumpDocument::from_repo(&args.repo)?,
         (Some(_), Some(_)) => unreachable!("clap rejects mutually exclusive sidecar flags"),

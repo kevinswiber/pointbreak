@@ -61,7 +61,11 @@ fn show_cli_rejects_unreadable_review_notes_before_terminal_setup() {
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("missing-review-notes.json") || stderr.contains("No such file"));
+    assert!(stderr.contains("review notes"), "stderr:\n{stderr}");
+    assert!(
+        stderr.contains("missing-review-notes.json"),
+        "stderr:\n{stderr}"
+    );
 }
 
 #[test]

@@ -94,6 +94,57 @@ fn review_publish_rejects_malformed_sidecar_before_shore_writes() {
 }
 
 #[test]
+fn review_publish_missing_review_notes_error_names_path_before_shore_writes() {
+    let repo = modified_repo();
+    let missing_path = repo.path().join("missing-review-notes.json");
+
+    let output = shore([
+        "review",
+        "publish",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--review-notes",
+        missing_path.to_str().unwrap(),
+    ]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("review notes"), "stderr:\n{stderr}");
+    assert!(
+        stderr.contains("missing-review-notes.json"),
+        "stderr:\n{stderr}"
+    );
+    assert!(!repo.path().join(".shore").exists());
+}
+
+#[test]
+fn review_publish_missing_legacy_hunk_agent_context_error_names_path_before_shore_writes() {
+    let repo = modified_repo();
+    let missing_path = repo.path().join("missing-agent-context.json");
+
+    let output = shore([
+        "review",
+        "publish",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--legacy-hunk-agent-context",
+        missing_path.to_str().unwrap(),
+    ]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("legacy Hunk agent context"),
+        "stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("missing-agent-context.json"),
+        "stderr:\n{stderr}"
+    );
+    assert!(!repo.path().join(".shore").exists());
+}
+
+#[test]
 fn review_publish_with_review_notes_records_sidecar_observation() {
     let repo = modified_repo();
     let sidecar_path = repo.path().join("review-notes.json");

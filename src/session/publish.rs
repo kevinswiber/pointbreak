@@ -18,7 +18,8 @@ use crate::session::{
 };
 use crate::sidecar::{
     DiagnosticLevel, ParsedReviewNotes, ReviewNotesDiagnosticCode, parse_hunk_agent_context,
-    parse_review_notes_sidecar,
+    parse_review_notes_sidecar, read_legacy_hunk_agent_context_file,
+    read_review_notes_sidecar_file,
 };
 use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage, TempSweepAge};
 
@@ -328,24 +329,24 @@ fn preflight_sidecar_inputs(options: &PublishOptions) -> Result<Vec<SidecarObser
 }
 
 fn observe_native_review_notes(path: &Path) -> Result<SidecarObservation> {
-    let bytes = read_sidecar_bytes(path)?;
-    let parsed = parse_review_notes_sidecar(sidecar_text(path, &bytes)?)?;
+    let input = read_review_notes_sidecar_file(path)?;
+    let parsed = parse_review_notes_sidecar(&input.text)?;
     Ok(sidecar_observation(
         SidecarSource::ReviewNotes,
         path,
-        &bytes,
+        &input.bytes,
         parsed,
         None,
     ))
 }
 
 fn observe_legacy_hunk_agent_context(path: &Path) -> Result<SidecarObservation> {
-    let bytes = read_sidecar_bytes(path)?;
-    let parsed = parse_hunk_agent_context(sidecar_text(path, &bytes)?)?;
+    let input = read_legacy_hunk_agent_context_file(path)?;
+    let parsed = parse_hunk_agent_context(&input.text)?;
     Ok(sidecar_observation(
         SidecarSource::LegacyHunkAgentContext,
         path,
-        &bytes,
+        &input.bytes,
         parsed,
         Some("shore.agent-context".to_owned()),
     ))
@@ -379,21 +380,6 @@ fn sidecar_observation(
         diagnostic_count: parsed.diagnostics.len(),
         diagnostic_levels: diagnostic_levels(&parsed.diagnostics),
     }
-}
-
-fn read_sidecar_bytes(path: &Path) -> Result<Vec<u8>> {
-    fs::read(path).map_err(|error| {
-        ShoreError::Message(format!("read sidecar input {}: {error}", path.display()))
-    })
-}
-
-fn sidecar_text<'a>(path: &Path, bytes: &'a [u8]) -> Result<&'a str> {
-    std::str::from_utf8(bytes).map_err(|error| {
-        ShoreError::Message(format!(
-            "read sidecar input {} as utf-8: {error}",
-            path.display()
-        ))
-    })
 }
 
 fn diagnostic_levels(
