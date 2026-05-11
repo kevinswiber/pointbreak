@@ -5,6 +5,7 @@ use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use shore::dump::{CurrentVerdictStatusName, DumpDocument, DumpInputSource};
 use shore::model::{ReviewNoteId, ReviewRow, ReviewRowKind};
+use shore::session::ReloadDiagnosticCode;
 use shore::session::event::{AcknowledgementNextAction, VerdictDecision};
 use shore::sidecar::ReviewNotesDiagnosticCode;
 
@@ -27,7 +28,7 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &TuiApp) {
         frame.render_widget(header(app.document()), shell[0]);
         frame.render_widget(status_line, shell[1]);
         render_body(frame, app, shell[2]);
-        frame.render_widget(footer(), shell[3]);
+        frame.render_widget(footer(app), shell[3]);
     } else {
         let shell = Layout::default()
             .direction(Direction::Vertical)
@@ -40,7 +41,7 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &TuiApp) {
 
         frame.render_widget(header(app.document()), shell[0]);
         render_body(frame, app, shell[1]);
-        frame.render_widget(footer(), shell[2]);
+        frame.render_widget(footer(app), shell[2]);
     }
 }
 
@@ -69,8 +70,12 @@ fn header(document: &DumpDocument) -> Paragraph<'static> {
     ))
 }
 
-fn footer() -> Paragraph<'static> {
-    Paragraph::new("q/Esc quit | j/k rows | [/] hunks | {/} note hunks")
+fn footer(app: &TuiApp) -> Paragraph<'static> {
+    if let Some(error) = app.last_reload_error() {
+        Paragraph::new(error.to_owned())
+    } else {
+        Paragraph::new("q/Esc quit | j/k rows | [/] hunks | {/} note hunks | r reload")
+    }
 }
 
 fn review_status_line(document: &DumpDocument) -> Option<Paragraph<'static>> {
@@ -107,8 +112,55 @@ fn review_status_line(document: &DumpDocument) -> Option<Paragraph<'static>> {
             section.summary.unreplaced_verdict_count
         ));
     }
+    if let Some(stale_suffix) = stale_status_suffix(document) {
+        parts.push(stale_suffix);
+    }
 
     Some(Paragraph::new(parts.join(" | ")))
+}
+
+fn stale_status_suffix(document: &DumpDocument) -> Option<String> {
+    let entries = &document.reload_diagnostics.as_ref()?.entries;
+    let mut stale_note_count = 0;
+    let mut stale_verdict_count = 0;
+    let mut orphan_acknowledgement_count = 0;
+
+    for entry in entries {
+        match entry.code {
+            ReloadDiagnosticCode::NoteStale | ReloadDiagnosticCode::NoteOrphaned => {
+                stale_note_count += 1;
+            }
+            ReloadDiagnosticCode::VerdictStale => stale_verdict_count += 1,
+            ReloadDiagnosticCode::AcknowledgementOrphan => orphan_acknowledgement_count += 1,
+        }
+    }
+
+    let mut segments = Vec::new();
+    push_segment(&mut segments, stale_note_count, "note", "notes");
+    push_segment(&mut segments, stale_verdict_count, "verdict", "verdicts");
+    push_segment(
+        &mut segments,
+        orphan_acknowledgement_count,
+        "acknowledgement",
+        "acknowledgements",
+    );
+
+    (!segments.is_empty()).then(|| format!("stale: {}", segments.join(", ")))
+}
+
+fn push_segment(
+    segments: &mut Vec<String>,
+    count: usize,
+    singular: &'static str,
+    plural: &'static str,
+) {
+    if count > 0 {
+        segments.push(format!("{} {}", count, pluralize(count, singular, plural)));
+    }
+}
+
+fn pluralize(count: usize, singular: &'static str, plural: &'static str) -> &'static str {
+    if count == 1 { singular } else { plural }
 }
 
 fn render_stream(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
@@ -288,8 +340,8 @@ mod tests {
     use ratatui::style::Color;
     use shore::dump::{
         AcknowledgementView, CurrentVerdictDumpView, CurrentVerdictStatusName, DumpDocument,
-        DumpInputSource, DumpInputSummary, ReviewArtifactsSection, ReviewArtifactsSummary,
-        VerdictView,
+        DumpInputSource, DumpInputSummary, ReloadDiagnosticsSection, ReviewArtifactsSection,
+        ReviewArtifactsSummary, VerdictView,
     };
     use shore::model::{
         Anchor, DiffFile, DiffRow, DiffRowKind, DiffSnapshot, FileId, FileStatus, HunkId,
@@ -297,6 +349,7 @@ mod tests {
         ReviewNoteSource, ReviewRow, ReviewRowKind, ReviewStream, RowId, Side, SnapshotId,
     };
     use shore::session::event::{AcknowledgementNextAction, VerdictDecision, Writer};
+    use shore::session::{ReloadDiagnostic, ReloadDiagnosticCode};
     use shore::sidecar::{DiagnosticLevel, ReviewNotesDiagnostic, ReviewNotesDiagnosticCode};
     use shore::stream::ViewportSpec;
 
@@ -380,6 +433,34 @@ mod tests {
     }
 
     #[test]
+    fn render_frame_shows_stale_suffix_when_reload_diagnostics_present() {
+        let document = sample_document_with_reload_diagnostics(2, 1, 0);
+        let app = TuiApp::new(document, ViewportSpec::new(80, 24));
+
+        let buffer = render_to_buffer(&app, 80, 24);
+        let text = buffer_text(&buffer);
+
+        assert!(
+            text.contains("stale: 2 notes, 1 verdict"),
+            "stale suffix missing; got:\n{text}"
+        );
+    }
+
+    #[test]
+    fn render_frame_hides_stale_suffix_when_diagnostics_empty() {
+        let document = sample_document_with_review_artifacts_no_staleness();
+        let app = TuiApp::new(document, ViewportSpec::new(80, 24));
+
+        let buffer = render_to_buffer(&app, 80, 24);
+        let text = buffer_text(&buffer);
+
+        assert!(
+            !text.contains("stale:"),
+            "stale suffix should be hidden when no diagnostics"
+        );
+    }
+
+    #[test]
     fn render_frame_hides_verdict_line_when_no_durable_state() {
         let document = sample_document_without_review_artifacts();
         let app = TuiApp::new(document, ViewportSpec::new(80, 24));
@@ -425,6 +506,33 @@ mod tests {
         let app = TuiApp::new(document, ViewportSpec::new(10, 3));
 
         let _buffer = render_to_buffer(&app, 10, 3);
+    }
+
+    #[test]
+    fn render_frame_shows_reload_hint_in_footer() {
+        let app = app_with_note(ViewportSpec::new(100, 20));
+
+        let buffer = render_to_buffer(&app, 100, 20);
+        let text = buffer_text(&buffer);
+
+        assert!(
+            text.contains("r reload"),
+            "reload hint missing; got:\n{text}"
+        );
+    }
+
+    #[test]
+    fn render_frame_shows_reload_error_in_footer_when_present() {
+        let mut app = app_with_note(ViewportSpec::new(100, 20));
+        app.set_last_reload_error("reload failed: boom");
+
+        let buffer = render_to_buffer(&app, 100, 20);
+        let text = buffer_text(&buffer);
+
+        assert!(
+            text.contains("reload failed: boom"),
+            "reload error missing; got:\n{text}"
+        );
     }
 
     fn render_to_buffer(app: &TuiApp, width: u16, height: u16) -> Buffer {
@@ -606,6 +714,39 @@ mod tests {
         document
     }
 
+    fn sample_document_with_reload_diagnostics(
+        note_count: usize,
+        verdict_count: usize,
+        acknowledgement_count: usize,
+    ) -> DumpDocument {
+        let mut document = sample_document_with_verdict(VerdictDecision::Pass, 1, 1);
+        let mut entries = Vec::new();
+        entries.extend((0..note_count).map(|index| ReloadDiagnostic {
+            code: if index % 2 == 0 {
+                ReloadDiagnosticCode::NoteStale
+            } else {
+                ReloadDiagnosticCode::NoteOrphaned
+            },
+            message: format!("note:{} stale", index + 1),
+        }));
+        entries.extend((0..verdict_count).map(|index| ReloadDiagnostic {
+            code: ReloadDiagnosticCode::VerdictStale,
+            message: format!("verdict:{} stale", index + 1),
+        }));
+        entries.extend((0..acknowledgement_count).map(|index| ReloadDiagnostic {
+            code: ReloadDiagnosticCode::AcknowledgementOrphan,
+            message: format!("ack:{} orphaned", index + 1),
+        }));
+        document.reload_diagnostics = Some(ReloadDiagnosticsSection { entries });
+        document
+    }
+
+    fn sample_document_with_review_artifacts_no_staleness() -> DumpDocument {
+        let mut document = sample_document_with_verdict(VerdictDecision::Pass, 1, 1);
+        document.reload_diagnostics = None;
+        document
+    }
+
     fn sample_document_with_ambiguous_verdicts(candidate_count: usize) -> DumpDocument {
         let mut document = document_with_note(Vec::new());
         let review_artifact_ids = (0..candidate_count)
@@ -656,6 +797,7 @@ mod tests {
                 replaces: Vec::new(),
                 reviewer: Writer::shore_local_reviewer("0.1.0"),
                 replaced: false,
+                stale: false,
             }],
             acknowledgements: (0..total_acks)
                 .map(|index| AcknowledgementView {
@@ -668,6 +810,7 @@ mod tests {
                     },
                     reason: Some("ack".to_owned()),
                     acknowledger: Writer::shore_local_author("0.1.0"),
+                    stale: false,
                 })
                 .collect(),
             current_verdict: CurrentVerdictDumpView {

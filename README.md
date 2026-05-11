@@ -142,6 +142,9 @@ Behavior:
   verdict status banner above the main view (for example, `verdict: pass | acks: 1/1`). If multiple
   unreplaced verdicts exist for the current revision, the banner reports `ambiguous` with a
   candidate count instead of inventing a tie-breaker.
+- Press `r` to re-ingest the working tree and reload the projection without losing your cursor
+  position. Reload preserves the cursor by row ID when possible, then falls back to file+hunk,
+  file, or the first row in the refreshed stream.
 - Explicit sidecar inputs are command helpers and are not themselves included in the reviewed
   snapshot for that command. Other unrelated tracked and untracked files remain visible.
 - The view is read-only: it renders the working-tree diff, resolved review notes, and recoverable
@@ -167,6 +170,11 @@ Behavior:
 - When `.shore/` exists, `shore dump` also emits a `review_artifacts` section containing published
   verdicts, acknowledgements, and a `current_verdict` summary. The section is omitted entirely when
   the durable store is absent.
+- When durable verdicts or notes no longer match the current revision, `shore dump` emits an
+  optional `reload_diagnostics` section containing the staleness entries (each with a `code` and
+  `message`). Individual verdicts and acknowledgements also carry a `stale: true` flag when their
+  revision no longer matches `current_revision_id`. Both the `reload_diagnostics` section and the
+  `stale` flags are omitted entirely when there is no reload-time staleness.
 - Explicit sidecar inputs and `--log-file <path>` are command helpers and are not themselves
   included in the reviewed snapshot for that command. Other unrelated tracked and untracked files
   remain visible.

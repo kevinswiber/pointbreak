@@ -60,6 +60,12 @@ The read surface (`shore dump`, `shore show`) projects these events through the 
 when `.shore/` is absent. `current_verdict.status` is one of `resolved`, `ambiguous`, or `none`;
 the reader never picks a tie-breaker when ambiguity is present.
 
+Reload is a read-side projection refresh. The durable event log remains immutable; reload re-runs
+the order-independent projection against the current worktree state and lowers anchor-stale and
+revision-stale conditions into the read surface via `reload_diagnostics`. If reload encounters a
+parse or ingest error partway through, the prior projection survives because the read-side
+primitive never mutates `.shore/`.
+
 A future delivery queue is a separate subsystem. Queue concepts such as `pending/`, `failed/`,
 retry counts, backoff, circuit breakers, and acknowledgement markers do not belong in
 `.shore/events/`.

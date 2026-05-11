@@ -8,9 +8,9 @@ use crate::git::{IngestOptions, ingest_tracked_diff_with_options};
 use crate::model::{DiffSnapshot, ReviewNote, ReviewStream};
 use crate::session::event::{AcknowledgementNextAction, VerdictDecision, Writer};
 use crate::session::{
-    Acknowledgement, CurrentVerdictView, ReviewArtifact, current_verdict_view,
+    Acknowledgement, CurrentVerdictView, ReloadDiagnostic, ReviewArtifact, current_verdict_view,
     load_durable_notes_for_repo, load_or_rebuild_session_state, read_acknowledgements,
-    read_review_artifacts,
+    read_review_artifacts, reload_diagnostics_for_document,
 };
 use crate::sidecar::{
     ParsedReviewNotes, ReviewNotesDiagnostic, apply_file_order, parse_hunk_agent_context,
@@ -30,6 +30,8 @@ pub struct DumpDocument {
     pub stream: ReviewStream,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub review_artifacts: Option<ReviewArtifactsSection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reload_diagnostics: Option<ReloadDiagnosticsSection>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -75,6 +77,7 @@ impl DumpDocument {
             notes,
             stream,
             review_artifacts: None,
+            reload_diagnostics: None,
         }
     }
 
@@ -109,6 +112,7 @@ impl DumpDocument {
             Vec::new(),
         );
         attach_review_artifacts_section(&mut document, repo_path)?;
+        attach_reload_diagnostics_section(&mut document, repo_path)?;
         Ok(document)
     }
 
@@ -198,6 +202,7 @@ impl DumpDocument {
             diagnostics,
         );
         attach_review_artifacts_section(&mut document, repo_path)?;
+        attach_reload_diagnostics_section(&mut document, repo_path)?;
         Ok(document)
     }
 
@@ -222,6 +227,7 @@ impl DumpDocument {
             diagnostics,
         );
         attach_review_artifacts_section(&mut document, repo_path)?;
+        attach_reload_diagnostics_section(&mut document, repo_path)?;
         Ok(document)
     }
 }
@@ -232,6 +238,11 @@ pub struct ReviewArtifactsSection {
     pub acknowledgements: Vec<AcknowledgementView>,
     pub current_verdict: CurrentVerdictDumpView,
     pub summary: ReviewArtifactsSummary,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ReloadDiagnosticsSection {
+    pub entries: Vec<ReloadDiagnostic>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -246,10 +257,16 @@ pub struct VerdictView {
     // Writer keeps its existing camelCase contract to match current sidecar precedent.
     pub reviewer: Writer,
     pub replaced: bool,
+    #[serde(default, skip_serializing_if = "crate::dump::is_false")]
+    pub stale: bool,
 }
 
 impl VerdictView {
-    fn from_artifact(artifact: &ReviewArtifact, replaced_ids: &HashSet<&str>) -> Self {
+    fn from_artifact(
+        artifact: &ReviewArtifact,
+        replaced_ids: &HashSet<&str>,
+        stale_artifact_ids: &HashSet<&str>,
+    ) -> Self {
         Self {
             id: artifact.id.as_str().to_owned(),
             work_unit_id: artifact.work_unit_id.as_str().to_owned(),
@@ -263,6 +280,7 @@ impl VerdictView {
                 .collect(),
             reviewer: artifact.reviewer.clone(),
             replaced: replaced_ids.contains(artifact.id.as_str()),
+            stale: stale_artifact_ids.contains(artifact.id.as_str()),
         }
     }
 }
@@ -275,16 +293,19 @@ pub struct AcknowledgementView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     pub acknowledger: Writer,
+    #[serde(default, skip_serializing_if = "crate::dump::is_false")]
+    pub stale: bool,
 }
 
 impl AcknowledgementView {
-    fn from_acknowledgement(acknowledgement: &Acknowledgement) -> Self {
+    fn from_acknowledgement(acknowledgement: &Acknowledgement, stale: bool) -> Self {
         Self {
             id: acknowledgement.id.as_str().to_owned(),
             review_artifact_id: acknowledgement.review_artifact_id.as_str().to_owned(),
             next_action: acknowledgement.next_action,
             reason: acknowledgement.reason.clone(),
             acknowledger: acknowledgement.acknowledger.clone(),
+            stale,
         }
     }
 }
@@ -349,8 +370,8 @@ fn attach_review_artifacts_section(document: &mut DumpDocument, repo: &Path) -> 
 
     let review_artifacts = read_review_artifacts(repo)?;
     let acknowledgements = read_acknowledgements(repo)?;
-    let current_verdict =
-        current_verdict_view(&review_artifacts, state.current_revision_id.as_ref());
+    let current_revision = state.current_revision_id.as_ref();
+    let current_verdict = current_verdict_view(&review_artifacts, current_revision);
     let replaced_ids = review_artifacts
         .iter()
         .flat_map(|artifact| {
@@ -360,6 +381,17 @@ fn attach_review_artifacts_section(document: &mut DumpDocument, repo: &Path) -> 
                 .map(|id| id.as_str())
         })
         .collect::<HashSet<_>>();
+    let stale_artifact_ids = review_artifacts
+        .iter()
+        .filter(|artifact| {
+            current_revision.is_some_and(|revision| revision != &artifact.revision_id)
+        })
+        .map(|artifact| artifact.id.as_str())
+        .collect::<HashSet<_>>();
+    let known_artifact_ids = review_artifacts
+        .iter()
+        .map(|artifact| artifact.id.as_str())
+        .collect::<HashSet<_>>();
     let unreplaced_verdict_count = review_artifacts
         .iter()
         .filter(|artifact| !replaced_ids.contains(artifact.id.as_str()))
@@ -368,11 +400,18 @@ fn attach_review_artifacts_section(document: &mut DumpDocument, repo: &Path) -> 
     document.review_artifacts = Some(ReviewArtifactsSection {
         verdicts: review_artifacts
             .iter()
-            .map(|artifact| VerdictView::from_artifact(artifact, &replaced_ids))
+            .map(|artifact| {
+                VerdictView::from_artifact(artifact, &replaced_ids, &stale_artifact_ids)
+            })
             .collect(),
         acknowledgements: acknowledgements
             .iter()
-            .map(AcknowledgementView::from_acknowledgement)
+            .map(|acknowledgement| {
+                let stale = stale_artifact_ids
+                    .contains(acknowledgement.review_artifact_id.as_str())
+                    || !known_artifact_ids.contains(acknowledgement.review_artifact_id.as_str());
+                AcknowledgementView::from_acknowledgement(acknowledgement, stale)
+            })
             .collect(),
         current_verdict: CurrentVerdictDumpView::from_view(&current_verdict),
         summary: ReviewArtifactsSummary {
@@ -382,6 +421,18 @@ fn attach_review_artifacts_section(document: &mut DumpDocument, repo: &Path) -> 
         },
     });
 
+    Ok(())
+}
+
+fn attach_reload_diagnostics_section(document: &mut DumpDocument, repo: &Path) -> Result<()> {
+    let diagnostics = reload_diagnostics_for_document(repo, document)?;
+    if diagnostics.is_empty() {
+        return Ok(());
+    }
+
+    document.reload_diagnostics = Some(ReloadDiagnosticsSection {
+        entries: diagnostics,
+    });
     Ok(())
 }
 
@@ -437,4 +488,8 @@ fn extend_unique_diagnostics(
             diagnostics.push(diagnostic);
         }
     }
+}
+
+pub(crate) fn is_false(value: &bool) -> bool {
+    !*value
 }

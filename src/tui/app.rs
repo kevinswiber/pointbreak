@@ -1,5 +1,5 @@
 use shore::dump::DumpDocument;
-use shore::model::{CursorState, RowId};
+use shore::model::{CursorState, FileId, HunkId, ReviewRow, RowId};
 use shore::stream::{LayoutSnapshot, NavigationCommand, RevealTarget, ViewportSpec};
 
 pub(crate) struct TuiApp {
@@ -8,6 +8,7 @@ pub(crate) struct TuiApp {
     viewport: ViewportSpec,
     layout: LayoutSnapshot,
     scroll_top: usize,
+    last_reload_error: Option<String>,
     should_quit: bool,
 }
 
@@ -39,6 +40,7 @@ impl TuiApp {
             viewport,
             layout,
             scroll_top: 0,
+            last_reload_error: None,
             should_quit: false,
         }
     }
@@ -69,6 +71,18 @@ impl TuiApp {
         self.should_quit
     }
 
+    pub(crate) fn last_reload_error(&self) -> Option<&str> {
+        self.last_reload_error.as_deref()
+    }
+
+    pub(crate) fn set_last_reload_error(&mut self, message: impl Into<String>) {
+        self.last_reload_error = Some(message.into());
+    }
+
+    pub(crate) fn clear_last_reload_error(&mut self) {
+        self.last_reload_error = None;
+    }
+
     #[cfg(test)]
     pub(crate) fn current_row_is_visible(&self) -> bool {
         let Some(row_id) = self.cursor.row_id.as_ref() else {
@@ -93,6 +107,24 @@ impl TuiApp {
             TuiAction::Quit => {
                 self.should_quit = true;
             }
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn reload_with(&mut self, document: DumpDocument) {
+        let preserved_row_id = self.cursor.row_id.clone();
+        let preserved_row = preserved_row_id
+            .as_ref()
+            .and_then(|row_id| self.row_meta(row_id));
+        let preserved_file_id = preserved_row.and_then(|row| row.file_id.clone());
+        let preserved_hunk_id = preserved_row.and_then(|row| row.hunk_id.clone());
+
+        self.document = document;
+        self.layout = LayoutSnapshot::from_stream(&self.document.stream, self.viewport);
+        self.cursor = self.restore_cursor(preserved_row_id, preserved_file_id, preserved_hunk_id);
+        self.scroll_top = 0;
+        if let Some(row_id) = self.cursor.row_id.clone() {
+            self.reveal_row(&row_id);
         }
     }
 
@@ -139,6 +171,60 @@ impl TuiApp {
         if let Some(position) = self.layout.reveal_row(row_id) {
             self.scroll_top = position.scroll_top;
         }
+    }
+
+    #[allow(dead_code)]
+    fn restore_cursor(
+        &self,
+        prior_row_id: Option<RowId>,
+        prior_file_id: Option<FileId>,
+        prior_hunk_id: Option<HunkId>,
+    ) -> CursorState {
+        if let Some(row_id) = prior_row_id.as_ref()
+            && self
+                .document
+                .stream
+                .rows
+                .iter()
+                .any(|row| &row.id == row_id)
+        {
+            return CursorState::at_row(row_id.clone());
+        }
+
+        if let (Some(file_id), Some(hunk_id)) = (prior_file_id.as_ref(), prior_hunk_id.as_ref())
+            && let Some(row) = self.document.stream.rows.iter().find(|row| {
+                row.file_id.as_ref() == Some(file_id) && row.hunk_id.as_ref() == Some(hunk_id)
+            })
+        {
+            return CursorState::at_row(row.id.clone());
+        }
+
+        if let Some(file_id) = prior_file_id.as_ref()
+            && let Some(row) = self
+                .document
+                .stream
+                .rows
+                .iter()
+                .find(|row| row.file_id.as_ref() == Some(file_id))
+        {
+            return CursorState::at_row(row.id.clone());
+        }
+
+        self.document
+            .stream
+            .rows
+            .first()
+            .map(|row| CursorState::at_row(row.id.clone()))
+            .unwrap_or_else(CursorState::empty)
+    }
+
+    #[allow(dead_code)]
+    fn row_meta(&self, row_id: &RowId) -> Option<&ReviewRow> {
+        self.document
+            .stream
+            .rows
+            .iter()
+            .find(|row| &row.id == row_id)
     }
 }
 
@@ -273,6 +359,55 @@ mod tests {
         assert!(app.should_quit());
     }
 
+    #[test]
+    fn reload_with_preserves_cursor_when_row_id_still_exists() {
+        let document = document_with_two_hunks_and_one_note();
+        let mut app = TuiApp::new(document.clone(), ViewportSpec::new(80, 20));
+        app.cursor = CursorState::at_row(RowId::new("row:0005"));
+        let prior_row_id = app.cursor().row_id.clone();
+
+        app.reload_with(document);
+
+        assert_eq!(app.cursor().row_id, prior_row_id);
+    }
+
+    #[test]
+    fn reload_with_snaps_to_same_file_and_hunk_when_row_id_churns() {
+        let prior = document_with_two_hunks_and_one_note();
+        let mut app = TuiApp::new(prior, ViewportSpec::new(80, 20));
+        app.cursor = CursorState::at_row(RowId::new("row:0004"));
+        let new_document = document_with_two_hunks_and_one_note_with_row_id_churn();
+
+        app.reload_with(new_document);
+
+        assert_eq!(app.cursor().row_id, Some(RowId::new("row:1003")));
+    }
+
+    #[test]
+    fn reload_with_snaps_to_first_row_when_file_removed() {
+        let prior = document_with_two_hunks_and_one_note_in_other_file();
+        let mut app = TuiApp::new(prior, ViewportSpec::new(80, 20));
+        app.cursor = CursorState::at_row(RowId::new("row:0004"));
+        let new_document = document_with_one_hunk_and_one_note();
+
+        app.reload_with(new_document);
+
+        assert_eq!(
+            app.cursor().row_id,
+            app.document().stream.rows.first().map(|row| row.id.clone())
+        );
+    }
+
+    #[test]
+    fn reload_with_yields_empty_cursor_when_new_stream_is_empty() {
+        let prior = document_with_two_hunks_and_one_note();
+        let mut app = TuiApp::new(prior, ViewportSpec::new(80, 20));
+
+        app.reload_with(empty_document());
+
+        assert!(app.cursor().row_id.is_none());
+    }
+
     fn document_with_one_hunk_and_one_note() -> DumpDocument {
         let review_id = ReviewId::new("review:test");
         let snapshot_id = SnapshotId::new("snapshot:test");
@@ -394,6 +529,19 @@ mod tests {
         TuiApp::new(document_with_two_hunks_and_one_note(), viewport)
     }
 
+    fn empty_document() -> DumpDocument {
+        let review_id = ReviewId::new("review:empty");
+        DumpDocument::new(
+            DumpInputSummary {
+                source: DumpInputSource::None,
+            },
+            DiffSnapshot::empty(review_id.clone()),
+            Vec::new(),
+            ReviewStream::empty(review_id),
+            Vec::new(),
+        )
+    }
+
     fn document_with_two_hunks_and_one_note() -> DumpDocument {
         let mut document = document_with_one_hunk_and_one_note();
         let review_id = document.stream.review_id.clone();
@@ -475,6 +623,31 @@ mod tests {
                 },
             ],
         };
+        document
+    }
+
+    fn document_with_two_hunks_and_one_note_with_row_id_churn() -> DumpDocument {
+        let mut document = document_with_two_hunks_and_one_note();
+        for (index, row) in document.stream.rows.iter_mut().enumerate() {
+            row.id = RowId::new(format!("row:{:04}", index + 1000));
+        }
+        document
+    }
+
+    fn document_with_two_hunks_and_one_note_in_other_file() -> DumpDocument {
+        let mut document = document_with_two_hunks_and_one_note();
+        let file_id = FileId::new("src/other.rs");
+
+        document.snapshot.files[0].id = file_id.clone();
+        document.snapshot.files[0].old_path = Some("src/other.rs".to_owned());
+        document.snapshot.files[0].new_path = Some("src/other.rs".to_owned());
+        if let Some(note) = document.notes.first_mut() {
+            note.anchor.file_id = file_id.clone();
+        }
+        for row in &mut document.stream.rows {
+            row.file_id = Some(file_id.clone());
+        }
+
         document
     }
 }

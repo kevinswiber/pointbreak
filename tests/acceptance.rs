@@ -8,6 +8,8 @@ mod geometry;
 mod git_ingestion;
 #[path = "acceptance/large_changeset.rs"]
 mod large_changeset;
+#[path = "acceptance/reload.rs"]
+mod reload;
 #[path = "acceptance/serialization.rs"]
 mod serialization;
 #[path = "acceptance/session_state.rs"]

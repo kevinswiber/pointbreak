@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::io::{self, stdout};
+use std::path::Path;
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -9,6 +10,8 @@ use crossterm::terminal::{
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use shore::dump::DumpDocument;
+use shore::session::reload_session;
 use shore::stream::ViewportSpec;
 
 use crate::tui::app::{TuiAction, TuiApp};
@@ -16,7 +19,22 @@ use crate::tui::render::render;
 
 type TerminalResult<T> = Result<T, Box<dyn Error>>;
 
-pub(crate) fn run(mut app: TuiApp) -> TerminalResult<()> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TerminalAction {
+    App(TuiAction),
+    Reload,
+}
+
+impl From<TuiAction> for TerminalAction {
+    fn from(action: TuiAction) -> Self {
+        Self::App(action)
+    }
+}
+
+pub(crate) fn run<F>(mut app: TuiApp, repo: &Path, load_document: F) -> TerminalResult<()>
+where
+    F: Fn() -> shore::error::Result<DumpDocument>,
+{
     let _guard = TerminalGuard::enter()?;
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
@@ -34,8 +52,19 @@ pub(crate) fn run(mut app: TuiApp) -> TerminalResult<()> {
 
         match event::read()? {
             Event::Key(key) => {
+                app.clear_last_reload_error();
                 if let Some(action) = action_for_key(key) {
-                    app.handle_action(action);
+                    match action {
+                        TerminalAction::Reload => match reload_session(repo, &load_document) {
+                            Ok(outcome) => {
+                                app.reload_with(outcome.document);
+                            }
+                            Err(error) => {
+                                app.set_last_reload_error(format!("reload failed: {error}"));
+                            }
+                        },
+                        TerminalAction::App(app_action) => app.handle_action(app_action),
+                    }
                 }
             }
             Event::Resize(width, height) => {
@@ -51,23 +80,28 @@ pub(crate) fn run(mut app: TuiApp) -> TerminalResult<()> {
     Ok(())
 }
 
-pub(crate) fn action_for_key(key: KeyEvent) -> Option<TuiAction> {
+fn action_for_key(key: KeyEvent) -> Option<TerminalAction> {
     if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
         return None;
     }
 
     match key.code {
-        KeyCode::Esc => Some(TuiAction::Quit),
-        KeyCode::Up => Some(TuiAction::RowUp),
-        KeyCode::Down => Some(TuiAction::RowDown),
-        KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => Some(TuiAction::Quit),
-        KeyCode::Char('q') if is_unmodified(key.modifiers) => Some(TuiAction::Quit),
-        KeyCode::Char('j') if is_unmodified(key.modifiers) => Some(TuiAction::RowDown),
-        KeyCode::Char('k') if is_unmodified(key.modifiers) => Some(TuiAction::RowUp),
-        KeyCode::Char(']') if allows_shift(key.modifiers) => Some(TuiAction::NextHunk),
-        KeyCode::Char('[') if allows_shift(key.modifiers) => Some(TuiAction::PreviousHunk),
-        KeyCode::Char('}') if allows_shift(key.modifiers) => Some(TuiAction::NextNoteHunk),
-        KeyCode::Char('{') if allows_shift(key.modifiers) => Some(TuiAction::PreviousNoteHunk),
+        KeyCode::Esc => Some(TuiAction::Quit.into()),
+        KeyCode::Up => Some(TuiAction::RowUp.into()),
+        KeyCode::Down => Some(TuiAction::RowDown.into()),
+        KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
+            Some(TuiAction::Quit.into())
+        }
+        KeyCode::Char('q') if is_unmodified(key.modifiers) => Some(TuiAction::Quit.into()),
+        KeyCode::Char('j') if is_unmodified(key.modifiers) => Some(TuiAction::RowDown.into()),
+        KeyCode::Char('k') if is_unmodified(key.modifiers) => Some(TuiAction::RowUp.into()),
+        KeyCode::Char('r') if is_unmodified(key.modifiers) => Some(TerminalAction::Reload),
+        KeyCode::Char(']') if allows_shift(key.modifiers) => Some(TuiAction::NextHunk.into()),
+        KeyCode::Char('[') if allows_shift(key.modifiers) => Some(TuiAction::PreviousHunk.into()),
+        KeyCode::Char('}') if allows_shift(key.modifiers) => Some(TuiAction::NextNoteHunk.into()),
+        KeyCode::Char('{') if allows_shift(key.modifiers) => {
+            Some(TuiAction::PreviousNoteHunk.into())
+        }
         _ => None,
     }
 }
@@ -104,48 +138,65 @@ impl Drop for TerminalGuard {
 mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    use super::{TerminalResult, action_for_key, run};
+    use super::{TerminalAction, TerminalResult, action_for_key, run};
     use crate::tui::app::TuiAction;
 
     #[test]
     fn key_events_map_to_quit_actions() {
-        assert_eq!(action_for_key(key_char('q')), Some(TuiAction::Quit));
+        assert_eq!(action_for_key(key_char('q')), Some(TuiAction::Quit.into()));
         assert_eq!(
             action_for_key(key_code(KeyCode::Esc)),
-            Some(TuiAction::Quit)
+            Some(TuiAction::Quit.into())
         );
         assert_eq!(
             action_for_key(key_code_with_modifiers(
                 KeyCode::Char('c'),
                 KeyModifiers::CONTROL
             )),
-            Some(TuiAction::Quit)
+            Some(TuiAction::Quit.into())
         );
     }
 
     #[test]
     fn key_events_map_to_row_actions() {
-        assert_eq!(action_for_key(key_char('j')), Some(TuiAction::RowDown));
+        assert_eq!(
+            action_for_key(key_char('j')),
+            Some(TuiAction::RowDown.into())
+        );
         assert_eq!(
             action_for_key(key_code(KeyCode::Down)),
-            Some(TuiAction::RowDown)
+            Some(TuiAction::RowDown.into())
         );
-        assert_eq!(action_for_key(key_char('k')), Some(TuiAction::RowUp));
+        assert_eq!(action_for_key(key_char('k')), Some(TuiAction::RowUp.into()));
         assert_eq!(
             action_for_key(key_code(KeyCode::Up)),
-            Some(TuiAction::RowUp)
+            Some(TuiAction::RowUp.into())
         );
     }
 
     #[test]
     fn key_events_map_to_hunk_actions() {
-        assert_eq!(action_for_key(key_char(']')), Some(TuiAction::NextHunk));
-        assert_eq!(action_for_key(key_char('[')), Some(TuiAction::PreviousHunk));
-        assert_eq!(action_for_key(key_char('}')), Some(TuiAction::NextNoteHunk));
+        assert_eq!(
+            action_for_key(key_char(']')),
+            Some(TuiAction::NextHunk.into())
+        );
+        assert_eq!(
+            action_for_key(key_char('[')),
+            Some(TuiAction::PreviousHunk.into())
+        );
+        assert_eq!(
+            action_for_key(key_char('}')),
+            Some(TuiAction::NextNoteHunk.into())
+        );
         assert_eq!(
             action_for_key(key_char('{')),
-            Some(TuiAction::PreviousNoteHunk)
+            Some(TuiAction::PreviousNoteHunk.into())
         );
+    }
+
+    #[test]
+    fn key_events_map_to_reload_actions() {
+        assert_eq!(action_for_key(key_char('r')), Some(TerminalAction::Reload));
     }
 
     #[test]
@@ -162,7 +213,17 @@ mod tests {
 
     #[test]
     fn run_has_terminal_result_signature() {
-        let _run: fn(crate::tui::app::TuiApp) -> TerminalResult<()> = run;
+        fn _smoke(app: crate::tui::app::TuiApp, repo: &std::path::Path) -> TerminalResult<()> {
+            run(
+                app,
+                repo,
+                || -> shore::error::Result<shore::dump::DumpDocument> {
+                    unreachable!("compile-only smoke")
+                },
+            )
+        }
+
+        let _run: fn(crate::tui::app::TuiApp, &std::path::Path) -> TerminalResult<()> = _smoke;
     }
 
     fn key_char(ch: char) -> KeyEvent {

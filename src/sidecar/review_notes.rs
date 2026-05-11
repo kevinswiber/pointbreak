@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 use crate::model::{
-    Anchor, DiffFile, LineRange, ResolutionStatus, ReviewNote, ReviewNoteId, ReviewNoteSource,
-    Side, hash_normalized_lines, rows_for_line_range,
+    Anchor, DiffFile, FileId, LineRange, ResolutionStatus, ReviewNote, ReviewNoteId,
+    ReviewNoteSource, Side, hash_normalized_lines, rows_for_line_range,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -142,10 +142,26 @@ pub fn resolve_notes(files: &[DiffFile], sidecar: &ReviewNotesSidecar) -> Resolv
             .iter()
             .find(|file| matches_review_notes_file(file, sidecar_file))
         else {
-            diagnostics.push(review_notes_stale_file_diagnostic(
-                file_index,
-                &sidecar_file.path,
-            ));
+            if sidecar_file.notes.is_empty() {
+                diagnostics.push(review_notes_stale_file_diagnostic(
+                    file_index,
+                    &sidecar_file.path,
+                ));
+                continue;
+            }
+
+            for (note_index, note) in sidecar_file.notes.iter().enumerate() {
+                let Some(target) = note.target else {
+                    continue;
+                };
+
+                notes.push(model_note(
+                    note,
+                    file_index,
+                    note_index,
+                    synthesize_orphaned_anchor(sidecar_file, target),
+                ));
+            }
             continue;
         };
 
@@ -154,11 +170,9 @@ pub fn resolve_notes(files: &[DiffFile], sidecar: &ReviewNotesSidecar) -> Resolv
                 continue;
             };
 
-            if let Some(anchor) = resolve_anchor(file, target) {
-                notes.push(model_note(note, file_index, note_index, anchor));
-            } else {
-                diagnostics.push(unresolved_note_diagnostic(file_index, note_index));
-            }
+            let anchor = resolve_anchor(file, target)
+                .unwrap_or_else(|| synthesize_stale_anchor(file, target));
+            notes.push(model_note(note, file_index, note_index, anchor));
         }
     }
 
@@ -238,12 +252,25 @@ fn model_note(
     }
 }
 
-fn unresolved_note_diagnostic(file_index: usize, note_index: usize) -> ReviewNotesDiagnostic {
-    ReviewNotesDiagnostic {
-        level: DiagnosticLevel::Warning,
-        code: ReviewNotesDiagnosticCode::UnresolvedNote,
-        path: format!("files[{file_index}].notes[{note_index}].target"),
-        message: "review note target does not resolve to diff rows".to_owned(),
+fn synthesize_stale_anchor(file: &DiffFile, target: ReviewNoteTarget) -> Anchor {
+    Anchor {
+        file_id: file.id.clone(),
+        side: target.side,
+        line_range: LineRange::new(target.start_line, target.end_line),
+        hunk_signature: "hunk:stale".to_owned(),
+        target_text_hash: hash_normalized_lines(std::iter::empty::<&str>()),
+        status: ResolutionStatus::Stale,
+    }
+}
+
+fn synthesize_orphaned_anchor(sidecar_file: &ReviewNotesFile, target: ReviewNoteTarget) -> Anchor {
+    Anchor {
+        file_id: FileId::new(sidecar_file.path.clone()),
+        side: target.side,
+        line_range: LineRange::new(target.start_line, target.end_line),
+        hunk_signature: "hunk:orphaned".to_owned(),
+        target_text_hash: hash_normalized_lines(std::iter::empty::<&str>()),
+        status: ResolutionStatus::Orphaned,
     }
 }
 
@@ -449,4 +476,145 @@ struct RawReviewNoteTarget {
     start_line: Option<u32>,
     #[serde(rename = "endLine")]
     end_line: Option<u32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{DiffRow, DiffRowKind, FileId, FileStatus, HunkId, ReviewHunk};
+
+    #[test]
+    fn resolve_notes_emits_stale_anchor_when_file_exists_but_line_range_misses() {
+        let files = vec![file_with_one_hunk_at_new_line(1, "line one")];
+        let sidecar = ReviewNotesSidecar {
+            schema: Some("shore.review-notes".to_owned()),
+            version: 1,
+            summary: None,
+            files: vec![ReviewNotesFile {
+                path: "src/lib.rs".to_owned(),
+                old_path: None,
+                summary: None,
+                notes: vec![review_note("note:stale", "Stale", Side::New, 99, 99)],
+            }],
+        };
+
+        let resolved = resolve_notes(&files, &sidecar);
+
+        assert_eq!(
+            resolved.notes.len(),
+            1,
+            "stale notes are preserved, not dropped"
+        );
+        assert_eq!(resolved.notes[0].anchor.status, ResolutionStatus::Stale);
+        assert_eq!(resolved.notes[0].anchor.hunk_signature, "hunk:stale");
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "stale anchors should not also emit unresolved diagnostics; got {:?}",
+            resolved.diagnostics
+        );
+    }
+
+    #[test]
+    fn resolve_notes_emits_orphaned_anchor_when_file_no_longer_in_diff() {
+        let files: Vec<DiffFile> = Vec::new();
+        let sidecar = ReviewNotesSidecar {
+            schema: Some("shore.review-notes".to_owned()),
+            version: 1,
+            summary: None,
+            files: vec![ReviewNotesFile {
+                path: "src/gone.rs".to_owned(),
+                old_path: None,
+                summary: None,
+                notes: vec![review_note("note:orphan", "Orphan", Side::New, 1, 1)],
+            }],
+        };
+
+        let resolved = resolve_notes(&files, &sidecar);
+
+        assert_eq!(resolved.notes.len(), 1);
+        assert_eq!(resolved.notes[0].anchor.status, ResolutionStatus::Orphaned);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "orphaned anchors should not also emit stale path diagnostics; got {:?}",
+            resolved.diagnostics
+        );
+    }
+
+    #[test]
+    fn resolve_notes_keeps_existing_exact_match_behavior() {
+        let files = vec![file_with_one_hunk_at_new_line(1, "line one")];
+        let sidecar = ReviewNotesSidecar {
+            schema: Some("shore.review-notes".to_owned()),
+            version: 1,
+            summary: None,
+            files: vec![ReviewNotesFile {
+                path: "src/lib.rs".to_owned(),
+                old_path: None,
+                summary: None,
+                notes: vec![review_note("note:exact", "Exact", Side::New, 1, 1)],
+            }],
+        };
+
+        let resolved = resolve_notes(&files, &sidecar);
+
+        assert_eq!(resolved.notes.len(), 1);
+        assert_eq!(resolved.notes[0].anchor.status, ResolutionStatus::Exact);
+    }
+
+    fn review_note(
+        id: &str,
+        title: &str,
+        side: Side,
+        start_line: u32,
+        end_line: u32,
+    ) -> ReviewNoteEntry {
+        ReviewNoteEntry {
+            id: Some(id.to_owned()),
+            title: Some(title.to_owned()),
+            body: None,
+            target: Some(ReviewNoteTarget {
+                side,
+                start_line,
+                end_line,
+            }),
+            tags: Vec::new(),
+            confidence: None,
+            source: None,
+            author: None,
+            created_at: None,
+        }
+    }
+
+    fn file_with_one_hunk_at_new_line(new_line: u32, text: &str) -> DiffFile {
+        DiffFile {
+            id: FileId::new("src/lib.rs"),
+            status: FileStatus::Modified,
+            old_path: Some("src/lib.rs".to_owned()),
+            new_path: Some("src/lib.rs".to_owned()),
+            old_mode: None,
+            new_mode: None,
+            old_oid: None,
+            new_oid: None,
+            similarity: None,
+            is_binary: false,
+            is_submodule: false,
+            is_mode_only: false,
+            synthetic: false,
+            metadata_rows: Vec::new(),
+            hunks: vec![ReviewHunk {
+                id: HunkId::new("src/lib.rs:1:1"),
+                header: "@@ -1,0 +1,1 @@".to_owned(),
+                old_start: 1,
+                old_lines: 0,
+                new_start: 1,
+                new_lines: 1,
+                rows: vec![DiffRow {
+                    kind: DiffRowKind::Added,
+                    old_line: None,
+                    new_line: Some(new_line),
+                    text: text.to_owned(),
+                }],
+            }],
+        }
+    }
 }

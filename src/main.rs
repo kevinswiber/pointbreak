@@ -294,9 +294,13 @@ fn dump(
 
 fn show(args: ShowArgs, tracing: &TracingArgs) -> Result<(), Box<dyn std::error::Error>> {
     let document = document_for_show(&args, tracing)?;
+    let input = args.input.clone();
+    let tracing = tracing.clone();
     let viewport = ViewportSpec::new(80, 24);
     let app = tui::app::TuiApp::new(document, viewport);
-    tui::terminal::run(app)
+    let repo = input.repo.clone();
+    let load_document = move || load_dump_document(&input, dump_options(&input, &tracing));
+    tui::terminal::run(app, &repo, load_document)
 }
 
 fn notes(args: NotesArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
@@ -367,24 +371,18 @@ fn review_ack(args: AckArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-fn document_for_dump(
-    args: &DumpArgs,
-    tracing: &TracingArgs,
-) -> Result<DumpDocument, Box<dyn std::error::Error>> {
+fn document_for_dump(args: &DumpArgs, tracing: &TracingArgs) -> shore::error::Result<DumpDocument> {
     load_dump_document(&args.input, dump_options(&args.input, tracing))
 }
 
-fn document_for_show(
-    args: &ShowArgs,
-    tracing: &TracingArgs,
-) -> Result<DumpDocument, Box<dyn std::error::Error>> {
+fn document_for_show(args: &ShowArgs, tracing: &TracingArgs) -> shore::error::Result<DumpDocument> {
     load_dump_document(&args.input, dump_options(&args.input, tracing))
 }
 
 fn load_dump_document(
     args: &ReviewInputArgs,
     options: DumpOptions,
-) -> Result<DumpDocument, Box<dyn std::error::Error>> {
+) -> shore::error::Result<DumpDocument> {
     let document = match (&args.review_notes, &args.legacy_hunk_agent_context) {
         (Some(review_notes), None) => {
             DumpDocument::from_review_notes_file_with_options(&args.repo, review_notes, options)?
