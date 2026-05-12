@@ -13,11 +13,9 @@ use crate::session::event::{
     ReviewArtifactPublishedPayload, ReviewInitializedPayload, VerdictDecision, Writer, WriterRole,
     WriterTool,
 };
-use crate::session::publish::{
-    current_timestamp, ensure_store_dirs, reviewer_from_git_config, writer_from_git_config,
-};
 use crate::session::{
-    ProjectionDiagnostic, SessionState, ShoreEvent, ensure_shore_ignored, read_review_artifacts,
+    ProjectionDiagnostic, SessionState, ShoreEvent, current_timestamp, ensure_shore_ignored,
+    ensure_store_dirs, read_review_artifacts, reviewer_from_git_config, writer_from_git_config,
 };
 use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage, TempSweepAge};
 

@@ -45,6 +45,20 @@ pub fn git_head_oid(repo: &Path) -> Result<String> {
     Ok(oid.to_owned())
 }
 
+pub fn git_head_tree_oid(repo: &Path) -> Result<String> {
+    let output = run_git(repo, ["rev-parse", "HEAD^{tree}"])?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let oid = stdout.trim_end_matches(['\r', '\n']);
+    if oid.is_empty() {
+        return Err(ShoreError::Message(format!(
+            "git rev-parse returned empty HEAD tree oid for {}",
+            repo.display()
+        )));
+    }
+
+    Ok(oid.to_owned())
+}
+
 pub(crate) fn run_git_allowing_statuses<I, S>(
     cwd: &Path,
     args: I,

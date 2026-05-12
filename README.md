@@ -106,8 +106,8 @@ Prefer shelling out to `git` at first. A VCS abstraction can come later if the m
 
 ## Current CLI
 
-The current executable surfaces are `shore show`, `shore dump`, `shore review publish`,
-`shore review verdict`, `shore review ack`, and `shore notes apply`.
+The current executable surfaces are `shore show`, `shore dump`, `shore review capture`,
+`shore notes apply`, and transitional `shore review publish` / `verdict` / `ack` scaffolding.
 
 All commands accept optional tracing flags:
 
@@ -195,30 +195,41 @@ Behavior:
 The dump output is Shore introspection JSON and uses snake_case fields. Native `review-notes.json`
 input keeps its schema-defined camelCase fields such as `oldPath`, `startLine`, and `createdAt`.
 
-`shore review publish` is the first durable local-state command:
+`shore review capture` records the current V1 ReviewUnit:
 
 ```bash
-shore review publish [--repo <path>] [--review-notes <path> | --legacy-hunk-agent-context <path>]
+shore review capture [--repo <path>]
 ```
 
 Behavior:
 
 - `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it;
   durable state is created at the Git worktree root.
+- The ReviewUnit is the base endpoint, target endpoint, and captured diff snapshot. V1 captures the
+  local Git worktree from `HEAD` to the working tree, including untracked files.
 - The command creates and uses local `.shore/` storage and adds `.shore/` to the worktree
   `.gitignore` when needed.
 - `.shore/events/` stores immutable local event files. `.shore/state.json` is a rebuildable
   projection, not the authority.
-- `--review-notes <path>` and `--legacy-hunk-agent-context <path>` are recorded as sidecar
-  observation provenance. Sidecars remain transport/import inputs; they are not Shore-owned
-  persisted session state.
-- Explicit sidecar inputs and `--log-file <path>` are command helpers and are excluded from the
-  published reviewed file set and content-derived revision fingerprint for that command.
-- Output is compact `shore.publish` JSON with IDs, event counts, diagnostics, and the `statePath`.
+- Full captured snapshots are Shore-owned immutable artifacts under `.shore/artifacts/snapshots/`.
+  The output exposes ReviewUnit, revision, and snapshot IDs, but does not expose artifact paths as
+  user-facing API.
+- `--log-file <path>` is command-helper plumbing and is excluded from the captured snapshot and
+  content-derived ReviewUnit fingerprint for that command. Other unrelated tracked and untracked
+  files remain part of the capture unless the caller keeps them out of the worktree.
+- Sidecar inputs are not part of the capture contract. Native `review-notes.json` and legacy Hunk
+  `agent-context.json` remain optional import/transport adapters for read/import commands.
+- Output is compact `shore.review-capture` JSON. Command output documents are the external contract
+  for automation; `.shore/state.json` is only a rebuildable projection.
 
-`shore review publish` does not add a daemon, delivery queue, acknowledgement flow, intervention
+`shore review capture` does not add a daemon, delivery queue, acknowledgement flow, intervention
 runtime, async or remote storage backend, or note mutation. `.shore/events/` is the local
 authoritative event log, not a mailbox or retry queue.
+
+`shore review publish` is older durable scaffolding kept temporarily while the ReviewUnit ledger
+model takes over. New capture-oriented workflows should start with `shore review capture`; later
+plans will replace or remove the publish/verdict/ack vocabulary rather than treating it as the
+stable ReviewUnit API.
 
 `shore review verdict` records a reviewer verdict against the current or named revision:
 

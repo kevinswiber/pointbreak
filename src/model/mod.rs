@@ -4,6 +4,7 @@ mod hunk;
 mod ids;
 mod review;
 mod review_note;
+mod review_unit;
 mod row;
 
 pub fn decode_json<T>(json: &str) -> crate::error::Result<T>
@@ -18,7 +19,7 @@ pub use file::{DiffFile, FileStatus};
 pub use hunk::ReviewHunk;
 pub use ids::{
     AcknowledgementId, ActorId, EventId, FileId, HunkId, ReviewArtifactId, ReviewId, ReviewNoteId,
-    RevisionId, RowId, SnapshotId, WorkUnitId,
+    ReviewUnitId, RevisionId, RowId, SnapshotId, TrackId, WorkUnitId,
 };
 pub use review::{DiffSnapshot, Review, ReviewStream};
 pub use review_note::{
@@ -26,4 +27,5 @@ pub use review_note::{
     ReviewNoteSource, Side, re_resolve_review_notes,
 };
 pub(crate) use review_note::{hash_normalized_lines, rows_for_line_range};
+pub use review_unit::{ReviewEndpoint, ReviewTargetRef, ReviewUnitSource, WorktreeCaptureMode};
 pub use row::{DiffRow, DiffRowKind, FileMetadataKind, FileMetadataRow, ReviewRow, ReviewRowKind};

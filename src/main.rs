@@ -5,13 +5,13 @@ use std::process::ExitCode;
 use clap::error::ErrorKind;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use shore::dump::{DumpDocument, DumpOptions};
-use shore::model::{AcknowledgementId, ActorId, ReviewArtifactId, RevisionId};
+use shore::model::{AcknowledgementId, ActorId, ReviewArtifactId, ReviewEndpoint, RevisionId};
 use shore::session::event::{AcknowledgementNextAction, VerdictDecision};
 use shore::session::{
-    AcknowledgeReviewOptions, AcknowledgeReviewResult, ImportNotesOptions, ImportNotesResult,
-    ProjectionDiagnostic, PublishOptions, PublishResult, PublishVerdictOptions,
-    PublishVerdictResult, acknowledge_review, import_notes, publish_verdict,
-    publish_worktree_review,
+    AcknowledgeReviewOptions, AcknowledgeReviewResult, CaptureOptions, CaptureResult,
+    ImportNotesOptions, ImportNotesResult, ProjectionDiagnostic, PublishOptions, PublishResult,
+    PublishVerdictOptions, PublishVerdictResult, acknowledge_review, capture_worktree_review,
+    import_notes, publish_verdict, publish_worktree_review,
 };
 use shore::stream::ViewportSpec;
 
@@ -87,9 +87,16 @@ enum NotesCommand {
 
 #[derive(Debug, Subcommand)]
 enum ReviewCommand {
+    Capture(CaptureArgs),
     Publish(PublishArgs),
     Verdict(VerdictArgs),
     Ack(AckArgs),
+}
+
+#[derive(Debug, Args)]
+struct CaptureArgs {
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -163,6 +170,28 @@ struct PublishDocument {
     events_created_by_type: std::collections::BTreeMap<String, usize>,
     diagnostics: Vec<shore::session::ProjectionDiagnostic>,
     state_path: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CaptureDocument {
+    schema: &'static str,
+    version: u32,
+    review_unit: CaptureReviewUnitDocument,
+    events_created: usize,
+    events_existing: usize,
+    events_created_by_type: std::collections::BTreeMap<String, usize>,
+    diagnostics: Vec<shore::session::ProjectionDiagnostic>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CaptureReviewUnitDocument {
+    id: String,
+    base: ReviewEndpoint,
+    target: ReviewEndpoint,
+    revision_id: String,
+    snapshot_id: String,
 }
 
 #[derive(serde::Serialize)]
@@ -318,6 +347,10 @@ fn review(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
+        ReviewCommand::Capture(args) => {
+            tracing::debug!(command = "review.capture", "command_start");
+            review_capture(args, tracing, stdout)
+        }
         ReviewCommand::Publish(args) => {
             tracing::debug!(command = "review.publish", "command_start");
             review_publish(args, tracing, stdout)
@@ -331,6 +364,17 @@ fn review(
             review_ack(args, stdout)
         }
     }
+}
+
+fn review_capture(
+    args: CaptureArgs,
+    tracing: &TracingArgs,
+    stdout: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let result = capture_worktree_review(capture_options(&args, tracing));
+    let document = CaptureDocument::from(result?);
+    writeln!(stdout, "{}", serde_json::to_string(&document)?)?;
+    Ok(())
 }
 
 fn notes_apply(
@@ -428,6 +472,14 @@ fn publish_options(args: &ReviewInputArgs, tracing: &TracingArgs) -> PublishOpti
     options
 }
 
+fn capture_options(args: &CaptureArgs, tracing: &TracingArgs) -> CaptureOptions {
+    let mut options = CaptureOptions::new(&args.repo);
+    if let Some(log_file) = &tracing.log_file {
+        options = options.with_excluded_helper_path(log_file);
+    }
+    options
+}
+
 fn notes_apply_options(
     args: &ReviewInputArgs,
 ) -> Result<ImportNotesOptions, Box<dyn std::error::Error>> {
@@ -518,6 +570,26 @@ impl From<PublishResult> for PublishDocument {
             events_created_by_type: result.events_created_by_type,
             diagnostics: result.diagnostics,
             state_path: result.state_path.to_string_lossy().into_owned(),
+        }
+    }
+}
+
+impl From<CaptureResult> for CaptureDocument {
+    fn from(result: CaptureResult) -> Self {
+        Self {
+            schema: "shore.review-capture",
+            version: 1,
+            review_unit: CaptureReviewUnitDocument {
+                id: result.review_unit_id.as_str().to_owned(),
+                base: result.base,
+                target: result.target,
+                revision_id: result.revision_id.as_str().to_owned(),
+                snapshot_id: result.snapshot_id.as_str().to_owned(),
+            },
+            events_created: result.events_created,
+            events_existing: result.events_existing,
+            events_created_by_type: result.events_created_by_type,
+            diagnostics: result.diagnostics,
         }
     }
 }

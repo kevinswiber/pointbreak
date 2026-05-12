@@ -11,8 +11,10 @@ use crate::session::event::{
     EventTarget, EventType, ImportedNoteTarget, ReviewInitializedPayload,
     ReviewNoteImportedPayload, ShoreEvent, SidecarSource,
 };
-use crate::session::publish::{current_timestamp, ensure_store_dirs, writer_from_git_config};
-use crate::session::{ProjectionDiagnostic, SessionState, ensure_shore_ignored};
+use crate::session::{
+    ProjectionDiagnostic, SessionState, current_timestamp, ensure_shore_ignored, ensure_store_dirs,
+    writer_from_git_config,
+};
 use crate::sidecar::{ReviewNoteEntry, ReviewNoteTarget, ReviewNotesFile, ReviewNotesSidecar};
 use crate::storage::{Durability, EventStore, EventWriteOutcome, LocalStorage, TempSweepAge};
 

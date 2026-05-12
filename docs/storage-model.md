@@ -22,6 +22,7 @@ Use distinct storage concepts for distinct semantics:
   state.json    rebuildable projection
   artifacts/    immutable or content-addressed support records
     notes/      optional content-addressed note-body records
+    snapshots/  immutable captured ReviewUnit snapshots
 ```
 
 `events/` is the authoritative log. Events are immutable, independently written, and never moved to
@@ -29,6 +30,19 @@ Use distinct storage concepts for distinct semantics:
 
 `state.json` is a cache/projection. It must be rebuildable from durable records. If it is missing,
 stale, or invalid, Shore should rebuild it rather than treating it as authority.
+
+ReviewUnit capture should follow the same authority split:
+
+- `review_unit_captured` events in `events/` carry durable capture facts
+- a ReviewUnit is the base endpoint, target endpoint, and captured diff snapshot
+- V1 captures the local Git worktree from `HEAD` to the working tree
+- full captured snapshots live as Shore-owned immutable artifacts under `artifacts/snapshots/`
+- bounded `state.json` may summarize ReviewUnit count and current unambiguous ReviewUnit ID, but it
+  is not the source of ReviewUnit identity or snapshot content
+
+`shore review capture` returns `shore.review-capture` JSON as the command-output contract. The
+command reports ReviewUnit, revision, and snapshot IDs without making snapshot artifact paths a
+user-facing API.
 
 Imported review notes should follow the same split:
 

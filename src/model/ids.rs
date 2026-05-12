@@ -19,6 +19,7 @@ macro_rules! id_type {
 }
 
 id_type!(ReviewId);
+id_type!(ReviewUnitId);
 id_type!(EventId);
 id_type!(FileId);
 id_type!(ReviewNoteId);
@@ -28,6 +29,7 @@ id_type!(HunkId);
 id_type!(RowId);
 id_type!(WorkUnitId);
 id_type!(ActorId);
+id_type!(TrackId);
 id_type!(ReviewArtifactId);
 id_type!(AcknowledgementId);
 

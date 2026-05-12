@@ -5,7 +5,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    AcknowledgementId, ActorId, EventId, ReviewArtifactId, ReviewId, RevisionId, Side, SnapshotId,
+    AcknowledgementId, ActorId, EventId, ReviewArtifactId, ReviewEndpoint, ReviewId,
+    ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, Side, SnapshotId, TrackId,
     WorkUnitId,
 };
 
@@ -94,6 +95,7 @@ impl ShoreEvent {
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
     ReviewInitialized,
+    ReviewUnitCaptured,
     RevisionPublished,
     SnapshotObserved,
     SidecarObserved,
@@ -106,14 +108,51 @@ pub enum EventType {
 #[serde(rename_all = "camelCase")]
 pub struct EventTarget {
     pub review_id: ReviewId,
-    pub work_unit_id: WorkUnitId,
+    /// Legacy work-unit target used by publish/verdict/ack scaffolding.
+    ///
+    /// New ReviewUnit-native events should target `review_unit_id` and may omit
+    /// this field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work_unit_id: Option<WorkUnitId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_unit_id: Option<ReviewUnitId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision_id: Option<RevisionId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshot_id: Option<SnapshotId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub track_id: Option<TrackId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subject: Option<ReviewTargetRef>,
 }
 
 impl EventTarget {
     pub fn new(review_id: ReviewId, work_unit_id: WorkUnitId) -> Self {
         Self {
             review_id,
-            work_unit_id,
+            work_unit_id: Some(work_unit_id),
+            review_unit_id: None,
+            revision_id: None,
+            snapshot_id: None,
+            track_id: None,
+            subject: None,
+        }
+    }
+
+    pub fn for_review_unit(
+        review_id: ReviewId,
+        review_unit_id: ReviewUnitId,
+        revision_id: RevisionId,
+        snapshot_id: SnapshotId,
+    ) -> Self {
+        Self {
+            review_id,
+            work_unit_id: None,
+            review_unit_id: Some(review_unit_id.clone()),
+            revision_id: Some(revision_id),
+            snapshot_id: Some(snapshot_id),
+            track_id: None,
+            subject: Some(ReviewTargetRef::ReviewUnit { review_unit_id }),
         }
     }
 }
@@ -202,6 +241,23 @@ impl ReviewInitializedPayload {
 impl EventPayload for ReviewInitializedPayload {
     fn event_type(&self) -> EventType {
         EventType::ReviewInitialized
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewUnitCapturedPayload {
+    pub review_unit_id: ReviewUnitId,
+    pub source: ReviewUnitSource,
+    pub base: ReviewEndpoint,
+    pub target: ReviewEndpoint,
+    pub revision_id: RevisionId,
+    pub snapshot_id: SnapshotId,
+}
+
+impl EventPayload for ReviewUnitCapturedPayload {
+    fn event_type(&self) -> EventType {
+        EventType::ReviewUnitCaptured
     }
 }
 
@@ -394,7 +450,9 @@ mod tests {
 
     use super::*;
     use crate::error::ShoreError;
-    use crate::model::ReviewId;
+    use crate::model::{
+        ReviewEndpoint, ReviewId, ReviewUnitId, ReviewUnitSource, WorktreeCaptureMode,
+    };
 
     #[test]
     fn event_envelope_serializes_with_required_idempotency_key_and_payload_hash() {
@@ -604,6 +662,52 @@ mod tests {
         let decoded: ShoreEvent = serde_json::from_str(&json).expect("event deserializes");
 
         assert_eq!(decoded, event);
+    }
+
+    #[test]
+    fn review_unit_captured_event_serializes_target_and_payload() {
+        let target = EventTarget::for_review_unit(
+            ReviewId::new("review:default"),
+            ReviewUnitId::new("review-unit:sha256:abc"),
+            RevisionId::new("rev:git:sha256:def"),
+            SnapshotId::new("snap:git:sha256:ghi"),
+        );
+        let payload = ReviewUnitCapturedPayload {
+            review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
+            source: ReviewUnitSource::GitWorktree {
+                mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                include_untracked: true,
+            },
+            base: ReviewEndpoint::GitCommit {
+                commit_oid: "abc".to_owned(),
+                tree_oid: "def".to_owned(),
+            },
+            target: ReviewEndpoint::GitWorkingTree {
+                worktree_root: "/repo".to_owned(),
+            },
+            revision_id: RevisionId::new("rev:git:sha256:def"),
+            snapshot_id: SnapshotId::new("snap:git:sha256:ghi"),
+        };
+
+        let event = ShoreEvent::new(
+            EventType::ReviewUnitCaptured,
+            "review_unit_captured:review-unit:sha256:abc",
+            target,
+            Writer::shore_local_author("test"),
+            payload,
+            FixedClock::at("2026-05-12T00:00:00Z"),
+        )
+        .unwrap();
+
+        let json = serde_json::to_value(event).unwrap();
+        assert_eq!(json["eventType"], "review_unit_captured");
+        assert_eq!(json["target"]["reviewUnitId"], "review-unit:sha256:abc");
+        assert_eq!(json["target"]["revisionId"], "rev:git:sha256:def");
+        assert_eq!(json["target"]["snapshotId"], "snap:git:sha256:ghi");
+        assert!(json["target"].get("trackId").is_none());
+        assert!(json["target"].get("workUnitId").is_none());
+        assert_eq!(json["payload"]["base"]["commitOid"], "abc");
+        assert_eq!(json["payload"]["target"]["worktreeRoot"], "/repo");
     }
 
     #[test]

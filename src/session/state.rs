@@ -3,14 +3,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, ShoreError};
-use crate::model::{ReviewArtifactId, ReviewId, RevisionId, SnapshotId, WorkUnitId};
+use crate::model::{ReviewArtifactId, ReviewId, ReviewUnitId, RevisionId, SnapshotId, WorkUnitId};
 use crate::session::event::{
     EventType, ReviewArtifactAcknowledgedPayload, ReviewArtifactPublishedPayload,
-    RevisionPublishedPayload, ShoreEvent, SnapshotObservedPayload, VerdictDecision,
+    ReviewUnitCapturedPayload, RevisionPublishedPayload, ShoreEvent, SnapshotObservedPayload,
+    VerdictDecision,
 };
 
 const STATE_SCHEMA: &str = "shore.state";
 const STATE_VERSION: u32 = 1;
+pub const AMBIGUOUS_CURRENT_REVIEW_UNIT_CODE: &str = "ambiguous_current_review_unit";
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,6 +23,10 @@ pub struct SessionState {
     pub work_unit_id: WorkUnitId,
     pub current_revision_id: Option<RevisionId>,
     pub current_snapshot_id: Option<SnapshotId>,
+    #[serde(default)]
+    pub review_unit_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_review_unit_id: Option<ReviewUnitId>,
     pub event_count: usize,
     pub sidecar_count: usize,
     pub note_count: usize,
@@ -68,6 +74,7 @@ struct StateReducer {
     published_revision_ids: BTreeSet<RevisionId>,
     superseded_revision_ids: BTreeSet<RevisionId>,
     snapshots_by_revision_id: BTreeMap<RevisionId, SnapshotId>,
+    captured_review_unit_ids: BTreeSet<ReviewUnitId>,
     sidecar_count: usize,
     note_count: usize,
     review_artifact_count: usize,
@@ -84,6 +91,7 @@ impl Default for StateReducer {
             published_revision_ids: BTreeSet::new(),
             superseded_revision_ids: BTreeSet::new(),
             snapshots_by_revision_id: BTreeMap::new(),
+            captured_review_unit_ids: BTreeSet::new(),
             sidecar_count: 0,
             note_count: 0,
             review_artifact_count: 0,
@@ -100,7 +108,9 @@ impl StateReducer {
 
         if event.event_type == EventType::ReviewInitialized {
             self.review_id = event.target.review_id.clone();
-            self.work_unit_id = event.target.work_unit_id.clone();
+            if let Some(work_unit_id) = &event.target.work_unit_id {
+                self.work_unit_id = work_unit_id.clone();
+            }
             return Ok(());
         }
 
@@ -108,6 +118,7 @@ impl StateReducer {
 
         match event.event_type {
             EventType::ReviewInitialized => {}
+            EventType::ReviewUnitCaptured => self.apply_review_unit_captured(event)?,
             EventType::RevisionPublished => self.apply_revision_published(event)?,
             EventType::SnapshotObserved => self.apply_snapshot_observed(event)?,
             EventType::SidecarObserved => {
@@ -131,8 +142,10 @@ impl StateReducer {
         if self.review_id.as_str() == "review:default" {
             self.review_id = event.target.review_id.clone();
         }
-        if self.work_unit_id.as_str() == "work:default" {
-            self.work_unit_id = event.target.work_unit_id.clone();
+        if self.work_unit_id.as_str() == "work:default"
+            && let Some(work_unit_id) = &event.target.work_unit_id
+        {
+            self.work_unit_id = work_unit_id.clone();
         }
     }
 
@@ -149,6 +162,12 @@ impl StateReducer {
         let payload: SnapshotObservedPayload = serde_json::from_value(event.payload.clone())?;
         self.snapshots_by_revision_id
             .insert(payload.revision_id, payload.snapshot_id);
+        Ok(())
+    }
+
+    fn apply_review_unit_captured(&mut self, event: &ShoreEvent) -> Result<()> {
+        let payload: ReviewUnitCapturedPayload = serde_json::from_value(event.payload.clone())?;
+        self.captured_review_unit_ids.insert(payload.review_unit_id);
         Ok(())
     }
 
@@ -194,6 +213,17 @@ impl StateReducer {
             .as_ref()
             .and_then(|revision_id| self.snapshots_by_revision_id.get(revision_id))
             .cloned();
+        let current_review_unit_id = match self.captured_review_unit_ids.len() {
+            0 => None,
+            1 => self.captured_review_unit_ids.iter().next().cloned(),
+            _ => {
+                diagnostics.push(ProjectionDiagnostic {
+                    code: AMBIGUOUS_CURRENT_REVIEW_UNIT_CODE.to_owned(),
+                    message: "multiple captured review units remain current".to_owned(),
+                });
+                None
+            }
+        };
         let last_verdict_decision = match current_revision_id.as_ref() {
             Some(revision_id) => {
                 let candidate_ids = self
@@ -235,6 +265,8 @@ impl StateReducer {
             work_unit_id: self.work_unit_id,
             current_revision_id,
             current_snapshot_id,
+            review_unit_count: self.captured_review_unit_ids.len(),
+            current_review_unit_id,
             event_count,
             sidecar_count: self.sidecar_count,
             note_count: self.note_count,
@@ -250,11 +282,13 @@ impl StateReducer {
 mod tests {
     use super::*;
     use crate::model::{
-        AcknowledgementId, ReviewArtifactId, ReviewId, RevisionId, Side, SnapshotId, WorkUnitId,
+        AcknowledgementId, ReviewArtifactId, ReviewEndpoint, ReviewId, ReviewUnitId,
+        ReviewUnitSource, RevisionId, Side, SnapshotId, WorkUnitId, WorktreeCaptureMode,
     };
     use crate::session::event::{
         AcknowledgementNextAction, ImportedNoteTarget, ReviewArtifactAcknowledgedPayload,
-        ReviewArtifactPublishedPayload, ReviewNoteImportedPayload, VerdictDecision,
+        ReviewArtifactPublishedPayload, ReviewNoteImportedPayload, ReviewUnitCapturedPayload,
+        VerdictDecision,
     };
     use crate::session::{
         EventTarget, EventType, ReviewInitializedPayload, RevisionPublishedPayload, ShoreEvent,
@@ -344,6 +378,50 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.code == "ambiguous_current_revision")
+        );
+    }
+
+    #[test]
+    fn state_projects_single_current_review_unit() {
+        let events = vec![review_unit_captured_event("review-unit:sha256:one")];
+
+        let state = SessionState::from_events(&events).unwrap();
+
+        assert_eq!(state.review_unit_count, 1);
+        assert_eq!(
+            state.current_review_unit_id.as_ref().unwrap().as_str(),
+            "review-unit:sha256:one"
+        );
+        assert!(state.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn state_projects_no_current_review_unit_without_captures() {
+        let events = Vec::new();
+
+        let state = SessionState::from_events(&events).unwrap();
+
+        assert_eq!(state.review_unit_count, 0);
+        assert!(state.current_review_unit_id.is_none());
+        assert!(state.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn state_reports_ambiguous_current_review_units() {
+        let events = vec![
+            review_unit_captured_event("review-unit:sha256:one"),
+            review_unit_captured_event("review-unit:sha256:two"),
+        ];
+
+        let state = SessionState::from_events(&events).unwrap();
+
+        assert_eq!(state.review_unit_count, 2);
+        assert!(state.current_review_unit_id.is_none());
+        assert!(
+            state
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == AMBIGUOUS_CURRENT_REVIEW_UNIT_CODE)
         );
     }
 
@@ -531,6 +609,41 @@ mod tests {
             "2026-05-09T20:42:45Z",
         )
         .expect("snapshot observed event builds")
+    }
+
+    fn review_unit_captured_event(review_unit_id: &str) -> ShoreEvent {
+        let review_unit_id = ReviewUnitId::new(review_unit_id);
+        let revision_id = RevisionId::new(format!("rev:git:sha256:{}", review_unit_id.as_str()));
+        let snapshot_id = SnapshotId::new(format!("snap:git:sha256:{}", review_unit_id.as_str()));
+        ShoreEvent::new(
+            EventType::ReviewUnitCaptured,
+            format!("review_unit_captured:{}", review_unit_id.as_str()),
+            EventTarget::for_review_unit(
+                ReviewId::new("review:default"),
+                review_unit_id.clone(),
+                revision_id.clone(),
+                snapshot_id.clone(),
+            ),
+            Writer::shore_local_author("0.1.0"),
+            ReviewUnitCapturedPayload {
+                review_unit_id,
+                source: ReviewUnitSource::GitWorktree {
+                    mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                    include_untracked: true,
+                },
+                base: ReviewEndpoint::GitCommit {
+                    commit_oid: "abc".to_owned(),
+                    tree_oid: "def".to_owned(),
+                },
+                target: ReviewEndpoint::GitWorkingTree {
+                    worktree_root: "/repo".to_owned(),
+                },
+                revision_id,
+                snapshot_id,
+            },
+            "2026-05-12T00:00:00Z",
+        )
+        .expect("review unit captured event builds")
     }
 
     fn sidecar_observed(source: &str, content_hash: &str) -> ShoreEvent {
