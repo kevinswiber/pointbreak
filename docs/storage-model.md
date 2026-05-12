@@ -60,6 +60,28 @@ On the read path, Shore reconstructs imported notes by replaying `review_note_im
 loading any optional note-body artifacts under `artifacts/notes/`. `state.json` remains a bounded
 projection and is not the durable source of note content.
 
+Native observations follow the ReviewUnit ledger model:
+
+- immutable `review_observation_recorded` events in `events/` carry durable observation facts
+- each observation targets a ReviewUnit plus an optional file or line range in that captured
+  snapshot
+- each observation belongs to a required track; tracks are review lanes, while actor/tool provenance
+  remains in the event writer envelope
+- bounded `state.json` may summarize observation state, such as `observationCount`, but it does not
+  embed observation history or body content
+
+Observations are append-only. Corrections are new `review_observation_recorded` events that name
+older observations through `supersedesObservationIds`; standalone retraction is deferred.
+
+Observation bodies use the same inline-or-artifact mechanics as imported notes. Small bodies remain
+inline in the event payload. Larger bodies use the current `shore.note-body` envelope under
+`artifacts/notes/`, keeping `state.json` bounded and avoiding unbounded event payload growth.
+
+The direct read surface is `shore review observation list`, which replays events and can optionally
+hydrate bodies. Body artifact paths, event filenames, and `state.json` paths are internal storage
+details, not command-output API. Native observation projection into `shore dump` and `shore show` is
+deferred to the later ledger projection slice.
+
 Verdict and acknowledgement events follow the same disciplines as note events:
 
 - `review_artifact_published` records a single immutable verdict for a `(workUnitId, revisionId)`

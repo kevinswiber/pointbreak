@@ -107,7 +107,8 @@ Prefer shelling out to `git` at first. A VCS abstraction can come later if the m
 ## Current CLI
 
 The current executable surfaces are `shore show`, `shore dump`, `shore review capture`,
-`shore notes apply`, and transitional `shore review publish` / `verdict` / `ack` scaffolding.
+`shore review observation add/list`, `shore notes apply`, and transitional `shore review publish` /
+`verdict` / `ack` scaffolding.
 
 All commands accept optional tracing flags:
 
@@ -230,6 +231,35 @@ Behavior:
 `shore review capture` does not add a daemon, delivery queue, acknowledgement flow, intervention
 runtime, async or remote storage backend, or note mutation. `.shore/events/` is the local
 authoritative event log, not a mailbox or retry queue.
+
+`shore review observation` records and reads append-only reviewer observations for a captured
+ReviewUnit:
+
+```bash
+shore review capture
+shore review observation add --track agent:codex --title "Check error handling" --file src/lib.rs
+shore review observation list --track agent:codex
+```
+
+Behavior:
+
+- `shore review observation add` requires `--track` and `--title`.
+- Tracks are review lanes, not actor or tool provenance. Shore still records writer provenance from
+  local Git config and the Shore tool identity in the event envelope.
+- Without `--file`, the observation is review-wide and targets the whole ReviewUnit.
+- With `--file <path>`, the observation targets a file in the captured snapshot.
+- With `--file <path> --start-line <n> [--end-line <n>]`, the observation targets a range on the
+  selected side (`--side <old|new>`, default `new`).
+- Bodies may come from `--body`, `--body-file`, or `--body-stdin`. Large bodies are stored as
+  Shore-owned `shore.note-body` artifacts while command output keeps artifact paths private.
+- `--supersedes <observation-id>` records a correction by appending a new observation that names the
+  older observation. Standalone retraction is deferred.
+- `shore review observation list` replays durable events for the ReviewUnit. Bodies are omitted by
+  default and hydrated only with `--include-body`; `--track` and `--file` filter the returned rows.
+- Output is compact `shore.review-observation-add` or `shore.review-observation-list` JSON by
+  default. `observation list` also accepts `--pretty`.
+- Native observations are not yet projected into `shore dump` or `shore show`; that belongs to the
+  later ledger projection slice.
 
 `shore review publish` is older durable scaffolding kept temporarily while the ReviewUnit ledger
 model takes over. New capture-oriented workflows should start with `shore review capture`; later
