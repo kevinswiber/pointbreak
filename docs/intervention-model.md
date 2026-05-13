@@ -2,11 +2,13 @@
 
 ## Status
 
-This is architecture guidance, not current implementation scope.
+V1 has a local durable intervention ledger. Shore can record `intervention_requested` events,
+append `intervention_resolved` events, and expose polling read surfaces through
+`shore review intervention list` and `shore review intervention fetch`.
 
-The first local durable-state slice should not add intervention commands, prompts, queues, or UI
-flows. Its durable event envelope, target references, state projection, and polling shape should
-leave room for intervention events later.
+This document remains architecture guidance for the model around that V1 surface. Prompt delivery,
+watch mode, cancellation, escalation, final review dispositions, daemon behavior, and UI prompts are
+deferred.
 
 ## Goal
 
@@ -51,32 +53,47 @@ The model must support both real-time and polling clients:
 
 The same durable event model should work for all three.
 
-## Event Sketch
+## Event Model
 
-Future event types should be able to fit the same event envelope used for review/session state:
+V1 intervention events use the same event envelope as other review/session state:
 
 ```text
 intervention_requested
 intervention_resolved
+```
+
+Deferred event types may include:
+
+```text
 intervention_cancelled
 intervention_escalated
 ```
 
-`intervention_escalated` should target an existing intervention and change its routing or urgency in
-the derived projection. It should not create a second intervention. If a separate decision is needed,
-create another `intervention_requested` event with an explicit relationship to the first.
+`intervention_requested` records the durable request. The request has a stable intervention ID, a
+target reference, a required track, a blocking/advisory mode, a short title, an optional body, and a
+structured `reasonCode`.
 
-`intervention_cancelled` means the request was withdrawn without a decision. `intervention_resolved`
-means the request was decided, with an outcome such as approved, rejected, dismissed, or resolved by a
-later event.
+`intervention_resolved` records a durable answer. The resolution has a stable resolution ID, targets
+the intervention, and carries an `outcome` such as approved, rejected, dismissed, superseded, or
+abandoned. Resolution `outcome` is intentionally separate from request `reasonCode`: one describes
+why the pause was requested, the other describes how it ended.
+
+Multiple different resolution events are preserved as append-only facts. Current V1 read surfaces
+report that state as ambiguous rather than choosing a timestamp winner.
+
+Future `intervention_escalated` should target an existing intervention and change its routing or
+urgency in the derived projection. It should not create a second intervention. If a separate decision
+is needed, create another `intervention_requested` event with an explicit relationship to the first.
+
+Future `intervention_cancelled` means the request was withdrawn without a decision. V1 expresses
+cancellation-like outcomes through `dismissed`, `superseded`, or `abandoned` resolution outcomes.
 
 Each event should carry:
 
 - a stable intervention ID
-- target reference: `ReviewId`, `WorkUnitId`, `RevisionId`, `ReviewArtifactId`, or `EventId`
-- optional urgency label for display and triage
-- blocking/advisory flag
-- reason code
+- target reference: ReviewUnit, file, range, observation, intervention, or event
+- blocking/advisory mode
+- request reason code
 - short title
 - body or structured details
 - requesting actor or writer provenance
@@ -95,12 +112,13 @@ Reason codes should stay workflow-oriented, not actor-oriented. Useful starting 
 - `missing_permission`
 - `manual_decision_required`
 
-The `blocking` flag is the control-flow signal. Urgency is advisory; it should not decide whether a
+The `blocking` mode is the control-flow signal. Urgency is advisory; it should not decide whether a
 client may continue.
 
 Interventions should not expire automatically. Clearing an unresolved intervention requires an
-explicit `intervention_resolved` or `intervention_cancelled` event. A future `expiresAt` field can be
-added if a concrete workflow needs advisory expiry, but it should not silently unblock a client.
+explicit `intervention_resolved` event in V1, or a future `intervention_cancelled` event. A future
+`expiresAt` field can be added if a concrete workflow needs advisory expiry, but it should not
+silently unblock a client.
 
 Every blocking intervention must have a defined exit event or escalation policy. That does not mean
 blocking states should clear themselves on a timer. For review workflows, the external decision is
@@ -112,11 +130,30 @@ example, an `intervention_resolved` event targeting a closed work unit should st
 any resume or apply action derived from it should be a no-op. Distinguish "the event happened" from
 "the action still applies."
 
-## Derived State
+## V1 Commands And Derived State
 
-Derived state should expose unresolved interventions in a way that every frontend can consume.
+The command surface is:
 
-Minimum future projection:
+```bash
+shore review intervention request
+shore review intervention list
+shore review intervention fetch
+shore review intervention resolve
+```
+
+The V1 read surface is polling-oriented. `list` and `fetch` replay `.shore/events/`; they do not
+depend on `state.json` as authority. Bodies and resolution reasons may use internal
+`shore.note-body` artifacts, but command output does not expose artifact paths.
+
+Bounded `state.json` exposes only summary counters:
+
+```text
+interventionCount
+openInterventionCount
+openBlockingInterventionCount
+```
+
+A future fuller projection can expose:
 
 ```text
 unresolved_interventions
@@ -132,8 +169,8 @@ A client should be able to ask:
 - Which event or artifact caused the intervention?
 
 That implies Shore should eventually expose an `events_since(cursor)` style API or equivalent
-cursor-based projection. The first local durable-state slice does not need to implement that API,
-but it should not choose a storage shape that makes it awkward.
+cursor-based projection. V1 does not implement that API, but it should not choose a storage shape
+that makes it awkward.
 
 ## Design Constraints For Local Durable State
 

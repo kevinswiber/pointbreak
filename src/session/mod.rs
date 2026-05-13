@@ -5,6 +5,7 @@ pub mod event;
 mod event_context;
 mod fingerprint;
 mod import;
+mod intervention;
 mod observation;
 mod publish;
 mod reload;
@@ -20,10 +21,11 @@ pub use consume::{
     read_review_artifacts,
 };
 pub use event::{
-    EventPayload, EventTarget, EventType, ReviewInitializedPayload,
-    ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, RevisionPublishedPayload,
-    ShoreEvent, SidecarObservedPayload, SidecarSource, SnapshotObservedPayload, Writer, WriterRole,
-    WriterTool,
+    EventPayload, EventTarget, EventType, InterventionMode, InterventionReasonCode,
+    InterventionRequestedPayload, InterventionResolutionOutcome, InterventionResolvedPayload,
+    ReviewInitializedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
+    RevisionPublishedPayload, ShoreEvent, SidecarObservedPayload, SidecarSource,
+    SnapshotObservedPayload, Writer, WriterRole, WriterTool,
 };
 pub(crate) use event_context::{
     current_timestamp, reviewer_from_git_config, writer_from_git_config,
@@ -34,6 +36,14 @@ pub use fingerprint::{
     compute_review_unit_fingerprint,
 };
 pub use import::{ImportNotesOptions, ImportNotesResult, import_notes};
+pub use intervention::{
+    InterventionFetchOptions, InterventionFetchResult, InterventionListFilters,
+    InterventionListOptions, InterventionListResult, InterventionRequestOptions,
+    InterventionRequestResult, InterventionResolutionView, InterventionResolveOptions,
+    InterventionResolveResult, InterventionStatus, InterventionStatusFilter,
+    InterventionTargetSelector, InterventionView, fetch_intervention, list_interventions,
+    request_intervention, resolve_intervention,
+};
 pub use observation::{
     ObservationAddOptions, ObservationAddResult, ObservationListFilters, ObservationListOptions,
     ObservationListResult, ObservationStatus, ObservationTargetSelector, ObservationView,

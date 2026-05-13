@@ -107,8 +107,8 @@ Prefer shelling out to `git` at first. A VCS abstraction can come later if the m
 ## Current CLI
 
 The current executable surfaces are `shore show`, `shore dump`, `shore review capture`,
-`shore review observation add/list`, `shore notes apply`, and transitional `shore review publish` /
-`verdict` / `ack` scaffolding.
+`shore review observation add/list`, `shore review intervention request/list/fetch/resolve`,
+`shore notes apply`, and transitional `shore review publish` / `verdict` / `ack` scaffolding.
 
 All commands accept optional tracing flags:
 
@@ -228,9 +228,9 @@ Behavior:
   for automation; `.shore/state.json` is only a rebuildable projection, and artifact paths remain
   Shore-owned storage details.
 
-`shore review capture` does not add a daemon, delivery queue, acknowledgement flow, intervention
-runtime, async or remote storage backend, or note mutation. `.shore/events/` is the local
-authoritative event log, not a mailbox or retry queue.
+`shore review capture` does not add a daemon, delivery queue, acknowledgement flow, async or remote
+storage backend, or note mutation. `.shore/events/` is the local authoritative event log, not a
+mailbox or retry queue.
 
 `shore review observation` records and reads append-only reviewer observations for a captured
 ReviewUnit:
@@ -260,6 +260,41 @@ Behavior:
   default. `observation list` also accepts `--pretty`.
 - Native observations are not yet projected into `shore dump` or `shore show`; that belongs to the
   later ledger projection slice.
+
+`shore review intervention` records and reads durable pause/decision requests for a captured
+ReviewUnit:
+
+```bash
+shore review intervention request --track human:kevin --title "Need approval" \
+  --reason manual-decision-required [--mode blocking|advisory]
+shore review intervention list [--status open|resolved|ambiguous|all]
+shore review intervention fetch <intervention-id> [--include-body]
+shore review intervention resolve <intervention-id> --outcome approved [--reason "approved"]
+```
+
+Behavior:
+
+- `intervention request` requires `--track`, `--title`, and `--reason`. `--mode` defaults to
+  `blocking`; `advisory` requests are durable but do not imply a cooperative client must pause.
+- Request targets mirror observations: review-wide by default, `--file <path>` for a captured file,
+  `--file <path> --start-line <n> [--end-line <n>]` for a range, or `--observation
+  <observation-id>` for an existing native observation in the same ReviewUnit.
+- Request bodies may come from `--body`, `--body-file`, or `--body-stdin`. Large bodies reuse
+  Shore-owned `shore.note-body` artifacts while command output keeps artifact paths private.
+- `intervention list` is the V1 polling read surface. It replays `.shore/events/`, defaults to open
+  interventions, and can filter by `--track`, `--mode`, `--file`, and `--status`.
+- `intervention fetch <id> --include-body` returns one intervention and hydrates the body when
+  requested.
+- `intervention resolve <id>` appends an `intervention_resolved` event with an `--outcome` of
+  `approved`, `rejected`, `dismissed`, `superseded`, or `abandoned`. The optional reason may come
+  from `--reason`, `--reason-file`, or `--reason-stdin`.
+- Multiple different resolution events are preserved as append-only facts. Read surfaces report the
+  intervention as `ambiguous` instead of picking a timestamp winner.
+- Output documents are compact `shore.review-intervention-request`,
+  `shore.review-intervention-list`, `shore.review-intervention-fetch`, and
+  `shore.review-intervention-resolve` JSON by default. Read commands also accept `--pretty`.
+- V1 is durable and polling-friendly. It does not add a daemon, filesystem watch mode, TUI prompt,
+  notification transport, cancellation/escalation event, or final review disposition.
 
 `shore review publish` is older durable scaffolding kept temporarily while the ReviewUnit ledger
 model takes over. New capture-oriented workflows should start with `shore review capture`; later

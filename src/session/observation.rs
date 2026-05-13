@@ -394,12 +394,15 @@ pub fn list_observations(options: ObservationListOptions) -> Result<ObservationL
     })
 }
 
-fn target_matches_file(target: &ReviewTargetRef, file: &str) -> bool {
+pub(crate) fn target_matches_file(target: &ReviewTargetRef, file: &str) -> bool {
     match target {
         ReviewTargetRef::File { file_path, .. } | ReviewTargetRef::Range { file_path, .. } => {
             file_path == file
         }
-        ReviewTargetRef::ReviewUnit { .. } | ReviewTargetRef::Event { .. } => false,
+        ReviewTargetRef::ReviewUnit { .. }
+        | ReviewTargetRef::Observation { .. }
+        | ReviewTargetRef::Intervention { .. }
+        | ReviewTargetRef::Event { .. } => false,
     }
 }
 
@@ -424,7 +427,7 @@ fn sort_observation_views(observations: &mut [ObservationView]) {
     });
 }
 
-fn required_title(title: Option<&str>) -> Result<String> {
+pub(crate) fn required_title(title: Option<&str>) -> Result<String> {
     let title = title.unwrap_or_default().trim();
     if title.is_empty() {
         return Err(ShoreError::Message("title is required".to_owned()));
@@ -432,9 +435,9 @@ fn required_title(title: Option<&str>) -> Result<String> {
     Ok(title.to_owned())
 }
 
-type StagedBody = (Option<String>, Option<String>, Option<Vec<u8>>, Option<u64>);
+pub(crate) type StagedBody = (Option<String>, Option<String>, Option<Vec<u8>>, Option<u64>);
 
-fn staged_body(body: Option<&str>) -> Result<StagedBody> {
+pub(crate) fn staged_body(body: Option<&str>) -> Result<StagedBody> {
     match body {
         Some(body) => match stage_body_artifact(body.as_bytes())? {
             BodyArtifactOutcome::Inline { byte_size } => {

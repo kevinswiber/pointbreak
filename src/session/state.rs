@@ -3,11 +3,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, ShoreError};
-use crate::model::{ReviewArtifactId, ReviewId, ReviewUnitId, RevisionId, SnapshotId, WorkUnitId};
+use crate::model::{
+    InterventionId, ReviewArtifactId, ReviewId, ReviewUnitId, RevisionId, SnapshotId, WorkUnitId,
+};
 use crate::session::event::{
-    EventType, ReviewArtifactAcknowledgedPayload, ReviewArtifactPublishedPayload,
-    ReviewUnitCapturedPayload, RevisionPublishedPayload, ShoreEvent, SnapshotObservedPayload,
-    VerdictDecision,
+    EventType, InterventionMode, InterventionRequestedPayload, InterventionResolvedPayload,
+    ReviewArtifactAcknowledgedPayload, ReviewArtifactPublishedPayload, ReviewUnitCapturedPayload,
+    RevisionPublishedPayload, ShoreEvent, SnapshotObservedPayload, VerdictDecision,
 };
 
 const STATE_SCHEMA: &str = "shore.state";
@@ -32,6 +34,12 @@ pub struct SessionState {
     pub note_count: usize,
     #[serde(default)]
     pub observation_count: usize,
+    #[serde(default)]
+    pub intervention_count: usize,
+    #[serde(default)]
+    pub open_intervention_count: usize,
+    #[serde(default)]
+    pub open_blocking_intervention_count: usize,
     #[serde(default)]
     pub review_artifact_count: usize,
     #[serde(default)]
@@ -80,6 +88,8 @@ struct StateReducer {
     sidecar_count: usize,
     note_count: usize,
     observation_count: usize,
+    intervention_modes: BTreeMap<InterventionId, InterventionMode>,
+    resolved_intervention_ids: BTreeSet<InterventionId>,
     review_artifact_count: usize,
     acknowledgement_count: usize,
     published_artifacts: BTreeMap<ReviewArtifactId, (RevisionId, VerdictDecision)>,
@@ -98,6 +108,8 @@ impl Default for StateReducer {
             sidecar_count: 0,
             note_count: 0,
             observation_count: 0,
+            intervention_modes: BTreeMap::new(),
+            resolved_intervention_ids: BTreeSet::new(),
             review_artifact_count: 0,
             acknowledgement_count: 0,
             published_artifacts: BTreeMap::new(),
@@ -126,6 +138,8 @@ impl StateReducer {
             EventType::ReviewObservationRecorded => {
                 self.observation_count += 1;
             }
+            EventType::InterventionRequested => self.apply_intervention_requested(event)?,
+            EventType::InterventionResolved => self.apply_intervention_resolved(event)?,
             EventType::RevisionPublished => self.apply_revision_published(event)?,
             EventType::SnapshotObserved => self.apply_snapshot_observed(event)?,
             EventType::SidecarObserved => {
@@ -175,6 +189,20 @@ impl StateReducer {
     fn apply_review_unit_captured(&mut self, event: &ShoreEvent) -> Result<()> {
         let payload: ReviewUnitCapturedPayload = serde_json::from_value(event.payload.clone())?;
         self.captured_review_unit_ids.insert(payload.review_unit_id);
+        Ok(())
+    }
+
+    fn apply_intervention_requested(&mut self, event: &ShoreEvent) -> Result<()> {
+        let payload: InterventionRequestedPayload = serde_json::from_value(event.payload.clone())?;
+        self.intervention_modes
+            .insert(payload.intervention_id, payload.mode);
+        Ok(())
+    }
+
+    fn apply_intervention_resolved(&mut self, event: &ShoreEvent) -> Result<()> {
+        let payload: InterventionResolvedPayload = serde_json::from_value(event.payload.clone())?;
+        self.resolved_intervention_ids
+            .insert(payload.intervention_id);
         Ok(())
     }
 
@@ -231,6 +259,19 @@ impl StateReducer {
                 None
             }
         };
+        let open_intervention_count = self
+            .intervention_modes
+            .keys()
+            .filter(|intervention_id| !self.resolved_intervention_ids.contains(*intervention_id))
+            .count();
+        let open_blocking_intervention_count = self
+            .intervention_modes
+            .iter()
+            .filter(|(intervention_id, mode)| {
+                **mode == InterventionMode::Blocking
+                    && !self.resolved_intervention_ids.contains(*intervention_id)
+            })
+            .count();
         let last_verdict_decision = match current_revision_id.as_ref() {
             Some(revision_id) => {
                 let candidate_ids = self
@@ -278,6 +319,9 @@ impl StateReducer {
             sidecar_count: self.sidecar_count,
             note_count: self.note_count,
             observation_count: self.observation_count,
+            intervention_count: self.intervention_modes.len(),
+            open_intervention_count,
+            open_blocking_intervention_count,
             review_artifact_count: self.review_artifact_count,
             acknowledgement_count: self.acknowledgement_count,
             last_verdict_decision,
@@ -290,9 +334,9 @@ impl StateReducer {
 mod tests {
     use super::*;
     use crate::model::{
-        AcknowledgementId, ObservationId, ReviewArtifactId, ReviewEndpoint, ReviewId,
-        ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, Side, SnapshotId, TrackId,
-        WorkUnitId, WorktreeCaptureMode,
+        AcknowledgementId, InterventionId, InterventionResolutionId, ObservationId,
+        ReviewArtifactId, ReviewEndpoint, ReviewId, ReviewTargetRef, ReviewUnitId,
+        ReviewUnitSource, RevisionId, Side, SnapshotId, TrackId, WorkUnitId, WorktreeCaptureMode,
     };
     use crate::session::event::{
         AcknowledgementNextAction, ImportedNoteTarget, ReviewArtifactAcknowledgedPayload,
@@ -300,8 +344,10 @@ mod tests {
         ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, VerdictDecision,
     };
     use crate::session::{
-        EventTarget, EventType, ReviewInitializedPayload, RevisionPublishedPayload, ShoreEvent,
-        SidecarObservedPayload, SidecarSource, SnapshotObservedPayload, Writer,
+        EventTarget, EventType, InterventionMode, InterventionReasonCode,
+        InterventionRequestedPayload, InterventionResolutionOutcome, InterventionResolvedPayload,
+        ReviewInitializedPayload, RevisionPublishedPayload, ShoreEvent, SidecarObservedPayload,
+        SidecarSource, SnapshotObservedPayload, Writer,
     };
 
     #[test]
@@ -617,6 +663,62 @@ mod tests {
         assert_eq!(state.observation_count, 0);
     }
 
+    #[test]
+    fn state_defaults_missing_intervention_counts_to_zero() {
+        let json = serde_json::json!({
+            "schema": "shore.state",
+            "version": 1,
+            "reviewId": "review:default",
+            "workUnitId": "work:default",
+            "currentRevisionId": null,
+            "currentSnapshotId": null,
+            "eventCount": 0,
+            "sidecarCount": 0,
+            "noteCount": 0,
+            "reviewArtifactCount": 0,
+            "acknowledgementCount": 0,
+            "lastVerdictDecision": null,
+            "diagnostics": []
+        });
+
+        let state: SessionState = serde_json::from_value(json).unwrap();
+
+        assert_eq!(state.intervention_count, 0);
+        assert_eq!(state.open_intervention_count, 0);
+        assert_eq!(state.open_blocking_intervention_count, 0);
+    }
+
+    #[test]
+    fn state_projects_open_intervention_counts_order_independently() {
+        let request = intervention_requested_event(
+            "intervention:sha256:blocking",
+            InterventionMode::Blocking,
+        );
+
+        let state = SessionState::from_events(&[request]).unwrap();
+
+        assert_eq!(state.intervention_count, 1);
+        assert_eq!(state.open_intervention_count, 1);
+        assert_eq!(state.open_blocking_intervention_count, 1);
+    }
+
+    #[test]
+    fn state_excludes_resolved_interventions_from_open_counts() {
+        let request = intervention_requested_event(
+            "intervention:sha256:blocking",
+            InterventionMode::Blocking,
+        );
+        let resolution = intervention_resolved_event("intervention:sha256:blocking");
+
+        let forward = SessionState::from_events(&[request.clone(), resolution.clone()]).unwrap();
+        let reversed = SessionState::from_events(&[resolution, request]).unwrap();
+
+        assert_eq!(forward.intervention_count, 1);
+        assert_eq!(forward.open_intervention_count, 0);
+        assert_eq!(forward.open_blocking_intervention_count, 0);
+        assert_eq!(forward, reversed);
+    }
+
     fn review_initialized(review_id: &str, work_unit_id: &str) -> ShoreEvent {
         ShoreEvent::new(
             EventType::ReviewInitialized,
@@ -735,6 +837,80 @@ mod tests {
                 supersedes_observation_ids: vec![],
             },
             "2026-05-12T00:00:00Z",
+        )
+        .unwrap()
+    }
+
+    fn intervention_requested_event(intervention_id: &str, mode: InterventionMode) -> ShoreEvent {
+        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
+        let track_id = TrackId::new("human:kevin");
+        let target_ref = ReviewTargetRef::ReviewUnit {
+            review_unit_id: review_unit_id.clone(),
+        };
+        ShoreEvent::new(
+            EventType::InterventionRequested,
+            InterventionRequestedPayload::idempotency_key(
+                &review_unit_id,
+                &track_id,
+                intervention_id,
+            ),
+            EventTarget {
+                review_id: ReviewId::new("review:default"),
+                work_unit_id: None,
+                review_unit_id: Some(review_unit_id.clone()),
+                revision_id: Some(RevisionId::new("rev:git:sha256:one")),
+                snapshot_id: Some(SnapshotId::new("snap:git:sha256:one")),
+                track_id: Some(track_id),
+                subject: Some(target_ref.clone()),
+            },
+            Writer::shore_local_reviewer("test"),
+            InterventionRequestedPayload {
+                intervention_id: InterventionId::new(intervention_id),
+                target: target_ref,
+                mode,
+                reason_code: InterventionReasonCode::ManualDecisionRequired,
+                title: "Need approval".to_owned(),
+                body: None,
+                body_artifact_path: None,
+                body_byte_size: None,
+                body_content_hash: None,
+            },
+            "2026-05-12T00:00:00Z",
+        )
+        .unwrap()
+    }
+
+    fn intervention_resolved_event(intervention_id: &str) -> ShoreEvent {
+        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
+        let intervention_id = InterventionId::new(intervention_id);
+        let resolution_id =
+            InterventionResolutionId::new("intervention-resolution:sha256:approved");
+        ShoreEvent::new(
+            EventType::InterventionResolved,
+            InterventionResolvedPayload::idempotency_key(&intervention_id, resolution_id.as_str()),
+            EventTarget {
+                review_id: ReviewId::new("review:default"),
+                work_unit_id: None,
+                review_unit_id: Some(review_unit_id.clone()),
+                revision_id: Some(RevisionId::new("rev:git:sha256:one")),
+                snapshot_id: Some(SnapshotId::new("snap:git:sha256:one")),
+                track_id: None,
+                subject: Some(ReviewTargetRef::Intervention {
+                    review_unit_id,
+                    intervention_id: intervention_id.clone(),
+                }),
+            },
+            Writer::shore_local_reviewer("test"),
+            InterventionResolvedPayload {
+                intervention_resolution_id: resolution_id,
+                intervention_id,
+                outcome: InterventionResolutionOutcome::Approved,
+                reason: None,
+                reason_artifact_path: None,
+                reason_byte_size: None,
+                reason_content_hash: None,
+            },
+            "2026-05-12T00:01:00Z",
         )
         .unwrap()
     }

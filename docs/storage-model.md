@@ -82,6 +82,32 @@ hydrate bodies. Body artifact paths, event filenames, and `state.json` paths are
 details, not command-output API. Native observation projection into `shore dump` and `shore show` is
 deferred to the later ledger projection slice.
 
+Native interventions follow the same ReviewUnit ledger model:
+
+- immutable `intervention_requested` events in `events/` carry durable request facts
+- immutable `intervention_resolved` events in `events/` carry durable resolution facts
+- each request targets a ReviewUnit, captured file or range, or native observation in that same
+  ReviewUnit
+- each request belongs to a required track; actor/tool provenance remains in the event writer
+  envelope
+- bounded `state.json` summarizes intervention state with `interventionCount`,
+  `openInterventionCount`, and `openBlockingInterventionCount`, but it does not embed intervention
+  history, resolution history, body content, or reason content
+
+Request `reasonCode` and resolution `outcome` are intentionally separate classification axes.
+Multiple different resolution events remain append-only facts; read surfaces report that
+intervention as ambiguous instead of choosing a timestamp winner.
+
+Intervention bodies and resolution reasons use the shared inline-or-artifact mechanics. Small text
+stays inline in the event payload. Larger text uses the current `shore.note-body` envelope under
+`artifacts/notes/`, keeping `state.json` bounded and avoiding unbounded event payload growth.
+
+The direct read surfaces are `shore review intervention list` and `shore review intervention fetch`,
+which replay events and can optionally hydrate bodies. Body artifact paths, reason artifact paths,
+event filenames, and `state.json` paths are internal storage details, not command-output API. Native
+intervention projection into `shore dump` and `shore show` is deferred to the later ledger
+projection slice.
+
 Verdict and acknowledgement events follow the same disciplines as note events:
 
 - `review_artifact_published` records a single immutable verdict for a `(workUnitId, revisionId)`

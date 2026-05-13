@@ -526,6 +526,8 @@ fn event_type_key(event_type: EventType) -> &'static str {
         EventType::ReviewInitialized => "review_initialized",
         EventType::ReviewUnitCaptured => "review_unit_captured",
         EventType::ReviewObservationRecorded => "review_observation_recorded",
+        EventType::InterventionRequested => "intervention_requested",
+        EventType::InterventionResolved => "intervention_resolved",
         EventType::RevisionPublished => "revision_published",
         EventType::SnapshotObserved => "snapshot_observed",
         EventType::SidecarObserved => "sidecar_observed",
@@ -564,6 +566,14 @@ mod tests {
         assert_eq!(
             event_type_key(EventType::ReviewArtifactAcknowledged),
             "review_artifact_acknowledged"
+        );
+        assert_eq!(
+            event_type_key(EventType::InterventionRequested),
+            "intervention_requested"
+        );
+        assert_eq!(
+            event_type_key(EventType::InterventionResolved),
+            "intervention_resolved"
         );
     }
 }

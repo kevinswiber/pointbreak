@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{EventId, ReviewUnitId, Side};
+use super::{EventId, InterventionId, ObservationId, ReviewUnitId, Side};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(
@@ -57,6 +57,14 @@ pub enum ReviewTargetRef {
         side: Side,
         start_line: u32,
         end_line: u32,
+    },
+    Observation {
+        review_unit_id: ReviewUnitId,
+        observation_id: ObservationId,
+    },
+    Intervention {
+        review_unit_id: ReviewUnitId,
+        intervention_id: InterventionId,
     },
     Event {
         review_unit_id: ReviewUnitId,
@@ -138,5 +146,30 @@ mod tests {
         assert_eq!(event["kind"], "event");
         assert_eq!(event["reviewUnitId"], "review-unit:sha256:abc");
         assert_eq!(event["eventId"], "evt:sha256:def");
+    }
+
+    #[test]
+    fn review_target_can_represent_observation_and_intervention_scope() {
+        let observation = ReviewTargetRef::Observation {
+            review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
+            observation_id: ObservationId::new("obs:sha256:def"),
+        };
+        let intervention = ReviewTargetRef::Intervention {
+            review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
+            intervention_id: InterventionId::new("intervention:sha256:ghi"),
+        };
+
+        let json = serde_json::json!({
+            "observation": observation,
+            "intervention": intervention
+        });
+
+        assert_eq!(json["observation"]["kind"], "observation");
+        assert_eq!(json["observation"]["observationId"], "obs:sha256:def");
+        assert_eq!(json["intervention"]["kind"], "intervention");
+        assert_eq!(
+            json["intervention"]["interventionId"],
+            "intervention:sha256:ghi"
+        );
     }
 }

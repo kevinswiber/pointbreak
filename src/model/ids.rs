@@ -33,6 +33,8 @@ id_type!(TrackId);
 id_type!(ReviewArtifactId);
 id_type!(AcknowledgementId);
 id_type!(ObservationId);
+id_type!(InterventionId);
+id_type!(InterventionResolutionId);
 
 #[cfg(test)]
 mod tests {
@@ -68,5 +70,29 @@ mod tests {
         assert_eq!(json, "\"obs:sha256:abc\"");
         assert_eq!(parsed, id);
         assert_eq!(parsed.as_str(), "obs:sha256:abc");
+    }
+
+    #[test]
+    fn intervention_id_round_trips_through_serde_and_string() {
+        let id = InterventionId::new("intervention:sha256:abc");
+
+        let json = serde_json::to_string(&id).unwrap();
+        let parsed: InterventionId = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(json, "\"intervention:sha256:abc\"");
+        assert_eq!(parsed, id);
+        assert_eq!(parsed.as_str(), "intervention:sha256:abc");
+    }
+
+    #[test]
+    fn intervention_resolution_id_round_trips_through_serde_and_string() {
+        let id = InterventionResolutionId::new("intervention-resolution:sha256:def");
+
+        let json = serde_json::to_string(&id).unwrap();
+        let parsed: InterventionResolutionId = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(json, "\"intervention-resolution:sha256:def\"");
+        assert_eq!(parsed, id);
+        assert_eq!(parsed.as_str(), "intervention-resolution:sha256:def");
     }
 }
