@@ -5,8 +5,6 @@ use std::process::ExitCode;
 
 use clap::error::ErrorKind;
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use input::ReviewInputArgs;
-use shore::dump::{DumpDocument, DumpOptions};
 use shore::model::{
     DispositionId, InterventionId, ObservationId, ReviewEndpoint, ReviewTargetRef, ReviewUnitId,
     ReviewUnitSource, Side,
@@ -14,28 +12,29 @@ use shore::model::{
 use shore::session::{
     AdapterNoteView, CaptureOptions, CaptureResult, CurrentDispositionStatus,
     DispositionAddOptions, DispositionAddResult, DispositionShowFilters, DispositionShowOptions,
-    DispositionShowResult, DispositionTargetSelector, DispositionView, ImportNotesOptions,
-    ImportNotesResult, InterventionFetchOptions, InterventionFetchResult, InterventionListOptions,
-    InterventionListResult, InterventionMode, InterventionReasonCode, InterventionRequestOptions,
-    InterventionRequestResult, InterventionResolutionOutcome, InterventionResolveOptions,
-    InterventionResolveResult, InterventionStatusFilter, InterventionTargetSelector,
-    InterventionView, ObservationAddOptions, ObservationAddResult, ObservationListOptions,
-    ObservationListResult, ObservationTargetSelector, ObservationView, ProjectionDiagnostic,
-    ReviewDisposition, ReviewHistoryEntry, ReviewHistoryFilters, ReviewHistoryOptions,
-    ReviewHistoryResult, ReviewUnitProjectionIdentity, ReviewUnitProjectionRow,
-    ReviewUnitProjectionSummary, ReviewUnitShowFilters, ReviewUnitShowOptions,
-    ReviewUnitShowResult, capture_worktree_review, fetch_intervention, import_notes,
+    DispositionShowResult, DispositionTargetSelector, DispositionView, InterventionFetchOptions,
+    InterventionFetchResult, InterventionListOptions, InterventionListResult, InterventionMode,
+    InterventionReasonCode, InterventionRequestOptions, InterventionRequestResult,
+    InterventionResolutionOutcome, InterventionResolveOptions, InterventionResolveResult,
+    InterventionStatusFilter, InterventionTargetSelector, InterventionView, ObservationAddOptions,
+    ObservationAddResult, ObservationListOptions, ObservationListResult, ObservationTargetSelector,
+    ObservationView, ProjectionDiagnostic, ReviewDisposition, ReviewHistoryEntry,
+    ReviewHistoryFilters, ReviewHistoryOptions, ReviewHistoryResult, ReviewUnitProjectionIdentity,
+    ReviewUnitProjectionRow, ReviewUnitProjectionSummary, ReviewUnitShowFilters,
+    ReviewUnitShowOptions, ReviewUnitShowResult, capture_worktree_review, fetch_intervention,
     list_interventions, list_observations, record_disposition, record_observation,
     request_intervention, resolve_intervention, review_history, show_dispositions,
     show_review_unit,
 };
-use shore::stream::ViewportSpec;
 
 use crate::cli_tracing::TracingArgs;
 
+mod dump;
 mod input;
 mod json;
+mod notes;
 mod review;
+mod show;
 
 #[derive(Debug, Parser)]
 #[command(name = "shore", version, about = "Inspect review streams")]
@@ -49,47 +48,18 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    Dump(DumpArgs),
-    Notes(NotesArgs),
+    Dump(dump::DumpArgs),
+    Notes(notes::NotesArgs),
     // Boxed because the review subcommands carry much larger argument structs
     // than the other top-level commands.
     Review(Box<ReviewArgs>),
-    Show(ShowArgs),
-}
-
-#[derive(Debug, Args)]
-struct DumpArgs {
-    #[command(flatten)]
-    input: ReviewInputArgs,
-
-    #[arg(long, conflicts_with = "compact")]
-    pretty: bool,
-
-    #[arg(long)]
-    compact: bool,
-}
-
-#[derive(Debug, Args)]
-struct ShowArgs {
-    #[command(flatten)]
-    input: ReviewInputArgs,
+    Show(show::ShowArgs),
 }
 
 #[derive(Debug, Args)]
 struct ReviewArgs {
     #[command(subcommand)]
     command: ReviewCommand,
-}
-
-#[derive(Debug, Args)]
-struct NotesArgs {
-    #[command(subcommand)]
-    command: NotesCommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum NotesCommand {
-    Apply(NotesApplyArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -495,12 +465,6 @@ struct ObservationListArgs {
     compact: bool,
 }
 
-#[derive(Debug, Args)]
-struct NotesApplyArgs {
-    #[command(flatten)]
-    input: ReviewInputArgs,
-}
-
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CaptureDocument {
@@ -758,18 +722,6 @@ struct DispositionViewDocument {
     overrides: Vec<ReviewTargetRef>,
     created_at: String,
     writer: shore::session::Writer,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct NotesApplyDocument {
-    schema: &'static str,
-    version: u32,
-    note_count: usize,
-    notes_created: usize,
-    notes_existing: usize,
-    diagnostics: Vec<shore::session::ProjectionDiagnostic>,
-    state_path: String,
 }
 
 #[derive(serde::Serialize)]
@@ -1035,42 +987,13 @@ fn run_cli(cli: Cli, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::E
     match cli.command {
         Command::Dump(args) => {
             tracing::debug!(command = "dump", "command_start");
-            dump(args, &cli.tracing, stdout)
+            dump::run(args, &cli.tracing, stdout)
         }
-        Command::Notes(args) => notes(args, stdout),
+        Command::Notes(args) => notes::run(args, stdout),
         Command::Review(args) => review_command(*args, &cli.tracing, stdout),
         Command::Show(args) => {
             tracing::debug!(command = "show", "command_start");
-            show(args, &cli.tracing)
-        }
-    }
-}
-
-fn dump(
-    args: DumpArgs,
-    tracing: &TracingArgs,
-    stdout: &mut dyn Write,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let document = document_for_dump(&args, tracing)?;
-    json::write_json(stdout, &document, should_pretty_print(&args))
-}
-
-fn show(args: ShowArgs, tracing: &TracingArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let document = document_for_show(&args, tracing)?;
-    let input = args.input.clone();
-    let tracing = tracing.clone();
-    let viewport = ViewportSpec::new(80, 24);
-    let app = crate::tui::app::TuiApp::new(document, viewport);
-    let repo = input.repo.clone();
-    let load_document = move || load_dump_document(&input, dump_options(&input, &tracing));
-    crate::tui::terminal::run(app, &repo, load_document)
-}
-
-fn notes(args: NotesArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
-    match args.command {
-        NotesCommand::Apply(args) => {
-            tracing::debug!(command = "notes.apply", "command_start");
-            notes_apply(args, stdout)
+            show::run(args, &cli.tracing)
         }
     }
 }
@@ -1268,47 +1191,6 @@ fn review_observation_list(
     let result = list_observations(observation_list_options(args));
     let document = ObservationListDocument::from(result?);
     json::write_json(stdout, &document, pretty)
-}
-
-fn notes_apply(
-    args: NotesApplyArgs,
-    stdout: &mut dyn Write,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let result = import_notes(notes_apply_options(&args.input)?)?;
-    let document = NotesApplyDocument::from(result);
-    json::write_json(stdout, &document, false)
-}
-
-fn document_for_dump(args: &DumpArgs, tracing: &TracingArgs) -> shore::error::Result<DumpDocument> {
-    load_dump_document(&args.input, dump_options(&args.input, tracing))
-}
-
-fn document_for_show(args: &ShowArgs, tracing: &TracingArgs) -> shore::error::Result<DumpDocument> {
-    load_dump_document(&args.input, dump_options(&args.input, tracing))
-}
-
-fn load_dump_document(
-    args: &ReviewInputArgs,
-    options: DumpOptions,
-) -> shore::error::Result<DumpDocument> {
-    let document = match &args.review_notes {
-        Some(review_notes) => {
-            DumpDocument::from_review_notes_file_with_options(&args.repo, review_notes, options)?
-        }
-        None => DumpDocument::from_repo_with_options(&args.repo, options)?,
-    };
-    Ok(document)
-}
-
-fn dump_options(args: &ReviewInputArgs, tracing: &TracingArgs) -> DumpOptions {
-    let mut options = DumpOptions::new();
-    if let Some(review_notes) = &args.review_notes {
-        options = options.exclude_helper_path(review_notes);
-    }
-    if let Some(log_file) = &tracing.log_file {
-        options = options.exclude_helper_path(log_file);
-    }
-    options
 }
 
 fn capture_options(args: &CaptureArgs, tracing: &TracingArgs) -> CaptureOptions {
@@ -1632,23 +1514,6 @@ fn read_observation_body(
     Ok(None)
 }
 
-fn notes_apply_options(
-    args: &ReviewInputArgs,
-) -> Result<ImportNotesOptions, Box<dyn std::error::Error>> {
-    let mut options = ImportNotesOptions::new(&args.repo);
-    match &args.review_notes {
-        Some(review_notes) => {
-            options = options.with_review_notes(review_notes);
-            Ok(options)
-        }
-        None => Err("exactly one review-notes input is required".into()),
-    }
-}
-
-fn should_pretty_print(args: &DumpArgs) -> bool {
-    args.pretty && !args.compact
-}
-
 impl From<CaptureResult> for CaptureDocument {
     fn from(result: CaptureResult) -> Self {
         Self {
@@ -1966,20 +1831,6 @@ impl From<DispositionView> for DispositionViewDocument {
     }
 }
 
-impl From<ImportNotesResult> for NotesApplyDocument {
-    fn from(result: ImportNotesResult) -> Self {
-        Self {
-            schema: "shore.notes-apply",
-            version: 1,
-            note_count: result.note_count,
-            notes_created: result.notes_created,
-            notes_existing: result.notes_existing,
-            diagnostics: result.diagnostics,
-            state_path: result.state_path.to_string_lossy().into_owned(),
-        }
-    }
-}
-
 impl From<ReviewHistoryResult> for HistoryDocument {
     fn from(result: ReviewHistoryResult) -> Self {
         let history_count = result.history_count();
@@ -2259,9 +2110,10 @@ mod tests {
     use shore::dump::DumpInputSource;
     use shore::session::ImportNotesOptions;
 
-    use super::{
-        DumpArgs, ReviewInputArgs, ShowArgs, document_for_dump, document_for_show, run_with_io,
-    };
+    use super::dump::{DumpArgs, document_for_dump};
+    use super::input::ReviewInputArgs;
+    use super::run_with_io;
+    use super::show::{ShowArgs, document_for_show};
     use crate::cli_tracing::{LogFormatArg, TracingArgs};
 
     #[test]
@@ -2364,8 +2216,10 @@ mod tests {
         let sidecar_dir = tempfile::tempdir().expect("create durable tempdir");
         let sidecar_path = sidecar_dir.path().join("review-notes.json");
         fs::write(&sidecar_path, native_review_notes_json()).expect("write review notes");
-        super::import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar_path))
-            .expect("notes import succeeds");
+        shore::session::import_notes(
+            ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar_path),
+        )
+        .expect("notes import succeeds");
 
         let input = ReviewInputArgs {
             repo: repo.path().to_owned(),
@@ -2455,7 +2309,7 @@ mod tests {
     fn dump_and_show_prefer_explicit_review_notes_over_durable_notes() {
         let repo = dump_repo();
         let durable_sidecar = write_native_review_notes(&repo);
-        super::import_notes(
+        shore::session::import_notes(
             ImportNotesOptions::new(repo.path()).with_review_notes(&durable_sidecar),
         )
         .unwrap();
