@@ -22,6 +22,7 @@ pub const DUPLICATE_SEMANTIC_INTERVENTION_REQUEST_EVENT_CODE: &str =
     "duplicate_semantic_intervention_request_event";
 pub const DUPLICATE_SEMANTIC_INTERVENTION_RESOLUTION_EVENT_CODE: &str =
     "duplicate_semantic_intervention_resolution_event";
+const DUPLICATE_SEMANTIC_DIAGNOSTIC_EVENT_LIMIT: usize = 5;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -397,15 +398,31 @@ fn append_duplicate_semantic_diagnostics<'a>(
         diagnostics.push(ProjectionDiagnostic {
             code: code.to_owned(),
             message: format!(
-                "duplicate {label} semantic id {semantic_id} appears in events: {}",
-                event_ids
-                    .iter()
-                    .map(EventId::as_str)
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                "duplicate {label} semantic id {semantic_id} appears in {} events: {}",
+                event_ids.len(),
+                bounded_duplicate_event_list(event_ids),
             ),
         });
     }
+}
+
+fn bounded_duplicate_event_list(event_ids: &BTreeSet<EventId>) -> String {
+    let mut displayed = event_ids
+        .iter()
+        .take(DUPLICATE_SEMANTIC_DIAGNOSTIC_EVENT_LIMIT)
+        .map(EventId::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let omitted_count = event_ids
+        .len()
+        .saturating_sub(DUPLICATE_SEMANTIC_DIAGNOSTIC_EVENT_LIMIT);
+    if omitted_count > 0 {
+        if !displayed.is_empty() {
+            displayed.push_str(", ");
+        }
+        displayed.push_str(&format!("... {omitted_count} more"));
+    }
+    displayed
 }
 
 #[cfg(test)]
@@ -590,6 +607,55 @@ mod tests {
             DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE,
             "obs:sha256:one",
         );
+    }
+
+    #[test]
+    fn duplicate_semantic_diagnostic_messages_are_bounded() {
+        let mut events = vec![simple_review_unit_captured_event("review-unit:sha256:one")];
+        events.extend((0..7).map(|index| {
+            observation_recorded_event_with_key(
+                "obs:sha256:bounded",
+                "agent:codex",
+                &format!("retry-{index}"),
+            )
+        }));
+        let mut event_ids = events
+            .iter()
+            .skip(1)
+            .map(|event| event.event_id.as_str().to_owned())
+            .collect::<Vec<_>>();
+        event_ids.sort();
+
+        let state = SessionState::from_events(&events).unwrap();
+        let diagnostic = state
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE)
+            .expect("duplicate observation diagnostic emitted");
+
+        assert!(diagnostic.message.contains("obs:sha256:bounded"));
+        assert!(diagnostic.message.contains("appears in 7 events"));
+        for event_id in event_ids
+            .iter()
+            .take(DUPLICATE_SEMANTIC_DIAGNOSTIC_EVENT_LIMIT)
+        {
+            assert!(
+                diagnostic.message.contains(event_id),
+                "diagnostic should include displayed event id {event_id}: {}",
+                diagnostic.message
+            );
+        }
+        for event_id in event_ids
+            .iter()
+            .skip(DUPLICATE_SEMANTIC_DIAGNOSTIC_EVENT_LIMIT)
+        {
+            assert!(
+                !diagnostic.message.contains(event_id),
+                "diagnostic should omit event id beyond display limit {event_id}: {}",
+                diagnostic.message
+            );
+        }
+        assert!(diagnostic.message.contains("2 more"));
     }
 
     #[test]
