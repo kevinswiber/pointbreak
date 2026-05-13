@@ -109,7 +109,8 @@ Prefer shelling out to `git` at first. A VCS abstraction can come later if the m
 
 The current executable surfaces are `shore show`, `shore dump`, `shore review capture`,
 `shore review observation add/list`, `shore review intervention request/list/fetch/resolve`,
-`shore review disposition add/show`, `shore review history`, and `shore notes apply`.
+`shore review disposition add/show`, `shore review history`, `shore review unit show`, and
+`shore notes apply`.
 
 All commands accept optional tracing flags:
 
@@ -248,8 +249,8 @@ Behavior:
   returns one logical row and includes a duplicate semantic diagnostic.
 - Output is compact `shore.review-observation-add` or `shore.review-observation-list` JSON by
   default. `observation list` also accepts `--pretty`.
-- Native observations are not yet projected into `shore dump` or `shore show`; that belongs to the
-  later ledger projection slice.
+- Native observations appear in `shore review unit show`. They are not yet projected into
+  `shore dump` or `shore show`.
 
 `shore review intervention` records and reads durable pause/decision requests for a captured
 ReviewUnit:
@@ -287,6 +288,8 @@ Behavior:
   `shore.review-intervention-resolve` JSON by default. Read commands also accept `--pretty`.
 - V1 is durable and polling-friendly. It does not add a daemon, filesystem watch mode, TUI prompt,
   notification transport, or cancellation/escalation event.
+- Native interventions appear in `shore review unit show`. They are not yet projected into
+  `shore dump` or `shore show`.
 
 `shore review disposition` records and reads final review outcomes for a captured ReviewUnit:
 
@@ -320,8 +323,8 @@ Behavior:
   duplicate semantic diagnostic.
 - Output documents are compact `shore.review-disposition-add` and `shore.review-disposition-show`
   JSON by default. `disposition show` also accepts `--pretty`.
-- Native dispositions are not yet projected into `shore dump` or `shore show`; that belongs to the
-  later ledger projection slice.
+- Native dispositions appear in `shore review unit show`. They are not yet projected into
+  `shore dump` or `shore show`.
 
 `shore review history` reads the chronological ledger of durable Shore events:
 
@@ -346,8 +349,35 @@ Behavior:
   entries while shared duplicate diagnostics are included in the document.
 - Raw event files, event filenames, artifact paths, and `state.json` remain internal storage. The
   command-output JSON is the integration surface.
-- History is not the full ReviewUnit row projection used by `shore dump` or `shore show`; that
-  projection remains a separate slice.
+- History is not the full ReviewUnit row projection. Use `shore review unit show` for the composite
+  narrative-first plus snapshot-complete view of one captured ReviewUnit.
+
+`shore review unit show` reads the full projection for one captured ReviewUnit:
+
+```bash
+shore review unit show [--repo <path>] [--review-unit <id>] [--track <track-id>] \
+  [--include-body] [--pretty | --compact]
+```
+
+Behavior:
+
+- The command emits compact `shore.review-unit` v1 JSON by default.
+- When exactly one ReviewUnit has been captured, Shore selects it automatically. If multiple
+  captured ReviewUnits exist, pass `--review-unit <id>` to select one explicitly.
+- The output includes ReviewUnit identity, event-set freshness metadata, filters, summary counts,
+  current disposition status, native observations, interventions, dispositions, imported adapter
+  notes, projection rows, and diagnostics.
+- Rows are narrative-first, then snapshot-complete. Native ledger facts and imported adapter notes
+  appear before the captured snapshot remainder; the snapshot remainder still includes every
+  captured file, metadata row, hunk header, and diff row.
+- `--track <track-id>` filters narrative facts without changing the selected ReviewUnit, event-set
+  freshness metadata, or captured snapshot completeness.
+- Body-like text is omitted by default. `--include-body` hydrates observation bodies, intervention
+  request bodies and resolution reasons, disposition summaries, and imported-note bodies.
+- Raw event files, event filenames, artifact paths, snapshot artifact paths, and `state.json` remain
+  internal storage. The command-output JSON is the integration surface.
+- `shore review unit show` is distinct from `shore review history`: history is the chronological raw
+  event listing, while unit show is the composite ReviewUnit view for agents and future frontends.
 
 `shore notes apply` imports review notes into Shore-owned durable state without publishing a
 revision:

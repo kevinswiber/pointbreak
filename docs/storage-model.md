@@ -83,8 +83,8 @@ inline in the event payload. Larger bodies use the current `shore.note-body` env
 
 The direct read surface is `shore review observation list`, which replays events and can optionally
 hydrate bodies. Body artifact paths, event filenames, and `state.json` paths are internal storage
-details, not command-output API. Native observation projection into `shore dump` and `shore show` is
-deferred to the later ledger projection slice.
+details, not command-output API. Native observations also appear in the composite
+`shore review unit show` projection, but they are not projected into `shore dump` or `shore show`.
 
 Native interventions follow the same ReviewUnit ledger model:
 
@@ -116,8 +116,8 @@ stays inline in the event payload. Larger text uses the current `shore.note-body
 The direct read surfaces are `shore review intervention list` and `shore review intervention fetch`,
 which replay events and can optionally hydrate bodies. Body artifact paths, reason artifact paths,
 event filenames, and `state.json` paths are internal storage details, not command-output API. Native
-intervention projection into `shore dump` and `shore show` is deferred to the later ledger
-projection slice.
+interventions also appear in the composite `shore review unit show` projection, but they are not
+projected into `shore dump` or `shore show`.
 
 Native dispositions follow the same ReviewUnit ledger model:
 
@@ -149,8 +149,8 @@ the event payload. Larger summaries use the current `shore.note-body` envelope u
 
 The direct read surface is `shore review disposition show`, which replays events and can optionally
 hydrate summaries. Summary artifact paths, event filenames, and `state.json` paths are internal
-storage details, not command-output API. Native disposition projection into `shore dump` and
-`shore show` is deferred to the later ledger projection slice.
+storage details, not command-output API. Native dispositions also appear in the composite
+`shore review unit show` projection, but they are not projected into `shore dump` or `shore show`.
 
 Review history is the chronological read surface over durable events:
 
@@ -170,6 +170,26 @@ current dispositions, resolve interventions, or build the full ReviewUnit row pr
 state diagnostics are still included so callers can see duplicate semantic facts while inspecting
 the underlying events. Raw event files, artifact paths, event filenames, and `state.json` are
 storage details, not history output API.
+
+ReviewUnit show is the composite read surface for one captured ReviewUnit:
+
+- `shore review unit show` returns `shore.review-unit` JSON derived from a validated scan of
+  `.shore/events/` plus the bound immutable snapshot artifact for the selected ReviewUnit
+- `eventSetHash` and `eventCount` describe the full event set read for the command, not only the
+  selected ReviewUnit's returned narrative facts
+- the output includes ReviewUnit identity, filters, summary counts, current disposition, native
+  observations, interventions, dispositions, imported adapter notes, projection rows, and
+  diagnostics
+- rows are narrative-first plus snapshot-complete: reviewed ledger material appears first, and the
+  snapshot remainder still includes every captured file, metadata row, hunk header, and diff row
+- track filters narrow narrative facts only; they do not mutate ReviewUnit selection, freshness
+  metadata, or captured snapshot completeness
+- `--include-body` hydrates body-like text from inline payloads or `artifacts/notes/`, while the
+  default output keeps large text omitted
+
+`shore.review-unit` is command-output API. Snapshot artifacts, note body artifacts, event files,
+event filenames, and `state.json` remain Shore-owned storage details and are not exposed as stable
+paths.
 
 The review stream also surfaces stale and orphan notes as dedicated rows so reviewers can park the
 cursor on them; the stream emits an additional synthetic file header for orphan notes when at least
@@ -264,9 +284,9 @@ the projection saw; it is not a causal ordering primitive or a raw event-file ch
 
 If a cached projection's `eventSetHash` does not match a fresh scan of `.shore/events/`, the
 projection is stale and should be rebuilt from the event files. The event files remain authoritative;
-`state.json` is still safe to delete and regenerate. `shore review history` reuses this freshness
-primitive, and future export or derived-index projections should do the same rather than inventing
-per-projection hashes.
+`state.json` is still safe to delete and regenerate. `shore review history` and
+`shore review unit show` reuse this freshness primitive, and future derived-index projections should
+do the same rather than inventing per-projection hashes.
 
 ## Shared Mutable Files
 

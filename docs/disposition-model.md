@@ -5,9 +5,10 @@
 V1 has a local durable disposition ledger. Shore can append `review_disposition_recorded` events and
 read them through `shore review disposition show`.
 
-Native disposition projection into `shore dump`, `shore show`, export commands, and TUI surfaces is
-deferred. `shore review history` can show raw disposition events as chronological ledger entries,
-but it does not compute the current disposition view.
+Native dispositions appear in `shore review unit show` as part of the composite ReviewUnit
+projection. `shore review history` can show raw disposition events as chronological ledger entries,
+but it does not compute the current disposition view. `shore dump`, `shore show`, and TUI surfaces
+do not yet project native dispositions.
 
 ## Goal
 
