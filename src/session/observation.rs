@@ -223,7 +223,7 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
 
     let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
-    let resolved = resolve_review_unit_for_observation(&events, options.review_unit_id.as_ref())?;
+    let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
     let target = resolve_observation_target(worktree_root, &resolved, &options.target)?;
     let track_id = validated_track_id(
         options
@@ -327,7 +327,7 @@ pub fn list_observations(options: ObservationListOptions) -> Result<ObservationL
     let shore_dir = paths.shore_dir();
     let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
-    let resolved = resolve_review_unit_for_observation(&events, options.review_unit_id.as_ref())?;
+    let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
     let track_filter = options
         .track
         .as_deref()
@@ -589,7 +589,7 @@ impl ObservationTargetSelector {
     }
 }
 
-pub(crate) fn resolve_review_unit_for_observation(
+pub(crate) fn resolve_review_unit(
     events: &[ShoreEvent],
     requested: Option<&ReviewUnitId>,
 ) -> Result<ResolvedReviewUnit> {
@@ -778,7 +778,7 @@ mod tests {
         let event_store = EventStore::open(repo.path().join(".shore"));
         let events = event_store.list_events().unwrap();
 
-        let resolved = resolve_review_unit_for_observation(&events, None).unwrap();
+        let resolved = resolve_review_unit(&events, None).unwrap();
 
         assert_eq!(resolved.review_unit_id, capture.review_unit_id);
         assert_eq!(resolved.revision_id, capture.revision_id);
@@ -789,7 +789,7 @@ mod tests {
     fn resolving_current_review_unit_errors_when_none_captured() {
         let events = Vec::new();
 
-        let error = resolve_review_unit_for_observation(&events, None).unwrap_err();
+        let error = resolve_review_unit(&events, None).unwrap_err();
 
         assert!(error.to_string().contains("no captured review unit"));
     }
@@ -801,7 +801,7 @@ mod tests {
             review_unit_captured_event_with_ids("review-unit:sha256:two", "rev:two", "snap:two"),
         ];
 
-        let error = resolve_review_unit_for_observation(&events, None).unwrap_err();
+        let error = resolve_review_unit(&events, None).unwrap_err();
 
         assert!(error.to_string().contains("multiple captured review units"));
     }
@@ -814,7 +814,7 @@ mod tests {
             "snap:one",
         )];
 
-        let error = resolve_review_unit_for_observation(
+        let error = resolve_review_unit(
             &events,
             Some(&ReviewUnitId::new("review-unit:sha256:missing")),
         )

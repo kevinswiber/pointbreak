@@ -20,7 +20,7 @@ use crate::session::intervention::{
 };
 use crate::session::observation::{
     ObservationProjectionOptions, ObservationView, ResolvedReviewUnit, project_observations,
-    resolve_review_unit_for_observation, validated_track_id,
+    resolve_review_unit, validated_track_id,
 };
 use crate::session::snapshot_artifact::read_snapshot_artifact;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
@@ -133,6 +133,8 @@ pub struct AdapterNoteView {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AdapterNoteStatus {
     Exact,
+    Relocated,
+    FileLevel,
     Stale,
     Orphaned,
     Unresolved,
@@ -142,6 +144,8 @@ impl AdapterNoteStatus {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Exact => "exact",
+            Self::Relocated => "relocated",
+            Self::FileLevel => "file_level",
             Self::Stale => "stale",
             Self::Orphaned => "orphaned",
             Self::Unresolved => "unresolved",
@@ -242,7 +246,7 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         .map(validated_track_id)
         .transpose()?;
     let events = EventStore::open(paths.shore_dir()).list_events()?;
-    let resolved = resolve_review_unit_for_observation(&events, options.review_unit_id.as_ref())?;
+    let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
     let review_unit = selected_review_unit_capture(&events, &resolved)?;
     let snapshot = load_bound_snapshot_artifact(paths.worktree_root(), &review_unit)?;
     let observations = project_observations(ObservationProjectionOptions {
@@ -275,17 +279,16 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         project_adapter_notes(&events, paths.shore_dir(), &snapshot, options.include_body)?;
     let (snapshot_rows, mut summary) = build_snapshot_rows(&snapshot, &review_unit.id);
     let mut narrative_rows = Vec::new();
-    let observation_rows = build_observation_rows(&observations, narrative_rows.len());
+    let observation_rows = build_observation_rows(&observations);
     summary.observation_count = observations.len();
     narrative_rows.extend(observation_rows);
-    let intervention_rows = build_intervention_rows(&interventions, narrative_rows.len());
+    let intervention_rows = build_intervention_rows(&interventions);
     summary.intervention_count = interventions.len();
     narrative_rows.extend(intervention_rows);
-    let disposition_rows = build_disposition_rows(&dispositions, narrative_rows.len());
+    let disposition_rows = build_disposition_rows(&dispositions);
     summary.disposition_count = dispositions.len();
     narrative_rows.extend(disposition_rows);
-    let adapter_note_rows =
-        build_adapter_note_rows(&adapter_notes, &review_unit.id, narrative_rows.len());
+    let adapter_note_rows = build_adapter_note_rows(&adapter_notes, &review_unit.id);
     summary.adapter_note_count = adapter_notes.len();
     narrative_rows.extend(adapter_note_rows);
     summary.narrative_row_count = narrative_rows.len();
@@ -463,12 +466,12 @@ fn imported_note_target(target: &ImportedNoteTarget) -> ReviewNoteTarget {
 
 fn adapter_note_status(status: &ResolutionStatus) -> AdapterNoteStatus {
     match status {
+        ResolutionStatus::Exact => AdapterNoteStatus::Exact,
+        ResolutionStatus::Relocated => AdapterNoteStatus::Relocated,
+        ResolutionStatus::FileLevel => AdapterNoteStatus::FileLevel,
         ResolutionStatus::Stale => AdapterNoteStatus::Stale,
         ResolutionStatus::Orphaned => AdapterNoteStatus::Orphaned,
         ResolutionStatus::Unresolved => AdapterNoteStatus::Unresolved,
-        ResolutionStatus::Exact | ResolutionStatus::Relocated | ResolutionStatus::FileLevel => {
-            AdapterNoteStatus::Exact
-        }
     }
 }
 
@@ -588,20 +591,17 @@ fn build_snapshot_rows(
     (rows, summary)
 }
 
-fn build_observation_rows(
-    observations: &[ObservationView],
-    start_order: usize,
-) -> Vec<ReviewUnitProjectionRow> {
+fn build_observation_rows(observations: &[ObservationView]) -> Vec<ReviewUnitProjectionRow> {
     observations
         .iter()
         .enumerate()
         .map(|(index, observation)| {
             let (file_path, old_path) = target_paths(&observation.target);
             ReviewUnitProjectionRow {
-                id: RowId::new(format!("row:{:06}", start_order + index)),
+                id: RowId::new(format!("row:{index:06}")),
                 kind: ReviewUnitProjectionRowKind::Observation,
                 projection_phase: ProjectionPhase::Narrative,
-                projection_order: start_order + index,
+                projection_order: index,
                 snapshot_order: None,
                 coverage: ProjectionCoverage::Reviewed,
                 target: Some(observation.target.clone()),
@@ -615,20 +615,17 @@ fn build_observation_rows(
         .collect()
 }
 
-fn build_intervention_rows(
-    interventions: &[InterventionView],
-    start_order: usize,
-) -> Vec<ReviewUnitProjectionRow> {
+fn build_intervention_rows(interventions: &[InterventionView]) -> Vec<ReviewUnitProjectionRow> {
     interventions
         .iter()
         .enumerate()
         .map(|(index, intervention)| {
             let (file_path, old_path) = target_paths(&intervention.target);
             ReviewUnitProjectionRow {
-                id: RowId::new(format!("row:{:06}", start_order + index)),
+                id: RowId::new(format!("row:{index:06}")),
                 kind: ReviewUnitProjectionRowKind::Intervention,
                 projection_phase: ProjectionPhase::Narrative,
-                projection_order: start_order + index,
+                projection_order: index,
                 snapshot_order: None,
                 coverage: ProjectionCoverage::Reviewed,
                 target: Some(intervention.target.clone()),
@@ -642,20 +639,17 @@ fn build_intervention_rows(
         .collect()
 }
 
-fn build_disposition_rows(
-    dispositions: &[DispositionView],
-    start_order: usize,
-) -> Vec<ReviewUnitProjectionRow> {
+fn build_disposition_rows(dispositions: &[DispositionView]) -> Vec<ReviewUnitProjectionRow> {
     dispositions
         .iter()
         .enumerate()
         .map(|(index, disposition)| {
             let (file_path, old_path) = target_paths(&disposition.target);
             ReviewUnitProjectionRow {
-                id: RowId::new(format!("row:{:06}", start_order + index)),
+                id: RowId::new(format!("row:{index:06}")),
                 kind: ReviewUnitProjectionRowKind::Disposition,
                 projection_phase: ProjectionPhase::Narrative,
-                projection_order: start_order + index,
+                projection_order: index,
                 snapshot_order: None,
                 coverage: ProjectionCoverage::Reviewed,
                 target: Some(disposition.target.clone()),
@@ -672,7 +666,6 @@ fn build_disposition_rows(
 fn build_adapter_note_rows(
     adapter_notes: &[AdapterNoteView],
     review_unit_id: &ReviewUnitId,
-    start_order: usize,
 ) -> Vec<ReviewUnitProjectionRow> {
     adapter_notes
         .iter()
@@ -686,10 +679,10 @@ fn build_adapter_note_rows(
                 end_line: target.end_line,
             });
             ReviewUnitProjectionRow {
-                id: RowId::new(format!("row:{:06}", start_order + index)),
+                id: RowId::new(format!("row:{index:06}")),
                 kind: ReviewUnitProjectionRowKind::AdapterNote,
                 projection_phase: ProjectionPhase::Narrative,
-                projection_order: start_order + index,
+                projection_order: index,
                 snapshot_order: None,
                 coverage: ProjectionCoverage::Reviewed,
                 target,
@@ -876,6 +869,26 @@ mod tests {
             .expect_err("tampered artifact should fail");
 
         assert!(error.to_string().contains("content hash"));
+    }
+
+    #[test]
+    fn show_review_unit_rejects_snapshot_artifact_metadata_mismatch() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        tamper_snapshot_artifact_target_and_rehash(
+            repo.path(),
+            &capture.snapshot_id,
+            "/other/repo",
+        );
+
+        let error = show_review_unit(ReviewUnitShowOptions::new(repo.path()))
+            .expect_err("metadata mismatch should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("snapshot artifact metadata mismatch")
+        );
     }
 
     #[test]
@@ -1161,6 +1174,34 @@ mod tests {
                 .adapter_notes
                 .iter()
                 .any(|note| note.status.as_str() == "orphaned")
+        );
+    }
+
+    #[test]
+    fn adapter_note_status_preserves_resolution_detail() {
+        assert_eq!(
+            adapter_note_status(&ResolutionStatus::Exact).as_str(),
+            "exact"
+        );
+        assert_eq!(
+            adapter_note_status(&ResolutionStatus::Relocated).as_str(),
+            "relocated"
+        );
+        assert_eq!(
+            adapter_note_status(&ResolutionStatus::FileLevel).as_str(),
+            "file_level"
+        );
+        assert_eq!(
+            adapter_note_status(&ResolutionStatus::Stale).as_str(),
+            "stale"
+        );
+        assert_eq!(
+            adapter_note_status(&ResolutionStatus::Orphaned).as_str(),
+            "orphaned"
+        );
+        assert_eq!(
+            adapter_note_status(&ResolutionStatus::Unresolved).as_str(),
+            "unresolved"
         );
     }
 
@@ -1593,6 +1634,37 @@ mod tests {
             serde_json::to_vec_pretty(&json).expect("serialize tampered snapshot artifact"),
         )
         .expect("write tampered snapshot artifact");
+    }
+
+    fn tamper_snapshot_artifact_target_and_rehash(
+        repo: &Path,
+        snapshot_id: &SnapshotId,
+        target_root: &str,
+    ) {
+        let path = snapshot_artifact_path(repo, snapshot_id);
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).expect("read snapshot artifact"))
+                .expect("parse snapshot artifact json");
+
+        assert_eq!(json["snapshot"]["snapshot_id"], snapshot_id.as_str());
+        json["target"]["worktreeRoot"] = target_root.into();
+        json["contentHash"] = snapshot_artifact_hash_from_json(&json).into();
+
+        fs::write(
+            &path,
+            serde_json::to_vec_pretty(&json).expect("serialize tampered snapshot artifact"),
+        )
+        .expect("write tampered snapshot artifact");
+    }
+
+    fn snapshot_artifact_hash_from_json(json: &serde_json::Value) -> String {
+        let mut material = json.clone();
+        material
+            .as_object_mut()
+            .expect("snapshot artifact is an object")
+            .remove("contentHash")
+            .expect("snapshot artifact has contentHash");
+        sha256_json_prefixed(&material).expect("hash snapshot artifact material")
     }
 
     fn rewrite_capture_event_snapshot_artifact_hash(

@@ -18,7 +18,7 @@ use crate::session::event::{
 use crate::session::event_context::{current_timestamp, reviewer_from_git_config};
 use crate::session::observation::{
     ObservationTargetSelector, ResolvedReviewUnit, required_title, resolve_observation_target,
-    resolve_review_unit_for_observation, staged_body, target_matches_file, validated_track_id,
+    resolve_review_unit, staged_body, target_matches_file, validated_track_id,
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
@@ -378,7 +378,7 @@ pub fn request_intervention(
 
     let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
-    let resolved = resolve_review_unit_for_observation(&events, options.review_unit_id.as_ref())?;
+    let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
     let target = resolve_intervention_target(worktree_root, &events, &resolved, &options.target)?;
     let track_id = validated_track_id(
         options
@@ -487,7 +487,7 @@ pub fn list_interventions(options: InterventionListOptions) -> Result<Interventi
     let shore_dir = paths.shore_dir();
     let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
-    let resolved = resolve_review_unit_for_observation(&events, options.review_unit_id.as_ref())?;
+    let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
     let track_filter = options
         .track
         .as_deref()

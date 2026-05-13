@@ -16,8 +16,8 @@ use crate::session::event::{
 };
 use crate::session::event_context::{current_timestamp, reviewer_from_git_config};
 use crate::session::observation::{
-    ObservationTargetSelector, ResolvedReviewUnit, resolve_observation_target,
-    resolve_review_unit_for_observation, staged_body, validated_track_id,
+    ObservationTargetSelector, ResolvedReviewUnit, resolve_observation_target, resolve_review_unit,
+    staged_body, validated_track_id,
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
@@ -266,7 +266,7 @@ pub fn record_disposition(options: DispositionAddOptions) -> Result<DispositionA
 
     let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
-    let resolved = resolve_review_unit_for_observation(&events, options.review_unit_id.as_ref())?;
+    let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
     let target = resolve_disposition_target(worktree_root, &events, &resolved, &options.target)?;
     let track_id = validated_track_id(
         options
@@ -390,7 +390,7 @@ pub fn show_dispositions(options: DispositionShowOptions) -> Result<DispositionS
     let paths = ShoreStorePaths::resolve(&options.repo)?;
     let shore_dir = paths.shore_dir();
     let events = EventStore::open(shore_dir).list_events()?;
-    let resolved = resolve_review_unit_for_observation(&events, options.review_unit_id.as_ref())?;
+    let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
     let track_filter = options
         .track
         .as_deref()
@@ -963,7 +963,7 @@ mod tests {
     };
     use crate::session::intervention::{InterventionRequestOptions, InterventionTargetSelector};
     use crate::session::observation::{
-        ObservationAddOptions, ObservationTargetSelector, resolve_review_unit_for_observation,
+        ObservationAddOptions, ObservationTargetSelector, resolve_review_unit,
     };
     use crate::session::{
         CaptureOptions, InterventionMode, InterventionReasonCode, capture_worktree_review,
@@ -978,7 +978,7 @@ mod tests {
         let events = EventStore::open(repo.path().join(".shore"))
             .list_events()
             .unwrap();
-        let resolved = resolve_review_unit_for_observation(&events, None).unwrap();
+        let resolved = resolve_review_unit(&events, None).unwrap();
 
         let target = resolve_disposition_target(
             repo.path(),
@@ -1003,7 +1003,7 @@ mod tests {
         let events = EventStore::open(repo.path().join(".shore"))
             .list_events()
             .unwrap();
-        let resolved = resolve_review_unit_for_observation(&events, None).unwrap();
+        let resolved = resolve_review_unit(&events, None).unwrap();
 
         let file = resolve_disposition_target(
             repo.path(),
@@ -1064,7 +1064,7 @@ mod tests {
             .list_events()
             .unwrap();
         events.push(disposition_event(&capture.review_unit_id, &disposition_id));
-        let resolved = resolve_review_unit_for_observation(&events, None).unwrap();
+        let resolved = resolve_review_unit(&events, None).unwrap();
 
         let observation_target = resolve_disposition_target(
             repo.path(),
@@ -1118,7 +1118,7 @@ mod tests {
         let events = EventStore::open(repo.path().join(".shore"))
             .list_events()
             .unwrap();
-        let resolved = resolve_review_unit_for_observation(&events, None).unwrap();
+        let resolved = resolve_review_unit(&events, None).unwrap();
 
         let missing_observation = resolve_disposition_relationships(
             &events,
@@ -1178,7 +1178,7 @@ mod tests {
         let events = EventStore::open(repo.path().join(".shore"))
             .list_events()
             .unwrap();
-        let resolved = resolve_review_unit_for_observation(&events, None).unwrap();
+        let resolved = resolve_review_unit(&events, None).unwrap();
 
         let missing_summary = resolve_disposition_relationships(
             &events,

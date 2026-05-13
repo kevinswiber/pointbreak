@@ -42,6 +42,9 @@ fn review_unit_show_emits_v1_json() {
     );
     assert_eq!(json["eventCount"], 1);
     assert_eq!(json["reviewUnit"]["id"], json["filters"]["reviewUnitId"]);
+    assert_eq!(json["currentDisposition"]["status"], "none");
+    assert!(json["currentDisposition"].get("disposition").is_none());
+    assert!(json["currentDisposition"].get("dispositionId").is_none());
     assert!(json.get("statePath").is_none());
 }
 
@@ -80,6 +83,26 @@ fn review_unit_show_pretty_prints() {
     ]);
 
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("{\n"));
+}
+
+#[test]
+fn review_unit_show_rejects_pretty_and_compact_together() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+
+    let output = shore([
+        "review",
+        "unit",
+        "show",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--pretty",
+        "--compact",
+    ]);
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot be used with"));
 }
 
 #[test]

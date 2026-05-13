@@ -855,7 +855,7 @@ struct AdapterNoteDocument {
     #[serde(skip_serializing_if = "Option::is_none")]
     body: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    target: Option<shore::session::event::ImportedNoteTarget>,
+    target: Option<AdapterNoteTargetDocument>,
     status: &'static str,
     file_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -870,6 +870,14 @@ struct AdapterNoteDocument {
     #[serde(skip_serializing_if = "Option::is_none")]
     created_at: Option<String>,
     sidecar_content_hash: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AdapterNoteTargetDocument {
+    side: Side,
+    start_line: u32,
+    end_line: u32,
 }
 
 #[derive(serde::Serialize)]
@@ -2152,7 +2160,7 @@ impl From<AdapterNoteView> for AdapterNoteDocument {
             id: view.id,
             title: view.title,
             body: view.body,
-            target: view.target,
+            target: view.target.map(AdapterNoteTargetDocument::from),
             status: view.status.as_str(),
             file_path: view.file_path,
             file_old_path: view.file_old_path,
@@ -2162,6 +2170,16 @@ impl From<AdapterNoteView> for AdapterNoteDocument {
             author: view.author,
             created_at: view.created_at,
             sidecar_content_hash: view.sidecar_content_hash,
+        }
+    }
+}
+
+impl From<shore::session::event::ImportedNoteTarget> for AdapterNoteTargetDocument {
+    fn from(target: shore::session::event::ImportedNoteTarget) -> Self {
+        Self {
+            side: target.side,
+            start_line: target.start_line,
+            end_line: target.end_line,
         }
     }
 }
