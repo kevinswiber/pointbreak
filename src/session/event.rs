@@ -5,9 +5,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    AcknowledgementId, ActorId, EventId, InterventionId, InterventionResolutionId, ObservationId,
-    ReviewArtifactId, ReviewEndpoint, ReviewId, ReviewTargetRef, ReviewUnitId, ReviewUnitSource,
-    RevisionId, Side, SnapshotId, TrackId, WorkUnitId,
+    AcknowledgementId, ActorId, DispositionId, EventId, InterventionId, InterventionResolutionId,
+    ObservationId, ReviewArtifactId, ReviewEndpoint, ReviewId, ReviewTargetRef, ReviewUnitId,
+    ReviewUnitSource, RevisionId, Side, SnapshotId, TrackId, WorkUnitId,
 };
 
 const EVENT_SCHEMA: &str = "shore.event";
@@ -97,6 +97,7 @@ pub enum EventType {
     ReviewInitialized,
     ReviewUnitCaptured,
     ReviewObservationRecorded,
+    ReviewDispositionRecorded,
     InterventionRequested,
     InterventionResolved,
     RevisionPublished,
@@ -225,6 +226,19 @@ pub enum AcknowledgementNextAction {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum ReviewDisposition {
+    Accepted,
+    AcceptedWithFollowUp,
+    NeedsChanges,
+    NeedsClarification,
+    Overridden,
+    Deferred,
+    SplitOut,
+    Superseded,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum InterventionMode {
     Blocking,
     Advisory,
@@ -335,6 +349,51 @@ impl ReviewObservationRecordedPayload {
 impl EventPayload for ReviewObservationRecordedPayload {
     fn event_type(&self) -> EventType {
         EventType::ReviewObservationRecorded
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewDispositionRecordedPayload {
+    pub disposition_id: DispositionId,
+    pub target: ReviewTargetRef,
+    pub disposition: ReviewDisposition,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary_artifact_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary_byte_size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary_content_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub replaces_disposition_ids: Vec<DispositionId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub related_observation_ids: Vec<ObservationId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub related_intervention_ids: Vec<InterventionId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub overrides: Vec<ReviewTargetRef>,
+}
+
+impl ReviewDispositionRecordedPayload {
+    pub fn idempotency_key(
+        review_unit_id: &ReviewUnitId,
+        track_id: &TrackId,
+        source_key: &str,
+    ) -> String {
+        format!(
+            "review_disposition_recorded:{}:{}:{}",
+            review_unit_id.as_str(),
+            track_id.as_str(),
+            source_key
+        )
+    }
+}
+
+impl EventPayload for ReviewDispositionRecordedPayload {
+    fn event_type(&self) -> EventType {
+        EventType::ReviewDispositionRecorded
     }
 }
 
@@ -599,8 +658,8 @@ mod tests {
     use super::*;
     use crate::error::ShoreError;
     use crate::model::{
-        InterventionId, InterventionResolutionId, ReviewEndpoint, ReviewId, ReviewTargetRef,
-        ReviewUnitId, ReviewUnitSource, TrackId, WorktreeCaptureMode,
+        DispositionId, InterventionId, InterventionResolutionId, ReviewEndpoint, ReviewId,
+        ReviewTargetRef, ReviewUnitId, ReviewUnitSource, TrackId, WorktreeCaptureMode,
     };
 
     #[test]
@@ -723,6 +782,22 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&VerdictDecision::RequestChanges).unwrap(),
             "\"request_changes\""
+        );
+    }
+
+    #[test]
+    fn review_disposition_serializes_as_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&ReviewDisposition::AcceptedWithFollowUp).unwrap(),
+            "\"accepted_with_follow_up\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ReviewDisposition::NeedsClarification).unwrap(),
+            "\"needs_clarification\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ReviewDisposition::SplitOut).unwrap(),
+            "\"split_out\""
         );
     }
 
@@ -882,6 +957,94 @@ mod tests {
             serde_json::to_string(&EventType::InterventionResolved).unwrap(),
             "\"intervention_resolved\""
         );
+    }
+
+    #[test]
+    fn disposition_recorded_event_serializes_target_and_payload() {
+        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
+        let track_id = TrackId::new("human:kevin");
+        let disposition_id = DispositionId::new("disp:sha256:one");
+        let target_ref = ReviewTargetRef::ReviewUnit {
+            review_unit_id: review_unit_id.clone(),
+        };
+
+        let event = ShoreEvent::new(
+            EventType::ReviewDispositionRecorded,
+            ReviewDispositionRecordedPayload::idempotency_key(
+                &review_unit_id,
+                &track_id,
+                disposition_id.as_str(),
+            ),
+            EventTarget {
+                review_id: ReviewId::new("review:default"),
+                work_unit_id: None,
+                review_unit_id: Some(review_unit_id.clone()),
+                revision_id: Some(RevisionId::new("rev:git:sha256:one")),
+                snapshot_id: Some(SnapshotId::new("snap:git:sha256:one")),
+                track_id: Some(track_id.clone()),
+                subject: Some(target_ref.clone()),
+            },
+            Writer::shore_local_reviewer("test"),
+            ReviewDispositionRecordedPayload {
+                disposition_id: disposition_id.clone(),
+                target: target_ref,
+                disposition: ReviewDisposition::Accepted,
+                summary: Some("Ship it".to_owned()),
+                summary_artifact_path: None,
+                summary_byte_size: Some(7),
+                summary_content_hash: Some("sha256:summary".to_owned()),
+                replaces_disposition_ids: vec![],
+                related_observation_ids: vec![],
+                related_intervention_ids: vec![],
+                overrides: vec![],
+            },
+            "2026-05-12T00:00:00Z",
+        )
+        .unwrap();
+
+        let json = serde_json::to_value(&event).unwrap();
+
+        assert_eq!(json["eventType"], "review_disposition_recorded");
+        assert_eq!(json["target"]["reviewUnitId"], "review-unit:sha256:one");
+        assert_eq!(json["target"]["trackId"], "human:kevin");
+        assert_eq!(json["payload"]["dispositionId"], "disp:sha256:one");
+        assert_eq!(json["payload"]["disposition"], "accepted");
+        assert_eq!(json["payload"]["summaryContentHash"], "sha256:summary");
+        assert!(json["payload"].get("replacesDispositionIds").is_none());
+    }
+
+    #[test]
+    fn disposition_recorded_rejects_payload_event_type_mismatch() {
+        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
+        let error = ShoreEvent::new(
+            EventType::ReviewObservationRecorded,
+            "review_disposition_recorded:review-unit:sha256:one:human:kevin:disp:sha256:one",
+            EventTarget::for_review_unit(
+                ReviewId::new("review:default"),
+                review_unit_id.clone(),
+                RevisionId::new("rev:git:sha256:one"),
+                SnapshotId::new("snap:git:sha256:one"),
+            ),
+            Writer::shore_local_reviewer("test"),
+            ReviewDispositionRecordedPayload {
+                disposition_id: DispositionId::new("disp:sha256:one"),
+                target: ReviewTargetRef::ReviewUnit { review_unit_id },
+                disposition: ReviewDisposition::Accepted,
+                summary: None,
+                summary_artifact_path: None,
+                summary_byte_size: None,
+                summary_content_hash: None,
+                replaces_disposition_ids: vec![],
+                related_observation_ids: vec![],
+                related_intervention_ids: vec![],
+                overrides: vec![],
+            },
+            "2026-05-12T00:00:00Z",
+        )
+        .expect_err("payload mismatch rejected");
+
+        assert!(matches!(error, ShoreError::InvalidEvent { .. }));
+        assert!(error.to_string().contains("payload type"));
     }
 
     #[test]

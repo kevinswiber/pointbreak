@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{EventId, InterventionId, ObservationId, ReviewUnitId, Side};
+use super::{DispositionId, EventId, InterventionId, ObservationId, ReviewUnitId, Side};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(
@@ -65,6 +65,10 @@ pub enum ReviewTargetRef {
     Intervention {
         review_unit_id: ReviewUnitId,
         intervention_id: InterventionId,
+    },
+    Disposition {
+        review_unit_id: ReviewUnitId,
+        disposition_id: DispositionId,
     },
     Event {
         review_unit_id: ReviewUnitId,
@@ -171,5 +175,19 @@ mod tests {
             json["intervention"]["interventionId"],
             "intervention:sha256:ghi"
         );
+    }
+
+    #[test]
+    fn review_target_can_reference_disposition() {
+        let target = ReviewTargetRef::Disposition {
+            review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+            disposition_id: DispositionId::new("disp:sha256:one"),
+        };
+
+        let json = serde_json::to_value(&target).unwrap();
+
+        assert_eq!(json["kind"], "disposition");
+        assert_eq!(json["reviewUnitId"], "review-unit:sha256:one");
+        assert_eq!(json["dispositionId"], "disp:sha256:one");
     }
 }

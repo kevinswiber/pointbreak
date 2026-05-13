@@ -18,9 +18,9 @@ pub use cursor::CursorState;
 pub use file::{DiffFile, FileStatus};
 pub use hunk::ReviewHunk;
 pub use ids::{
-    AcknowledgementId, ActorId, EventId, FileId, HunkId, InterventionId, InterventionResolutionId,
-    ObservationId, ReviewArtifactId, ReviewId, ReviewNoteId, ReviewUnitId, RevisionId, RowId,
-    SnapshotId, TrackId, WorkUnitId,
+    AcknowledgementId, ActorId, DispositionId, EventId, FileId, HunkId, InterventionId,
+    InterventionResolutionId, ObservationId, ReviewArtifactId, ReviewId, ReviewNoteId,
+    ReviewUnitId, RevisionId, RowId, SnapshotId, TrackId, WorkUnitId,
 };
 pub use review::{DiffSnapshot, Review, ReviewStream};
 pub use review_note::{

@@ -7,8 +7,7 @@ append `intervention_resolved` events, and expose polling read surfaces through
 `shore review intervention list` and `shore review intervention fetch`.
 
 This document remains architecture guidance for the model around that V1 surface. Prompt delivery,
-watch mode, cancellation, escalation, final review dispositions, daemon behavior, and UI prompts are
-deferred.
+watch mode, cancellation, escalation, daemon behavior, and UI prompts are deferred.
 
 ## Goal
 
@@ -206,6 +205,10 @@ The local durable-state model should preserve these future requirements:
 Intervention transport is independent of review-exchange transport. An intervention is not a review
 artifact, verdict, or review note. A future adapter may export or import intervention facts, but the
 core model should keep them separate.
+
+Native dispositions may relate to interventions through `--related-intervention`, but that
+relationship is evidence, not lifecycle. A disposition does not close an intervention. Use
+`shore review intervention resolve` to append the explicit closure event.
 
 ## Non-Goals
 

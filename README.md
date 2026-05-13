@@ -82,9 +82,11 @@ That model should own:
 The TUI should be a projection of that model. Widgets may render state, but they should not become
 the authoritative owners of scroll, selection, or navigation semantics.
 
-Durable workflow guidance is captured in [docs/storage-model.md](docs/storage-model.md) and
-[docs/intervention-model.md](docs/intervention-model.md). Treat those as architecture guidance for
-storage, event, interruption, and escalation design, not current V1 implementation scope.
+Durable workflow guidance is captured in [docs/storage-model.md](docs/storage-model.md),
+[docs/intervention-model.md](docs/intervention-model.md), and
+[docs/disposition-model.md](docs/disposition-model.md). Treat those as architecture guidance for
+storage, event, interruption, disposition, and escalation design, not current V1 implementation
+scope.
 
 ## Initial Scope
 
@@ -108,7 +110,8 @@ Prefer shelling out to `git` at first. A VCS abstraction can come later if the m
 
 The current executable surfaces are `shore show`, `shore dump`, `shore review capture`,
 `shore review observation add/list`, `shore review intervention request/list/fetch/resolve`,
-`shore notes apply`, and transitional `shore review publish` / `verdict` / `ack` scaffolding.
+`shore review disposition add/show`, `shore notes apply`, and transitional `shore review publish` /
+`verdict` / `ack` scaffolding.
 
 All commands accept optional tracing flags:
 
@@ -298,7 +301,42 @@ Behavior:
   `shore.review-intervention-list`, `shore.review-intervention-fetch`, and
   `shore.review-intervention-resolve` JSON by default. Read commands also accept `--pretty`.
 - V1 is durable and polling-friendly. It does not add a daemon, filesystem watch mode, TUI prompt,
-  notification transport, cancellation/escalation event, or final review disposition.
+  notification transport, or cancellation/escalation event.
+
+`shore review disposition` records and reads final review outcomes for a captured ReviewUnit:
+
+```bash
+shore review disposition add --track human:kevin --disposition accepted --summary "ship it"
+shore review disposition show [--all] [--track human:kevin] [--include-summary]
+```
+
+Behavior:
+
+- `disposition add` requires `--track` and `--disposition`. Tracks are review lanes; writer
+  provenance still comes from the event envelope.
+- V1 disposition values are `accepted`, `accepted-with-follow-up`, `needs-changes`,
+  `needs-clarification`, `overridden`, `deferred`, `split-out`, and `superseded`.
+- Targets mirror the ReviewUnit ledger: review-wide by default, `--file <path>` for a captured
+  file, `--file <path> --start-line <n> [--end-line <n>]` for a range, `--observation
+  <observation-id>`, `--intervention <intervention-id>`, or `--target-disposition
+  <disposition-id>` for native facts in the same ReviewUnit.
+- Summaries may come from `--summary`, `--summary-file`, or `--summary-stdin`. Large summaries reuse
+  Shore-owned `shore.note-body` artifacts while command output keeps artifact paths private.
+- `--replaces <disposition-id>` is the only V1 relationship that removes an older disposition from
+  the current set. `--overrides-*` records authority metadata and does not replace by itself.
+- `overridden` requires a non-empty summary and at least one override reference. `superseded` is a
+  disposition value, not an implicit replacement instruction.
+- `--related-observation` and `--related-intervention` record evidence links. They do not mutate
+  observations or close interventions; use `shore review intervention resolve` for intervention
+  lifecycle.
+- `disposition show` replays `.shore/events/`, reports current status as `none`, `resolved`, or
+  `ambiguous`, and defaults to current dispositions only. `--all` includes replaced records.
+- Repeated writes with the same `dispositionId` are preserved but collapsed in read output with a
+  duplicate semantic diagnostic.
+- Output documents are compact `shore.review-disposition-add` and `shore.review-disposition-show`
+  JSON by default. `disposition show` also accepts `--pretty`.
+- Native dispositions are not yet projected into `shore dump` or `shore show`; that belongs to the
+  later ledger projection slice.
 
 `shore review publish` is older durable scaffolding kept temporarily while the ReviewUnit ledger
 model takes over. New capture-oriented workflows should start with `shore review capture`; later

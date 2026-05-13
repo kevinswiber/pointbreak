@@ -1,6 +1,7 @@
 mod body_artifact;
 mod capture;
 mod consume;
+mod disposition;
 pub mod event;
 mod event_context;
 mod fingerprint;
@@ -20,12 +21,19 @@ pub use consume::{
     load_durable_notes_for_repo, load_or_rebuild_session_state, read_acknowledgements,
     read_review_artifacts,
 };
+pub use disposition::{
+    CurrentDispositionStatus, CurrentDispositionView, DispositionAddOptions, DispositionAddResult,
+    DispositionOverrideSelector, DispositionRecordStatus, DispositionShowFilters,
+    DispositionShowOptions, DispositionShowResult, DispositionTargetSelector, DispositionView,
+    record_disposition, show_dispositions,
+};
 pub use event::{
     EventPayload, EventTarget, EventType, InterventionMode, InterventionReasonCode,
     InterventionRequestedPayload, InterventionResolutionOutcome, InterventionResolvedPayload,
-    ReviewInitializedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
-    RevisionPublishedPayload, ShoreEvent, SidecarObservedPayload, SidecarSource,
-    SnapshotObservedPayload, Writer, WriterRole, WriterTool,
+    ReviewDisposition, ReviewDispositionRecordedPayload, ReviewInitializedPayload,
+    ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, RevisionPublishedPayload,
+    ShoreEvent, SidecarObservedPayload, SidecarSource, SnapshotObservedPayload, Writer, WriterRole,
+    WriterTool,
 };
 pub(crate) use event_context::{
     current_timestamp, reviewer_from_git_config, writer_from_git_config,

@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    EventId, InterventionId, InterventionResolutionId, ObservationId, ReviewArtifactId, ReviewId,
-    ReviewUnitId, RevisionId, SnapshotId, WorkUnitId,
+    DispositionId, EventId, InterventionId, InterventionResolutionId, ObservationId,
+    ReviewArtifactId, ReviewId, ReviewUnitId, RevisionId, SnapshotId, WorkUnitId,
 };
 use crate::session::event::{
     EventType, InterventionMode, InterventionRequestedPayload, InterventionResolvedPayload,
     ReviewArtifactAcknowledgedPayload, ReviewArtifactPublishedPayload,
-    ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, RevisionPublishedPayload,
-    ShoreEvent, SnapshotObservedPayload, VerdictDecision,
+    ReviewDispositionRecordedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
+    RevisionPublishedPayload, ShoreEvent, SnapshotObservedPayload, VerdictDecision,
 };
 
 const STATE_SCHEMA: &str = "shore.state";
@@ -22,6 +22,7 @@ pub const DUPLICATE_SEMANTIC_INTERVENTION_REQUEST_EVENT_CODE: &str =
     "duplicate_semantic_intervention_request_event";
 pub const DUPLICATE_SEMANTIC_INTERVENTION_RESOLUTION_EVENT_CODE: &str =
     "duplicate_semantic_intervention_resolution_event";
+pub const DUPLICATE_SEMANTIC_DISPOSITION_EVENT_CODE: &str = "duplicate_semantic_disposition_event";
 const DUPLICATE_SEMANTIC_DIAGNOSTIC_EVENT_LIMIT: usize = 5;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -42,6 +43,8 @@ pub struct SessionState {
     pub note_count: usize,
     #[serde(default)]
     pub observation_count: usize,
+    #[serde(default)]
+    pub disposition_count: usize,
     #[serde(default)]
     pub intervention_count: usize,
     #[serde(default)]
@@ -96,6 +99,7 @@ struct StateReducer {
     sidecar_count: usize,
     note_count: usize,
     observation_events: BTreeMap<ObservationId, BTreeSet<EventId>>,
+    disposition_events: BTreeMap<DispositionId, BTreeSet<EventId>>,
     intervention_modes: BTreeMap<InterventionId, InterventionMode>,
     intervention_request_events: BTreeMap<InterventionId, BTreeSet<EventId>>,
     intervention_resolution_events: BTreeMap<InterventionResolutionId, BTreeSet<EventId>>,
@@ -118,6 +122,7 @@ impl Default for StateReducer {
             sidecar_count: 0,
             note_count: 0,
             observation_events: BTreeMap::new(),
+            disposition_events: BTreeMap::new(),
             intervention_modes: BTreeMap::new(),
             intervention_request_events: BTreeMap::new(),
             intervention_resolution_events: BTreeMap::new(),
@@ -148,6 +153,7 @@ impl StateReducer {
             EventType::ReviewInitialized => {}
             EventType::ReviewUnitCaptured => self.apply_review_unit_captured(event)?,
             EventType::ReviewObservationRecorded => self.apply_observation_recorded(event)?,
+            EventType::ReviewDispositionRecorded => self.apply_disposition_recorded(event)?,
             EventType::InterventionRequested => self.apply_intervention_requested(event)?,
             EventType::InterventionResolved => self.apply_intervention_resolved(event)?,
             EventType::RevisionPublished => self.apply_revision_published(event)?,
@@ -207,6 +213,16 @@ impl StateReducer {
             serde_json::from_value(event.payload.clone())?;
         self.observation_events
             .entry(payload.observation_id)
+            .or_default()
+            .insert(event.event_id.clone());
+        Ok(())
+    }
+
+    fn apply_disposition_recorded(&mut self, event: &ShoreEvent) -> Result<()> {
+        let payload: ReviewDispositionRecordedPayload =
+            serde_json::from_value(event.payload.clone())?;
+        self.disposition_events
+            .entry(payload.disposition_id)
             .or_default()
             .insert(event.event_id.clone());
         Ok(())
@@ -359,6 +375,14 @@ impl StateReducer {
                 .iter()
                 .map(|(resolution_id, event_ids)| (resolution_id.as_str(), event_ids)),
         );
+        append_duplicate_semantic_diagnostics(
+            &mut diagnostics,
+            DUPLICATE_SEMANTIC_DISPOSITION_EVENT_CODE,
+            "disposition",
+            self.disposition_events
+                .iter()
+                .map(|(disposition_id, event_ids)| (disposition_id.as_str(), event_ids)),
+        );
 
         Ok(SessionState {
             schema: STATE_SCHEMA.to_owned(),
@@ -373,6 +397,7 @@ impl StateReducer {
             sidecar_count: self.sidecar_count,
             note_count: self.note_count,
             observation_count: self.observation_events.len(),
+            disposition_count: self.disposition_events.len(),
             intervention_count: self.intervention_modes.len(),
             open_intervention_count,
             open_blocking_intervention_count,
@@ -435,8 +460,9 @@ mod tests {
     };
     use crate::session::event::{
         AcknowledgementNextAction, ImportedNoteTarget, ReviewArtifactAcknowledgedPayload,
-        ReviewArtifactPublishedPayload, ReviewNoteImportedPayload,
-        ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, VerdictDecision,
+        ReviewArtifactPublishedPayload, ReviewDisposition, ReviewDispositionRecordedPayload,
+        ReviewNoteImportedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
+        VerdictDecision,
     };
     use crate::session::{
         EventTarget, EventType, InterventionMode, InterventionReasonCode,
@@ -709,6 +735,41 @@ mod tests {
     }
 
     #[test]
+    fn state_counts_unique_dispositions_without_embedding_history() {
+        let events = vec![
+            simple_review_unit_captured_event("review-unit:sha256:one"),
+            disposition_recorded_event_with_key("disp:sha256:one", "human:kevin", "retry-a"),
+            disposition_recorded_event_with_key("disp:sha256:two", "human:kevin", "retry-b"),
+        ];
+
+        let state = SessionState::from_events(&events).unwrap();
+        let json = serde_json::to_value(&state).unwrap();
+
+        assert_eq!(state.disposition_count, 2);
+        assert_eq!(json["dispositionCount"], 2);
+        assert!(json.get("dispositions").is_none());
+    }
+
+    #[test]
+    fn state_counts_duplicate_disposition_semantic_id_once_and_diagnoses() {
+        let events = [
+            disposition_recorded_event_with_key("disp:sha256:one", "human:kevin", "retry-a"),
+            disposition_recorded_event_with_key("disp:sha256:one", "human:kevin", "retry-b"),
+        ];
+
+        let forward = SessionState::from_events(&events).unwrap();
+        let reversed = SessionState::from_events(&[events[1].clone(), events[0].clone()]).unwrap();
+
+        assert_eq!(forward.disposition_count, 1);
+        assert_diagnostic(
+            &forward,
+            DUPLICATE_SEMANTIC_DISPOSITION_EVENT_CODE,
+            "disp:sha256:one",
+        );
+        assert_eq!(forward.diagnostics, reversed.diagnostics);
+    }
+
+    #[test]
     fn review_artifact_published_increments_count_order_independently() {
         let events_a = vec![
             publish_event(),
@@ -901,6 +962,29 @@ mod tests {
     }
 
     #[test]
+    fn state_defaults_missing_disposition_count_to_zero() {
+        let json = serde_json::json!({
+            "schema": "shore.state",
+            "version": 1,
+            "reviewId": "review:default",
+            "workUnitId": "work:default",
+            "currentRevisionId": null,
+            "currentSnapshotId": null,
+            "eventCount": 0,
+            "sidecarCount": 0,
+            "noteCount": 0,
+            "reviewArtifactCount": 0,
+            "acknowledgementCount": 0,
+            "lastVerdictDecision": null,
+            "diagnostics": []
+        });
+
+        let state: SessionState = serde_json::from_value(json).unwrap();
+
+        assert_eq!(state.disposition_count, 0);
+    }
+
+    #[test]
     fn state_projects_open_intervention_counts_order_independently() {
         let request = intervention_requested_event(
             "intervention:sha256:blocking",
@@ -1055,6 +1139,51 @@ mod tests {
                 tags: vec![],
                 confidence: None,
                 supersedes_observation_ids: vec![],
+            },
+            "2026-05-12T00:00:00Z",
+        )
+        .unwrap()
+    }
+
+    fn disposition_recorded_event_with_key(
+        disposition_id: &str,
+        track_id: &str,
+        source_key: &str,
+    ) -> ShoreEvent {
+        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
+        let track_id = TrackId::new(track_id.to_owned());
+        let target_ref = ReviewTargetRef::ReviewUnit {
+            review_unit_id: review_unit_id.clone(),
+        };
+        ShoreEvent::new(
+            EventType::ReviewDispositionRecorded,
+            ReviewDispositionRecordedPayload::idempotency_key(
+                &review_unit_id,
+                &track_id,
+                source_key,
+            ),
+            EventTarget {
+                review_id: ReviewId::new("review:default"),
+                work_unit_id: None,
+                review_unit_id: Some(review_unit_id.clone()),
+                revision_id: Some(RevisionId::new("rev:git:sha256:one")),
+                snapshot_id: Some(SnapshotId::new("snap:git:sha256:one")),
+                track_id: Some(track_id),
+                subject: Some(target_ref.clone()),
+            },
+            Writer::shore_local_reviewer("test"),
+            ReviewDispositionRecordedPayload {
+                disposition_id: DispositionId::new(disposition_id.to_owned()),
+                target: target_ref,
+                disposition: ReviewDisposition::Accepted,
+                summary: None,
+                summary_artifact_path: None,
+                summary_byte_size: None,
+                summary_content_hash: None,
+                replaces_disposition_ids: vec![],
+                related_observation_ids: vec![],
+                related_intervention_ids: vec![],
+                overrides: vec![],
             },
             "2026-05-12T00:00:00Z",
         )

@@ -431,6 +431,7 @@ pub(crate) fn target_matches_file(target: &ReviewTargetRef, file: &str) -> bool 
         ReviewTargetRef::ReviewUnit { .. }
         | ReviewTargetRef::Observation { .. }
         | ReviewTargetRef::Intervention { .. }
+        | ReviewTargetRef::Disposition { .. }
         | ReviewTargetRef::Event { .. } => false,
     }
 }

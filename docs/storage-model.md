@@ -119,6 +119,39 @@ event filenames, and `state.json` paths are internal storage details, not comman
 intervention projection into `shore dump` and `shore show` is deferred to the later ledger
 projection slice.
 
+Native dispositions follow the same ReviewUnit ledger model:
+
+- immutable `review_disposition_recorded` events in `events/` carry durable disposition facts
+- each disposition targets a ReviewUnit, captured file or range, native observation, native
+  intervention, or native disposition in that same ReviewUnit
+- each disposition belongs to a required track; actor/tool provenance remains in the event writer
+  envelope
+- bounded `state.json` summarizes disposition state with `dispositionCount`, but it does not embed
+  disposition history, summaries, relationship graphs, or current-disposition candidates
+
+Disposition values are closed in V1: `accepted`, `accepted_with_follow_up`, `needs_changes`,
+`needs_clarification`, `overridden`, `deferred`, `split_out`, and `superseded`.
+
+Disposition replacement is explicit. `replacesDispositionIds` is the only V1 relationship that
+removes an older disposition from the current set. Override references are metadata; they record
+that one fact overrides another but do not change current/replaced status unless the older
+disposition is also named in `replacesDispositionIds`.
+
+Disposition read projections use semantic IDs rather than event filenames as logical identity.
+Multiple `review_disposition_recorded` events with the same `dispositionId` collapse to one
+disposition row with a duplicate semantic diagnostic. Multiple unreplaced disposition IDs remain
+append-only facts; read surfaces report the current state as ambiguous instead of choosing a
+timestamp winner.
+
+Disposition summaries use the shared inline-or-artifact mechanics. Small summaries stay inline in
+the event payload. Larger summaries use the current `shore.note-body` envelope under
+`artifacts/notes/`, keeping `state.json` bounded and avoiding unbounded event payload growth.
+
+The direct read surface is `shore review disposition show`, which replays events and can optionally
+hydrate summaries. Summary artifact paths, event filenames, and `state.json` paths are internal
+storage details, not command-output API. Native disposition projection into `shore dump` and
+`shore show` is deferred to the later ledger projection slice.
+
 Verdict and acknowledgement events follow the same disciplines as note events:
 
 - `review_artifact_published` records a single immutable verdict for a `(workUnitId, revisionId)`

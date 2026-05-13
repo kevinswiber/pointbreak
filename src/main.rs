@@ -7,12 +7,14 @@ use clap::error::ErrorKind;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use shore::dump::{DumpDocument, DumpOptions};
 use shore::model::{
-    AcknowledgementId, ActorId, InterventionId, ObservationId, ReviewArtifactId, ReviewEndpoint,
-    ReviewTargetRef, ReviewUnitId, RevisionId, Side,
+    AcknowledgementId, ActorId, DispositionId, InterventionId, ObservationId, ReviewArtifactId,
+    ReviewEndpoint, ReviewTargetRef, ReviewUnitId, RevisionId, Side,
 };
 use shore::session::event::{AcknowledgementNextAction, VerdictDecision};
 use shore::session::{
     AcknowledgeReviewOptions, AcknowledgeReviewResult, CaptureOptions, CaptureResult,
+    CurrentDispositionStatus, DispositionAddOptions, DispositionAddResult, DispositionShowFilters,
+    DispositionShowOptions, DispositionShowResult, DispositionTargetSelector, DispositionView,
     ImportNotesOptions, ImportNotesResult, InterventionFetchOptions, InterventionFetchResult,
     InterventionListOptions, InterventionListResult, InterventionMode, InterventionReasonCode,
     InterventionRequestOptions, InterventionRequestResult, InterventionResolutionOutcome,
@@ -20,9 +22,10 @@ use shore::session::{
     InterventionTargetSelector, InterventionView, ObservationAddOptions, ObservationAddResult,
     ObservationListOptions, ObservationListResult, ObservationTargetSelector, ObservationView,
     ProjectionDiagnostic, PublishOptions, PublishResult, PublishVerdictOptions,
-    PublishVerdictResult, acknowledge_review, capture_worktree_review, fetch_intervention,
-    import_notes, list_interventions, list_observations, publish_verdict, publish_worktree_review,
-    record_observation, request_intervention, resolve_intervention,
+    PublishVerdictResult, ReviewDisposition, acknowledge_review, capture_worktree_review,
+    fetch_intervention, import_notes, list_interventions, list_observations, publish_verdict,
+    publish_worktree_review, record_disposition, record_observation, request_intervention,
+    resolve_intervention, show_dispositions,
 };
 use shore::stream::ViewportSpec;
 
@@ -99,6 +102,7 @@ enum NotesCommand {
 #[derive(Debug, Subcommand)]
 enum ReviewCommand {
     Capture(CaptureArgs),
+    Disposition(DispositionArgs),
     Intervention(InterventionArgs),
     Observation(ObservationArgs),
     Publish(PublishArgs),
@@ -122,6 +126,18 @@ struct ObservationArgs {
 struct InterventionArgs {
     #[command(subcommand)]
     command: InterventionCommand,
+}
+
+#[derive(Debug, Args)]
+struct DispositionArgs {
+    #[command(subcommand)]
+    command: DispositionCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum DispositionCommand {
+    Add(Box<DispositionAddArgs>),
+    Show(DispositionShowArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -254,6 +270,96 @@ struct InterventionResolveArgs {
 
     #[arg(long)]
     idempotency_key: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct DispositionAddArgs {
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
+
+    #[arg(long)]
+    review_unit: Option<String>,
+
+    #[arg(long)]
+    track: String,
+
+    #[arg(long, value_enum)]
+    disposition: ReviewDispositionArg,
+
+    #[arg(long, group = "disposition_summary")]
+    summary: Option<String>,
+
+    #[arg(long, group = "disposition_summary")]
+    summary_file: Option<PathBuf>,
+
+    #[arg(long, group = "disposition_summary")]
+    summary_stdin: bool,
+
+    #[arg(long)]
+    file: Option<String>,
+
+    #[arg(long, value_enum)]
+    side: Option<SideArg>,
+
+    #[arg(long)]
+    start_line: Option<u32>,
+
+    #[arg(long)]
+    end_line: Option<u32>,
+
+    #[arg(long)]
+    observation: Option<String>,
+
+    #[arg(long)]
+    intervention: Option<String>,
+
+    #[arg(long)]
+    target_disposition: Option<String>,
+
+    #[arg(long = "replaces")]
+    replaces: Vec<String>,
+
+    #[arg(long = "related-observation")]
+    related_observations: Vec<String>,
+
+    #[arg(long = "related-intervention")]
+    related_interventions: Vec<String>,
+
+    #[arg(long = "overrides-observation")]
+    overrides_observations: Vec<String>,
+
+    #[arg(long = "overrides-intervention")]
+    overrides_interventions: Vec<String>,
+
+    #[arg(long = "overrides-disposition")]
+    overrides_dispositions: Vec<String>,
+
+    #[arg(long)]
+    idempotency_key: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct DispositionShowArgs {
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
+
+    #[arg(long)]
+    review_unit: Option<String>,
+
+    #[arg(long)]
+    track: Option<String>,
+
+    #[arg(long)]
+    all: bool,
+
+    #[arg(long)]
+    include_summary: bool,
+
+    #[arg(long, conflicts_with = "compact")]
+    pretty: bool,
+
+    #[arg(long)]
+    compact: bool,
 }
 
 #[derive(Debug, Args)]
@@ -589,6 +695,79 @@ struct InterventionResolutionViewDocument {
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+struct DispositionAddDocument {
+    schema: &'static str,
+    version: u32,
+    review_unit_id: String,
+    disposition_id: String,
+    event_id: String,
+    track_id: String,
+    target: ReviewTargetRef,
+    disposition: ReviewDisposition,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary_content_hash: Option<String>,
+    events_created: usize,
+    events_existing: usize,
+    events_created_by_type: BTreeMap<String, usize>,
+    diagnostics: Vec<ProjectionDiagnostic>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DispositionShowDocument {
+    schema: &'static str,
+    version: u32,
+    review_unit_id: String,
+    filters: DispositionShowFiltersDocument,
+    current: CurrentDispositionDocument,
+    dispositions: Vec<DispositionViewDocument>,
+    diagnostics: Vec<ProjectionDiagnostic>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DispositionShowFiltersDocument {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    track_id: Option<String>,
+    all: bool,
+    include_summary: bool,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CurrentDispositionDocument {
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    disposition_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    disposition: Option<ReviewDisposition>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    candidates: Vec<DispositionViewDocument>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DispositionViewDocument {
+    id: String,
+    event_id: String,
+    track_id: String,
+    target: ReviewTargetRef,
+    disposition: ReviewDisposition,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary_content_hash: Option<String>,
+    status: &'static str,
+    replaces: Vec<String>,
+    related_observations: Vec<String>,
+    related_interventions: Vec<String>,
+    overrides: Vec<ReviewTargetRef>,
+    created_at: String,
+    writer: shore::session::Writer,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct NotesApplyDocument {
     schema: &'static str,
     version: u32,
@@ -690,6 +869,19 @@ enum InterventionOutcomeArg {
     Dismissed,
     Superseded,
     Abandoned,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+#[value(rename_all = "kebab-case")]
+enum ReviewDispositionArg {
+    Accepted,
+    AcceptedWithFollowUp,
+    NeedsChanges,
+    NeedsClarification,
+    Overridden,
+    Deferred,
+    SplitOut,
+    Superseded,
 }
 
 fn main() -> ExitCode {
@@ -798,6 +990,7 @@ fn review(
             tracing::debug!(command = "review.capture", "command_start");
             review_capture(args, tracing, stdout)
         }
+        ReviewCommand::Disposition(args) => review_disposition(args, stdout),
         ReviewCommand::Intervention(args) => review_intervention(args, stdout),
         ReviewCommand::Observation(args) => review_observation(args, stdout),
         ReviewCommand::Publish(args) => {
@@ -813,6 +1006,48 @@ fn review(
             review_ack(args, stdout)
         }
     }
+}
+
+fn review_disposition(
+    args: DispositionArgs,
+    stdout: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match args.command {
+        DispositionCommand::Add(args) => {
+            tracing::debug!(command = "review.disposition.add", "command_start");
+            review_disposition_add(*args, stdout)
+        }
+        DispositionCommand::Show(args) => {
+            tracing::debug!(command = "review.disposition.show", "command_start");
+            review_disposition_show(args, stdout)
+        }
+    }
+}
+
+fn review_disposition_add(
+    args: DispositionAddArgs,
+    stdout: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let result = record_disposition(disposition_add_options(args)?)?;
+    let document = DispositionAddDocument::from(result);
+    writeln!(stdout, "{}", serde_json::to_string(&document)?)?;
+    Ok(())
+}
+
+fn review_disposition_show(
+    args: DispositionShowArgs,
+    stdout: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pretty = args.pretty && !args.compact;
+    let result = show_dispositions(disposition_show_options(args));
+    let document = DispositionShowDocument::from(result?);
+    let json = if pretty {
+        serde_json::to_string_pretty(&document)?
+    } else {
+        serde_json::to_string(&document)?
+    };
+    writeln!(stdout, "{json}")?;
+    Ok(())
 }
 
 fn review_intervention(
@@ -1048,6 +1283,117 @@ fn capture_options(args: &CaptureArgs, tracing: &TracingArgs) -> CaptureOptions 
         options = options.with_excluded_helper_path(log_file);
     }
     options
+}
+
+fn disposition_add_options(
+    args: DispositionAddArgs,
+) -> Result<DispositionAddOptions, Box<dyn std::error::Error>> {
+    let target = disposition_target(&args)?;
+    let summary = read_body_input(
+        args.summary.as_deref(),
+        args.summary_file.as_deref(),
+        args.summary_stdin,
+    )?;
+    let mut options = DispositionAddOptions::new(&args.repo)
+        .with_track(args.track)
+        .with_disposition(args.disposition.into())
+        .with_target(target);
+
+    if let Some(review_unit) = args.review_unit {
+        options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+    }
+    if let Some(summary) = summary {
+        options = options.with_summary(summary);
+    }
+    for disposition_id in args.replaces {
+        options = options.replacing(DispositionId::new(disposition_id));
+    }
+    for observation_id in args.related_observations {
+        options = options.related_observation(ObservationId::new(observation_id));
+    }
+    for intervention_id in args.related_interventions {
+        options = options.related_intervention(InterventionId::new(intervention_id));
+    }
+    for observation_id in args.overrides_observations {
+        options = options.overriding_observation(ObservationId::new(observation_id));
+    }
+    for intervention_id in args.overrides_interventions {
+        options = options.overriding_intervention(InterventionId::new(intervention_id));
+    }
+    for disposition_id in args.overrides_dispositions {
+        options = options.overriding_disposition(DispositionId::new(disposition_id));
+    }
+    if let Some(idempotency_key) = args.idempotency_key {
+        options = options.with_idempotency_key(idempotency_key);
+    }
+
+    Ok(options)
+}
+
+fn disposition_show_options(args: DispositionShowArgs) -> DispositionShowOptions {
+    let mut options = DispositionShowOptions::new(&args.repo)
+        .with_all(args.all)
+        .with_include_summary(args.include_summary);
+    if let Some(review_unit) = args.review_unit {
+        options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+    }
+    if let Some(track) = args.track {
+        options = options.with_track(track);
+    }
+    options
+}
+
+fn disposition_target(
+    args: &DispositionAddArgs,
+) -> Result<DispositionTargetSelector, Box<dyn std::error::Error>> {
+    let direct_target_count = usize::from(args.observation.is_some())
+        + usize::from(args.intervention.is_some())
+        + usize::from(args.target_disposition.is_some());
+    let file_target_present = args.file.is_some()
+        || args.side.is_some()
+        || args.start_line.is_some()
+        || args.end_line.is_some();
+    if direct_target_count > 1 || (direct_target_count == 1 && file_target_present) {
+        return Err("target cannot be combined with another target selector".into());
+    }
+    if let Some(observation_id) = &args.observation {
+        return Ok(DispositionTargetSelector::observation(ObservationId::new(
+            observation_id.clone(),
+        )));
+    }
+    if let Some(intervention_id) = &args.intervention {
+        return Ok(DispositionTargetSelector::intervention(
+            InterventionId::new(intervention_id.clone()),
+        ));
+    }
+    if let Some(disposition_id) = &args.target_disposition {
+        return Ok(DispositionTargetSelector::disposition(DispositionId::new(
+            disposition_id.clone(),
+        )));
+    }
+
+    if args.end_line.is_some() && args.start_line.is_none() {
+        return if args.file.is_some() {
+            Err("start line is required when end line is supplied".into())
+        } else {
+            Err("file is required when selecting disposition lines".into())
+        };
+    }
+    if args.side.is_some() && args.file.is_none() {
+        return Err("side requires file".into());
+    }
+
+    match (&args.file, args.start_line) {
+        (Some(file), Some(start_line)) => Ok(DispositionTargetSelector::range(
+            file.clone(),
+            args.side.unwrap_or(SideArg::New).into(),
+            start_line,
+            args.end_line,
+        )),
+        (Some(file), None) => Ok(DispositionTargetSelector::file(file.clone())),
+        (None, Some(_)) => Err("file is required when selecting disposition lines".into()),
+        (None, None) => Ok(DispositionTargetSelector::review_unit()),
+    }
 }
 
 fn intervention_request_options(
@@ -1542,6 +1888,121 @@ impl From<shore::session::InterventionResolutionView> for InterventionResolution
     }
 }
 
+impl From<DispositionAddResult> for DispositionAddDocument {
+    fn from(result: DispositionAddResult) -> Self {
+        Self {
+            schema: "shore.review-disposition-add",
+            version: 1,
+            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            disposition_id: result.disposition_id.as_str().to_owned(),
+            event_id: result.event_id.as_str().to_owned(),
+            track_id: result.track_id.as_str().to_owned(),
+            target: result.target,
+            disposition: result.disposition,
+            summary_content_hash: result.summary_content_hash,
+            events_created: result.events_created,
+            events_existing: result.events_existing,
+            events_created_by_type: result.events_created_by_type,
+            diagnostics: result.diagnostics,
+        }
+    }
+}
+
+impl From<DispositionShowResult> for DispositionShowDocument {
+    fn from(result: DispositionShowResult) -> Self {
+        Self {
+            schema: "shore.review-disposition-show",
+            version: 1,
+            review_unit_id: result.review_unit_id.as_str().to_owned(),
+            filters: DispositionShowFiltersDocument::from(result.filters),
+            current: CurrentDispositionDocument::from(result.current),
+            dispositions: result
+                .dispositions
+                .into_iter()
+                .map(DispositionViewDocument::from)
+                .collect(),
+            diagnostics: result.diagnostics,
+        }
+    }
+}
+
+impl From<DispositionShowFilters> for DispositionShowFiltersDocument {
+    fn from(filters: DispositionShowFilters) -> Self {
+        Self {
+            track_id: filters
+                .track_id
+                .map(|track_id| track_id.as_str().to_owned()),
+            all: filters.include_all,
+            include_summary: filters.include_summary,
+        }
+    }
+}
+
+impl From<shore::session::CurrentDispositionView> for CurrentDispositionDocument {
+    fn from(current: shore::session::CurrentDispositionView) -> Self {
+        let status = current.status;
+        let mut dispositions = current.dispositions.into_iter();
+        match status {
+            CurrentDispositionStatus::None => Self {
+                status: status.as_str(),
+                disposition_id: None,
+                disposition: None,
+                candidates: Vec::new(),
+            },
+            CurrentDispositionStatus::Resolved => {
+                let disposition = dispositions
+                    .next()
+                    .expect("resolved current disposition has one record");
+                Self {
+                    status: status.as_str(),
+                    disposition_id: Some(disposition.id.as_str().to_owned()),
+                    disposition: Some(disposition.disposition),
+                    candidates: Vec::new(),
+                }
+            }
+            CurrentDispositionStatus::Ambiguous => Self {
+                status: status.as_str(),
+                disposition_id: None,
+                disposition: None,
+                candidates: dispositions.map(DispositionViewDocument::from).collect(),
+            },
+        }
+    }
+}
+
+impl From<DispositionView> for DispositionViewDocument {
+    fn from(view: DispositionView) -> Self {
+        Self {
+            id: view.id.as_str().to_owned(),
+            event_id: view.event_id.as_str().to_owned(),
+            track_id: view.track_id.as_str().to_owned(),
+            target: view.target,
+            disposition: view.disposition,
+            summary: view.summary,
+            summary_content_hash: view.summary_content_hash,
+            status: view.status.as_str(),
+            replaces: view
+                .replaces
+                .into_iter()
+                .map(|disposition_id| disposition_id.as_str().to_owned())
+                .collect(),
+            related_observations: view
+                .related_observations
+                .into_iter()
+                .map(|observation_id| observation_id.as_str().to_owned())
+                .collect(),
+            related_interventions: view
+                .related_interventions
+                .into_iter()
+                .map(|intervention_id| intervention_id.as_str().to_owned())
+                .collect(),
+            overrides: view.overrides,
+            created_at: view.created_at,
+            writer: view.writer,
+        }
+    }
+}
+
 impl From<ImportNotesResult> for NotesApplyDocument {
     fn from(result: ImportNotesResult) -> Self {
         Self {
@@ -1657,6 +2118,21 @@ impl From<InterventionOutcomeArg> for InterventionResolutionOutcome {
             InterventionOutcomeArg::Dismissed => InterventionResolutionOutcome::Dismissed,
             InterventionOutcomeArg::Superseded => InterventionResolutionOutcome::Superseded,
             InterventionOutcomeArg::Abandoned => InterventionResolutionOutcome::Abandoned,
+        }
+    }
+}
+
+impl From<ReviewDispositionArg> for ReviewDisposition {
+    fn from(value: ReviewDispositionArg) -> Self {
+        match value {
+            ReviewDispositionArg::Accepted => ReviewDisposition::Accepted,
+            ReviewDispositionArg::AcceptedWithFollowUp => ReviewDisposition::AcceptedWithFollowUp,
+            ReviewDispositionArg::NeedsChanges => ReviewDisposition::NeedsChanges,
+            ReviewDispositionArg::NeedsClarification => ReviewDisposition::NeedsClarification,
+            ReviewDispositionArg::Overridden => ReviewDisposition::Overridden,
+            ReviewDispositionArg::Deferred => ReviewDisposition::Deferred,
+            ReviewDispositionArg::SplitOut => ReviewDisposition::SplitOut,
+            ReviewDispositionArg::Superseded => ReviewDisposition::Superseded,
         }
     }
 }

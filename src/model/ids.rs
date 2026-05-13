@@ -35,6 +35,7 @@ id_type!(AcknowledgementId);
 id_type!(ObservationId);
 id_type!(InterventionId);
 id_type!(InterventionResolutionId);
+id_type!(DispositionId);
 
 #[cfg(test)]
 mod tests {
@@ -94,5 +95,17 @@ mod tests {
         assert_eq!(json, "\"intervention-resolution:sha256:def\"");
         assert_eq!(parsed, id);
         assert_eq!(parsed.as_str(), "intervention-resolution:sha256:def");
+    }
+
+    #[test]
+    fn disposition_id_round_trips_through_serde_and_string() {
+        let id = DispositionId::new("disp:sha256:abc");
+
+        let json = serde_json::to_string(&id).unwrap();
+        let parsed: DispositionId = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(json, "\"disp:sha256:abc\"");
+        assert_eq!(parsed, id);
+        assert_eq!(parsed.as_str(), "disp:sha256:abc");
     }
 }
