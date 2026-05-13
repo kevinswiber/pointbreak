@@ -85,6 +85,12 @@ worktree state happens to exist when the intervention is resolved.
 Multiple different resolution events are preserved as append-only facts. Current V1 read surfaces
 report that state as ambiguous rather than choosing a timestamp winner.
 
+Duplicate events with the same semantic ID are different from multiple decisions. If a request is
+written more than once with the same `interventionId`, `list` and `fetch` return one intervention
+and include a duplicate semantic diagnostic. If a resolution is written more than once with the same
+`interventionResolutionId`, `fetch` returns one resolution and keeps the intervention `resolved`.
+Only distinct resolution IDs make an intervention `ambiguous`.
+
 Future `intervention_escalated` should target an existing intervention and change its routing or
 urgency in the derived projection. It should not create a second intervention. If a separate decision
 is needed, create another `intervention_requested` event with an explicit relationship to the first.
@@ -148,6 +154,11 @@ shore review intervention resolve
 The V1 read surface is polling-oriented. `list` and `fetch` replay `.shore/events/`; they do not
 depend on `state.json` as authority. Bodies and resolution reasons may use internal
 `shore.note-body` artifacts, but command output does not expose artifact paths.
+
+`list` and `fetch` project semantic IDs, not raw event count. `idempotencyKey` decides whether a
+write is the same event-file retry; `interventionId` and `interventionResolutionId` decide whether
+read output represents one logical request or resolution. Duplicate semantic IDs are preserved in
+storage and reported through diagnostics rather than silently hidden.
 
 Bounded `state.json` exposes only summary counters:
 

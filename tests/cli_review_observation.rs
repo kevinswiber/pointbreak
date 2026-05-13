@@ -353,6 +353,72 @@ fn observation_add_is_idempotent_on_rerun() {
 }
 
 #[test]
+fn observation_list_collapses_duplicate_semantic_events() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+
+    let first = parse_json(
+        &shore([
+            "review",
+            "observation",
+            "add",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--track",
+            "agent:codex",
+            "--title",
+            "Duplicate",
+            "--body",
+            "same body",
+            "--idempotency-key",
+            "retry-a",
+        ])
+        .stdout,
+    );
+    let second = parse_json(
+        &shore([
+            "review",
+            "observation",
+            "add",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--track",
+            "agent:codex",
+            "--title",
+            "Duplicate",
+            "--body",
+            "same body",
+            "--idempotency-key",
+            "retry-b",
+        ])
+        .stdout,
+    );
+
+    let list = shore([
+        "review",
+        "observation",
+        "list",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--include-body",
+    ]);
+    let json = parse_json(&list.stdout);
+    let diagnostic = diagnostic_with_code(&json, "duplicate_semantic_observation_event");
+    let observation_id = first["observationId"].as_str().unwrap();
+
+    assert_eq!(first["observationId"], second["observationId"]);
+    assert_eq!(json["observations"].as_array().unwrap().len(), 1);
+    assert_eq!(json["observations"][0]["id"], first["observationId"]);
+    assert_eq!(json["observations"][0]["body"], "same body");
+    assert!(
+        diagnostic["message"]
+            .as_str()
+            .unwrap()
+            .contains(observation_id)
+    );
+}
+
+#[test]
 fn observation_add_errors_when_no_review_unit_has_been_captured() {
     let repo = modified_repo();
 
@@ -499,6 +565,15 @@ where
 
 fn parse_json(stdout: &[u8]) -> Value {
     serde_json::from_slice(stdout).expect("stdout is valid JSON")
+}
+
+fn diagnostic_with_code<'a>(json: &'a Value, code: &str) -> &'a Value {
+    json["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|diagnostic| diagnostic["code"] == code)
+        .unwrap_or_else(|| panic!("missing diagnostic code {code}: {json}"))
 }
 
 fn modified_repo() -> GitRepo {

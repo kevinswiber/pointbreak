@@ -4,17 +4,24 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    InterventionId, ReviewArtifactId, ReviewId, ReviewUnitId, RevisionId, SnapshotId, WorkUnitId,
+    EventId, InterventionId, InterventionResolutionId, ObservationId, ReviewArtifactId, ReviewId,
+    ReviewUnitId, RevisionId, SnapshotId, WorkUnitId,
 };
 use crate::session::event::{
     EventType, InterventionMode, InterventionRequestedPayload, InterventionResolvedPayload,
-    ReviewArtifactAcknowledgedPayload, ReviewArtifactPublishedPayload, ReviewUnitCapturedPayload,
-    RevisionPublishedPayload, ShoreEvent, SnapshotObservedPayload, VerdictDecision,
+    ReviewArtifactAcknowledgedPayload, ReviewArtifactPublishedPayload,
+    ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, RevisionPublishedPayload,
+    ShoreEvent, SnapshotObservedPayload, VerdictDecision,
 };
 
 const STATE_SCHEMA: &str = "shore.state";
 const STATE_VERSION: u32 = 1;
 pub const AMBIGUOUS_CURRENT_REVIEW_UNIT_CODE: &str = "ambiguous_current_review_unit";
+pub const DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE: &str = "duplicate_semantic_observation_event";
+pub const DUPLICATE_SEMANTIC_INTERVENTION_REQUEST_EVENT_CODE: &str =
+    "duplicate_semantic_intervention_request_event";
+pub const DUPLICATE_SEMANTIC_INTERVENTION_RESOLUTION_EVENT_CODE: &str =
+    "duplicate_semantic_intervention_resolution_event";
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -87,8 +94,10 @@ struct StateReducer {
     captured_review_unit_ids: BTreeSet<ReviewUnitId>,
     sidecar_count: usize,
     note_count: usize,
-    observation_count: usize,
+    observation_events: BTreeMap<ObservationId, BTreeSet<EventId>>,
     intervention_modes: BTreeMap<InterventionId, InterventionMode>,
+    intervention_request_events: BTreeMap<InterventionId, BTreeSet<EventId>>,
+    intervention_resolution_events: BTreeMap<InterventionResolutionId, BTreeSet<EventId>>,
     resolved_intervention_ids: BTreeSet<InterventionId>,
     review_artifact_count: usize,
     acknowledgement_count: usize,
@@ -107,8 +116,10 @@ impl Default for StateReducer {
             captured_review_unit_ids: BTreeSet::new(),
             sidecar_count: 0,
             note_count: 0,
-            observation_count: 0,
+            observation_events: BTreeMap::new(),
             intervention_modes: BTreeMap::new(),
+            intervention_request_events: BTreeMap::new(),
+            intervention_resolution_events: BTreeMap::new(),
             resolved_intervention_ids: BTreeSet::new(),
             review_artifact_count: 0,
             acknowledgement_count: 0,
@@ -135,9 +146,7 @@ impl StateReducer {
         match event.event_type {
             EventType::ReviewInitialized => {}
             EventType::ReviewUnitCaptured => self.apply_review_unit_captured(event)?,
-            EventType::ReviewObservationRecorded => {
-                self.observation_count += 1;
-            }
+            EventType::ReviewObservationRecorded => self.apply_observation_recorded(event)?,
             EventType::InterventionRequested => self.apply_intervention_requested(event)?,
             EventType::InterventionResolved => self.apply_intervention_resolved(event)?,
             EventType::RevisionPublished => self.apply_revision_published(event)?,
@@ -192,15 +201,35 @@ impl StateReducer {
         Ok(())
     }
 
+    fn apply_observation_recorded(&mut self, event: &ShoreEvent) -> Result<()> {
+        let payload: ReviewObservationRecordedPayload =
+            serde_json::from_value(event.payload.clone())?;
+        self.observation_events
+            .entry(payload.observation_id)
+            .or_default()
+            .insert(event.event_id.clone());
+        Ok(())
+    }
+
     fn apply_intervention_requested(&mut self, event: &ShoreEvent) -> Result<()> {
         let payload: InterventionRequestedPayload = serde_json::from_value(event.payload.clone())?;
+        let intervention_id = payload.intervention_id;
+        self.intervention_request_events
+            .entry(intervention_id.clone())
+            .or_default()
+            .insert(event.event_id.clone());
         self.intervention_modes
-            .insert(payload.intervention_id, payload.mode);
+            .entry(intervention_id)
+            .or_insert(payload.mode);
         Ok(())
     }
 
     fn apply_intervention_resolved(&mut self, event: &ShoreEvent) -> Result<()> {
         let payload: InterventionResolvedPayload = serde_json::from_value(event.payload.clone())?;
+        self.intervention_resolution_events
+            .entry(payload.intervention_resolution_id)
+            .or_default()
+            .insert(event.event_id.clone());
         self.resolved_intervention_ids
             .insert(payload.intervention_id);
         Ok(())
@@ -305,6 +334,30 @@ impl StateReducer {
             }
             None => None,
         };
+        append_duplicate_semantic_diagnostics(
+            &mut diagnostics,
+            DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE,
+            "observation",
+            self.observation_events
+                .iter()
+                .map(|(observation_id, event_ids)| (observation_id.as_str(), event_ids)),
+        );
+        append_duplicate_semantic_diagnostics(
+            &mut diagnostics,
+            DUPLICATE_SEMANTIC_INTERVENTION_REQUEST_EVENT_CODE,
+            "intervention request",
+            self.intervention_request_events
+                .iter()
+                .map(|(intervention_id, event_ids)| (intervention_id.as_str(), event_ids)),
+        );
+        append_duplicate_semantic_diagnostics(
+            &mut diagnostics,
+            DUPLICATE_SEMANTIC_INTERVENTION_RESOLUTION_EVENT_CODE,
+            "intervention resolution",
+            self.intervention_resolution_events
+                .iter()
+                .map(|(resolution_id, event_ids)| (resolution_id.as_str(), event_ids)),
+        );
 
         Ok(SessionState {
             schema: STATE_SCHEMA.to_owned(),
@@ -318,7 +371,7 @@ impl StateReducer {
             event_count,
             sidecar_count: self.sidecar_count,
             note_count: self.note_count,
-            observation_count: self.observation_count,
+            observation_count: self.observation_events.len(),
             intervention_count: self.intervention_modes.len(),
             open_intervention_count,
             open_blocking_intervention_count,
@@ -327,6 +380,31 @@ impl StateReducer {
             last_verdict_decision,
             diagnostics,
         })
+    }
+}
+
+fn append_duplicate_semantic_diagnostics<'a>(
+    diagnostics: &mut Vec<ProjectionDiagnostic>,
+    code: &str,
+    label: &str,
+    groups: impl Iterator<Item = (&'a str, &'a BTreeSet<EventId>)>,
+) {
+    for (semantic_id, event_ids) in groups {
+        if event_ids.len() < 2 {
+            continue;
+        }
+
+        diagnostics.push(ProjectionDiagnostic {
+            code: code.to_owned(),
+            message: format!(
+                "duplicate {label} semantic id {semantic_id} appears in events: {}",
+                event_ids
+                    .iter()
+                    .map(EventId::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        });
     }
 }
 
@@ -494,6 +572,74 @@ mod tests {
         assert_eq!(state.observation_count, 2);
         assert_eq!(json["observationCount"], 2);
         assert!(json.get("observations").is_none());
+    }
+
+    #[test]
+    fn state_counts_duplicate_observation_semantic_id_once_and_diagnoses() {
+        let events = vec![
+            simple_review_unit_captured_event("review-unit:sha256:one"),
+            observation_recorded_event_with_key("obs:sha256:one", "agent:codex", "retry-a"),
+            observation_recorded_event_with_key("obs:sha256:one", "agent:codex", "retry-b"),
+        ];
+
+        let state = SessionState::from_events(&events).unwrap();
+
+        assert_eq!(state.observation_count, 1);
+        assert_diagnostic(
+            &state,
+            DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE,
+            "obs:sha256:one",
+        );
+    }
+
+    #[test]
+    fn state_diagnoses_duplicate_intervention_request_semantic_id() {
+        let request_a = intervention_requested_event_with_key(
+            "intervention:sha256:blocking",
+            InterventionMode::Blocking,
+            "retry-a",
+        );
+        let request_b = intervention_requested_event_with_key(
+            "intervention:sha256:blocking",
+            InterventionMode::Blocking,
+            "retry-b",
+        );
+
+        let forward = SessionState::from_events(&[request_a.clone(), request_b.clone()]).unwrap();
+        let reversed = SessionState::from_events(&[request_b, request_a]).unwrap();
+
+        assert_eq!(forward.intervention_count, 1);
+        assert_diagnostic(
+            &forward,
+            DUPLICATE_SEMANTIC_INTERVENTION_REQUEST_EVENT_CODE,
+            "intervention:sha256:blocking",
+        );
+        assert_eq!(forward.diagnostics, reversed.diagnostics);
+    }
+
+    #[test]
+    fn state_diagnoses_duplicate_intervention_resolution_semantic_id() {
+        let resolution_a = intervention_resolved_event_with_key(
+            "intervention:sha256:blocking",
+            "intervention-resolution:sha256:approved",
+            "retry-a",
+        );
+        let resolution_b = intervention_resolved_event_with_key(
+            "intervention:sha256:blocking",
+            "intervention-resolution:sha256:approved",
+            "retry-b",
+        );
+
+        let forward =
+            SessionState::from_events(&[resolution_a.clone(), resolution_b.clone()]).unwrap();
+        let reversed = SessionState::from_events(&[resolution_b, resolution_a]).unwrap();
+
+        assert_diagnostic(
+            &forward,
+            DUPLICATE_SEMANTIC_INTERVENTION_RESOLUTION_EVENT_CODE,
+            "intervention-resolution:sha256:approved",
+        );
+        assert_eq!(forward.diagnostics, reversed.diagnostics);
     }
 
     #[test]
@@ -802,6 +948,14 @@ mod tests {
     }
 
     fn observation_recorded_event(observation_id: &str, track_id: &str) -> ShoreEvent {
+        observation_recorded_event_with_key(observation_id, track_id, observation_id)
+    }
+
+    fn observation_recorded_event_with_key(
+        observation_id: &str,
+        track_id: &str,
+        source_key: &str,
+    ) -> ShoreEvent {
         let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
         let target_ref = ReviewTargetRef::ReviewUnit {
             review_unit_id: review_unit_id.clone(),
@@ -812,7 +966,7 @@ mod tests {
                 "review_observation_recorded:{}:{}:{}",
                 review_unit_id.as_str(),
                 track_id,
-                observation_id
+                source_key
             ),
             EventTarget {
                 review_id: ReviewId::new("review:default"),
@@ -842,6 +996,14 @@ mod tests {
     }
 
     fn intervention_requested_event(intervention_id: &str, mode: InterventionMode) -> ShoreEvent {
+        intervention_requested_event_with_key(intervention_id, mode, intervention_id)
+    }
+
+    fn intervention_requested_event_with_key(
+        intervention_id: &str,
+        mode: InterventionMode,
+        source_key: &str,
+    ) -> ShoreEvent {
         let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
         let track_id = TrackId::new("human:kevin");
         let target_ref = ReviewTargetRef::ReviewUnit {
@@ -849,11 +1011,7 @@ mod tests {
         };
         ShoreEvent::new(
             EventType::InterventionRequested,
-            InterventionRequestedPayload::idempotency_key(
-                &review_unit_id,
-                &track_id,
-                intervention_id,
-            ),
+            InterventionRequestedPayload::idempotency_key(&review_unit_id, &track_id, source_key),
             EventTarget {
                 review_id: ReviewId::new("review:default"),
                 work_unit_id: None,
@@ -881,13 +1039,24 @@ mod tests {
     }
 
     fn intervention_resolved_event(intervention_id: &str) -> ShoreEvent {
+        intervention_resolved_event_with_key(
+            intervention_id,
+            "intervention-resolution:sha256:approved",
+            "intervention-resolution:sha256:approved",
+        )
+    }
+
+    fn intervention_resolved_event_with_key(
+        intervention_id: &str,
+        resolution_id: &str,
+        source_key: &str,
+    ) -> ShoreEvent {
         let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
         let intervention_id = InterventionId::new(intervention_id);
-        let resolution_id =
-            InterventionResolutionId::new("intervention-resolution:sha256:approved");
+        let resolution_id = InterventionResolutionId::new(resolution_id);
         ShoreEvent::new(
             EventType::InterventionResolved,
-            InterventionResolvedPayload::idempotency_key(&intervention_id, resolution_id.as_str()),
+            InterventionResolvedPayload::idempotency_key(&intervention_id, source_key),
             EventTarget {
                 review_id: ReviewId::new("review:default"),
                 work_unit_id: None,
@@ -913,6 +1082,16 @@ mod tests {
             "2026-05-12T00:01:00Z",
         )
         .unwrap()
+    }
+
+    fn assert_diagnostic(state: &SessionState, code: &str, message_fragment: &str) {
+        assert!(
+            state.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == code && diagnostic.message.contains(message_fragment)
+            }),
+            "missing diagnostic {code} containing {message_fragment}; diagnostics: {:?}",
+            state.diagnostics
+        );
     }
 
     fn sidecar_observed(source: &str, content_hash: &str) -> ShoreEvent {

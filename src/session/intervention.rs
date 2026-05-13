@@ -482,49 +482,44 @@ pub fn list_interventions(options: InterventionListOptions) -> Result<Interventi
         .as_deref()
         .map(validated_track_id)
         .transpose()?;
+    let request_records = collect_request_records(&events)?;
     let resolutions = collect_resolution_views(&events)?;
     let mut interventions = Vec::new();
 
-    for event in events
-        .iter()
-        .filter(|event| event.event_type == EventType::InterventionRequested)
-    {
+    for record in request_records.into_values() {
+        let event = record.event;
         if event.target.review_unit_id.as_ref() != Some(&resolved.review_unit_id) {
             continue;
         }
 
-        let payload: InterventionRequestedPayload = serde_json::from_value(event.payload.clone())?;
-        let track_id =
-            event.target.track_id.clone().ok_or_else(|| {
-                ShoreError::Message("intervention event missing track id".to_owned())
-            })?;
         if track_filter
             .as_ref()
-            .is_some_and(|filter| filter != &track_id)
+            .is_some_and(|filter| filter != &record.track_id)
         {
             continue;
         }
-        if options.mode.is_some_and(|mode| mode != payload.mode) {
+        if options.mode.is_some_and(|mode| mode != record.payload.mode) {
             continue;
         }
         if options
             .file
             .as_deref()
-            .is_some_and(|file| !target_matches_file(&payload.target, file))
+            .is_some_and(|file| !target_matches_file(&record.payload.target, file))
         {
             continue;
         }
 
-        let intervention_id = payload.intervention_id.clone();
+        let intervention_id = record.payload.intervention_id.clone();
+        let resolutions = resolutions
+            .get(&intervention_id)
+            .cloned()
+            .unwrap_or_default();
         let view = intervention_view_from_event(
             shore_dir,
             event,
-            payload,
-            track_id,
-            resolutions
-                .get(&intervention_id)
-                .cloned()
-                .unwrap_or_default(),
+            record.payload,
+            record.track_id,
+            resolutions,
             options.include_body,
         )?;
         if options.status.matches(view.status) {
@@ -553,26 +548,15 @@ pub fn fetch_intervention(options: InterventionFetchOptions) -> Result<Intervent
     let paths = ShoreStorePaths::resolve(&options.repo)?;
     let shore_dir = paths.shore_dir();
     let events = EventStore::open(shore_dir).list_events()?;
+    let mut request_records = collect_request_records(&events)?;
     let resolutions = collect_resolution_views(&events)?;
 
-    for event in events
-        .iter()
-        .filter(|event| event.event_type == EventType::InterventionRequested)
-    {
-        let payload: InterventionRequestedPayload = serde_json::from_value(event.payload.clone())?;
-        if payload.intervention_id != options.intervention_id {
-            continue;
-        }
-
-        let track_id =
-            event.target.track_id.clone().ok_or_else(|| {
-                ShoreError::Message("intervention event missing track id".to_owned())
-            })?;
+    if let Some(record) = request_records.remove(&options.intervention_id) {
         let view = intervention_view_from_event(
             shore_dir,
-            event,
-            payload,
-            track_id,
+            record.event,
+            record.payload,
+            record.track_id,
             resolutions
                 .get(&options.intervention_id)
                 .cloned()
@@ -604,23 +588,17 @@ pub fn resolve_intervention(
 
     let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
-    let mut request_event_and_payload = None;
-    for event in events
-        .iter()
-        .filter(|event| event.event_type == EventType::InterventionRequested)
-    {
-        let payload: InterventionRequestedPayload = serde_json::from_value(event.payload.clone())?;
-        if payload.intervention_id == options.intervention_id {
-            request_event_and_payload = Some((event, payload));
-            break;
-        }
-    }
-    let (request_event, request_payload) = request_event_and_payload.ok_or_else(|| {
-        ShoreError::Message(format!(
-            "unknown intervention: {}",
-            options.intervention_id.as_str()
-        ))
-    })?;
+    let mut request_records = collect_request_records(&events)?;
+    let request_record = request_records
+        .remove(&options.intervention_id)
+        .ok_or_else(|| {
+            ShoreError::Message(format!(
+                "unknown intervention: {}",
+                options.intervention_id.as_str()
+            ))
+        })?;
+    let request_event = request_record.event;
+    let request_payload = request_record.payload;
     let outcome = options
         .outcome
         .ok_or_else(|| ShoreError::Message("outcome is required".to_owned()))?;
@@ -714,16 +692,82 @@ pub fn resolve_intervention(
     })
 }
 
+struct InterventionRequestRecord<'a> {
+    event: &'a ShoreEvent,
+    payload: InterventionRequestedPayload,
+    track_id: TrackId,
+}
+
+struct InterventionResolutionRecord<'a> {
+    event: &'a ShoreEvent,
+    payload: InterventionResolvedPayload,
+}
+
+fn collect_request_records<'a>(
+    events: &'a [ShoreEvent],
+) -> Result<BTreeMap<InterventionId, InterventionRequestRecord<'a>>> {
+    let mut records: BTreeMap<InterventionId, InterventionRequestRecord<'a>> = BTreeMap::new();
+    for event in events
+        .iter()
+        .filter(|event| event.event_type == EventType::InterventionRequested)
+    {
+        let payload: InterventionRequestedPayload = serde_json::from_value(event.payload.clone())?;
+        let track_id =
+            event.target.track_id.clone().ok_or_else(|| {
+                ShoreError::Message("intervention event missing track id".to_owned())
+            })?;
+        let intervention_id = payload.intervention_id.clone();
+        let replace_record = records.get(&intervention_id).is_none_or(|record| {
+            // Event IDs are deterministic storage addresses, not causal order. Pick the
+            // lowest one only as a stable representative for duplicate semantic facts.
+            event.event_id.as_str() < record.event.event_id.as_str()
+        });
+        if replace_record {
+            records.insert(
+                intervention_id,
+                InterventionRequestRecord {
+                    event,
+                    payload,
+                    track_id,
+                },
+            );
+        }
+    }
+
+    Ok(records)
+}
+
 fn collect_resolution_views(
     events: &[ShoreEvent],
 ) -> Result<BTreeMap<InterventionId, Vec<InterventionResolutionView>>> {
-    let mut resolutions: BTreeMap<InterventionId, Vec<InterventionResolutionView>> =
-        BTreeMap::new();
+    let mut resolution_records: BTreeMap<
+        InterventionResolutionId,
+        InterventionResolutionRecord<'_>,
+    > = BTreeMap::new();
     for event in events
         .iter()
         .filter(|event| event.event_type == EventType::InterventionResolved)
     {
         let payload: InterventionResolvedPayload = serde_json::from_value(event.payload.clone())?;
+        let resolution_id = payload.intervention_resolution_id.clone();
+        let replace_record = resolution_records.get(&resolution_id).is_none_or(|record| {
+            // Event IDs are deterministic storage addresses, not causal order. Pick the
+            // lowest one only as a stable representative for duplicate semantic facts.
+            event.event_id.as_str() < record.event.event_id.as_str()
+        });
+        if replace_record {
+            resolution_records.insert(
+                resolution_id,
+                InterventionResolutionRecord { event, payload },
+            );
+        }
+    }
+
+    let mut resolutions: BTreeMap<InterventionId, Vec<InterventionResolutionView>> =
+        BTreeMap::new();
+    for record in resolution_records.into_values() {
+        let event = record.event;
+        let payload = record.payload;
         resolutions
             .entry(payload.intervention_id)
             .or_default()
@@ -1247,6 +1291,42 @@ mod tests {
     }
 
     #[test]
+    fn list_interventions_collapses_duplicate_requests() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let first = request_intervention(
+            open_request(repo.path(), "Need approval")
+                .with_body("same body")
+                .with_idempotency_key("retry-a"),
+        )
+        .unwrap();
+        let second = request_intervention(
+            open_request(repo.path(), "Need approval")
+                .with_body("same body")
+                .with_idempotency_key("retry-b"),
+        )
+        .unwrap();
+
+        let result = list_interventions(
+            InterventionListOptions::new(repo.path())
+                .with_status(InterventionStatusFilter::All)
+                .with_include_body(true),
+        )
+        .unwrap();
+
+        assert_eq!(first.intervention_id, second.intervention_id);
+        assert_eq!(first.events_created, 1);
+        assert_eq!(second.events_created, 1);
+        assert_eq!(result.interventions.len(), 1);
+        assert_eq!(result.interventions[0].id, first.intervention_id);
+        assert_eq!(result.interventions[0].body.as_deref(), Some("same body"));
+        assert!(result.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code
+                == crate::session::state::DUPLICATE_SEMANTIC_INTERVENTION_REQUEST_EVENT_CODE
+        }));
+    }
+
+    #[test]
     fn fetch_intervention_hydrates_body_by_id() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
@@ -1266,6 +1346,38 @@ mod tests {
             result.intervention.body.as_deref(),
             Some("full request body")
         );
+    }
+
+    #[test]
+    fn fetch_intervention_collapses_duplicate_requests() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let first = request_intervention(
+            open_request(repo.path(), "Need approval")
+                .with_body("same body")
+                .with_idempotency_key("retry-a"),
+        )
+        .unwrap();
+        let second = request_intervention(
+            open_request(repo.path(), "Need approval")
+                .with_body("same body")
+                .with_idempotency_key("retry-b"),
+        )
+        .unwrap();
+
+        let result = fetch_intervention(
+            InterventionFetchOptions::new(repo.path(), first.intervention_id.clone())
+                .with_include_body(true),
+        )
+        .unwrap();
+
+        assert_eq!(first.intervention_id, second.intervention_id);
+        assert_eq!(result.intervention.id, first.intervention_id);
+        assert_eq!(result.intervention.body.as_deref(), Some("same body"));
+        assert!(result.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code
+                == crate::session::state::DUPLICATE_SEMANTIC_INTERVENTION_REQUEST_EVENT_CODE
+        }));
     }
 
     #[test]
@@ -1445,6 +1557,46 @@ mod tests {
 
         assert_eq!(result.intervention.status, InterventionStatus::Ambiguous);
         assert_eq!(result.intervention.resolutions.len(), 2);
+    }
+
+    #[test]
+    fn duplicate_resolution_events_do_not_make_intervention_ambiguous() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let requested = request_intervention(open_request(repo.path(), "Need approval")).unwrap();
+        let first = resolve_intervention(
+            InterventionResolveOptions::new(repo.path(), requested.intervention_id.clone())
+                .with_outcome(InterventionResolutionOutcome::Approved)
+                .with_reason("approved locally")
+                .with_idempotency_key("retry-a"),
+        )
+        .unwrap();
+        let second = resolve_intervention(
+            InterventionResolveOptions::new(repo.path(), requested.intervention_id.clone())
+                .with_outcome(InterventionResolutionOutcome::Approved)
+                .with_reason("approved locally")
+                .with_idempotency_key("retry-b"),
+        )
+        .unwrap();
+
+        let result = fetch_intervention(InterventionFetchOptions::new(
+            repo.path(),
+            requested.intervention_id,
+        ))
+        .unwrap();
+
+        assert_eq!(
+            first.intervention_resolution_id,
+            second.intervention_resolution_id
+        );
+        assert_eq!(first.events_created, 1);
+        assert_eq!(second.events_created, 1);
+        assert_eq!(result.intervention.status, InterventionStatus::Resolved);
+        assert_eq!(result.intervention.resolutions.len(), 1);
+        assert!(result.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code
+                == crate::session::state::DUPLICATE_SEMANTIC_INTERVENTION_RESOLUTION_EVENT_CODE
+        }));
     }
 
     #[test]
@@ -1639,8 +1791,11 @@ mod tests {
         source_key: &str,
         outcome: InterventionResolutionOutcome,
     ) -> EventId {
-        let resolution_id =
-            InterventionResolutionId::new(format!("intervention-resolution:sha256:{}", source_key));
+        let resolution_id_material = format!("{}:{source_key}", requested.intervention_id.as_str());
+        let resolution_id = InterventionResolutionId::new(format!(
+            "intervention-resolution:sha256:{}",
+            sha256_bytes_hex(resolution_id_material.as_bytes())
+        ));
         let payload = InterventionResolvedPayload {
             intervention_resolution_id: resolution_id,
             intervention_id: requested.intervention_id.clone(),

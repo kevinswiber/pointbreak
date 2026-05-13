@@ -29,6 +29,12 @@ pub(crate) struct ResolvedReviewUnit {
     pub snapshot_id: SnapshotId,
 }
 
+struct ObservationEventRecord<'a> {
+    event: &'a ShoreEvent,
+    payload: ReviewObservationRecordedPayload,
+    track_id: TrackId,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObservationAddOptions {
     repo: PathBuf,
@@ -318,7 +324,8 @@ pub fn list_observations(options: ObservationListOptions) -> Result<ObservationL
         .as_deref()
         .map(validated_track_id)
         .transpose()?;
-    let mut observations = Vec::new();
+    let mut observation_records: BTreeMap<ObservationId, ObservationEventRecord<'_>> =
+        BTreeMap::new();
     let mut superseded_ids = BTreeSet::new();
 
     for event in events
@@ -351,26 +358,48 @@ pub fn list_observations(options: ObservationListOptions) -> Result<ObservationL
             continue;
         }
 
+        let observation_id = payload.observation_id.clone();
+        let replace_record = observation_records
+            .get(&observation_id)
+            .is_none_or(|record| {
+                // Event IDs are deterministic storage addresses, not causal order. Pick the
+                // lowest one only as a stable representative for duplicate semantic facts.
+                event.event_id.as_str() < record.event.event_id.as_str()
+            });
+        if replace_record {
+            observation_records.insert(
+                observation_id,
+                ObservationEventRecord {
+                    event,
+                    payload,
+                    track_id,
+                },
+            );
+        }
+    }
+
+    let mut observations = Vec::new();
+    for (_, record) in observation_records {
         let body = if options.include_body {
-            observation_body(shore_dir, &payload)?
+            observation_body(shore_dir, &record.payload)?
         } else {
             None
         };
 
         observations.push(ObservationView {
-            id: payload.observation_id,
-            event_id: event.event_id.clone(),
-            track_id,
-            target: payload.target,
-            title: payload.title,
+            id: record.payload.observation_id,
+            event_id: record.event.event_id.clone(),
+            track_id: record.track_id,
+            target: record.payload.target,
+            title: record.payload.title,
             body,
-            tags: payload.tags,
-            confidence: payload.confidence,
+            tags: record.payload.tags,
+            confidence: record.payload.confidence,
             status: ObservationStatus::Active,
-            supersedes: payload.supersedes_observation_ids,
-            body_content_hash: payload.body_content_hash,
-            created_at: event.occurred_at.clone(),
-            writer: event.writer.clone(),
+            supersedes: record.payload.supersedes_observation_ids,
+            body_content_hash: record.payload.body_content_hash,
+            created_at: record.event.occurred_at.clone(),
+            writer: record.event.writer.clone(),
         });
     }
 
@@ -1020,6 +1049,42 @@ mod tests {
         ];
         expected_ids.sort();
         assert_eq!(actual_ids, expected_ids);
+    }
+
+    #[test]
+    fn list_observations_collapses_duplicate_semantic_events() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let first = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:codex")
+                .with_title("Same finding")
+                .with_body("same body")
+                .with_idempotency_key("retry-a"),
+        )
+        .unwrap();
+        let second = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:codex")
+                .with_title("Same finding")
+                .with_body("same body")
+                .with_idempotency_key("retry-b"),
+        )
+        .unwrap();
+
+        let result =
+            list_observations(ObservationListOptions::new(repo.path()).with_include_body(true))
+                .unwrap();
+
+        assert_eq!(first.observation_id, second.observation_id);
+        assert_eq!(first.events_created, 1);
+        assert_eq!(second.events_created, 1);
+        assert_eq!(result.observations.len(), 1);
+        assert_eq!(result.observations[0].id, first.observation_id);
+        assert_eq!(result.observations[0].body.as_deref(), Some("same body"));
+        assert!(result.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == crate::session::state::DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE
+        }));
     }
 
     #[test]

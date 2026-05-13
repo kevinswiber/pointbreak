@@ -256,6 +256,8 @@ Behavior:
   older observation. Standalone retraction is deferred.
 - `shore review observation list` replays durable events for the ReviewUnit. Bodies are omitted by
   default and hydrated only with `--include-body`; `--track` and `--file` filter the returned rows.
+- If repeated writes create multiple events with the same `observationId`, `observation list`
+  returns one logical row and includes a duplicate semantic diagnostic.
 - Output is compact `shore.review-observation-add` or `shore.review-observation-list` JSON by
   default. `observation list` also accepts `--pretty`.
 - Native observations are not yet projected into `shore dump` or `shore show`; that belongs to the
@@ -288,6 +290,8 @@ Behavior:
 - `intervention resolve <id>` appends an `intervention_resolved` event with an `--outcome` of
   `approved`, `rejected`, `dismissed`, `superseded`, or `abandoned`. The optional reason may come
   from `--reason`, `--reason-file`, or `--reason-stdin`.
+- Repeated writes with the same `interventionId` or `interventionResolutionId` are preserved but
+  collapsed in read output with duplicate semantic diagnostics.
 - Multiple different resolution events are preserved as append-only facts. Read surfaces report the
   intervention as `ambiguous` instead of picking a timestamp winner.
 - Output documents are compact `shore.review-intervention-request`,

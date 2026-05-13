@@ -73,6 +73,10 @@ Native observations follow the ReviewUnit ledger model:
 Observations are append-only. Corrections are new `review_observation_recorded` events that name
 older observations through `supersedesObservationIds`; standalone retraction is deferred.
 
+Observation read projections use `observationId` as the logical identity. If multiple durable
+events carry the same observation ID, Shore preserves those events but returns one observation row
+and emits a duplicate semantic diagnostic.
+
 Observation bodies use the same inline-or-artifact mechanics as imported notes. Small bodies remain
 inline in the event payload. Larger bodies use the current `shore.note-body` envelope under
 `artifacts/notes/`, keeping `state.json` bounded and avoiding unbounded event payload growth.
@@ -97,6 +101,13 @@ Native interventions follow the same ReviewUnit ledger model:
 Request `reasonCode` and resolution `outcome` are intentionally separate classification axes.
 Multiple different resolution events remain append-only facts; read surfaces report that
 intervention as ambiguous instead of choosing a timestamp winner.
+
+Intervention read projections use semantic IDs rather than event filenames as logical identity.
+Multiple `intervention_requested` events with the same `interventionId` collapse to one request row
+with a duplicate semantic diagnostic. Multiple `intervention_resolved` events with the same
+`interventionResolutionId` collapse to one resolution row and do not make the intervention
+ambiguous. Distinct resolution IDs remain distinct facts and can still make the intervention
+ambiguous.
 
 Intervention bodies and resolution reasons use the shared inline-or-artifact mechanics. Small text
 stays inline in the event payload. Larger text uses the current `shore.note-body` envelope under
@@ -161,6 +172,11 @@ conflict error, not a merge.
 Same-key retry checks should compare the canonical event payload hash, not the full event bytes.
 Envelope fields such as `occurredAt` may differ across attempts while the durable fact is still the
 same. A matching `payloadHash` is idempotent; a different `payloadHash` is a conflict.
+
+Idempotency keys control write identity. Semantic IDs control logical projection identity. A caller
+that repeats the same logical fact with different idempotency keys creates multiple durable events,
+not a storage overwrite. Read projections collapse same-semantic-ID events to one logical row and
+surface a duplicate semantic diagnostic so the raw append-only history remains inspectable.
 
 Any hash that contributes to durable identity should use Shore's canonical JSON path, with object
 keys sorted recursively before hashing. Do not rely on incidental serde_json map ordering or local

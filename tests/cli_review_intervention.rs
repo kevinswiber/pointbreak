@@ -84,6 +84,78 @@ fn intervention_list_emits_v1_json_and_pretty_prints() {
 }
 
 #[test]
+fn intervention_list_collapses_duplicate_request_events() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+
+    let first = parse_json(
+        &shore([
+            "review",
+            "intervention",
+            "request",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--track",
+            "human:kevin",
+            "--title",
+            "Need approval",
+            "--reason",
+            "manual-decision-required",
+            "--body",
+            "same body",
+            "--idempotency-key",
+            "retry-a",
+        ])
+        .stdout,
+    );
+    let second = parse_json(
+        &shore([
+            "review",
+            "intervention",
+            "request",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--track",
+            "human:kevin",
+            "--title",
+            "Need approval",
+            "--reason",
+            "manual-decision-required",
+            "--body",
+            "same body",
+            "--idempotency-key",
+            "retry-b",
+        ])
+        .stdout,
+    );
+
+    let list = shore([
+        "review",
+        "intervention",
+        "list",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--status",
+        "all",
+        "--include-body",
+    ]);
+    let json = parse_json(&list.stdout);
+    let diagnostic = diagnostic_with_code(&json, "duplicate_semantic_intervention_request_event");
+    let intervention_id = first["interventionId"].as_str().unwrap();
+
+    assert_eq!(first["interventionId"], second["interventionId"]);
+    assert_eq!(json["interventions"].as_array().unwrap().len(), 1);
+    assert_eq!(json["interventions"][0]["id"], first["interventionId"]);
+    assert_eq!(json["interventions"][0]["body"], "same body");
+    assert!(
+        diagnostic["message"]
+            .as_str()
+            .unwrap()
+            .contains(intervention_id)
+    );
+}
+
+#[test]
 fn intervention_fetch_include_body_emits_v1_json_and_hydrates_body() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
@@ -152,6 +224,85 @@ fn intervention_resolve_records_resolution_and_emits_v1_json() {
     assert_eq!(json["outcome"], "approved");
     assert_eq!(json["eventsCreatedByType"]["intervention_resolved"], 1);
     assert!(json.get("reasonArtifactPath").is_none());
+}
+
+#[test]
+fn intervention_fetch_collapses_duplicate_resolution_events() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    let requested = request(&repo, "Need approval");
+    let intervention_id = requested["interventionId"].as_str().unwrap();
+
+    let first = parse_json(
+        &shore([
+            "review",
+            "intervention",
+            "resolve",
+            intervention_id,
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--outcome",
+            "approved",
+            "--reason",
+            "approved locally",
+            "--idempotency-key",
+            "retry-a",
+        ])
+        .stdout,
+    );
+    let second = parse_json(
+        &shore([
+            "review",
+            "intervention",
+            "resolve",
+            intervention_id,
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--outcome",
+            "approved",
+            "--reason",
+            "approved locally",
+            "--idempotency-key",
+            "retry-b",
+        ])
+        .stdout,
+    );
+
+    let fetch = shore([
+        "review",
+        "intervention",
+        "fetch",
+        intervention_id,
+        "--repo",
+        repo.path().to_str().unwrap(),
+    ]);
+    let json = parse_json(&fetch.stdout);
+    let diagnostic =
+        diagnostic_with_code(&json, "duplicate_semantic_intervention_resolution_event");
+    let resolution_id = first["interventionResolutionId"].as_str().unwrap();
+
+    assert_eq!(
+        first["interventionResolutionId"],
+        second["interventionResolutionId"]
+    );
+    assert_eq!(json["intervention"]["status"], "resolved");
+    assert_eq!(
+        json["intervention"]["resolutions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        json["intervention"]["resolutions"][0]["id"],
+        first["interventionResolutionId"]
+    );
+    assert!(
+        diagnostic["message"]
+            .as_str()
+            .unwrap()
+            .contains(resolution_id)
+    );
 }
 
 #[test]
@@ -536,6 +687,15 @@ where
 
 fn parse_json(stdout: &[u8]) -> Value {
     serde_json::from_slice(stdout).expect("stdout is valid JSON")
+}
+
+fn diagnostic_with_code<'a>(json: &'a Value, code: &str) -> &'a Value {
+    json["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|diagnostic| diagnostic["code"] == code)
+        .unwrap_or_else(|| panic!("missing diagnostic code {code}: {json}"))
 }
 
 fn modified_repo() -> GitRepo {
