@@ -12,6 +12,7 @@ mod intervention;
 mod observation;
 mod projection_freshness;
 mod reload;
+mod review_unit_projection;
 mod snapshot_artifact;
 pub mod state;
 mod store_init;
@@ -58,6 +59,11 @@ pub use observation::{
 };
 pub(crate) use reload::reload_diagnostics_for_document;
 pub use reload::{ReloadDiagnostic, ReloadDiagnosticCode, ReloadOutcome, reload_session};
+pub use review_unit_projection::{
+    AdapterNoteView, ReviewUnitProjectionIdentity, ReviewUnitProjectionRow,
+    ReviewUnitProjectionSummary, ReviewUnitShowFilters, ReviewUnitShowOptions,
+    ReviewUnitShowResult, show_review_unit,
+};
 pub use snapshot_artifact::{SnapshotArtifact, read_snapshot_artifact, write_snapshot_artifact};
 pub use state::{ProjectionDiagnostic, SessionState};
 pub(crate) use store_init::{ShoreStorePaths, prepare_shore_writer, sweep_stale_temp_files};
