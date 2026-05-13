@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -152,8 +151,6 @@ struct InterventionResolveArgs {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct InterventionRequestDocument {
-    schema: &'static str,
-    version: u32,
     review_unit_id: String,
     intervention_id: String,
     event_id: String,
@@ -163,10 +160,6 @@ struct InterventionRequestDocument {
     reason_code: InterventionReasonCode,
     #[serde(skip_serializing_if = "Option::is_none")]
     body_content_hash: Option<String>,
-    events_created: usize,
-    events_existing: usize,
-    events_created_by_type: BTreeMap<String, usize>,
-    diagnostics: Vec<ProjectionDiagnostic>,
 }
 
 #[derive(serde::Serialize)]
@@ -192,18 +185,12 @@ struct InterventionFetchDocument {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct InterventionResolveDocument {
-    schema: &'static str,
-    version: u32,
     intervention_id: String,
     intervention_resolution_id: String,
     event_id: String,
     outcome: InterventionResolutionOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason_content_hash: Option<String>,
-    events_created: usize,
-    events_existing: usize,
-    events_created_by_type: BTreeMap<String, usize>,
-    diagnostics: Vec<ProjectionDiagnostic>,
 }
 
 #[derive(serde::Serialize)]
@@ -287,7 +274,7 @@ fn review_intervention_request(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let result = request_intervention(intervention_request_options(args)?)?;
-    let document = InterventionRequestDocument::from(result);
+    let document = intervention_request_document(result);
     json::write_json(stdout, &document, false)
 }
 
@@ -319,7 +306,7 @@ fn review_intervention_resolve(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let result = resolve_intervention(intervention_resolve_options(args)?)?;
-    let document = InterventionResolveDocument::from(result);
+    let document = intervention_resolve_document(result);
     json::write_json(stdout, &document, false)
 }
 
@@ -424,11 +411,12 @@ fn intervention_target(
     }
 }
 
-impl From<InterventionRequestResult> for InterventionRequestDocument {
-    fn from(result: InterventionRequestResult) -> Self {
-        Self {
-            schema: "shore.review-intervention-request",
-            version: 1,
+fn intervention_request_document(
+    result: InterventionRequestResult,
+) -> json::EventWriteDocument<InterventionRequestDocument> {
+    json::EventWriteDocument::new(
+        "shore.review-intervention-request",
+        InterventionRequestDocument {
             review_unit_id: result.review_unit_id.as_str().to_owned(),
             intervention_id: result.intervention_id.as_str().to_owned(),
             event_id: result.event_id.as_str().to_owned(),
@@ -437,12 +425,12 @@ impl From<InterventionRequestResult> for InterventionRequestDocument {
             mode: result.mode,
             reason_code: result.reason_code,
             body_content_hash: result.body_content_hash,
-            events_created: result.events_created,
-            events_existing: result.events_existing,
-            events_created_by_type: result.events_created_by_type,
-            diagnostics: result.diagnostics,
-        }
-    }
+        },
+        result.events_created,
+        result.events_existing,
+        result.events_created_by_type,
+        result.diagnostics,
+    )
 }
 
 impl From<InterventionListResult> for InterventionListDocument {
@@ -482,22 +470,23 @@ impl From<InterventionFetchResult> for InterventionFetchDocument {
     }
 }
 
-impl From<InterventionResolveResult> for InterventionResolveDocument {
-    fn from(result: InterventionResolveResult) -> Self {
-        Self {
-            schema: "shore.review-intervention-resolve",
-            version: 1,
+fn intervention_resolve_document(
+    result: InterventionResolveResult,
+) -> json::EventWriteDocument<InterventionResolveDocument> {
+    json::EventWriteDocument::new(
+        "shore.review-intervention-resolve",
+        InterventionResolveDocument {
             intervention_id: result.intervention_id.as_str().to_owned(),
             intervention_resolution_id: result.intervention_resolution_id.as_str().to_owned(),
             event_id: result.event_id.as_str().to_owned(),
             outcome: result.outcome,
             reason_content_hash: result.reason_content_hash,
-            events_created: result.events_created,
-            events_existing: result.events_existing,
-            events_created_by_type: result.events_created_by_type,
-            diagnostics: result.diagnostics,
-        }
-    }
+        },
+        result.events_created,
+        result.events_existing,
+        result.events_created_by_type,
+        result.diagnostics,
+    )
 }
 
 impl From<InterventionModeArg> for InterventionMode {

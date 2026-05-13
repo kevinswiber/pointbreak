@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -100,18 +99,12 @@ struct ObservationListArgs {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ObservationAddDocument {
-    schema: &'static str,
-    version: u32,
     review_unit_id: String,
     observation_id: String,
     event_id: String,
     track_id: String,
     target: ReviewTargetRef,
     body_content_hash: Option<String>,
-    events_created: usize,
-    events_existing: usize,
-    events_created_by_type: BTreeMap<String, usize>,
-    diagnostics: Vec<ProjectionDiagnostic>,
 }
 
 #[derive(serde::Serialize)]
@@ -164,7 +157,7 @@ fn review_observation_add(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let result = record_observation(observation_add_options(args)?)?;
-    let document = ObservationAddDocument::from(result);
+    let document = observation_add_document(result);
     json::write_json(stdout, &document, false)
 }
 
@@ -241,23 +234,24 @@ fn observation_target(args: &ObservationAddArgs) -> ObservationTargetSelector {
     }
 }
 
-impl From<ObservationAddResult> for ObservationAddDocument {
-    fn from(result: ObservationAddResult) -> Self {
-        Self {
-            schema: "shore.review-observation-add",
-            version: 1,
+fn observation_add_document(
+    result: ObservationAddResult,
+) -> json::EventWriteDocument<ObservationAddDocument> {
+    json::EventWriteDocument::new(
+        "shore.review-observation-add",
+        ObservationAddDocument {
             review_unit_id: result.review_unit_id.as_str().to_owned(),
             observation_id: result.observation_id.as_str().to_owned(),
             event_id: result.event_id.as_str().to_owned(),
             track_id: result.track_id.as_str().to_owned(),
             target: result.target,
             body_content_hash: result.body_content_hash,
-            events_created: result.events_created,
-            events_existing: result.events_existing,
-            events_created_by_type: result.events_created_by_type,
-            diagnostics: result.diagnostics,
-        }
-    }
+        },
+        result.events_created,
+        result.events_existing,
+        result.events_created_by_type,
+        result.diagnostics,
+    )
 }
 
 impl From<ObservationListResult> for ObservationListDocument {

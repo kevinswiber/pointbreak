@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -119,8 +118,6 @@ struct DispositionShowArgs {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DispositionAddDocument {
-    schema: &'static str,
-    version: u32,
     review_unit_id: String,
     disposition_id: String,
     event_id: String,
@@ -129,10 +126,6 @@ struct DispositionAddDocument {
     disposition: ReviewDisposition,
     #[serde(skip_serializing_if = "Option::is_none")]
     summary_content_hash: Option<String>,
-    events_created: usize,
-    events_existing: usize,
-    events_created_by_type: BTreeMap<String, usize>,
-    diagnostics: Vec<ProjectionDiagnostic>,
 }
 
 #[derive(serde::Serialize)]
@@ -190,7 +183,7 @@ fn review_disposition_add(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let result = record_disposition(disposition_add_options(args)?)?;
-    let document = DispositionAddDocument::from(result);
+    let document = disposition_add_document(result);
     json::write_json(stdout, &document, false)
 }
 
@@ -315,11 +308,12 @@ fn disposition_target(
     }
 }
 
-impl From<DispositionAddResult> for DispositionAddDocument {
-    fn from(result: DispositionAddResult) -> Self {
-        Self {
-            schema: "shore.review-disposition-add",
-            version: 1,
+fn disposition_add_document(
+    result: DispositionAddResult,
+) -> json::EventWriteDocument<DispositionAddDocument> {
+    json::EventWriteDocument::new(
+        "shore.review-disposition-add",
+        DispositionAddDocument {
             review_unit_id: result.review_unit_id.as_str().to_owned(),
             disposition_id: result.disposition_id.as_str().to_owned(),
             event_id: result.event_id.as_str().to_owned(),
@@ -327,12 +321,12 @@ impl From<DispositionAddResult> for DispositionAddDocument {
             target: result.target,
             disposition: result.disposition,
             summary_content_hash: result.summary_content_hash,
-            events_created: result.events_created,
-            events_existing: result.events_existing,
-            events_created_by_type: result.events_created_by_type,
-            diagnostics: result.diagnostics,
-        }
-    }
+        },
+        result.events_created,
+        result.events_existing,
+        result.events_created_by_type,
+        result.diagnostics,
+    )
 }
 
 impl From<DispositionShowResult> for DispositionShowDocument {
