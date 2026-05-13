@@ -55,28 +55,6 @@ fn review_capture_creates_review_unit_from_subdir() {
 }
 
 #[test]
-fn review_capture_rejects_legacy_hunk_flag() {
-    let repo = modified_repo();
-
-    let output = shore([
-        "review",
-        "capture",
-        "--repo",
-        repo.path().to_str().unwrap(),
-        "--legacy-hunk-agent-context",
-        "agent-context.json",
-    ]);
-
-    assert!(!output.status.success());
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("unexpected argument"),
-        "stderr:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(!repo.path().join(".shore").exists());
-}
-
-#[test]
 fn review_capture_is_idempotent_for_unchanged_diff() {
     let repo = modified_repo();
 

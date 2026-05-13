@@ -149,28 +149,29 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use crate::model::{ReviewId, RevisionId, WorkUnitId};
-    use crate::session::{EventTarget, EventType, RevisionPublishedPayload, ShoreEvent, Writer};
+    use crate::model::{ReviewId, WorkUnitId};
+    use crate::session::event::ReviewNoteImportedPayload;
+    use crate::session::{EventTarget, EventType, ReviewInitializedPayload, ShoreEvent, Writer};
 
     #[test]
     fn event_path_is_sha256_of_idempotency_key() {
         let root = tempfile::tempdir().unwrap();
         let store = EventStore::open(root.path().join(".shore"));
 
-        let path = store
-            .event_path_for_idempotency_key("revision_published:explicit:work:default:rev:abc");
+        let path =
+            store.event_path_for_idempotency_key("review_initialized:review:default:work:default");
 
         assert_eq!(path.parent().unwrap(), root.path().join(".shore/events"));
         assert_eq!(
             path.file_name().unwrap().to_string_lossy(),
-            "4e0b7fe5f7ec6911ef34e3cd911295336907a4a32cd398896d17f65055141adf.json"
+            "922a9f73c057fa93d31156c391cb0ca441dfa8c1f3cd9cf94a497e8f309675be.json"
         );
     }
 
     #[test]
     fn recording_same_event_twice_returns_existing_without_rewriting() {
         let (_root, store) = temp_event_store();
-        let event = revision_published_event("rev:worktree:sha256:abc");
+        let event = review_initialized_event();
 
         assert_eq!(
             store.record_event_once(&event).unwrap(),
@@ -187,8 +188,8 @@ mod tests {
     #[test]
     fn replay_with_new_occurred_at_returns_existing_when_payload_matches() {
         let (_root, store) = temp_event_store();
-        let first = revision_published_event_at("rev:worktree:sha256:abc", "2026-05-10T00:00:00Z");
-        let retry = revision_published_event_at("rev:worktree:sha256:abc", "2026-05-10T00:01:00Z");
+        let first = review_initialized_event_at("2026-05-10T00:00:00Z");
+        let retry = review_initialized_event_at("2026-05-10T00:01:00Z");
 
         store.record_event_once(&first).unwrap();
 
@@ -202,7 +203,7 @@ mod tests {
     #[test]
     fn same_idempotency_key_with_conflicting_payload_is_an_error() {
         let (_root, store) = temp_event_store();
-        let first = revision_published_event("rev:worktree:sha256:abc");
+        let first = review_initialized_event();
         let conflicting = conflicting_event_with_same_idempotency_key(&first);
 
         store.record_event_once(&first).unwrap();
@@ -216,7 +217,7 @@ mod tests {
     #[test]
     fn read_event_rejects_payload_hash_mismatch() {
         let (_root, store) = temp_event_store();
-        let event = revision_published_event("rev:worktree:sha256:abc");
+        let event = review_initialized_event();
         let path = store.event_path_for_idempotency_key(&event.idempotency_key);
         store.record_event_once(&event).unwrap();
 
@@ -234,7 +235,7 @@ mod tests {
     #[test]
     fn read_event_rejects_event_id_mismatch() {
         let (_root, store) = temp_event_store();
-        let event = revision_published_event("rev:worktree:sha256:abc");
+        let event = review_initialized_event();
         let path = store.event_path_for_idempotency_key(&event.idempotency_key);
         store.record_event_once(&event).unwrap();
 
@@ -252,7 +253,7 @@ mod tests {
     #[test]
     fn read_event_rejects_filename_idempotency_mismatch() {
         let (_root, store) = temp_event_store();
-        let event = revision_published_event("rev:worktree:sha256:abc");
+        let event = review_initialized_event();
         let wrong_path = store.events_dir().join(format!("{}.json", "0".repeat(64)));
         std::fs::create_dir_all(store.events_dir()).unwrap();
         fs::write(&wrong_path, serde_json::to_vec(&event).unwrap()).unwrap();
@@ -267,7 +268,7 @@ mod tests {
     #[test]
     fn list_events_ignores_temp_files_and_unknown_suffixes() {
         let (_root, store) = temp_event_store();
-        let event = revision_published_event("rev:worktree:sha256:abc");
+        let event = review_initialized_event();
         store.record_event_once(&event).unwrap();
         fs::write(
             store.events_dir().join(".shore-write.partial.tmp"),
@@ -285,23 +286,20 @@ mod tests {
         (root, store)
     }
 
-    fn revision_published_event(revision_id: &str) -> ShoreEvent {
-        revision_published_event_at(revision_id, "2026-05-10T00:00:00Z")
+    fn review_initialized_event() -> ShoreEvent {
+        review_initialized_event_at("2026-05-10T00:00:00Z")
     }
 
-    fn revision_published_event_at(revision_id: &str, occurred_at: &str) -> ShoreEvent {
+    fn review_initialized_event_at(occurred_at: &str) -> ShoreEvent {
         ShoreEvent::new(
-            EventType::RevisionPublished,
-            "revision_published:explicit:work:default:rev:abc",
+            EventType::ReviewInitialized,
+            "review_initialized:review:default:work:default",
             EventTarget::new(
                 ReviewId::new("review:default"),
                 WorkUnitId::new("work:default"),
             ),
             Writer::shore_local_author("0.1.0"),
-            RevisionPublishedPayload {
-                revision_id: RevisionId::new(revision_id),
-                supersedes_revision_ids: vec![],
-            },
+            ReviewInitializedPayload {},
             occurred_at,
         )
         .expect("event builds")
@@ -309,13 +307,26 @@ mod tests {
 
     fn conflicting_event_with_same_idempotency_key(event: &ShoreEvent) -> ShoreEvent {
         ShoreEvent::new(
-            EventType::RevisionPublished,
+            EventType::ReviewNoteImported,
             event.idempotency_key.clone(),
             event.target.clone(),
             event.writer.clone(),
-            RevisionPublishedPayload {
-                revision_id: RevisionId::new("rev:worktree:sha256:different"),
-                supersedes_revision_ids: vec![],
+            ReviewNoteImportedPayload {
+                sidecar_source: crate::session::SidecarSource::ReviewNotes,
+                note_id: "note:conflict".to_owned(),
+                file_path: "src/lib.rs".to_owned(),
+                file_old_path: None,
+                target: None,
+                title: "Conflicting payload".to_owned(),
+                body: None,
+                body_artifact_path: None,
+                body_byte_size: None,
+                tags: Vec::new(),
+                confidence: None,
+                external_source: None,
+                author: None,
+                created_at: None,
+                sidecar_content_hash: "sha256:sidecar".to_owned(),
             },
             event.occurred_at.clone(),
         )

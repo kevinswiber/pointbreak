@@ -673,29 +673,6 @@ fn duplicate_disposition_semantic_events_show_once_with_diagnostic() {
     );
 }
 
-#[test]
-fn legacy_hunk_agent_context_flag_is_rejected_without_shore_mutation() {
-    let repo = GitRepo::new();
-
-    let output = shore([
-        "review",
-        "disposition",
-        "add",
-        "--repo",
-        repo.path().to_str().unwrap(),
-        "--track",
-        "human:kevin",
-        "--disposition",
-        "accepted",
-        "--legacy-hunk-agent-context",
-        "agent-context.json",
-    ]);
-
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("unexpected argument"));
-    assert!(!repo.path().join(".shore").exists());
-}
-
 fn add_disposition<const N: usize>(args: [&str; N]) -> Value {
     let mut command = vec!["review", "disposition", "add"];
     command.extend(args);

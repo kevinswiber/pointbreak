@@ -20,9 +20,9 @@ workflow fact, not assume who resolves it.
 
 ## Core Terms
 
-- **Intervention:** a durable request for attention, decision, override, or acknowledgement.
+- **Intervention:** a durable request for attention, decision, override, or explicit response.
 - **Blocking intervention:** an intervention that should stop a cooperative client before it
-  continues a workflow step such as publishing, applying notes, acknowledging review, pushing, or
+  continues a workflow step such as capturing review state, applying notes, pushing, or
   mutating state.
 - **Advisory intervention:** an intervention that should be visible but does not block progress.
 - **Resolution:** the durable answer to an intervention, such as approved, rejected, dismissed,
@@ -221,7 +221,7 @@ This document does not require:
 - a cloud backend
 - a TUI modal
 - note mutation
-- an acknowledgement command
+- a legacy decision command
 
 Those may become useful later, but the architectural requirement is narrower: Shore's durable model
 should be interruptible at safe workflow boundaries.

@@ -5,11 +5,6 @@ use shore::model::{
     ResolutionStatus, ReviewHunk, ReviewId, ReviewNote, ReviewNoteId, ReviewNoteSource,
     ReviewRowKind, ReviewStream, Side, SnapshotId,
 };
-use shore::session::event::{AcknowledgementNextAction, VerdictDecision};
-use shore::session::{
-    AcknowledgeReviewOptions, PublishOptions, PublishVerdictOptions, acknowledge_review,
-    publish_verdict, publish_worktree_review,
-};
 use shore::sidecar::{
     DiagnosticLevel, ParsedReviewNotes, ReviewNoteEntry, ReviewNoteTarget, ReviewNotesDiagnostic,
     ReviewNotesDiagnosticCode, ReviewNotesFile, ReviewNotesSidecar,
@@ -95,10 +90,6 @@ fn dump_input_source_serializes_as_snake_case() {
         input_source_value(DumpInputSource::ReviewNotes),
         Value::String("review_notes".to_owned())
     );
-    assert_eq!(
-        input_source_value(DumpInputSource::LegacyHunkAgentContext),
-        Value::String("legacy_hunk_agent_context".to_owned())
-    );
 }
 
 #[test]
@@ -173,40 +164,6 @@ fn dump_from_parsed_review_notes_preserves_parser_diagnostics() {
         document.diagnostics[0].code,
         ReviewNotesDiagnosticCode::MissingVersion
     );
-}
-
-#[test]
-fn acceptance_dump_full_publish_verdict_ack_lifecycle() {
-    let repo = dump_repo();
-
-    let _published = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-
-    let verdict = publish_verdict(
-        PublishVerdictOptions::new(repo.path())
-            .with_decision(VerdictDecision::Pass)
-            .with_summary("ship it"),
-    )
-    .unwrap();
-    let acknowledgement = acknowledge_review(
-        AcknowledgeReviewOptions::new(repo.path(), verdict.review_artifact_id.clone())
-            .with_next_action(AcknowledgementNextAction::Accept)
-            .with_reason("ok"),
-    )
-    .unwrap();
-    assert_eq!(acknowledgement.events_created, 1);
-
-    let document = DumpDocument::from_repo(repo.path()).unwrap();
-    let json = serde_json::to_value(&document).unwrap();
-    let section = &json["review_artifacts"];
-
-    assert_eq!(section["verdicts"][0]["decision"], "pass");
-    assert_eq!(section["verdicts"][0]["summary"], "ship it");
-    assert_eq!(section["acknowledgements"][0]["next_action"], "accept");
-    assert_eq!(section["acknowledgements"][0]["reason"], "ok");
-    assert_eq!(section["current_verdict"]["status"], "resolved");
-    assert_eq!(section["summary"]["verdict_count"], 1);
-    assert_eq!(section["summary"]["acknowledgement_count"], 1);
-    assert_eq!(section["summary"]["unreplaced_verdict_count"], 1);
 }
 
 fn input_source_value(source: DumpInputSource) -> Value {

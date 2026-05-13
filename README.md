@@ -37,9 +37,8 @@ The first version should be a focused terminal review tool, not a generic summar
 
 ## Inspiration And Lessons
 
-Hunk is the practical inspiration: a terminal-first diff viewer with Hunk-compatible
-`agent-context.json` sidecars, hunk-level notes, live review sessions, and keyboard navigation
-across notes.
+Hunk is the practical inspiration: a terminal-first diff viewer with hunk-level notes, live review
+sessions, and keyboard navigation across notes.
 
 Detailed field notes from a real Hunk review session are captured in
 [docs/hunk-feedback.md](docs/hunk-feedback.md). Treat those notes as product input, especially
@@ -110,8 +109,7 @@ Prefer shelling out to `git` at first. A VCS abstraction can come later if the m
 
 The current executable surfaces are `shore show`, `shore dump`, `shore review capture`,
 `shore review observation add/list`, `shore review intervention request/list/fetch/resolve`,
-`shore review disposition add/show`, `shore notes apply`, and transitional `shore review publish` /
-`verdict` / `ack` scaffolding.
+`shore review disposition add/show`, and `shore notes apply`.
 
 All commands accept optional tracing flags:
 
@@ -131,21 +129,15 @@ command helper for the current command and excludes it from the reviewed snapsho
 used by the JSON dump command:
 
 ```bash
-shore show [--repo <path>] [--review-notes <path> | --legacy-hunk-agent-context <path>]
+shore show [--repo <path>] [--review-notes <path>]
 ```
 
 Behavior:
 
 - `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
 - `--review-notes <path>` loads Shore-native `review-notes.json`.
-- `--legacy-hunk-agent-context <path>` imports a Hunk-compatible `agent-context.json` through the
-  explicit legacy adapter.
 - When no explicit sidecar is supplied, repo-only `shore show` auto-loads durable imported notes
   from `.shore/` if the store exists.
-- When `review_artifacts` data is present in the underlying dump document, `shore show` renders a
-  verdict status banner above the main view (for example, `verdict: pass | acks: 1/1`). If multiple
-  unreplaced verdicts exist for the current revision, the banner reports `ambiguous` with a
-  candidate count instead of inventing a tie-breaker.
 - Press `r` to re-ingest the working tree and reload the projection without losing your cursor
   position. Reload preserves the cursor by row ID when possible, then falls back to file+hunk,
   file, or the first row in the refreshed stream.
@@ -162,25 +154,18 @@ Behavior:
 consume the same review stream:
 
 ```bash
-shore dump [--repo <path>] [--review-notes <path> | --legacy-hunk-agent-context <path>] [--pretty | --compact]
+shore dump [--repo <path>] [--review-notes <path>] [--pretty | --compact]
 ```
 
 Behavior:
 
 - `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
 - `--review-notes <path>` loads Shore-native `review-notes.json`.
-- `--legacy-hunk-agent-context <path>` imports a Hunk-compatible `agent-context.json` through the
-  explicit legacy adapter.
 - When no explicit sidecar is supplied, repo-only `shore dump` auto-loads durable imported notes
   from `.shore/` if the store exists.
-- When `.shore/` exists, `shore dump` also emits a `review_artifacts` section containing published
-  verdicts, acknowledgements, and a `current_verdict` summary. The section is omitted entirely when
-  the durable store is absent.
-- When durable verdicts or notes no longer match the current revision, `shore dump` emits an
-  optional `reload_diagnostics` section containing the staleness entries (each with a `code` and
-  `message`). Individual verdicts and acknowledgements also carry a `stale: true` flag when their
-  revision no longer matches `current_revision_id`. Both the `reload_diagnostics` section and the
-  `stale` flags are omitted entirely when there is no reload-time staleness.
+- When durable notes no longer match the current snapshot, `shore dump` emits an optional
+  `reload_diagnostics` section containing the staleness entries, each with a `code` and `message`.
+  The `reload_diagnostics` section is omitted entirely when there is no reload-time staleness.
 - The review stream emits a `stale_note` row variant when a durable note's anchor no longer matches
   the current diff (the file is present but the line range is unsatisfiable). When a note's file is
   absent from the snapshot entirely, the stream emits a synthetic `<orphaned notes>` file header
@@ -225,13 +210,13 @@ Behavior:
 - `--log-file <path>` is command-helper plumbing and is excluded from the captured snapshot and
   content-derived ReviewUnit fingerprint for that command. Other unrelated tracked and untracked
   files remain part of the capture unless the caller keeps them out of the worktree.
-- Sidecar inputs are not part of the capture contract. Native `review-notes.json` and legacy Hunk
-  `agent-context.json` remain optional import/transport adapters for read/import commands.
+- Sidecar inputs are not part of the capture contract. Native `review-notes.json` remains an
+  optional import/transport adapter for read/import commands.
 - Output is compact `shore.review-capture` JSON. Command output documents are the external contract
   for automation; `.shore/state.json` is only a rebuildable projection, and artifact paths remain
   Shore-owned storage details.
 
-`shore review capture` does not add a daemon, delivery queue, acknowledgement flow, async or remote
+`shore review capture` does not add a daemon, delivery queue, approval flow, async or remote
 storage backend, or note mutation. `.shore/events/` is the local authoritative event log, not a
 mailbox or retry queue.
 
@@ -338,73 +323,22 @@ Behavior:
 - Native dispositions are not yet projected into `shore dump` or `shore show`; that belongs to the
   later ledger projection slice.
 
-`shore review publish` is older durable scaffolding kept temporarily while the ReviewUnit ledger
-model takes over. New capture-oriented workflows should start with `shore review capture`; later
-plans will replace or remove the publish/verdict/ack vocabulary rather than treating it as the
-stable ReviewUnit API.
-
-`shore review verdict` records a reviewer verdict against the current or named revision:
-
-```bash
-shore review verdict [--repo <path>] --decision <pass|pass-minor-nit|request-changes> \
-  [--summary <text> | --summary-file <path>] [--target-revision <revision-id>] \
-  [--replaces <review-artifact-id>...] [--reviewer-id <opaque>]
-```
-
-Behavior:
-
-- `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
-- `--decision` is required and uses reviewer-oriented verdict vocabulary.
-- `--summary` and `--summary-file` are mutually exclusive.
-- `--target-revision <revision-id>` overrides the current durable revision; otherwise Shore uses the
-  current revision projected from `.shore/state.json`.
-- `--replaces <review-artifact-id>` marks older verdict artifacts as superseded inline in the new
-  verdict event.
-- `--reviewer-id <opaque>` overrides the reviewer actor ID; otherwise Shore derives reviewer
-  identity from local Git config.
-- Large summaries are externalized as content-addressed `shore.note-body` artifacts under
-  `.shore/artifacts/notes/`; small summaries remain inline in the durable event payload.
-- Output is compact `shore.review-verdict` JSON with the returned `reviewArtifactId`, event counts,
-  and diagnostics.
-
-`shore review ack` records an acknowledgement against a published review artifact:
-
-```bash
-shore review ack [--repo <path>] --review-artifact <review-artifact-id> \
-  --next-action <accept|address|defer|obsolete> [--reason <text> | --reason-file <path>] \
-  [--actor-id <opaque>]
-```
-
-Behavior:
-
-- `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
-- `--review-artifact <review-artifact-id>` is required and must reference an existing published
-  review artifact in the local event store.
-- `--next-action` is required and records the acknowledgement decision.
-- `--reason` and `--reason-file` are mutually exclusive.
-- `--actor-id <opaque>` overrides the acknowledging actor ID; otherwise Shore derives author-side
-  identity from local Git config.
-- Large reasons reuse the shared `shore.note-body` artifact path under `.shore/artifacts/notes/`.
-- Output is compact `shore.review-ack` JSON with the returned `acknowledgementId`, event counts,
-  and diagnostics.
-
 `shore notes apply` imports review notes into Shore-owned durable state without publishing a
 revision:
 
 ```bash
 shore notes apply --repo <path> --review-notes <path>
-shore notes apply --repo <path> --legacy-hunk-agent-context <path>
 ```
 
 Behavior:
 
 - `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it;
   durable state is created at the Git worktree root.
-- Exactly one of `--review-notes <path>` or `--legacy-hunk-agent-context <path>` is required.
+- `--review-notes <path>` is required.
 - The command initializes local `.shore/` storage when needed, records one immutable durable event
   per imported note, and rebuilds `.shore/state.json`.
-- Native `review-notes.json` and legacy Hunk `agent-context.json` remain import/transport inputs.
-  They are not the authoritative persisted Shore store.
+- Native `review-notes.json` is an import/transport input, not the authoritative persisted Shore
+  store.
 - Large note bodies may be stored as content-addressed note-body artifacts under
   `.shore/artifacts/notes/`; small note bodies remain inline in the imported-note event payload.
 - Output is compact `shore.notes-apply` JSON with note counts, diagnostics, and the `statePath`.
@@ -496,8 +430,7 @@ Example native sidecar shape:
 }
 ```
 
-Shore can import Hunk-compatible `agent-context.json` through a legacy adapter, but Shore's native
-sidecar is `review-notes.json`.
+Shore's native sidecar is `review-notes.json`.
 
 When Shore imports these sidecars through `shore notes apply`, it persists immutable imported-note
 events under `.shore/events/`. For large note bodies, Shore may store the body text as a

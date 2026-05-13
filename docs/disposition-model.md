@@ -5,8 +5,8 @@
 V1 has a local durable disposition ledger. Shore can append `review_disposition_recorded` events and
 read them through `shore review disposition show`.
 
-Native disposition projection into `shore dump`, `shore show`, history/export commands, TUI
-surfaces, and legacy verdict/ack cleanup are deferred.
+Native disposition projection into `shore dump`, `shore show`, history/export commands, and TUI
+surfaces are deferred.
 
 ## Goal
 
@@ -92,4 +92,4 @@ V1 does not add:
 - cloud sync
 - TUI disposition rendering
 - native disposition projection into `shore dump` or `shore show`
-- legacy verdict/ack migration or aliases
+- migration shims or aliases for removed pre-release decision commands

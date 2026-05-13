@@ -28,7 +28,6 @@ pub(crate) struct NoteImportRecord {
 pub struct ImportNotesOptions {
     repo: PathBuf,
     review_notes: Option<PathBuf>,
-    legacy_hunk_agent_context: Option<PathBuf>,
 }
 
 impl ImportNotesOptions {
@@ -36,17 +35,11 @@ impl ImportNotesOptions {
         Self {
             repo: repo.as_ref().to_path_buf(),
             review_notes: None,
-            legacy_hunk_agent_context: None,
         }
     }
 
     pub fn with_review_notes(mut self, path: impl AsRef<Path>) -> Self {
         self.review_notes = Some(path.as_ref().to_path_buf());
-        self
-    }
-
-    pub fn with_legacy_hunk_agent_context(mut self, path: impl AsRef<Path>) -> Self {
-        self.legacy_hunk_agent_context = Some(path.as_ref().to_path_buf());
         self
     }
 }
@@ -61,12 +54,6 @@ pub struct ImportNotesResult {
 }
 
 pub fn import_notes(options: ImportNotesOptions) -> Result<ImportNotesResult> {
-    if options.review_notes.is_some() && options.legacy_hunk_agent_context.is_some() {
-        return Err(ShoreError::Message(
-            "only one review-notes input can be supplied".to_owned(),
-        ));
-    }
-
     let paths = ShoreStorePaths::resolve(&options.repo)?;
     let worktree_root = paths.worktree_root();
     let (sidecar_source, sidecar_content_hash, sidecar) = parsed_sidecar_input(&options)?;
@@ -237,7 +224,6 @@ fn imported_note_target(target: ReviewNoteTarget) -> ImportedNoteTarget {
 fn sidecar_source_key(source: SidecarSource) -> &'static str {
     match source {
         SidecarSource::ReviewNotes => "review_notes",
-        SidecarSource::LegacyHunkAgentContext => "legacy_hunk_agent_context",
     }
 }
 
@@ -249,16 +235,6 @@ fn parsed_sidecar_input(options: &ImportNotesOptions) -> Result<ParsedSidecarInp
         let parsed = crate::sidecar::parse_review_notes_sidecar(&input.text)?;
         return Ok((
             SidecarSource::ReviewNotes,
-            format!("sha256:{}", sha256_bytes_hex(&input.bytes)),
-            parsed.sidecar,
-        ));
-    }
-
-    if let Some(path) = &options.legacy_hunk_agent_context {
-        let input = crate::sidecar::read_legacy_hunk_agent_context_file(path)?;
-        let parsed = crate::sidecar::parse_hunk_agent_context(&input.text)?;
-        return Ok((
-            SidecarSource::LegacyHunkAgentContext,
             format!("sha256:{}", sha256_bytes_hex(&input.bytes)),
             parsed.sidecar,
         ));

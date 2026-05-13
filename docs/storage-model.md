@@ -152,37 +152,18 @@ hydrate summaries. Summary artifact paths, event filenames, and `state.json` pat
 storage details, not command-output API. Native disposition projection into `shore dump` and
 `shore show` is deferred to the later ledger projection slice.
 
-Verdict and acknowledgement events follow the same disciplines as note events:
-
-- `review_artifact_published` records a single immutable verdict for a `(workUnitId, revisionId)`
-  pair. The payload may name prior `reviewArtifactId`s it replaces; supersession is recorded inline
-  rather than as a separate event type.
-- `review_artifact_acknowledged` records an acknowledgement that targets a known
-  `reviewArtifactId` with one of the four `nextAction` values: `accept`, `address`, `defer`,
-  `obsolete`.
-
-Both events use canonical-hash identity, externalize large bodies through the shared
-`shore.note-body` envelope at `.shore/artifacts/notes/<hash>.json`, and project bounded counters
-plus a `last_verdict_decision` into `state.json` without per-ID arrays or maps.
-
-The read surface (`shore dump`, `shore show`) projects these events through the public
-`read_review_artifacts` and `read_acknowledgements` workflow seams and exposes them via a
-`review_artifacts` section in the dump JSON and a status banner in the TUI. The section is omitted
-when `.shore/` is absent. `current_verdict.status` is one of `resolved`, `ambiguous`, or `none`;
-the reader never picks a tie-breaker when ambiguity is present.
 The review stream also surfaces stale and orphan notes as dedicated rows so reviewers can park the
 cursor on them; the stream emits an additional synthetic file header for orphan notes when at least
 one is present.
 
 Reload is a read-side projection refresh. The durable event log remains immutable; reload re-runs
-the order-independent projection against the current worktree state and lowers anchor-stale and
-revision-stale conditions into the read surface via `reload_diagnostics`. If reload encounters a
-parse or ingest error partway through, the prior projection survives because the read-side
-primitive never mutates `.shore/`.
+the order-independent projection against the current worktree state and lowers anchor-stale
+conditions into the read surface via `reload_diagnostics`. If reload encounters a parse or ingest
+error partway through, the prior projection survives because the read-side primitive never mutates
+`.shore/`.
 
 A future delivery queue is a separate subsystem. Queue concepts such as `pending/`, `failed/`,
-retry counts, backoff, circuit breakers, and acknowledgement markers do not belong in
-`.shore/events/`.
+retry counts, backoff, and circuit breakers do not belong in `.shore/events/`.
 
 ## Event Files
 

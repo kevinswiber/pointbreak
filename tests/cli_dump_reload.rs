@@ -23,9 +23,7 @@ fn dump_omits_reload_diagnostics_and_false_stale_flags_when_no_staleness() {
     let repo = dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
 
-    publish_review(repo_arg);
-    let artifact_id = publish_verdict(repo_arg, "pass", "ship it");
-    acknowledge_review(repo_arg, &artifact_id, "accept", "ok");
+    capture_review(repo_arg);
 
     let output = shore(["dump", "--repo", repo_arg]);
     let json = parse_json(&output);
@@ -35,41 +33,8 @@ fn dump_omits_reload_diagnostics_and_false_stale_flags_when_no_staleness() {
         "expected no reload_diagnostics field; got: {json:#?}"
     );
     assert!(
-        json["review_artifacts"]["verdicts"][0]
-            .get("stale")
-            .is_none(),
-        "current-revision verdict should omit stale flag; got: {json:#?}"
-    );
-    assert!(
-        json["review_artifacts"]["acknowledgements"][0]
-            .get("stale")
-            .is_none(),
-        "current-revision ack should omit stale flag; got: {json:#?}"
-    );
-}
-
-#[test]
-fn dump_marks_stale_verdicts_and_acks_after_revision_shift() {
-    let repo = dump_repo();
-    let repo_arg = repo.path().to_str().unwrap();
-
-    publish_review(repo_arg);
-    let artifact_id = publish_verdict(repo_arg, "pass", "ship it");
-    acknowledge_review(repo_arg, &artifact_id, "accept", "ok");
-    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    publish_review(repo_arg);
-
-    let output = shore(["dump", "--repo", repo_arg]);
-    let json = parse_json(&output);
-
-    assert_eq!(json["review_artifacts"]["verdicts"][0]["stale"], true);
-    assert_eq!(
-        json["review_artifacts"]["acknowledgements"][0]["stale"],
-        true
-    );
-    assert!(
-        reload_codes(&json).contains(&"verdict_stale"),
-        "expected verdict_stale diagnostic; got: {json:#?}"
+        json.get("review_artifacts").is_none(),
+        "review_artifacts should not be emitted; got: {json:#?}"
     );
 }
 
@@ -129,43 +94,8 @@ fn dump_with_sidecar_input_still_emits_reload_diagnostics() {
     );
 }
 
-fn publish_review(repo_arg: &str) {
-    let output = shore(["review", "publish", "--repo", repo_arg]);
-    assert!(
-        output.status.success(),
-        "stderr:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-fn publish_verdict(repo_arg: &str, decision: &str, summary: &str) -> String {
-    let output = shore([
-        "review",
-        "verdict",
-        "--repo",
-        repo_arg,
-        "--decision",
-        decision,
-        "--summary",
-        summary,
-    ]);
-    let json = parse_json(&output);
-    json["reviewArtifactId"].as_str().unwrap().to_owned()
-}
-
-fn acknowledge_review(repo_arg: &str, artifact_id: &str, next_action: &str, reason: &str) {
-    let output = shore([
-        "review",
-        "ack",
-        "--repo",
-        repo_arg,
-        "--review-artifact",
-        artifact_id,
-        "--next-action",
-        next_action,
-        "--reason",
-        reason,
-    ]);
+fn capture_review(repo_arg: &str) {
+    let output = shore(["review", "capture", "--repo", repo_arg]);
     assert!(
         output.status.success(),
         "stderr:\n{}",

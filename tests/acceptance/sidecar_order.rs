@@ -4,8 +4,7 @@ use shore::model::{
 };
 use shore::sidecar::{
     DiagnosticLevel, ReviewNoteEntry, ReviewNoteTarget, ReviewNotesDiagnosticCode, ReviewNotesFile,
-    ReviewNotesSidecar, apply_file_order, parse_hunk_agent_context, parse_review_notes_sidecar,
-    resolve_notes,
+    ReviewNotesSidecar, apply_file_order, parse_review_notes_sidecar, resolve_notes,
 };
 
 #[test]
@@ -94,123 +93,6 @@ fn invalid_review_notes_entries_return_recoverable_diagnostics() {
             ),
         ]
     );
-}
-
-#[test]
-fn legacy_hunk_agent_context_imports_as_review_notes() {
-    let parsed = parse_hunk_agent_context(include_str!(
-        "../fixtures/sidecars/legacy-hunk-agent-context.json"
-    ))
-    .expect("legacy Hunk context imports");
-
-    assert!(parsed.diagnostics.is_empty(), "{:#?}", parsed.diagnostics);
-    assert_eq!(parsed.sidecar.schema.as_deref(), Some("shore.review-notes"));
-    assert_eq!(parsed.sidecar.version, 1);
-    assert_eq!(
-        parsed.sidecar.summary.as_deref(),
-        Some("Legacy Hunk parser fixture")
-    );
-
-    let file = &parsed.sidecar.files[0];
-    assert_eq!(file.path, "src/new_name.rs");
-    assert_eq!(file.old_path.as_deref(), Some("src/old_name.rs"));
-    assert_eq!(file.notes.len(), 2);
-
-    let note = &file.notes[0];
-    assert_eq!(note.id.as_deref(), Some("ann-new-range"));
-    assert_eq!(note.title.as_deref(), Some("New-side annotation"));
-    assert_eq!(
-        note.body.as_deref(),
-        Some("Explains why the new range matters")
-    );
-    assert_eq!(note.source.as_deref(), Some("hunk"));
-    let target = note
-        .target
-        .as_ref()
-        .expect("legacy newRange becomes target");
-    assert_eq!(target.side, Side::New);
-    assert_eq!(target.start_line, 10);
-    assert_eq!(target.end_line, 12);
-
-    let old_note = &file.notes[1];
-    assert_eq!(old_note.title.as_deref(), Some("Old-side annotation"));
-    assert_eq!(
-        old_note.target.as_ref().expect("old range target").side,
-        Side::Old
-    );
-}
-
-#[test]
-fn invalid_legacy_hunk_agent_context_import_maps_diagnostics_to_note_paths() {
-    let parsed = parse_hunk_agent_context(include_str!(
-        "../fixtures/sidecars/legacy-invalid-hunk-agent-context.json"
-    ))
-    .expect("invalid legacy Hunk context imports recoverably");
-
-    assert_eq!(parsed.sidecar.files.len(), 2);
-    assert_eq!(parsed.diagnostics.len(), 4);
-
-    let diagnostics = parsed
-        .diagnostics
-        .iter()
-        .map(|diagnostic| {
-            (
-                diagnostic.level.clone(),
-                diagnostic.code.clone(),
-                diagnostic.path.as_str(),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        diagnostics,
-        vec![
-            (
-                DiagnosticLevel::Warning,
-                ReviewNotesDiagnosticCode::InvalidRange,
-                "files[0].notes[0].target"
-            ),
-            (
-                DiagnosticLevel::Warning,
-                ReviewNotesDiagnosticCode::InvalidRange,
-                "files[0].notes[1].target"
-            ),
-            (
-                DiagnosticLevel::Warning,
-                ReviewNotesDiagnosticCode::MissingNoteTitle,
-                "files[0].notes[2].title"
-            ),
-            (
-                DiagnosticLevel::Warning,
-                ReviewNotesDiagnosticCode::MissingFilePath,
-                "files[1].path"
-            ),
-        ]
-    );
-}
-
-#[test]
-fn native_review_notes_parser_does_not_accept_hunk_aliases() {
-    let parsed = parse_review_notes_sidecar(include_str!(
-        "../fixtures/sidecars/legacy-hunk-agent-context.json"
-    ))
-    .expect("legacy Hunk shape remains JSON-parseable");
-
-    assert_eq!(
-        parsed.sidecar.schema.as_deref(),
-        Some("shore.agent-context")
-    );
-    assert!(parsed.sidecar.files[0].notes.is_empty());
-    assert!(parsed.diagnostics.iter().any(|diagnostic| {
-        diagnostic.code == ReviewNotesDiagnosticCode::InvalidSchema && diagnostic.path == "schema"
-    }));
-    assert!(parsed.diagnostics.iter().any(|diagnostic| {
-        diagnostic.code == ReviewNotesDiagnosticCode::MissingVersion && diagnostic.path == "version"
-    }));
-    assert!(parsed.diagnostics.iter().any(|diagnostic| {
-        diagnostic.code == ReviewNotesDiagnosticCode::MissingNotes
-            && diagnostic.path == "files[0].notes"
-    }));
 }
 
 #[test]

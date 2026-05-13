@@ -193,21 +193,6 @@ mod tests {
                 .events_created_by_type
                 .contains_key("review_initialized")
         );
-        assert!(
-            !result
-                .events_created_by_type
-                .contains_key("revision_published")
-        );
-        assert!(
-            !result
-                .events_created_by_type
-                .contains_key("snapshot_observed")
-        );
-        assert!(
-            !result
-                .events_created_by_type
-                .contains_key("sidecar_observed")
-        );
     }
 
     #[test]

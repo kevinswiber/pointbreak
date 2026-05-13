@@ -517,29 +517,6 @@ fn observation_add_errors_when_current_review_unit_is_ambiguous_without_explicit
     assert!(String::from_utf8_lossy(&output.stderr).contains("multiple captured review units"));
 }
 
-#[test]
-fn observation_add_rejects_legacy_hunk_agent_context_flag_without_mutation() {
-    let repo = modified_repo();
-
-    let output = shore([
-        "review",
-        "observation",
-        "add",
-        "--repo",
-        repo.path().to_str().unwrap(),
-        "--track",
-        "agent:codex",
-        "--title",
-        "No legacy",
-        "--legacy-hunk-agent-context",
-        "agent-context.json",
-    ]);
-
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("unexpected argument"));
-    assert!(!repo.path().join(".shore").exists());
-}
-
 fn shore_with_stdin<I, S>(args: I, stdin: &str) -> Output
 where
     I: IntoIterator<Item = S>,

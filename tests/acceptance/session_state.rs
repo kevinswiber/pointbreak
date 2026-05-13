@@ -1,11 +1,9 @@
 use shore::git::{git_worktree_root, ingest_tracked_diff};
-use shore::model::ReviewArtifactId;
-use shore::session::event::{AcknowledgementNextAction, VerdictDecision};
+use shore::session::event::EventType;
 use shore::session::{
-    AcknowledgeReviewOptions, EventType, ImportNotesOptions, PublishOptions, PublishVerdictOptions,
-    RevisionPublishedPayload, SessionState, ShoreEvent, acknowledge_review,
-    capture_worktree_fingerprint, ensure_shore_ignored, import_notes, publish_verdict,
-    publish_worktree_review, read_events, rebuild_state, shore_dir_for_repo,
+    CaptureOptions, ImportNotesOptions, SessionState, ShoreEvent, capture_worktree_fingerprint,
+    capture_worktree_review, ensure_shore_ignored, import_notes, load_durable_notes_for_repo,
+    read_events, rebuild_state, shore_dir_for_repo,
 };
 
 use crate::support::git_repo::GitRepo;
@@ -69,11 +67,8 @@ fn ensure_shore_ignored_treats_bare_shore_entry_as_existing_ignore() {
 
 #[test]
 fn read_events_uses_worktree_shore_dir_from_subdirectory() {
-    let repo = GitRepo::new();
-    repo.write("src/lib.rs", "pub fn demo() {}\n");
-    repo.commit_all("base");
-    repo.write("src/lib.rs", "pub fn demo() -> u32 { 1 }\n");
-    publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
+    let repo = modified_repo();
+    capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
     let events = read_events(repo.path().join("src")).unwrap();
 
@@ -82,11 +77,8 @@ fn read_events_uses_worktree_shore_dir_from_subdirectory() {
 
 #[test]
 fn rebuild_state_uses_worktree_shore_dir_from_subdirectory() {
-    let repo = GitRepo::new();
-    repo.write("src/lib.rs", "pub fn demo() {}\n");
-    repo.commit_all("base");
-    repo.write("src/lib.rs", "pub fn demo() -> u32 { 1 }\n");
-    publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
+    let repo = modified_repo();
+    capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
     std::fs::remove_file(repo.path().join(".shore/state.json")).unwrap();
 
     rebuild_state(repo.path().join("src")).unwrap();
@@ -109,10 +101,7 @@ fn nested_git_repo_uses_its_own_worktree_root() {
 
 #[test]
 fn same_working_tree_diff_produces_same_revision_and_snapshot_ids() {
-    let repo = GitRepo::new();
-    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
-    repo.commit_all("base");
-    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    let repo = modified_repo();
 
     let first = capture_worktree_fingerprint(repo.path()).expect("first capture");
     let second = capture_worktree_fingerprint(repo.path()).expect("second capture");
@@ -129,7 +118,7 @@ fn same_working_tree_diff_produces_same_revision_and_snapshot_ids() {
 }
 
 #[test]
-fn sidecar_input_does_not_affect_revision_fingerprint() {
+fn shore_state_does_not_affect_revision_fingerprint() {
     let repo = modified_repo();
     ensure_shore_ignored(repo.path()).expect("ignore shore state");
 
@@ -169,16 +158,13 @@ fn git_ingestion_uses_content_derived_snapshot_id() {
 }
 
 #[test]
-fn first_publish_creates_shore_store_events_artifacts_and_state() {
+fn first_capture_creates_shore_store_events_artifacts_and_state() {
     let repo = modified_repo();
 
     let result =
-        publish_worktree_review(PublishOptions::new(repo.path())).expect("publish succeeds");
+        capture_worktree_review(CaptureOptions::new(repo.path())).expect("capture succeeds");
 
-    assert_eq!(result.review_id.as_str(), "review:default");
-    assert_eq!(result.work_unit_id.as_str(), "work:default");
     assert!(repo.path().join(".shore/events").is_dir());
-    assert!(repo.path().join(".shore/artifacts/revisions").is_dir());
     assert!(repo.path().join(".shore/artifacts/snapshots").is_dir());
     assert!(repo.path().join(".shore/state.json").is_file());
     assert!(
@@ -186,243 +172,45 @@ fn first_publish_creates_shore_store_events_artifacts_and_state() {
             .lines()
             .any(|line| line == ".shore/")
     );
-    assert_eq!(result.events_created_by_type["review_initialized"], 1);
-    assert_eq!(result.events_created_by_type["revision_published"], 1);
-    assert_eq!(result.events_created_by_type["snapshot_observed"], 1);
+    assert_eq!(result.events_created_by_type["review_unit_captured"], 1);
 
     let state: SessionState =
         serde_json::from_str(&repo.read(".shore/state.json")).expect("state decodes");
-    assert_eq!(state.current_revision_id, Some(result.revision_id));
-    assert_eq!(state.current_snapshot_id, Some(result.snapshot_id));
-    assert_eq!(state.event_count, 3);
-    assert_eq!(state.review_artifact_count, 0);
-    assert_eq!(state.acknowledgement_count, 0);
-    assert_eq!(state.last_verdict_decision, None);
+    assert_eq!(state.current_review_unit_id, Some(result.review_unit_id));
+    assert_eq!(state.review_unit_count, 1);
+    assert_eq!(state.event_count, 1);
 }
 
 #[test]
-fn publishing_unchanged_worktree_is_idempotent() {
+fn capture_unchanged_worktree_is_idempotent() {
     let repo = modified_repo();
 
-    let first = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-    let second = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
+    let first = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+    let second = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-    assert_eq!(first.revision_id, second.revision_id);
+    assert_eq!(first.review_unit_id, second.review_unit_id);
     assert_eq!(second.events_created, 0);
-    assert!(second.events_existing >= 3);
+    assert!(second.events_existing >= 1);
 }
 
 #[test]
-fn publishing_changed_worktree_supersedes_previous_revision() {
-    let repo = modified_repo();
-    let first = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-
-    let second = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-    let event = revision_event_for(&repo, &second.revision_id);
-    let state: SessionState =
-        serde_json::from_str(&repo.read(".shore/state.json")).expect("state decodes");
-
-    assert_ne!(first.revision_id, second.revision_id);
-    assert!(event.supersedes_revision_ids.contains(&first.revision_id));
-    assert_eq!(state.current_revision_id, Some(second.revision_id));
-    assert!(state.diagnostics.is_empty());
-}
-
-#[test]
-fn republishing_previous_revision_reuses_original_supersession_payload() {
-    let repo = modified_repo();
-    let first = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let second = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
-
-    let third = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-    let first_event = revision_event_for(&repo, &first.revision_id);
-    let first_artifact = revision_artifact_for(&repo, &first.revision_id);
-    let state = read_session_state(repo.path());
-
-    assert_eq!(third.revision_id, first.revision_id);
-    assert_eq!(third.events_created, 0);
-    assert_eq!(third.events_existing, 3);
-    assert!(first_event.supersedes_revision_ids.is_empty());
-    assert_eq!(first_artifact["revisionId"], first.revision_id.as_str());
-    assert_eq!(
-        first_artifact["supersedesRevisionIds"],
-        serde_json::json!([])
-    );
-    assert_eq!(state.current_revision_id, Some(second.revision_id));
-    assert_eq!(state.event_count, 5);
-}
-
-#[test]
-fn republishing_later_known_revision_reuses_original_supersession_payload() {
-    let repo = modified_repo();
-    let first = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let second = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
-    publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-
-    let fourth = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-    let second_event = revision_event_for(&repo, &second.revision_id);
-    let second_artifact = revision_artifact_for(&repo, &second.revision_id);
-    let state = read_session_state(repo.path());
-
-    assert_eq!(fourth.revision_id, second.revision_id);
-    assert_eq!(fourth.events_created, 0);
-    assert_eq!(fourth.events_existing, 3);
-    assert_eq!(
-        second_event.supersedes_revision_ids,
-        vec![first.revision_id]
-    );
-    assert_eq!(second_artifact["revisionId"], second.revision_id.as_str());
-    assert_eq!(
-        second_artifact["supersedesRevisionIds"],
-        serde_json::json!([second_event.supersedes_revision_ids[0].as_str()])
-    );
-    assert_eq!(state.current_revision_id, Some(second.revision_id));
-    assert_eq!(state.event_count, 5);
-}
-
-#[test]
-fn publish_writer_identity_prefers_git_config_email() {
+fn capture_writer_identity_prefers_git_config_email() {
     let repo = modified_repo();
 
-    let result = publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
+    let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
     let events = read_events(repo.path()).expect("events list");
     let event = events
         .iter()
         .find(|event| {
-            event.event_type == EventType::RevisionPublished
-                && event.payload["revisionId"] == result.revision_id.as_str()
+            event.event_type == EventType::ReviewUnitCaptured
+                && event.payload["reviewUnitId"] == result.review_unit_id.as_str()
         })
-        .expect("revision event exists");
+        .expect("review unit event exists");
 
     assert_eq!(
         event.writer.actor_id.as_str(),
         "actor:git-email:shore-tests@example.com"
     );
-}
-
-#[test]
-fn native_review_notes_publish_records_sidecar_observation() {
-    let repo = modified_repo();
-    let sidecar = write_native_review_notes(&repo);
-
-    let result = publish_worktree_review(
-        PublishOptions::new(repo.path()).with_review_notes(sidecar.clone()),
-    )
-    .expect("publish succeeds");
-
-    let event = sidecar_observed_event(&repo, "review_notes");
-    assert_eq!(event.payload["source"], "review_notes");
-    assert_eq!(
-        event.payload["path"].as_str().unwrap(),
-        sidecar.to_string_lossy()
-    );
-    assert_eq!(event.payload["schema"], "shore.review-notes");
-    assert_eq!(event.payload["version"], 1);
-    assert_eq!(
-        event.payload["byteSize"].as_u64().unwrap(),
-        native_review_notes_json().len() as u64
-    );
-    assert!(
-        event.payload["contentHash"]
-            .as_str()
-            .unwrap()
-            .starts_with("sha256:")
-    );
-    assert_eq!(event.payload["diagnosticCount"], 0);
-    assert_eq!(event.payload["diagnosticLevels"]["warning"], 0);
-    assert_ne!(event.payload_hash, event.payload["contentHash"]);
-
-    let state: SessionState =
-        serde_json::from_str(&repo.read(".shore/state.json")).expect("state decodes");
-    assert_eq!(state.sidecar_count, 1);
-    assert_eq!(result.events_created_by_type["sidecar_observed"], 1);
-}
-
-#[test]
-fn legacy_hunk_context_publish_records_legacy_sidecar_observation() {
-    let repo = modified_repo();
-    let sidecar = write_legacy_hunk_context(&repo);
-
-    publish_worktree_review(
-        PublishOptions::new(repo.path()).with_legacy_hunk_agent_context(sidecar.clone()),
-    )
-    .expect("publish succeeds");
-
-    let event = sidecar_observed_event(&repo, "legacy_hunk_agent_context");
-    assert_eq!(event.payload["source"], "legacy_hunk_agent_context");
-    assert_eq!(
-        event.payload["path"].as_str().unwrap(),
-        sidecar.to_string_lossy()
-    );
-    assert_eq!(event.payload["schema"], "shore.review-notes");
-    assert_eq!(event.payload["importedSchema"], "shore.agent-context");
-    assert_eq!(event.payload["version"], 1);
-}
-
-#[test]
-fn sidecar_content_change_records_new_observation_without_changing_revision() {
-    let repo = modified_repo();
-    let sidecar = write_native_review_notes(&repo);
-    let first = publish_worktree_review(
-        PublishOptions::new(repo.path()).with_review_notes(sidecar.clone()),
-    )
-    .unwrap();
-
-    std::fs::write(&sidecar, changed_review_notes_json()).unwrap();
-    let second =
-        publish_worktree_review(PublishOptions::new(repo.path()).with_review_notes(sidecar))
-            .unwrap();
-
-    assert_eq!(first.revision_id, second.revision_id);
-    assert_eq!(second.events_created_by_type["sidecar_observed"], 1);
-}
-
-#[test]
-fn excluded_helper_path_does_not_affect_publish_revision() {
-    let repo = modified_repo();
-    let log_path = repo.path().join("shore.log");
-    std::fs::write(&log_path, "first log\n").unwrap();
-
-    let first = publish_worktree_review(
-        PublishOptions::new(repo.path()).with_excluded_helper_path(&log_path),
-    )
-    .unwrap();
-
-    std::fs::write(&log_path, "changed log\n").unwrap();
-    let second = publish_worktree_review(
-        PublishOptions::new(repo.path()).with_excluded_helper_path(&log_path),
-    )
-    .unwrap();
-
-    repo.write("src/unrelated.rs", "pub fn unrelated() {}\n");
-    let third = publish_worktree_review(
-        PublishOptions::new(repo.path()).with_excluded_helper_path(&log_path),
-    )
-    .unwrap();
-
-    assert_eq!(first.revision_id, second.revision_id);
-    assert_eq!(second.events_created, 0);
-    assert_ne!(second.revision_id, third.revision_id);
-}
-
-#[test]
-fn malformed_sidecar_fails_before_writing_events() {
-    let repo = modified_repo();
-    let sidecar = repo.path().join("bad-review-notes.json");
-    std::fs::write(&sidecar, "{").unwrap();
-
-    let error =
-        publish_worktree_review(PublishOptions::new(repo.path()).with_review_notes(sidecar))
-            .expect_err("malformed sidecar is fatal");
-
-    assert!(error.to_string().contains("json"));
-    assert!(!repo.path().join(".shore").exists());
 }
 
 #[test]
@@ -478,7 +266,7 @@ fn changing_imported_note_creates_one_new_durable_event() {
 }
 
 #[test]
-fn importing_before_publish_auto_initializes_shore() {
+fn importing_notes_auto_initializes_shore() {
     let repo = modified_repo();
     let sidecar = write_native_review_notes(&repo);
 
@@ -492,24 +280,6 @@ fn importing_before_publish_auto_initializes_shore() {
     assert_eq!(state.note_count, 1);
     assert_eq!(state.current_revision_id, None);
     assert_eq!(state.current_snapshot_id, None);
-}
-
-#[test]
-fn importing_legacy_hunk_sidecar_records_legacy_note_source() {
-    let repo = modified_repo();
-    let sidecar = write_legacy_hunk_context(&repo);
-
-    let result =
-        import_notes(ImportNotesOptions::new(repo.path()).with_legacy_hunk_agent_context(&sidecar))
-            .unwrap();
-
-    let events = review_note_imported_events(&repo);
-    assert_eq!(result.note_count, 1);
-    assert_eq!(events.len(), 1);
-    assert_eq!(
-        events[0].payload["sidecarSource"],
-        "legacy_hunk_agent_context"
-    );
 }
 
 #[test]
@@ -530,80 +300,71 @@ fn large_note_body_is_written_to_content_addressed_artifact() {
     let repo = modified_repo();
     let sidecar = write_review_notes_with_body(&repo, &"x".repeat(5000));
 
-    import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar))
-        .expect("import succeeds");
+    import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar)).unwrap();
+    let note = first_note_event(&repo);
 
-    let event = first_note_event(&repo);
-    let artifact = event.payload["bodyArtifactPath"].as_str().unwrap();
-
-    assert!(event.payload["body"].is_null());
-    assert!(artifact.starts_with("artifacts/notes/"));
-    assert!(repo.path().join(".shore").join(artifact).is_file());
+    assert!(note.payload["body"].is_null());
+    assert!(
+        note.payload["bodyArtifactPath"]
+            .as_str()
+            .unwrap()
+            .starts_with("artifacts/notes/")
+    );
+    assert_eq!(note_body_artifact_file_count(repo.path()), 1);
 }
 
 #[test]
 fn small_note_body_remains_inline_without_note_body_artifact() {
     let repo = modified_repo();
-    let sidecar = write_review_notes_with_body(&repo, "short body");
+    let sidecar = write_review_notes_with_body(&repo, "small body");
 
-    import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar))
-        .expect("import succeeds");
+    import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar)).unwrap();
+    let note = first_note_event(&repo);
 
-    let event = first_note_event(&repo);
-    assert_eq!(event.payload["body"], "short body");
-    assert!(event.payload["bodyArtifactPath"].is_null());
+    assert_eq!(note.payload["body"], "small body");
+    assert!(note.payload["bodyArtifactPath"].is_null());
     assert_eq!(note_body_artifact_file_count(repo.path()), 0);
 }
 
 #[test]
 fn reimporting_same_long_body_reuses_content_addressed_artifact_path() {
     let repo = modified_repo();
-    let body = "x".repeat(5000);
-    let first_sidecar = write_review_notes_with_body(&repo, &body);
-    let first =
-        import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&first_sidecar))
-            .expect("first import succeeds");
+    let sidecar = write_review_notes_with_body(&repo, &"x".repeat(5000));
 
+    import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar)).unwrap();
     let first_path = first_note_event(&repo).payload["bodyArtifactPath"]
         .as_str()
         .unwrap()
         .to_owned();
-    let second_sidecar = write_review_notes_with_body(&repo, &body);
     let second =
-        import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&second_sidecar))
-            .expect("second import succeeds");
-    let event = first_note_event(&repo);
-    let second_path = event.payload["bodyArtifactPath"].as_str().unwrap();
+        import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar)).unwrap();
+    let second_path = first_note_event(&repo).payload["bodyArtifactPath"]
+        .as_str()
+        .unwrap()
+        .to_owned();
 
-    assert_eq!(first.notes_created, 1);
     assert_eq!(second.notes_created, 0);
     assert_eq!(second.notes_existing, 1);
     assert_eq!(first_path, second_path);
 }
 
 #[test]
-fn publish_pipeline_records_events_sidecar_observation_and_bounded_state() {
-    let repo = bounded_publish_repo();
-    let sidecar = repo.write_fixture("review-notes.json", native_review_notes_json());
-
-    let result =
-        publish_worktree_review(PublishOptions::new(repo.path()).with_review_notes(sidecar))
-            .expect("publish succeeds");
+fn ledger_pipeline_records_capture_import_and_bounded_state() {
+    let repo = bounded_ledger_repo();
     let state_json = repo.read(".shore/state.json");
     let state: serde_json::Value = serde_json::from_str(&state_json).expect("state is json");
 
     assert_eq!(state["schema"], "shore.state");
-    assert_eq!(state["eventCount"], 4);
-    assert_eq!(state["sidecarCount"], 1);
+    assert_eq!(state["eventCount"], 3);
+    assert_eq!(state["reviewUnitCount"], 1);
+    assert_eq!(state["noteCount"], 1);
     assert!(state.get("events").is_none());
-    assert_eq!(event_file_count(repo.path()), 4);
-    assert_eq!(result.diagnostics.len(), 0);
+    assert_eq!(event_file_count(repo.path()), 3);
 }
 
 #[test]
 fn state_can_be_deleted_and_rebuilt_from_events() {
-    let repo = bounded_publish_repo();
-    publish_worktree_review(PublishOptions::new(repo.path())).expect("publish succeeds");
+    let repo = bounded_ledger_repo();
     let original_state = repo.read(".shore/state.json");
     std::fs::remove_file(repo.path().join(".shore/state.json")).unwrap();
 
@@ -611,7 +372,7 @@ fn state_can_be_deleted_and_rebuilt_from_events() {
     let rebuilt_state = repo.read(".shore/state.json");
 
     assert!(repo.path().join(".shore/state.json").is_file());
-    assert!(rebuilt.event_count >= 3);
+    assert!(rebuilt.event_count >= 1);
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&rebuilt_state).unwrap(),
         serde_json::from_str::<serde_json::Value>(&original_state).unwrap()
@@ -620,8 +381,7 @@ fn state_can_be_deleted_and_rebuilt_from_events() {
 
 #[test]
 fn corrupt_state_json_is_ignored_and_rebuilt_from_events() {
-    let repo = bounded_publish_repo();
-    publish_worktree_review(PublishOptions::new(repo.path())).expect("publish succeeds");
+    let repo = bounded_ledger_repo();
     let original_state = repo.read(".shore/state.json");
     std::fs::write(repo.path().join(".shore/state.json"), "{").unwrap();
 
@@ -636,13 +396,91 @@ fn corrupt_state_json_is_ignored_and_rebuilt_from_events() {
 
 #[test]
 fn event_store_detects_corrupted_event_payload_hash() {
-    let repo = bounded_publish_repo();
-    publish_worktree_review(PublishOptions::new(repo.path())).expect("publish succeeds");
+    let repo = bounded_ledger_repo();
     corrupt_first_event_payload(repo.path());
 
     let error = rebuild_state(repo.path()).expect_err("corrupt event is rejected");
 
     assert!(error.to_string().contains("payload"));
+}
+
+#[test]
+fn load_durable_notes_for_repo_returns_none_without_shore_store() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+
+    let parsed = load_durable_notes_for_repo(repo.path()).expect("load succeeds");
+
+    assert_eq!(parsed, None);
+    assert!(!repo.path().join(".shore").exists());
+}
+
+#[test]
+fn load_durable_notes_for_repo_replays_imported_notes() {
+    let repo = modified_repo();
+    let sidecar = write_native_review_notes(&repo);
+    import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar))
+        .expect("notes import succeeds");
+
+    let parsed = load_durable_notes_for_repo(repo.path())
+        .expect("load succeeds")
+        .expect("durable notes exist");
+
+    assert_eq!(parsed.sidecar.files.len(), 1);
+    assert_eq!(parsed.sidecar.files[0].notes.len(), 1);
+    assert_eq!(
+        parsed.sidecar.files[0].notes[0].title.as_deref(),
+        Some("Changed return value")
+    );
+}
+
+#[test]
+fn load_durable_notes_for_repo_returns_none_with_empty_store() {
+    let repo = modified_repo();
+    capture_worktree_review(CaptureOptions::new(repo.path())).expect("capture succeeds");
+
+    assert!(repo.path().join(".shore/events").exists());
+
+    let parsed = load_durable_notes_for_repo(repo.path()).expect("load succeeds");
+
+    assert_eq!(parsed, None);
+}
+
+#[test]
+fn load_durable_notes_for_repo_resolves_large_body_artifact() {
+    let repo = modified_repo();
+    let large_body = "x".repeat(5000);
+    let sidecar = write_review_notes_with_body(&repo, &large_body);
+    import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar))
+        .expect("notes import succeeds");
+
+    let parsed = load_durable_notes_for_repo(repo.path())
+        .unwrap()
+        .expect("durable notes exist");
+
+    assert_eq!(
+        parsed.sidecar.files[0].notes[0].body.as_deref(),
+        Some(&large_body[..])
+    );
+}
+
+#[test]
+fn load_durable_notes_for_repo_still_works_with_small_inline_bodies() {
+    let repo = modified_repo();
+    let small_body = "small body content";
+    let sidecar = write_review_notes_with_body(&repo, small_body);
+    import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar))
+        .expect("notes import succeeds");
+
+    let parsed = load_durable_notes_for_repo(repo.path())
+        .unwrap()
+        .expect("durable notes exist");
+
+    assert_eq!(
+        parsed.sidecar.files[0].notes[0].body.as_deref(),
+        Some(small_body)
+    );
 }
 
 fn modified_repo() -> GitRepo {
@@ -653,106 +491,57 @@ fn modified_repo() -> GitRepo {
     repo
 }
 
-fn bounded_publish_repo() -> GitRepo {
+fn bounded_ledger_repo() -> GitRepo {
     let repo = modified_repo();
-    repo.write("src/untracked.rs", "pub fn untracked() -> u32 { 3 }\n");
+    capture_worktree_review(CaptureOptions::new(repo.path())).expect("capture succeeds");
+    let sidecar = repo.write_fixture("review-notes.json", native_review_notes_json());
+    import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(sidecar))
+        .expect("notes import succeeds");
     repo
 }
 
 fn event_file_count(repo: &std::path::Path) -> usize {
     std::fs::read_dir(repo.join(".shore/events"))
-        .unwrap()
-        .filter(|entry| {
-            entry
-                .as_ref()
-                .unwrap()
-                .path()
-                .extension()
-                .is_some_and(|extension| extension == "json")
+        .map(|entries| {
+            entries
+                .filter(|entry| {
+                    entry.as_ref().is_ok_and(|entry| {
+                        entry.path().extension().and_then(|ext| ext.to_str()) == Some("json")
+                    })
+                })
+                .count()
         })
-        .count()
+        .unwrap_or_default()
 }
 
 fn note_body_artifact_file_count(repo: &std::path::Path) -> usize {
-    let notes_dir = repo.join(".shore/artifacts/notes");
-    if !notes_dir.exists() {
-        return 0;
-    }
-
-    std::fs::read_dir(notes_dir)
-        .unwrap()
-        .filter(|entry| {
-            entry
-                .as_ref()
-                .unwrap()
-                .path()
-                .extension()
-                .is_some_and(|extension| extension == "json")
+    let dir = repo.join(".shore/artifacts/notes");
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter(|entry| {
+                    entry.as_ref().is_ok_and(|entry| {
+                        entry.path().extension().and_then(|ext| ext.to_str()) == Some("json")
+                    })
+                })
+                .count()
         })
-        .count()
+        .unwrap_or_default()
 }
 
 fn corrupt_first_event_payload(repo: &std::path::Path) {
-    let event_path = std::fs::read_dir(repo.join(".shore/events"))
+    let mut event_files = std::fs::read_dir(repo.join(".shore/events"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
-        .find(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "json")
-        })
-        .expect("event file exists");
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
+        .collect::<Vec<_>>();
+    event_files.sort();
+
+    let event_path = event_files.first().expect("event exists");
     let mut event: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&event_path).unwrap()).unwrap();
-    event["payload"]["revisionId"] = serde_json::json!("rev:worktree:sha256:corrupted");
-    std::fs::write(&event_path, serde_json::to_vec(&event).unwrap()).unwrap();
-}
-
-fn revision_event_for(
-    repo: &GitRepo,
-    revision_id: &shore::model::RevisionId,
-) -> RevisionPublishedPayload {
-    read_events(repo.path())
-        .expect("events list")
-        .into_iter()
-        .find_map(|event| {
-            if event.event_type == EventType::RevisionPublished
-                && event.payload["revisionId"] == revision_id.as_str()
-            {
-                Some(serde_json::from_value(event.payload).expect("revision payload decodes"))
-            } else {
-                None
-            }
-        })
-        .expect("revision event exists")
-}
-
-fn revision_artifact_for(
-    repo: &GitRepo,
-    revision_id: &shore::model::RevisionId,
-) -> serde_json::Value {
-    std::fs::read_dir(repo.path().join(".shore/artifacts/revisions"))
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "json")
-        })
-        .find_map(|path| {
-            let artifact: serde_json::Value =
-                serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-            (artifact["revisionId"] == revision_id.as_str()).then_some(artifact)
-        })
-        .expect("revision artifact exists")
-}
-
-fn sidecar_observed_event(repo: &GitRepo, source: &str) -> ShoreEvent {
-    read_events(repo.path())
-        .expect("events list")
-        .into_iter()
-        .find(|event| {
-            event.event_type == EventType::SidecarObserved && event.payload["source"] == source
-        })
-        .expect("sidecar observed event exists")
+        serde_json::from_str(&std::fs::read_to_string(event_path).unwrap()).unwrap();
+    event["payload"]["tampered"] = serde_json::Value::Bool(true);
+    std::fs::write(event_path, serde_json::to_string_pretty(&event).unwrap()).unwrap();
 }
 
 fn review_note_imported_events(repo: &GitRepo) -> Vec<ShoreEvent> {
@@ -770,10 +559,6 @@ fn first_note_event(repo: &GitRepo) -> ShoreEvent {
         .expect("review note imported event exists")
 }
 
-fn read_session_state(repo: &std::path::Path) -> SessionState {
-    serde_json::from_str(&std::fs::read_to_string(repo.join(".shore/state.json")).unwrap()).unwrap()
-}
-
 fn write_native_review_notes(repo: &GitRepo) -> std::path::PathBuf {
     let sidecar = repo.path().join("review-notes.json");
     std::fs::write(&sidecar, native_review_notes_json()).unwrap();
@@ -783,12 +568,6 @@ fn write_native_review_notes(repo: &GitRepo) -> std::path::PathBuf {
 fn write_review_notes_with_body(repo: &GitRepo, body: &str) -> std::path::PathBuf {
     let sidecar = repo.path().join("review-notes.json");
     std::fs::write(&sidecar, review_notes_with_body_json(body)).unwrap();
-    sidecar
-}
-
-fn write_legacy_hunk_context(repo: &GitRepo) -> std::path::PathBuf {
-    let sidecar = repo.path().join("agent-context.json");
-    std::fs::write(&sidecar, legacy_hunk_context_json()).unwrap();
     sidecar
 }
 
@@ -829,23 +608,6 @@ fn changed_review_notes_json() -> &'static str {
 }"#
 }
 
-fn legacy_hunk_context_json() -> &'static str {
-    r#"{
-  "schema": "shore.agent-context",
-  "files": [
-    {
-      "path": "src/lib.rs",
-      "annotations": [
-        {
-          "summary": "Changed return value",
-          "newRange": [1, 1]
-        }
-      ]
-    }
-  ]
-}"#
-}
-
 fn review_notes_with_body_json(body: &str) -> String {
     format!(
         r#"{{
@@ -865,307 +627,4 @@ fn review_notes_with_body_json(body: &str) -> String {
   ]
 }}"#
     )
-}
-
-#[test]
-fn load_durable_notes_for_repo_returns_none_without_shore_store() {
-    let repo = GitRepo::new();
-    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
-    repo.commit_all("base");
-
-    let parsed = shore::session::load_durable_notes_for_repo(repo.path()).expect("load succeeds");
-
-    assert_eq!(parsed, None);
-    assert!(!repo.path().join(".shore").exists());
-}
-
-#[test]
-fn load_durable_notes_for_repo_replays_imported_notes() {
-    let repo = modified_repo();
-    let sidecar = write_native_review_notes(&repo);
-    import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar))
-        .expect("notes import succeeds");
-
-    let parsed = shore::session::load_durable_notes_for_repo(repo.path())
-        .expect("load succeeds")
-        .expect("durable notes exist");
-
-    assert_eq!(parsed.sidecar.files.len(), 1);
-    assert_eq!(parsed.sidecar.files[0].notes.len(), 1);
-    assert_eq!(
-        parsed.sidecar.files[0].notes[0].title.as_deref(),
-        Some("Changed return value")
-    );
-}
-
-#[test]
-fn load_durable_notes_for_repo_returns_none_with_empty_store() {
-    let repo = modified_repo();
-    // Publish to create .shore/events/ directory, but no notes
-    publish_worktree_review(PublishOptions::new(repo.path())).expect("publish succeeds");
-
-    // Verify .shore exists but no imported notes have been recorded
-    assert!(repo.path().join(".shore/events").exists());
-
-    let parsed = shore::session::load_durable_notes_for_repo(repo.path()).expect("load succeeds");
-
-    // Empty store should return None (not Some(empty))
-    assert_eq!(parsed, None);
-}
-
-#[test]
-fn load_durable_notes_for_repo_resolves_large_body_artifact() {
-    let repo = modified_repo();
-    let large_body = "x".repeat(5000);
-    let sidecar = write_review_notes_with_body(&repo, &large_body);
-    import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar))
-        .expect("notes import succeeds");
-
-    let parsed = shore::session::load_durable_notes_for_repo(repo.path())
-        .unwrap()
-        .expect("durable notes exist");
-
-    assert_eq!(
-        parsed.sidecar.files[0].notes[0].body.as_deref(),
-        Some(&large_body[..])
-    );
-}
-
-#[test]
-fn load_durable_notes_for_repo_still_works_with_small_inline_bodies() {
-    let repo = modified_repo();
-    let small_body = "small body content";
-    let sidecar = write_review_notes_with_body(&repo, small_body);
-    import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar))
-        .expect("notes import succeeds");
-
-    let parsed = shore::session::load_durable_notes_for_repo(repo.path())
-        .unwrap()
-        .expect("durable notes exist");
-
-    assert_eq!(
-        parsed.sidecar.files[0].notes[0].body.as_deref(),
-        Some(small_body)
-    );
-}
-
-#[test]
-fn publish_verdict_records_review_artifact_event_and_increments_state() {
-    let repo = modified_repo();
-    publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-
-    let result = publish_verdict(
-        PublishVerdictOptions::new(repo.path())
-            .with_decision(VerdictDecision::Pass)
-            .with_summary("Looks good."),
-    )
-    .unwrap();
-
-    assert_eq!(result.events_created, 1);
-    let state = read_session_state(repo.path());
-    assert_eq!(state.review_artifact_count, 1);
-    assert_eq!(state.last_verdict_decision, Some(VerdictDecision::Pass));
-}
-
-#[test]
-fn publish_verdict_is_idempotent_on_identical_inputs() {
-    let repo = modified_repo();
-    publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-    let opts = || {
-        PublishVerdictOptions::new(repo.path())
-            .with_decision(VerdictDecision::Pass)
-            .with_summary("Looks good.")
-    };
-
-    let first = publish_verdict(opts()).unwrap();
-    let second = publish_verdict(opts()).unwrap();
-
-    assert_eq!(first.review_artifact_id, second.review_artifact_id);
-    assert_eq!(second.events_created, 0);
-    assert_eq!(second.events_existing, 1);
-}
-
-#[test]
-fn publish_verdict_externalizes_large_summaries() {
-    let repo = modified_repo();
-    publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-    let large = "x".repeat(5000);
-
-    publish_verdict(
-        PublishVerdictOptions::new(repo.path())
-            .with_decision(VerdictDecision::Pass)
-            .with_summary(&large),
-    )
-    .unwrap();
-
-    let artifacts: Vec<_> = std::fs::read_dir(repo.path().join(".shore/artifacts/notes"))
-        .unwrap()
-        .collect();
-    assert!(!artifacts.is_empty(), "expected at least one body artifact");
-}
-
-#[test]
-fn publish_verdict_errors_with_no_current_revision() {
-    let repo = modified_repo();
-
-    let err = publish_verdict(
-        PublishVerdictOptions::new(repo.path()).with_decision(VerdictDecision::Pass),
-    )
-    .unwrap_err();
-    assert!(err.to_string().contains("no current revision"));
-
-    let events_dir = repo.path().join(".shore/events");
-    assert!(!events_dir.exists() || std::fs::read_dir(&events_dir).unwrap().count() == 0);
-}
-
-#[test]
-fn publish_verdict_with_replaces_supersedes_prior_verdicts() {
-    let repo = modified_repo();
-    publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-
-    let first = publish_verdict(
-        PublishVerdictOptions::new(repo.path())
-            .with_decision(VerdictDecision::RequestChanges)
-            .with_summary("rev1"),
-    )
-    .unwrap();
-    let second = publish_verdict(
-        PublishVerdictOptions::new(repo.path())
-            .with_decision(VerdictDecision::Pass)
-            .with_summary("rev2")
-            .replacing(vec![first.review_artifact_id]),
-    )
-    .unwrap();
-
-    let state = read_session_state(repo.path());
-    assert_eq!(state.review_artifact_count, 2);
-    assert_eq!(state.last_verdict_decision, Some(VerdictDecision::Pass));
-    let _ = second;
-}
-
-#[test]
-fn acknowledge_review_records_event_and_increments_state() {
-    let repo = modified_repo();
-    publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-    let verdict = publish_verdict(
-        PublishVerdictOptions::new(repo.path()).with_decision(VerdictDecision::Pass),
-    )
-    .unwrap();
-
-    let result = acknowledge_review(
-        AcknowledgeReviewOptions::new(repo.path(), verdict.review_artifact_id.clone())
-            .with_next_action(AcknowledgementNextAction::Accept)
-            .with_reason("ack"),
-    )
-    .unwrap();
-
-    assert_eq!(result.events_created, 1);
-    let state = read_session_state(repo.path());
-    assert_eq!(state.acknowledgement_count, 1);
-}
-
-#[test]
-fn acknowledge_review_is_idempotent_on_identical_inputs() {
-    let repo = modified_repo();
-    publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-    let verdict = publish_verdict(
-        PublishVerdictOptions::new(repo.path()).with_decision(VerdictDecision::Pass),
-    )
-    .unwrap();
-    let opts = || {
-        AcknowledgeReviewOptions::new(repo.path(), verdict.review_artifact_id.clone())
-            .with_next_action(AcknowledgementNextAction::Accept)
-            .with_reason("ack")
-    };
-
-    let first = acknowledge_review(opts()).unwrap();
-    let second = acknowledge_review(opts()).unwrap();
-    assert_eq!(first.acknowledgement_id, second.acknowledgement_id);
-    assert_eq!(second.events_created, 0);
-    assert_eq!(second.events_existing, 1);
-}
-
-#[test]
-fn acknowledge_review_errors_when_artifact_unknown() {
-    let repo = modified_repo();
-    publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-
-    let err = acknowledge_review(
-        AcknowledgeReviewOptions::new(
-            repo.path(),
-            ReviewArtifactId::new("review-artifact:sha256:nonexistent"),
-        )
-        .with_next_action(AcknowledgementNextAction::Accept),
-    )
-    .unwrap_err();
-    assert!(
-        err.to_string()
-            .to_lowercase()
-            .contains("unknown review artifact")
-    );
-
-    let state = read_session_state(repo.path());
-    assert_eq!(state.acknowledgement_count, 0);
-}
-
-#[test]
-fn acknowledge_review_externalizes_large_reasons() {
-    let repo = modified_repo();
-    publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-    let verdict = publish_verdict(
-        PublishVerdictOptions::new(repo.path()).with_decision(VerdictDecision::Pass),
-    )
-    .unwrap();
-    let large = "y".repeat(5000);
-
-    acknowledge_review(
-        AcknowledgeReviewOptions::new(repo.path(), verdict.review_artifact_id)
-            .with_next_action(AcknowledgementNextAction::Address)
-            .with_reason(&large),
-    )
-    .unwrap();
-
-    let artifacts: Vec<_> = std::fs::read_dir(repo.path().join(".shore/artifacts/notes"))
-        .unwrap()
-        .collect();
-    assert!(!artifacts.is_empty());
-}
-
-#[test]
-fn publish_verdict_ack_rebuild_flow_preserves_state() {
-    let repo = modified_repo();
-    publish_worktree_review(PublishOptions::new(repo.path())).unwrap();
-    let first = publish_verdict(
-        PublishVerdictOptions::new(repo.path())
-            .with_decision(VerdictDecision::RequestChanges)
-            .with_summary("first pass"),
-    )
-    .unwrap();
-    let second = publish_verdict(
-        PublishVerdictOptions::new(repo.path())
-            .with_decision(VerdictDecision::Pass)
-            .with_summary("second pass")
-            .replacing(vec![first.review_artifact_id.clone()]),
-    )
-    .unwrap();
-    acknowledge_review(
-        AcknowledgeReviewOptions::new(repo.path(), second.review_artifact_id.clone())
-            .with_next_action(AcknowledgementNextAction::Accept)
-            .with_reason("ship it"),
-    )
-    .unwrap();
-
-    std::fs::remove_file(repo.path().join(".shore/state.json")).unwrap();
-    rebuild_state(repo.path()).unwrap();
-
-    let state = read_session_state(repo.path());
-    assert_eq!(state.review_artifact_count, 2);
-    assert_eq!(state.acknowledgement_count, 1);
-    assert_eq!(state.last_verdict_decision, Some(VerdictDecision::Pass));
-    assert!(
-        state
-            .diagnostics
-            .iter()
-            .all(|diagnostic| diagnostic.code != "ambiguous_current_verdict")
-    );
 }

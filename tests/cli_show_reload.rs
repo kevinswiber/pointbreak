@@ -16,7 +16,6 @@ fn show_cli_help_lists_no_new_flags_after_reload_slice() {
     let known_flags = [
         "--repo",
         "--review-notes",
-        "--legacy-hunk-agent-context",
         "--log",
         "--log-format",
         "--log-file",

@@ -404,31 +404,6 @@ fn intervention_request_requires_track() {
 }
 
 #[test]
-fn intervention_rejects_legacy_hunk_agent_context_flag_without_mutation() {
-    let repo = GitRepo::new();
-
-    let output = shore([
-        "review",
-        "intervention",
-        "request",
-        "--repo",
-        repo.path().to_str().unwrap(),
-        "--track",
-        "human:kevin",
-        "--title",
-        "Need approval",
-        "--reason",
-        "manual-decision-required",
-        "--legacy-hunk-agent-context",
-        "agent-context.json",
-    ]);
-
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("unexpected argument"));
-    assert!(!repo.path().join(".shore").exists());
-}
-
-#[test]
 fn intervention_request_rejects_invalid_reason_and_mode_values() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);

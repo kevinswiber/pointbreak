@@ -7,25 +7,22 @@ use clap::error::ErrorKind;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use shore::dump::{DumpDocument, DumpOptions};
 use shore::model::{
-    AcknowledgementId, ActorId, DispositionId, InterventionId, ObservationId, ReviewArtifactId,
-    ReviewEndpoint, ReviewTargetRef, ReviewUnitId, RevisionId, Side,
+    DispositionId, InterventionId, ObservationId, ReviewEndpoint, ReviewTargetRef, ReviewUnitId,
+    Side,
 };
-use shore::session::event::{AcknowledgementNextAction, VerdictDecision};
 use shore::session::{
-    AcknowledgeReviewOptions, AcknowledgeReviewResult, CaptureOptions, CaptureResult,
-    CurrentDispositionStatus, DispositionAddOptions, DispositionAddResult, DispositionShowFilters,
-    DispositionShowOptions, DispositionShowResult, DispositionTargetSelector, DispositionView,
-    ImportNotesOptions, ImportNotesResult, InterventionFetchOptions, InterventionFetchResult,
-    InterventionListOptions, InterventionListResult, InterventionMode, InterventionReasonCode,
-    InterventionRequestOptions, InterventionRequestResult, InterventionResolutionOutcome,
-    InterventionResolveOptions, InterventionResolveResult, InterventionStatusFilter,
-    InterventionTargetSelector, InterventionView, ObservationAddOptions, ObservationAddResult,
-    ObservationListOptions, ObservationListResult, ObservationTargetSelector, ObservationView,
-    ProjectionDiagnostic, PublishOptions, PublishResult, PublishVerdictOptions,
-    PublishVerdictResult, ReviewDisposition, acknowledge_review, capture_worktree_review,
-    fetch_intervention, import_notes, list_interventions, list_observations, publish_verdict,
-    publish_worktree_review, record_disposition, record_observation, request_intervention,
-    resolve_intervention, show_dispositions,
+    CaptureOptions, CaptureResult, CurrentDispositionStatus, DispositionAddOptions,
+    DispositionAddResult, DispositionShowFilters, DispositionShowOptions, DispositionShowResult,
+    DispositionTargetSelector, DispositionView, ImportNotesOptions, ImportNotesResult,
+    InterventionFetchOptions, InterventionFetchResult, InterventionListOptions,
+    InterventionListResult, InterventionMode, InterventionReasonCode, InterventionRequestOptions,
+    InterventionRequestResult, InterventionResolutionOutcome, InterventionResolveOptions,
+    InterventionResolveResult, InterventionStatusFilter, InterventionTargetSelector,
+    InterventionView, ObservationAddOptions, ObservationAddResult, ObservationListOptions,
+    ObservationListResult, ObservationTargetSelector, ObservationView, ProjectionDiagnostic,
+    ReviewDisposition, capture_worktree_review, fetch_intervention, import_notes,
+    list_interventions, list_observations, record_disposition, record_observation,
+    request_intervention, resolve_intervention, show_dispositions,
 };
 use shore::stream::ViewportSpec;
 
@@ -48,7 +45,9 @@ struct Cli {
 enum Command {
     Dump(DumpArgs),
     Notes(NotesArgs),
-    Review(ReviewArgs),
+    // Boxed because the review subcommands carry much larger argument structs
+    // than the other top-level commands.
+    Review(Box<ReviewArgs>),
     Show(ShowArgs),
 }
 
@@ -69,11 +68,8 @@ struct ReviewInputArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
-    #[arg(long, conflicts_with = "legacy_hunk_agent_context")]
+    #[arg(long)]
     review_notes: Option<PathBuf>,
-
-    #[arg(long, conflicts_with = "review_notes")]
-    legacy_hunk_agent_context: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -105,9 +101,6 @@ enum ReviewCommand {
     Disposition(DispositionArgs),
     Intervention(InterventionArgs),
     Observation(ObservationArgs),
-    Publish(PublishArgs),
-    Verdict(VerdictArgs),
-    Ack(AckArgs),
 }
 
 #[derive(Debug, Args)]
@@ -435,76 +428,9 @@ struct ObservationListArgs {
 }
 
 #[derive(Debug, Args)]
-struct PublishArgs {
-    #[command(flatten)]
-    input: ReviewInputArgs,
-}
-
-#[derive(Debug, Args)]
-struct VerdictArgs {
-    #[arg(long)]
-    repo: PathBuf,
-
-    #[arg(long, value_enum)]
-    decision: VerdictDecisionArg,
-
-    #[arg(long, group = "verdict_summary")]
-    summary: Option<String>,
-
-    #[arg(long, group = "verdict_summary")]
-    summary_file: Option<PathBuf>,
-
-    #[arg(long)]
-    target_revision: Option<String>,
-
-    #[arg(long = "replaces", value_name = "REVIEW_ARTIFACT_ID")]
-    replaces: Vec<String>,
-
-    #[arg(long)]
-    reviewer_id: Option<String>,
-}
-
-#[derive(Debug, Args)]
-struct AckArgs {
-    #[arg(long)]
-    repo: PathBuf,
-
-    #[arg(long)]
-    review_artifact: String,
-
-    #[arg(long, value_enum)]
-    next_action: NextActionArg,
-
-    #[arg(long, group = "ack_reason")]
-    reason: Option<String>,
-
-    #[arg(long, group = "ack_reason")]
-    reason_file: Option<PathBuf>,
-
-    #[arg(long)]
-    actor_id: Option<String>,
-}
-
-#[derive(Debug, Args)]
 struct NotesApplyArgs {
     #[command(flatten)]
     input: ReviewInputArgs,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PublishDocument {
-    schema: &'static str,
-    version: u32,
-    review_id: String,
-    work_unit_id: String,
-    revision_id: String,
-    snapshot_id: String,
-    events_created: usize,
-    events_existing: usize,
-    events_created_by_type: std::collections::BTreeMap<String, usize>,
-    diagnostics: Vec<shore::session::ProjectionDiagnostic>,
-    state_path: String,
 }
 
 #[derive(serde::Serialize)]
@@ -778,45 +704,6 @@ struct NotesApplyDocument {
     state_path: String,
 }
 
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct VerdictDocument {
-    schema: &'static str,
-    version: u32,
-    review_artifact_id: ReviewArtifactId,
-    events_created: usize,
-    events_existing: usize,
-    diagnostics: Vec<ProjectionDiagnostic>,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AckDocument {
-    schema: &'static str,
-    version: u32,
-    acknowledgement_id: AcknowledgementId,
-    events_created: usize,
-    events_existing: usize,
-    diagnostics: Vec<ProjectionDiagnostic>,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-#[value(rename_all = "kebab-case")]
-enum VerdictDecisionArg {
-    Pass,
-    PassMinorNit,
-    RequestChanges,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-#[value(rename_all = "kebab-case")]
-enum NextActionArg {
-    Accept,
-    Address,
-    Defer,
-    Obsolete,
-}
-
 #[derive(Clone, Copy, Debug, ValueEnum)]
 #[value(rename_all = "kebab-case")]
 enum SideArg {
@@ -937,7 +824,7 @@ fn run_cli(cli: Cli, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::E
             dump(args, &cli.tracing, stdout)
         }
         Command::Notes(args) => notes(args, stdout),
-        Command::Review(args) => review(args, &cli.tracing, stdout),
+        Command::Review(args) => review(*args, &cli.tracing, stdout),
         Command::Show(args) => {
             tracing::debug!(command = "show", "command_start");
             show(args, &cli.tracing)
@@ -993,18 +880,6 @@ fn review(
         ReviewCommand::Disposition(args) => review_disposition(args, stdout),
         ReviewCommand::Intervention(args) => review_intervention(args, stdout),
         ReviewCommand::Observation(args) => review_observation(args, stdout),
-        ReviewCommand::Publish(args) => {
-            tracing::debug!(command = "review.publish", "command_start");
-            review_publish(args, tracing, stdout)
-        }
-        ReviewCommand::Verdict(args) => {
-            tracing::debug!(command = "review.verdict", "command_start");
-            review_verdict(args, stdout)
-        }
-        ReviewCommand::Ack(args) => {
-            tracing::debug!(command = "review.ack", "command_start");
-            review_ack(args, stdout)
-        }
     }
 }
 
@@ -1192,34 +1067,6 @@ fn notes_apply(
     Ok(())
 }
 
-fn review_publish(
-    args: PublishArgs,
-    tracing: &TracingArgs,
-    stdout: &mut dyn Write,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let result = publish_worktree_review(publish_options(&args.input, tracing))?;
-    let document = PublishDocument::from(result);
-    writeln!(stdout, "{}", serde_json::to_string(&document)?)?;
-    Ok(())
-}
-
-fn review_verdict(
-    args: VerdictArgs,
-    stdout: &mut dyn Write,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let result = publish_verdict(verdict_options(&args)?)?;
-    let document = VerdictDocument::from(result);
-    writeln!(stdout, "{}", serde_json::to_string(&document)?)?;
-    Ok(())
-}
-
-fn review_ack(args: AckArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
-    let result = acknowledge_review(ack_options(&args)?)?;
-    let document = AckDocument::from(result);
-    writeln!(stdout, "{}", serde_json::to_string(&document)?)?;
-    Ok(())
-}
-
 fn document_for_dump(args: &DumpArgs, tracing: &TracingArgs) -> shore::error::Result<DumpDocument> {
     load_dump_document(&args.input, dump_options(&args.input, tracing))
 }
@@ -1232,19 +1079,11 @@ fn load_dump_document(
     args: &ReviewInputArgs,
     options: DumpOptions,
 ) -> shore::error::Result<DumpDocument> {
-    let document = match (&args.review_notes, &args.legacy_hunk_agent_context) {
-        (Some(review_notes), None) => {
+    let document = match &args.review_notes {
+        Some(review_notes) => {
             DumpDocument::from_review_notes_file_with_options(&args.repo, review_notes, options)?
         }
-        (None, Some(agent_context)) => {
-            DumpDocument::from_legacy_hunk_agent_context_file_with_options(
-                &args.repo,
-                agent_context,
-                options,
-            )?
-        }
-        (None, None) => DumpDocument::from_repo_with_options(&args.repo, options)?,
-        (Some(_), Some(_)) => unreachable!("clap rejects mutually exclusive sidecar flags"),
+        None => DumpDocument::from_repo_with_options(&args.repo, options)?,
     };
     Ok(document)
 }
@@ -1254,25 +1093,8 @@ fn dump_options(args: &ReviewInputArgs, tracing: &TracingArgs) -> DumpOptions {
     if let Some(review_notes) = &args.review_notes {
         options = options.exclude_helper_path(review_notes);
     }
-    if let Some(agent_context) = &args.legacy_hunk_agent_context {
-        options = options.exclude_helper_path(agent_context);
-    }
     if let Some(log_file) = &tracing.log_file {
         options = options.exclude_helper_path(log_file);
-    }
-    options
-}
-
-fn publish_options(args: &ReviewInputArgs, tracing: &TracingArgs) -> PublishOptions {
-    let mut options = PublishOptions::new(&args.repo);
-    if let Some(review_notes) = &args.review_notes {
-        options = options.with_review_notes(review_notes);
-    }
-    if let Some(agent_context) = &args.legacy_hunk_agent_context {
-        options = options.with_legacy_hunk_agent_context(agent_context);
-    }
-    if let Some(log_file) = &tracing.log_file {
-        options = options.with_excluded_helper_path(log_file);
     }
     options
 }
@@ -1596,94 +1418,17 @@ fn notes_apply_options(
     args: &ReviewInputArgs,
 ) -> Result<ImportNotesOptions, Box<dyn std::error::Error>> {
     let mut options = ImportNotesOptions::new(&args.repo);
-    match (&args.review_notes, &args.legacy_hunk_agent_context) {
-        (Some(review_notes), None) => {
+    match &args.review_notes {
+        Some(review_notes) => {
             options = options.with_review_notes(review_notes);
             Ok(options)
         }
-        (None, Some(agent_context)) => {
-            options = options.with_legacy_hunk_agent_context(agent_context);
-            Ok(options)
-        }
-        (None, None) => Err("exactly one review-notes input is required".into()),
-        (Some(_), Some(_)) => unreachable!("clap rejects mutually exclusive sidecar flags"),
-    }
-}
-
-fn verdict_options(
-    args: &VerdictArgs,
-) -> Result<PublishVerdictOptions, Box<dyn std::error::Error>> {
-    let mut options = PublishVerdictOptions::new(&args.repo).with_decision(args.decision.into());
-    if let Some(summary) =
-        read_optional_body(args.summary.as_deref(), args.summary_file.as_deref())?
-    {
-        options = options.with_summary(summary);
-    }
-    if let Some(target_revision) = &args.target_revision {
-        options = options.with_target_revision(RevisionId::new(target_revision.clone()));
-    }
-    if !args.replaces.is_empty() {
-        options = options.replacing(
-            args.replaces
-                .iter()
-                .cloned()
-                .map(ReviewArtifactId::new)
-                .collect(),
-        );
-    }
-    if let Some(reviewer_id) = &args.reviewer_id {
-        options = options.with_reviewer_id(ActorId::new(reviewer_id.clone()));
-    }
-    Ok(options)
-}
-
-fn ack_options(args: &AckArgs) -> Result<AcknowledgeReviewOptions, Box<dyn std::error::Error>> {
-    let mut options = AcknowledgeReviewOptions::new(
-        &args.repo,
-        ReviewArtifactId::new(args.review_artifact.clone()),
-    )
-    .with_next_action(args.next_action.into());
-    if let Some(reason) = read_optional_body(args.reason.as_deref(), args.reason_file.as_deref())? {
-        options = options.with_reason(reason);
-    }
-    if let Some(actor_id) = &args.actor_id {
-        options = options.with_actor_id(ActorId::new(actor_id.clone()));
-    }
-    Ok(options)
-}
-
-fn read_optional_body(
-    inline: Option<&str>,
-    file: Option<&std::path::Path>,
-) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    match (inline, file) {
-        (Some(_), Some(_)) => Err("body and body file are mutually exclusive".into()),
-        (Some(inline), None) => Ok(Some(inline.to_owned())),
-        (None, Some(path)) => Ok(Some(std::fs::read_to_string(path)?)),
-        (None, None) => Ok(None),
+        None => Err("exactly one review-notes input is required".into()),
     }
 }
 
 fn should_pretty_print(args: &DumpArgs) -> bool {
     args.pretty && !args.compact
-}
-
-impl From<PublishResult> for PublishDocument {
-    fn from(result: PublishResult) -> Self {
-        Self {
-            schema: "shore.publish",
-            version: 1,
-            review_id: result.review_id.as_str().to_owned(),
-            work_unit_id: result.work_unit_id.as_str().to_owned(),
-            revision_id: result.revision_id.as_str().to_owned(),
-            snapshot_id: result.snapshot_id.as_str().to_owned(),
-            events_created: result.events_created,
-            events_existing: result.events_existing,
-            events_created_by_type: result.events_created_by_type,
-            diagnostics: result.diagnostics,
-            state_path: result.state_path.to_string_lossy().into_owned(),
-        }
-    }
 }
 
 impl From<CaptureResult> for CaptureDocument {
@@ -2017,53 +1762,6 @@ impl From<ImportNotesResult> for NotesApplyDocument {
     }
 }
 
-impl From<PublishVerdictResult> for VerdictDocument {
-    fn from(result: PublishVerdictResult) -> Self {
-        Self {
-            schema: "shore.review-verdict",
-            version: 1,
-            review_artifact_id: result.review_artifact_id,
-            events_created: result.events_created,
-            events_existing: result.events_existing,
-            diagnostics: result.diagnostics,
-        }
-    }
-}
-
-impl From<AcknowledgeReviewResult> for AckDocument {
-    fn from(result: AcknowledgeReviewResult) -> Self {
-        Self {
-            schema: "shore.review-ack",
-            version: 1,
-            acknowledgement_id: result.acknowledgement_id,
-            events_created: result.events_created,
-            events_existing: result.events_existing,
-            diagnostics: result.diagnostics,
-        }
-    }
-}
-
-impl From<VerdictDecisionArg> for VerdictDecision {
-    fn from(value: VerdictDecisionArg) -> Self {
-        match value {
-            VerdictDecisionArg::Pass => VerdictDecision::Pass,
-            VerdictDecisionArg::PassMinorNit => VerdictDecision::PassMinorNit,
-            VerdictDecisionArg::RequestChanges => VerdictDecision::RequestChanges,
-        }
-    }
-}
-
-impl From<NextActionArg> for AcknowledgementNextAction {
-    fn from(value: NextActionArg) -> Self {
-        match value {
-            NextActionArg::Accept => AcknowledgementNextAction::Accept,
-            NextActionArg::Address => AcknowledgementNextAction::Address,
-            NextActionArg::Defer => AcknowledgementNextAction::Defer,
-            NextActionArg::Obsolete => AcknowledgementNextAction::Obsolete,
-        }
-    }
-}
-
 impl From<SideArg> for Side {
     fn from(value: SideArg) -> Self {
         match value {
@@ -2238,7 +1936,6 @@ mod tests {
         let input = ReviewInputArgs {
             repo: repo.path().to_owned(),
             review_notes: Some(sidecar_path),
-            legacy_hunk_agent_context: None,
         };
 
         let tracing = tracing_args(None);
@@ -2269,7 +1966,6 @@ mod tests {
         let input = ReviewInputArgs {
             repo: repo.path().to_owned(),
             review_notes: None,
-            legacy_hunk_agent_context: None,
         };
         let tracing = tracing_args(None);
 
@@ -2298,7 +1994,6 @@ mod tests {
         let input = ReviewInputArgs {
             repo: repo.path().to_owned(),
             review_notes: Some(sidecar_path),
-            legacy_hunk_agent_context: None,
         };
         let tracing = tracing_args(None);
 
@@ -2330,7 +2025,6 @@ mod tests {
         let input = ReviewInputArgs {
             repo: repo.path().to_owned(),
             review_notes: None,
-            legacy_hunk_agent_context: None,
         };
 
         document_for_show(&ShowArgs { input }, &tracing_args(None)).expect("show document builds");
@@ -2346,7 +2040,6 @@ mod tests {
         let input = ReviewInputArgs {
             repo: repo.path().to_owned(),
             review_notes: Some(sidecar_path),
-            legacy_hunk_agent_context: None,
         };
 
         document_for_show(&ShowArgs { input }, &tracing_args(None)).expect("show document builds");
@@ -2369,7 +2062,6 @@ mod tests {
         let input = ReviewInputArgs {
             repo: repo.path().to_owned(),
             review_notes: Some(explicit_path),
-            legacy_hunk_agent_context: None,
         };
 
         let tracing = tracing_args(None);

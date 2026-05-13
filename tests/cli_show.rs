@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::Path;
 use std::process::Command;
 
@@ -20,30 +19,6 @@ fn show_cli_help_lists_sidecar_flags() {
     let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
     assert!(stdout.contains("--repo"));
     assert!(stdout.contains("--review-notes"));
-    assert!(stdout.contains("--legacy-hunk-agent-context"));
-}
-
-#[test]
-fn show_cli_rejects_native_and_legacy_sidecars_together() {
-    let repo = dump_repo();
-    let sidecar_dir = tempfile::tempdir().expect("create sidecar tempdir");
-    let review_notes_path = sidecar_dir.path().join("review-notes.json");
-    let legacy_path = sidecar_dir.path().join("agent-context.json");
-    fs::write(&review_notes_path, "{}").expect("write review notes");
-    fs::write(&legacy_path, "{}").expect("write Hunk context");
-
-    let output = shore([
-        "show",
-        "--repo",
-        repo.path().to_str().unwrap(),
-        "--review-notes",
-        review_notes_path.to_str().unwrap(),
-        "--legacy-hunk-agent-context",
-        legacy_path.to_str().unwrap(),
-    ]);
-
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot be used with"));
 }
 
 #[test]
@@ -78,10 +53,12 @@ fn dump_and_show_help_share_input_flag_spelling() {
     let dump_stdout = String::from_utf8(dump.stdout).expect("dump stdout is utf-8");
     let show_stdout = String::from_utf8(show.stdout).expect("show stdout is utf-8");
 
-    for flag in ["--repo", "--review-notes", "--legacy-hunk-agent-context"] {
+    for flag in ["--repo", "--review-notes"] {
         assert!(dump_stdout.contains(flag), "dump help missing {flag}");
         assert!(show_stdout.contains(flag), "show help missing {flag}");
     }
+    assert!(!dump_stdout.contains("--legacy-hunk-agent-context"));
+    assert!(!show_stdout.contains("--legacy-hunk-agent-context"));
     assert!(dump_stdout.contains("--pretty"));
     assert!(dump_stdout.contains("--compact"));
     assert!(!show_stdout.contains("--pretty"));

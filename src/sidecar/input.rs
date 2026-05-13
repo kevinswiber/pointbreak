@@ -11,14 +11,12 @@ pub(crate) struct SidecarInput {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SidecarInputKind {
     ReviewNotes,
-    LegacyHunkAgentContext,
 }
 
 impl SidecarInputKind {
     fn label(self) -> &'static str {
         match self {
             Self::ReviewNotes => "review notes",
-            Self::LegacyHunkAgentContext => "legacy Hunk agent context",
         }
     }
 }
@@ -46,10 +44,6 @@ pub(crate) fn read_review_notes_sidecar_file(path: &Path) -> Result<SidecarInput
     read_sidecar_input(path, SidecarInputKind::ReviewNotes)
 }
 
-pub(crate) fn read_legacy_hunk_agent_context_file(path: &Path) -> Result<SidecarInput> {
-    read_sidecar_input(path, SidecarInputKind::LegacyHunkAgentContext)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,17 +58,5 @@ mod tests {
 
         assert!(message.contains("review notes"));
         assert!(message.contains("missing-review-notes.json"));
-    }
-
-    #[test]
-    fn missing_legacy_hunk_file_error_names_path_and_kind() {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("missing-agent-context.json");
-
-        let error = read_legacy_hunk_agent_context_file(&path).expect_err("missing file fails");
-        let message = error.to_string();
-
-        assert!(message.contains("legacy Hunk agent context"));
-        assert!(message.contains("missing-agent-context.json"));
     }
 }

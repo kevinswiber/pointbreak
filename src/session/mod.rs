@@ -4,23 +4,18 @@ mod consume;
 mod disposition;
 pub mod event;
 mod event_context;
+mod event_log;
 mod fingerprint;
 mod import;
 mod intervention;
 mod observation;
-mod publish;
 mod reload;
 mod snapshot_artifact;
 pub mod state;
 mod store_init;
-mod verdict;
 
 pub use capture::{CaptureOptions, CaptureResult, capture_worktree_review};
-pub use consume::{
-    Acknowledgement, CurrentVerdictView, ReviewArtifact, current_verdict_view,
-    load_durable_notes_for_repo, load_or_rebuild_session_state, read_acknowledgements,
-    read_review_artifacts,
-};
+pub use consume::{load_durable_notes_for_repo, load_or_rebuild_session_state};
 pub use disposition::{
     CurrentDispositionStatus, CurrentDispositionView, DispositionAddOptions, DispositionAddResult,
     DispositionOverrideSelector, DispositionRecordStatus, DispositionShowFilters,
@@ -31,13 +26,11 @@ pub use event::{
     EventPayload, EventTarget, EventType, InterventionMode, InterventionReasonCode,
     InterventionRequestedPayload, InterventionResolutionOutcome, InterventionResolvedPayload,
     ReviewDisposition, ReviewDispositionRecordedPayload, ReviewInitializedPayload,
-    ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, RevisionPublishedPayload,
-    ShoreEvent, SidecarObservedPayload, SidecarSource, SnapshotObservedPayload, Writer, WriterRole,
-    WriterTool,
+    ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, ShoreEvent, SidecarSource, Writer,
+    WriterRole, WriterTool,
 };
-pub(crate) use event_context::{
-    current_timestamp, reviewer_from_git_config, writer_from_git_config,
-};
+pub(crate) use event_context::{current_timestamp, writer_from_git_config};
+pub use event_log::{read_events, rebuild_state};
 pub(crate) use fingerprint::worktree_fingerprint_for_files;
 pub use fingerprint::{
     ReviewUnitFingerprint, WorktreeFingerprint, capture_worktree_fingerprint,
@@ -57,19 +50,12 @@ pub use observation::{
     ObservationListResult, ObservationStatus, ObservationTargetSelector, ObservationView,
     list_observations, record_observation,
 };
-pub use publish::{
-    PublishOptions, PublishResult, publish_worktree_review, read_events, rebuild_state,
-};
 pub(crate) use reload::reload_diagnostics_for_document;
 pub use reload::{ReloadDiagnostic, ReloadDiagnosticCode, ReloadOutcome, reload_session};
 pub use snapshot_artifact::{SnapshotArtifact, read_snapshot_artifact, write_snapshot_artifact};
 pub use state::{ProjectionDiagnostic, SessionState};
 pub(crate) use store_init::{ShoreStorePaths, prepare_shore_writer, sweep_stale_temp_files};
 pub use store_init::{ensure_shore_ignored, shore_dir_for_repo};
-pub use verdict::{
-    AcknowledgeReviewOptions, AcknowledgeReviewResult, PublishVerdictOptions, PublishVerdictResult,
-    acknowledge_review, publish_verdict,
-};
 
 #[cfg(test)]
 mod tests {

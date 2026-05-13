@@ -39,8 +39,6 @@ fn notes_apply_writes_json_to_stdout_with_correct_schema() {
 #[test]
 fn notes_apply_requires_exactly_one_sidecar_input() {
     let repo = modified_repo();
-    let review_notes = repo.write_fixture("review-notes.json", native_review_notes_json());
-    let legacy = repo.write_fixture("agent-context.json", legacy_hunk_context_json());
 
     let missing = shore(["notes", "apply", "--repo", repo.path().to_str().unwrap()]);
     assert!(!missing.status.success());
@@ -48,23 +46,6 @@ fn notes_apply_requires_exactly_one_sidecar_input() {
         String::from_utf8_lossy(&missing.stderr).contains("required"),
         "stderr:\n{}",
         String::from_utf8_lossy(&missing.stderr)
-    );
-
-    let both = shore([
-        "notes",
-        "apply",
-        "--repo",
-        repo.path().to_str().unwrap(),
-        "--review-notes",
-        review_notes.to_str().unwrap(),
-        "--legacy-hunk-agent-context",
-        legacy.to_str().unwrap(),
-    ]);
-    assert!(!both.status.success());
-    assert!(
-        String::from_utf8_lossy(&both.stderr).contains("cannot be used with"),
-        "stderr:\n{}",
-        String::from_utf8_lossy(&both.stderr)
     );
 }
 
@@ -177,23 +158,6 @@ fn native_review_notes_json() -> &'static str {
         {
           "title": "Changed return value",
           "target": { "side": "new", "startLine": 1, "endLine": 1 }
-        }
-      ]
-    }
-  ]
-}"#
-}
-
-fn legacy_hunk_context_json() -> &'static str {
-    r#"{
-  "schema": "shore.agent-context",
-  "files": [
-    {
-      "path": "src/lib.rs",
-      "annotations": [
-        {
-          "summary": "Changed return value",
-          "newRange": [1, 1]
         }
       ]
     }
