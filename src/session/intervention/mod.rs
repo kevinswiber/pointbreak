@@ -1,9 +1,9 @@
 mod fetch;
 mod list;
-mod target;
-mod view;
 mod request;
 mod resolve;
+mod target;
+mod view;
 
 pub use self::fetch::{InterventionFetchOptions, InterventionFetchResult, fetch_intervention};
 pub use self::list::{
@@ -16,25 +16,23 @@ pub use self::resolve::{
     InterventionResolveOptions, InterventionResolveResult, resolve_intervention,
 };
 pub use self::target::InterventionTargetSelector;
+#[cfg(test)]
+use self::view::sort_intervention_views;
+pub(crate) use self::view::{InterventionProjectionOptions, project_interventions};
 pub use self::view::{
     InterventionResolutionView, InterventionStatus, InterventionStatusFilter, InterventionView,
 };
-pub(crate) use self::view::{InterventionProjectionOptions, project_interventions};
-#[cfg(test)]
-use self::view::sort_intervention_views;
 #[cfg(test)]
 use crate::canonical_hash::sha256_bytes_hex;
 #[cfg(test)]
-use crate::model::{
-    EventId, InterventionId, InterventionResolutionId, ReviewUnitId, TrackId,
-};
+use crate::model::{EventId, InterventionId, InterventionResolutionId, ReviewUnitId, TrackId};
+#[cfg(test)]
+use crate::session::current_timestamp;
 #[cfg(test)]
 use crate::session::event::{
     EventTarget, EventType, InterventionMode, InterventionReasonCode,
     InterventionResolutionOutcome, InterventionResolvedPayload, ShoreEvent, Writer,
 };
-#[cfg(test)]
-use crate::session::current_timestamp;
 
 #[cfg(test)]
 mod tests {

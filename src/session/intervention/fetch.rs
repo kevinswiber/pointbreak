@@ -6,9 +6,9 @@ use super::view::{
 };
 use crate::error::{Result, ShoreError};
 use crate::model::InterventionId;
+use crate::session::EventStore;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::ShoreStorePaths;
-use crate::session::EventStore;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InterventionFetchOptions {
