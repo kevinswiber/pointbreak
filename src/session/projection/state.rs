@@ -12,7 +12,7 @@ use crate::session::event::{
     ReviewDispositionRecordedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
     ShoreEvent,
 };
-use crate::session::projection_freshness::event_set_hash_for_events;
+use super::freshness::event_set_hash_for_events;
 
 const STATE_SCHEMA: &str = "shore.state";
 const STATE_VERSION: u32 = 1;

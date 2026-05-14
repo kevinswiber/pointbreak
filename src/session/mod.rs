@@ -9,12 +9,10 @@ mod identity;
 mod import;
 mod intervention;
 mod observation;
-mod projection_freshness;
-mod read;
+mod projection;
 mod reload;
 mod review_unit_projection;
 mod snapshot_artifact;
-pub mod state;
 mod store_init;
 
 pub use capture::{CaptureOptions, CaptureResult, capture_worktree_review};
@@ -56,8 +54,10 @@ pub use observation::{
     ObservationListResult, ObservationStatus, ObservationTargetSelector, ObservationView,
     list_observations, record_observation,
 };
-pub use read::{
-    load_durable_notes_for_repo, load_or_rebuild_session_state, read_events, rebuild_state,
+pub use projection::state;
+pub use projection::{
+    ProjectionDiagnostic, SessionState, load_durable_notes_for_repo, load_or_rebuild_session_state,
+    read_events, rebuild_state,
 };
 pub(crate) use reload::reload_diagnostics_for_document;
 pub use reload::{ReloadDiagnostic, ReloadDiagnosticCode, ReloadOutcome, reload_session};
@@ -67,7 +67,6 @@ pub use review_unit_projection::{
     ReviewUnitShowResult, SnapshotOrder, show_review_unit,
 };
 pub use snapshot_artifact::{SnapshotArtifact, read_snapshot_artifact, write_snapshot_artifact};
-pub use state::{ProjectionDiagnostic, SessionState};
 pub(crate) use store_init::{ShoreStorePaths, prepare_shore_writer, sweep_stale_temp_files};
 pub use store_init::{ensure_shore_ignored, shore_dir_for_repo};
 
