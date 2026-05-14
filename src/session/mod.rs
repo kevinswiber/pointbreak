@@ -12,12 +12,10 @@ pub use event::{
     WriterRole, WriterTool,
 };
 pub(crate) use identity::{current_timestamp, reviewer_from_git_config, writer_from_git_config};
-pub use projection::state;
 pub use projection::{
     ProjectionDiagnostic, SessionState, load_durable_notes_for_repo, load_or_rebuild_session_state,
-    read_events, rebuild_state,
+    read_events, rebuild_state, state,
 };
-pub(in crate::session) use store::{body_artifact, fingerprint, snapshot_artifact, store_init};
 pub(crate) use store::{
     EventStore, EventWriteOutcome, ShoreStorePaths, prepare_shore_writer, sweep_stale_temp_files,
     worktree_fingerprint_for_files,
@@ -27,7 +25,7 @@ pub use store::{
     compute_review_unit_fingerprint, ensure_shore_ignored, read_snapshot_artifact,
     shore_dir_for_repo, write_snapshot_artifact,
 };
-pub(in crate::session) use workflow::{disposition, intervention, observation};
+pub(in crate::session) use store::{body_artifact, fingerprint, snapshot_artifact, store_init};
 pub(crate) use workflow::reload_diagnostics_for_document;
 pub use workflow::{
     AdapterNoteView, CaptureOptions, CaptureResult, CurrentDispositionStatus,
@@ -42,13 +40,14 @@ pub use workflow::{
     ObservationAddResult, ObservationListFilters, ObservationListOptions, ObservationListResult,
     ObservationStatus, ObservationTargetSelector, ObservationView, ReloadDiagnostic,
     ReloadDiagnosticCode, ReloadOutcome, ReviewHistoryEntry, ReviewHistoryFilters,
-    ReviewHistoryOptions, ReviewHistoryResult, ReviewHistorySummary,
-    ReviewUnitProjectionIdentity, ReviewUnitProjectionRow, ReviewUnitProjectionSummary,
-    ReviewUnitShowFilters, ReviewUnitShowOptions, ReviewUnitShowResult, SnapshotOrder,
-    capture_worktree_review, fetch_intervention, import_notes, list_interventions,
-    list_observations, record_disposition, record_observation, reload_session, request_intervention,
-    resolve_intervention, review_history, show_dispositions, show_review_unit,
+    ReviewHistoryOptions, ReviewHistoryResult, ReviewHistorySummary, ReviewUnitProjectionIdentity,
+    ReviewUnitProjectionRow, ReviewUnitProjectionSummary, ReviewUnitShowFilters,
+    ReviewUnitShowOptions, ReviewUnitShowResult, SnapshotOrder, capture_worktree_review,
+    fetch_intervention, import_notes, list_interventions, list_observations, record_disposition,
+    record_observation, reload_session, request_intervention, resolve_intervention, review_history,
+    show_dispositions, show_review_unit,
 };
+pub(in crate::session) use workflow::{disposition, intervention, observation};
 
 #[cfg(test)]
 mod tests {

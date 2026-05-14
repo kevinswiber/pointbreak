@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+use super::freshness::event_set_hash_for_events;
 use crate::error::{Result, ShoreError};
 use crate::model::{
     DispositionId, EventId, InterventionId, InterventionResolutionId, ObservationId, ReviewId,
@@ -12,7 +13,6 @@ use crate::session::event::{
     ReviewDispositionRecordedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
     ShoreEvent,
 };
-use super::freshness::event_set_hash_for_events;
 
 const STATE_SCHEMA: &str = "shore.state";
 const STATE_VERSION: u32 = 1;
