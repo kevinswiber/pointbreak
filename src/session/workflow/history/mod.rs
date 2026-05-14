@@ -1,4 +1,5 @@
 mod options;
+mod projection;
 mod result;
 mod summary;
 
@@ -6,21 +7,13 @@ pub use self::options::{ReviewHistoryFilters, ReviewHistoryOptions};
 pub use self::result::ReviewHistoryResult;
 pub use self::summary::{ReviewHistoryEntry, ReviewHistorySummary};
 
-use std::path::Path;
-
-use crate::error::{Result, ShoreError};
+use crate::error::Result;
 use crate::session::EventStore;
-use crate::session::body_artifact::load_body_artifact;
-use crate::session::event::{
-    EventType, InterventionRequestedPayload, InterventionResolvedPayload,
-    ReviewDispositionRecordedPayload, ReviewInitializedPayload, ReviewNoteImportedPayload,
-    ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, ShoreEvent,
-};
 use crate::session::observation::validated_track_id;
-use crate::session::state::SessionState;
 use crate::session::store_init::ShoreStorePaths;
 
 use self::options::ResolvedHistoryFilters;
+use self::projection::history_from_events;
 
 pub fn review_history(options: ReviewHistoryOptions) -> Result<ReviewHistoryResult> {
     let paths = ShoreStorePaths::resolve(&options.repo)?;
@@ -39,227 +32,10 @@ pub fn review_history(options: ReviewHistoryOptions) -> Result<ReviewHistoryResu
     history_from_events(&events, filters, Some(paths.shore_dir()))
 }
 
-fn history_from_events(
-    events: &[ShoreEvent],
-    filters: ResolvedHistoryFilters,
-    shore_dir: Option<&Path>,
-) -> Result<ReviewHistoryResult> {
-    let state = SessionState::from_events(events)?;
-    let event_set_hash = state
-        .event_set_hash
-        .clone()
-        .expect("SessionState::from_events sets event_set_hash");
-    let mut entries = events
-        .iter()
-        .filter(|event| event_matches_filters(event, &filters))
-        .map(|event| history_entry_from_event(event, filters.include_body, shore_dir))
-        .collect::<Result<Vec<_>>>()?;
-
-    entries.sort_by(|left, right| {
-        left.occurred_at
-            .cmp(&right.occurred_at)
-            .then_with(|| left.event_id.as_str().cmp(right.event_id.as_str()))
-    });
-
-    Ok(ReviewHistoryResult {
-        event_set_hash,
-        event_count: events.len(),
-        filters: filters.into(),
-        entries,
-        diagnostics: state.diagnostics,
-    })
-}
-
-fn history_entry_from_event(
-    event: &ShoreEvent,
-    include_body: bool,
-    shore_dir: Option<&Path>,
-) -> Result<ReviewHistoryEntry> {
-    let summary = match event.event_type {
-        EventType::ReviewInitialized => {
-            let _payload: ReviewInitializedPayload = serde_json::from_value(event.payload.clone())?;
-            ReviewHistorySummary::ReviewInitialized {}
-        }
-        EventType::ReviewUnitCaptured => {
-            let payload: ReviewUnitCapturedPayload = serde_json::from_value(event.payload.clone())?;
-            ReviewHistorySummary::ReviewUnitCaptured {
-                review_unit_id: payload.review_unit_id,
-                source: payload.source,
-                base: payload.base,
-                target: payload.target,
-                revision_id: payload.revision_id,
-                snapshot_id: payload.snapshot_id,
-                snapshot_artifact_content_hash: payload.snapshot_artifact_content_hash,
-            }
-        }
-        EventType::ReviewObservationRecorded => {
-            let payload: ReviewObservationRecordedPayload =
-                serde_json::from_value(event.payload.clone())?;
-            ReviewHistorySummary::ReviewObservationRecorded {
-                observation_id: payload.observation_id,
-                target: payload.target,
-                title: payload.title,
-                body: optional_text(
-                    shore_dir,
-                    include_body,
-                    payload.body,
-                    payload.body_artifact_path.as_deref(),
-                )?,
-                body_byte_size: payload.body_byte_size,
-                body_content_hash: payload.body_content_hash,
-                tags: payload.tags,
-                confidence: payload.confidence,
-                supersedes: payload.supersedes_observation_ids,
-            }
-        }
-        EventType::InterventionRequested => {
-            let payload: InterventionRequestedPayload =
-                serde_json::from_value(event.payload.clone())?;
-            ReviewHistorySummary::InterventionRequested {
-                intervention_id: payload.intervention_id,
-                target: payload.target,
-                mode: payload.mode,
-                reason_code: payload.reason_code,
-                title: payload.title,
-                body: optional_text(
-                    shore_dir,
-                    include_body,
-                    payload.body,
-                    payload.body_artifact_path.as_deref(),
-                )?,
-                body_byte_size: payload.body_byte_size,
-                body_content_hash: payload.body_content_hash,
-            }
-        }
-        EventType::InterventionResolved => {
-            let payload: InterventionResolvedPayload =
-                serde_json::from_value(event.payload.clone())?;
-            ReviewHistorySummary::InterventionResolved {
-                intervention_resolution_id: payload.intervention_resolution_id,
-                intervention_id: payload.intervention_id,
-                outcome: payload.outcome,
-                reason: optional_text(
-                    shore_dir,
-                    include_body,
-                    payload.reason,
-                    payload.reason_artifact_path.as_deref(),
-                )?,
-                reason_byte_size: payload.reason_byte_size,
-                reason_content_hash: payload.reason_content_hash,
-            }
-        }
-        EventType::ReviewDispositionRecorded => {
-            let payload: ReviewDispositionRecordedPayload =
-                serde_json::from_value(event.payload.clone())?;
-            ReviewHistorySummary::ReviewDispositionRecorded {
-                disposition_id: payload.disposition_id,
-                target: payload.target,
-                disposition: payload.disposition,
-                summary: optional_text(
-                    shore_dir,
-                    include_body,
-                    payload.summary,
-                    payload.summary_artifact_path.as_deref(),
-                )?,
-                summary_byte_size: payload.summary_byte_size,
-                summary_content_hash: payload.summary_content_hash,
-                replaces: payload.replaces_disposition_ids,
-                related_observations: payload.related_observation_ids,
-                related_interventions: payload.related_intervention_ids,
-                overrides: payload.overrides,
-            }
-        }
-        EventType::ReviewNoteImported => {
-            let payload: ReviewNoteImportedPayload = serde_json::from_value(event.payload.clone())?;
-            ReviewHistorySummary::ReviewNoteImported {
-                sidecar_source: payload.sidecar_source,
-                note_id: payload.note_id,
-                file_path: payload.file_path,
-                file_old_path: payload.file_old_path,
-                target: payload.target,
-                title: payload.title,
-                body: optional_text(
-                    shore_dir,
-                    include_body,
-                    payload.body,
-                    payload.body_artifact_path.as_deref(),
-                )?,
-                body_byte_size: payload.body_byte_size.map(|size| size as u64),
-                tags: payload.tags,
-                confidence: payload.confidence,
-                external_source: payload.external_source,
-                author: payload.author,
-                created_at: payload.created_at,
-                sidecar_content_hash: payload.sidecar_content_hash,
-            }
-        }
-    };
-
-    Ok(ReviewHistoryEntry {
-        event_id: event.event_id.clone(),
-        event_type: event.event_type,
-        occurred_at: event.occurred_at.clone(),
-        payload_hash: event.payload_hash.clone(),
-        review_id: event.target.review_id.clone(),
-        review_unit_id: event.target.review_unit_id.clone(),
-        revision_id: event.target.revision_id.clone(),
-        snapshot_id: event.target.snapshot_id.clone(),
-        track_id: event.target.track_id.clone(),
-        subject: event.target.subject.clone(),
-        writer: event.writer.clone(),
-        summary,
-    })
-}
-
-fn optional_text(
-    shore_dir: Option<&Path>,
-    include_body: bool,
-    inline: Option<String>,
-    artifact_path: Option<&str>,
-) -> Result<Option<String>> {
-    if !include_body {
-        return Ok(None);
-    }
-    if inline.is_some() {
-        return Ok(inline);
-    }
-    match artifact_path {
-        Some(path) => {
-            let shore_dir = shore_dir.ok_or_else(|| {
-                ShoreError::Message(
-                    "shore directory is required to hydrate body artifact".to_owned(),
-                )
-            })?;
-            load_body_artifact(shore_dir, path)
-        }
-        None => Ok(None),
-    }
-}
-
-fn event_matches_filters(event: &ShoreEvent, filters: &ResolvedHistoryFilters) -> bool {
-    if filters
-        .review_unit_id
-        .as_ref()
-        .is_some_and(|review_unit_id| event.target.review_unit_id.as_ref() != Some(review_unit_id))
-    {
-        return false;
-    }
-    if filters
-        .track_id
-        .as_ref()
-        .is_some_and(|track_id| event.target.track_id.as_ref() != Some(track_id))
-    {
-        return false;
-    }
-    if !filters.event_types.is_empty() && !filters.event_types.contains(&event.event_type) {
-        return false;
-    }
-    true
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::projection::{history_entry_from_event, history_from_events};
     use crate::model::{
         DispositionId, InterventionId, InterventionResolutionId, ObservationId, ReviewEndpoint,
         ReviewId, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, Side, SnapshotId,
