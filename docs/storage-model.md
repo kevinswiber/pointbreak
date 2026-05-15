@@ -272,6 +272,38 @@ content-derived IDs.
 Do not add a global sequence number until Shore has a concrete allocator that does not create a
 shared mutable counter. Deterministic event ordering can start from event metadata and filenames.
 
+## Artifact Files
+
+Artifact filenames follow two deliberate rules, paired to what the file represents:
+
+- **Identifier-hashed artifacts** use a hash of a stable opaque identifier as the filename stem.
+  Snapshot artifacts live at `artifacts/snapshots/<sha256(snapshotId)>.json`. The readable ID stays
+  inside the artifact body; the hash exists only so the filename is fixed-width, filesystem-safe,
+  and free of the characters that appear in semantic IDs (such as the `:` separators in
+  `snap:git:sha256:…`). This is the same rule events use, applied to a different identifier.
+  Snapshot artifacts also carry their own canonical `contentHash` field that the read path
+  recomputes and compares, so tamper or transcription errors are caught at load time.
+- **Content-addressed artifacts** use a hash of the artifact body as the filename stem. Note-body
+  artifacts live at `artifacts/notes/<sha256(body)>.json`. Hashing the body gives deterministic
+  addressing and deduplication across observations, interventions, and dispositions that share
+  text; the referencing event also records the expected body hash so future read paths or repair
+  tools can verify the artifact against the event ledger. Identifier-hashed artifacts do not gain
+  the same dedup benefit, because their underlying ID is already unique.
+
+The asymmetry is intentional: identifier-hashed naming protects filenames from arbitrary ID
+characters, while content-addressed naming earns its keep through deterministic dedup. Read paths
+should not mix the two rules — locate snapshot artifacts by their `snapshotId` and note-body
+artifacts by the relative path recorded in the referencing event.
+
+Artifact filenames remain Shore-owned storage details. The consumer contract is the command-output
+JSON (`shore.review-capture`, `shore.review-unit`, and friends), which exposes semantic IDs and the
+snapshot artifact's canonical `contentHash`. Filename derivation rules may change without a
+deprecation cycle, but artifacts are V1 authority alongside events — the event log alone cannot
+reconstruct snapshot rows or large note bodies. A future rule change must therefore rename or
+migrate the affected files in place, keep a compatibility read path during transition, or
+regenerate the directory from the original source (worktree capture, sidecar import) where that is
+possible. Shore does not promise dual-read of legacy filenames implicitly.
+
 ## Atomic Writes
 
 All durable writes should go through one storage helper. The helper owns:
