@@ -13,7 +13,7 @@ durable events, rebuildable projections, and command-output JSON — see
 [docs/review-workflow.md](docs/review-workflow.md). The "Current CLI" section below remains the
 per-command reference.
 
-Maintainers running sanity checks after big changes can use the manual testing playbook in
+Maintainers running a confidence pass after big changes can use the manual testing playbook in
 [docs/manual-testing.md](docs/manual-testing.md): copy/paste scratch-repo recipes for capture,
 observations, interventions, dispositions, history, unit show, sidecar import, stale-note reload,
 and storage rebuildability.

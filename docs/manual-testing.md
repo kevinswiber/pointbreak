@@ -1,6 +1,6 @@
 # Manual Testing Playbook
 
-This is a maintainer-facing checklist for sanity-testing Shore's current workflows by hand. It is
+This is a maintainer-facing checklist for spot-checking Shore's current workflows by hand. It is
 intentionally small: each section creates a disposable scratch repo, runs a few commands, and
 describes what to look for. Use it after big changes to confirm the surfaces still behave the way
 the docs claim.
@@ -292,7 +292,7 @@ appear in the captured snapshot at all (for example, a file the working tree has
 review stream should emit a synthetic `<orphaned notes>` file header followed by one `stale_note`
 row per orphan note. The synthetic header is omitted when there are no orphans.
 
-## J. Storage sanity — events, artifacts, and projection rebuildability
+## J. Storage soundness — events, artifacts, and projection rebuildability
 
 **Goal.** Confirm `.shore/state.json` is a pure projection and that the event log alone is
 sufficient authority.
