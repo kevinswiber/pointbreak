@@ -359,6 +359,50 @@ mod tests {
     }
 
     #[test]
+    fn extracted_note_records_keep_inline_body_at_threshold_and_externalize_at_threshold_plus_one()
+    {
+        // Body exactly at threshold remains inline.
+        let exact = "x".repeat(BODY_INLINE_LIMIT);
+        let sidecar = sidecar_with_notes(vec![note_without_id("threshold body", Some(&exact))]);
+        let records = extract_note_import_records(
+            &sidecar,
+            SidecarSource::ReviewNotes,
+            &WorkUnitId::new("work:default"),
+            "sha256:sidecar",
+        )
+        .expect("records extract");
+        assert_eq!(records.len(), 1);
+        let r = &records[0];
+        assert_eq!(r.payload.body.as_deref(), Some(exact.as_str()));
+        assert!(r.payload.body_artifact_path.is_none());
+        assert!(r.body_artifact_bytes.is_none());
+        // Inline arm leaves body_byte_size = None; consumers read length from `body` directly.
+        assert!(r.payload.body_byte_size.is_none());
+
+        // Body at threshold + 1 externalizes.
+        let over = "x".repeat(BODY_INLINE_LIMIT + 1);
+        let sidecar = sidecar_with_notes(vec![note_without_id("over threshold body", Some(&over))]);
+        let records = extract_note_import_records(
+            &sidecar,
+            SidecarSource::ReviewNotes,
+            &WorkUnitId::new("work:default"),
+            "sha256:sidecar",
+        )
+        .expect("records extract");
+        assert_eq!(records.len(), 1);
+        let r = &records[0];
+        assert!(r.payload.body.is_none());
+        let path = r
+            .payload
+            .body_artifact_path
+            .as_deref()
+            .expect("body_artifact_path");
+        assert!(path.starts_with("artifacts/notes/"));
+        assert!(r.body_artifact_bytes.is_some());
+        assert_eq!(r.payload.body_byte_size, Some(BODY_INLINE_LIMIT + 1));
+    }
+
+    #[test]
     fn import_notes_missing_file_fails_before_shore_writes() {
         let repo = TestRepo::new();
         let missing = repo.path().join("missing-review-notes.json");

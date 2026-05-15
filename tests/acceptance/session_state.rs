@@ -489,6 +489,37 @@ fn load_durable_notes_for_repo_resolves_large_body_artifact() {
 }
 
 #[test]
+fn artifacts_notes_directory_is_not_a_complete_note_body_inventory() {
+    let repo = GitRepo::new();
+    repo.write_fixture("README.md", "# fixture\n");
+    repo.commit_all("init");
+
+    let sidecar = repo.path().join("two-notes.json");
+    let large = "x".repeat(5_000);
+    std::fs::write(
+        &sidecar,
+        review_notes_with_two_bodies_json("small body", &large),
+    )
+    .unwrap();
+
+    import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar)).unwrap();
+
+    // Two ReviewNoteImported events, but only ONE materialized body artifact:
+    // the large body. The small body remains inline in its event payload.
+    let imported_count = read_events(repo.path())
+        .unwrap()
+        .iter()
+        .filter(|e| e.event_type == EventType::ReviewNoteImported)
+        .count();
+    assert_eq!(imported_count, 2, "expected two ReviewNoteImported events");
+    assert_eq!(
+        note_body_artifact_file_count(repo.path()),
+        1,
+        "artifacts/notes/ is an overflow store — only the large body should materialize",
+    );
+}
+
+#[test]
 fn load_durable_notes_for_repo_still_works_with_small_inline_bodies() {
     let repo = modified_repo();
     let small_body = "small body content";
@@ -644,6 +675,32 @@ fn review_notes_with_body_json(body: &str) -> String {
           "title": "Changed return value",
           "body": {body:?},
           "target": {{ "side": "new", "startLine": 1, "endLine": 1 }}
+        }}
+      ]
+    }}
+  ]
+}}"#
+    )
+}
+
+fn review_notes_with_two_bodies_json(small_body: &str, large_body: &str) -> String {
+    format!(
+        r#"{{
+  "schema": "shore.review-notes",
+  "version": 1,
+  "files": [
+    {{
+      "path": "src/lib.rs",
+      "notes": [
+        {{
+          "title": "small",
+          "body": {small_body:?},
+          "target": {{ "side": "new", "startLine": 1, "endLine": 1 }}
+        }},
+        {{
+          "title": "large",
+          "body": {large_body:?},
+          "target": {{ "side": "new", "startLine": 2, "endLine": 2 }}
         }}
       ]
     }}

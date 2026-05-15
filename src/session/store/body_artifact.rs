@@ -95,6 +95,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn body_of_exactly_inline_limit_bytes_returns_inline() {
+        let body = vec![b'x'; BODY_INLINE_LIMIT];
+        let outcome = stage_body_artifact(&body).unwrap();
+        match outcome {
+            BodyArtifactOutcome::Inline { byte_size } => {
+                assert_eq!(byte_size, BODY_INLINE_LIMIT as u64);
+            }
+            other => panic!("expected inline at threshold, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn body_of_inline_limit_plus_one_bytes_returns_artifact() {
+        let body = vec![b'x'; BODY_INLINE_LIMIT + 1];
+        let outcome = stage_body_artifact(&body).unwrap();
+        match outcome {
+            BodyArtifactOutcome::Artifact {
+                relative_path,
+                byte_size,
+                body_envelope: _,
+            } => {
+                assert!(relative_path.starts_with("artifacts/notes/"));
+                assert_eq!(byte_size, (BODY_INLINE_LIMIT + 1) as u64);
+            }
+            other => panic!("expected artifact at threshold + 1, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn small_body_returns_inline_no_artifact() {
         let small = "tiny body";
         let outcome = stage_body_artifact(small.as_bytes()).unwrap();
