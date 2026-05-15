@@ -194,7 +194,7 @@ fn dump_document_pins_stale_note_kind_envelope() {
     };
     let stream = ReviewStream {
         review_id: review_id.clone(),
-        snapshot_id: SnapshotId::new("snapshot:test"),
+        snapshot_id: snapshot.snapshot_id.clone(),
         rows: vec![stale_row, orphan_row],
     };
 
