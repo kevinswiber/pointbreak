@@ -76,7 +76,7 @@ mod tests {
             writer.actor_id.as_str(),
             "actor:git-email:author@example.com"
         );
-        assert_eq!(writer.role, crate::session::WriterRole::Author);
+        assert_eq!(writer.role, crate::session::event::WriterRole::Author);
     }
 
     #[test]
@@ -97,7 +97,10 @@ mod tests {
             email_writer.actor_id.as_str(),
             "actor:git-email:reviewer@example.com"
         );
-        assert_eq!(email_writer.role, crate::session::WriterRole::Reviewer);
+        assert_eq!(
+            email_writer.role,
+            crate::session::event::WriterRole::Reviewer
+        );
 
         let name_repo = tempfile::tempdir().unwrap();
         Command::new("git")
@@ -120,7 +123,10 @@ mod tests {
             name_writer.actor_id.as_str(),
             "actor:git-name:reviewer-name"
         );
-        assert_eq!(name_writer.role, crate::session::WriterRole::Reviewer);
+        assert_eq!(
+            name_writer.role,
+            crate::session::event::WriterRole::Reviewer
+        );
 
         let local_repo = tempfile::tempdir().unwrap();
         Command::new("git")
@@ -140,6 +146,9 @@ mod tests {
             .unwrap();
         let local_writer = super::reviewer_from_git_config(local_repo.path());
         assert_eq!(local_writer.actor_id.as_str(), "actor:local");
-        assert_eq!(local_writer.role, crate::session::WriterRole::Reviewer);
+        assert_eq!(
+            local_writer.role,
+            crate::session::event::WriterRole::Reviewer
+        );
     }
 }

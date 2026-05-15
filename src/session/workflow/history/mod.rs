@@ -39,15 +39,14 @@ mod tests {
         ReviewId, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, Side, SnapshotId,
         TrackId, WorkUnitId, WorktreeCaptureMode,
     };
-    use crate::session::event::{ImportedNoteTarget, ReviewNoteImportedPayload};
-    use crate::session::state::DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE;
-    use crate::session::{
-        EventTarget, EventType, InterventionMode, InterventionReasonCode,
+    use crate::session::event::{
+        EventTarget, EventType, ImportedNoteTarget, InterventionMode, InterventionReasonCode,
         InterventionRequestedPayload, InterventionResolutionOutcome, InterventionResolvedPayload,
         ReviewDisposition, ReviewDispositionRecordedPayload, ReviewInitializedPayload,
-        ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, ShoreEvent, SidecarSource,
-        Writer,
+        ReviewNoteImportedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
+        ShoreEvent, SidecarSource, Writer,
     };
+    use crate::session::state::DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE;
 
     #[test]
     fn review_history_returns_empty_freshness_metadata_without_events() {
@@ -578,7 +577,7 @@ mod tests {
         occurred_at: &str,
     ) -> ShoreEvent
     where
-        P: crate::session::EventPayload,
+        P: crate::session::event::EventPayload,
     {
         tracked_event_for_unit(
             event_type,
@@ -599,7 +598,7 @@ mod tests {
         occurred_at: &str,
     ) -> ShoreEvent
     where
-        P: crate::session::EventPayload,
+        P: crate::session::event::EventPayload,
     {
         let mut target = EventTarget::for_review_unit(
             ReviewId::new("review:default"),

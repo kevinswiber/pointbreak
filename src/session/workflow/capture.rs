@@ -6,10 +6,10 @@ use crate::git::{IngestOptions, ingest_tracked_diff_with_options};
 use crate::model::{
     DiffSnapshot, ReviewEndpoint, ReviewId, ReviewUnitId, ReviewUnitSource, RevisionId, SnapshotId,
 };
+use crate::session::event::{EventTarget, EventType, ReviewUnitCapturedPayload, ShoreEvent};
 use crate::session::{
-    EventStore, EventTarget, EventType, EventWriteOutcome, ProjectionDiagnostic,
-    ReviewUnitCapturedPayload, SessionState, ShoreEvent, ShoreStorePaths, current_timestamp,
-    prepare_shore_writer, writer_from_git_config,
+    EventStore, EventWriteOutcome, ProjectionDiagnostic, SessionState, ShoreStorePaths,
+    current_timestamp, prepare_shore_writer, writer_from_git_config,
 };
 use crate::storage::{Durability, LocalStorage};
 
@@ -171,8 +171,9 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
 
+    use crate::session::event::EventType;
     use crate::session::{
-        CaptureOptions, EventStore, EventType, capture_worktree_review, read_snapshot_artifact,
+        CaptureOptions, EventStore, capture_worktree_review, read_snapshot_artifact,
     };
 
     #[test]

@@ -30,9 +30,11 @@ mod tests {
         EventId, ReviewEndpoint, ReviewId, ReviewTargetRef, ReviewUnitId, ReviewUnitSource,
         RevisionId, Side, SnapshotId, TrackId, WorktreeCaptureMode,
     };
+    use crate::session::event::{
+        EventTarget, EventType, ReviewUnitCapturedPayload, ShoreEvent, Writer,
+    };
     use crate::session::{
-        CaptureOptions, CaptureResult, EventStore, EventTarget, EventType,
-        ReviewUnitCapturedPayload, SessionState, ShoreEvent, Writer, capture_worktree_review,
+        CaptureOptions, CaptureResult, EventStore, SessionState, capture_worktree_review,
     };
 
     #[test]

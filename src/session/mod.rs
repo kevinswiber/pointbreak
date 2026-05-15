@@ -4,13 +4,6 @@ mod projection;
 mod store;
 mod workflow;
 
-pub use event::{
-    EventPayload, EventTarget, EventType, InterventionMode, InterventionReasonCode,
-    InterventionRequestedPayload, InterventionResolutionOutcome, InterventionResolvedPayload,
-    ReviewDisposition, ReviewDispositionRecordedPayload, ReviewInitializedPayload,
-    ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, ShoreEvent, SidecarSource, Writer,
-    WriterRole, WriterTool,
-};
 pub(crate) use identity::{current_timestamp, reviewer_from_git_config, writer_from_git_config};
 pub use projection::{
     ProjectionDiagnostic, SessionState, load_durable_notes_for_repo, read_events, rebuild_state,

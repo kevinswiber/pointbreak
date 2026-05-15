@@ -28,16 +28,16 @@ mod tests {
         RevisionId, Side, SnapshotId, TrackId,
     };
     use crate::session::event::{
-        EventTarget, EventType, ReviewDisposition, ReviewDispositionRecordedPayload, ShoreEvent,
-        Writer,
+        EventTarget, EventType, InterventionMode, InterventionReasonCode, ReviewDisposition,
+        ReviewDispositionRecordedPayload, ShoreEvent, Writer,
     };
     use crate::session::intervention::{InterventionRequestOptions, InterventionTargetSelector};
     use crate::session::observation::{
         ObservationAddOptions, ObservationTargetSelector, resolve_review_unit,
     };
     use crate::session::{
-        CaptureOptions, EventStore, InterventionMode, InterventionReasonCode,
-        capture_worktree_review, record_observation, request_intervention,
+        CaptureOptions, EventStore, capture_worktree_review, record_observation,
+        request_intervention,
     };
 
     #[test]

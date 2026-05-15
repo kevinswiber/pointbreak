@@ -1,7 +1,11 @@
 // Shared view-document mappers used by review unit show and the leaf read commands.
 use shore::model::ReviewTargetRef;
+use shore::session::event::{
+    InterventionMode, InterventionReasonCode, InterventionResolutionOutcome, ReviewDisposition,
+    Writer,
+};
 use shore::session::{
-    CurrentDispositionStatus, DispositionView, InterventionView, ObservationView, ReviewDisposition,
+    CurrentDispositionStatus, DispositionView, InterventionView, ObservationView,
 };
 
 #[derive(serde::Serialize)]
@@ -22,7 +26,7 @@ pub(super) struct ObservationViewDocument {
     #[serde(skip_serializing_if = "Option::is_none")]
     body_content_hash: Option<String>,
     created_at: String,
-    writer: shore::session::Writer,
+    writer: Writer,
 }
 
 #[derive(serde::Serialize)]
@@ -32,8 +36,8 @@ pub(super) struct InterventionViewDocument {
     event_id: String,
     track_id: String,
     target: ReviewTargetRef,
-    mode: shore::session::InterventionMode,
-    reason_code: shore::session::InterventionReasonCode,
+    mode: InterventionMode,
+    reason_code: InterventionReasonCode,
     title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     body: Option<String>,
@@ -42,7 +46,7 @@ pub(super) struct InterventionViewDocument {
     status: &'static str,
     resolutions: Vec<InterventionResolutionViewDocument>,
     created_at: String,
-    writer: shore::session::Writer,
+    writer: Writer,
 }
 
 #[derive(serde::Serialize)]
@@ -50,13 +54,13 @@ pub(super) struct InterventionViewDocument {
 pub(super) struct InterventionResolutionViewDocument {
     id: String,
     event_id: String,
-    outcome: shore::session::InterventionResolutionOutcome,
+    outcome: InterventionResolutionOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason_content_hash: Option<String>,
     created_at: String,
-    writer: shore::session::Writer,
+    writer: Writer,
 }
 
 #[derive(serde::Serialize)]
@@ -89,7 +93,7 @@ pub(super) struct DispositionViewDocument {
     related_interventions: Vec<String>,
     overrides: Vec<ReviewTargetRef>,
     created_at: String,
-    writer: shore::session::Writer,
+    writer: Writer,
 }
 
 impl From<ObservationView> for ObservationViewDocument {

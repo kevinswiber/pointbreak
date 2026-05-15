@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::canonical_hash::sha256_json_prefixed;
 use crate::error::Result;
-use crate::session::ShoreEvent;
+use crate::session::event::ShoreEvent;
 
 const EVENT_SET_HASH_SCHEMA: &str = "shore.event-set.v1";
 

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
-use crate::session::ShoreEvent;
+use crate::session::event::ShoreEvent;
 use crate::storage::{CreateFileOutcome, Durability, LocalStorage};
 
 #[derive(Debug)]
@@ -150,8 +150,10 @@ mod tests {
 
     use super::*;
     use crate::model::{ReviewId, WorkUnitId};
-    use crate::session::event::ReviewNoteImportedPayload;
-    use crate::session::{EventTarget, EventType, ReviewInitializedPayload, ShoreEvent, Writer};
+    use crate::session::event::{
+        EventTarget, EventType, ReviewInitializedPayload, ReviewNoteImportedPayload, ShoreEvent,
+        Writer,
+    };
 
     #[test]
     fn event_path_is_sha256_of_idempotency_key() {
@@ -312,7 +314,7 @@ mod tests {
             event.target.clone(),
             event.writer.clone(),
             ReviewNoteImportedPayload {
-                sidecar_source: crate::session::SidecarSource::ReviewNotes,
+                sidecar_source: crate::session::event::SidecarSource::ReviewNotes,
                 note_id: "note:conflict".to_owned(),
                 file_path: "src/lib.rs".to_owned(),
                 file_old_path: None,

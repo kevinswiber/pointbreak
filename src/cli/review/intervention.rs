@@ -3,12 +3,15 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 use shore::model::{InterventionId, ObservationId, ReviewTargetRef, ReviewUnitId};
+use shore::session::event::{
+    InterventionMode, InterventionReasonCode, InterventionResolutionOutcome,
+};
 use shore::session::{
     InterventionFetchOptions, InterventionFetchResult, InterventionListOptions,
-    InterventionListResult, InterventionMode, InterventionReasonCode, InterventionRequestOptions,
-    InterventionRequestResult, InterventionResolutionOutcome, InterventionResolveOptions,
-    InterventionResolveResult, InterventionStatusFilter, InterventionTargetSelector,
-    fetch_intervention, list_interventions, request_intervention, resolve_intervention,
+    InterventionListResult, InterventionRequestOptions, InterventionRequestResult,
+    InterventionResolveOptions, InterventionResolveResult, InterventionStatusFilter,
+    InterventionTargetSelector, fetch_intervention, list_interventions, request_intervention,
+    resolve_intervention,
 };
 
 use crate::cli::json;

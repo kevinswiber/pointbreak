@@ -125,12 +125,14 @@ mod tests {
     use super::*;
     use crate::canonical_hash::sha256_json_prefixed;
     use crate::model::{DiffSnapshot, ReviewId, ReviewUnitId, SnapshotId};
+    use crate::session::event::{
+        InterventionReasonCode, InterventionResolutionOutcome, ReviewDisposition,
+    };
     use crate::session::{
         CaptureOptions, CurrentDispositionStatus, DispositionAddOptions, DispositionShowOptions,
-        ImportNotesOptions, InterventionListOptions, InterventionReasonCode,
-        InterventionRequestOptions, InterventionResolutionOutcome, InterventionResolveOptions,
-        InterventionStatus, InterventionStatusFilter, ObservationAddOptions,
-        ObservationListOptions, ObservationTargetSelector, ReviewDisposition,
+        ImportNotesOptions, InterventionListOptions, InterventionRequestOptions,
+        InterventionResolveOptions, InterventionStatus, InterventionStatusFilter,
+        ObservationAddOptions, ObservationListOptions, ObservationTargetSelector,
         capture_worktree_review, import_notes, list_interventions, list_observations,
         record_disposition, record_observation, request_intervention, resolve_intervention,
         show_dispositions,

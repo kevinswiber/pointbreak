@@ -1,7 +1,7 @@
 use shore::git::{git_worktree_root, ingest_tracked_diff};
-use shore::session::event::EventType;
+use shore::session::event::{EventType, ShoreEvent};
 use shore::session::{
-    CaptureOptions, ImportNotesOptions, SessionState, ShoreEvent, capture_worktree_fingerprint,
+    CaptureOptions, ImportNotesOptions, SessionState, capture_worktree_fingerprint,
     capture_worktree_review, ensure_shore_ignored, import_notes, load_durable_notes_for_repo,
     read_events, rebuild_state, shore_dir_for_repo,
 };

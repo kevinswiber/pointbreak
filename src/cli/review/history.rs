@@ -3,8 +3,9 @@ use std::path::PathBuf;
 
 use clap::{Args, ValueEnum};
 use shore::model::ReviewUnitId;
+use shore::session::event::EventType;
 use shore::session::{
-    EventType, ReviewHistoryEntry, ReviewHistoryFilters, ReviewHistoryOptions, ReviewHistoryResult,
+    ReviewHistoryEntry, ReviewHistoryFilters, ReviewHistoryOptions, ReviewHistoryResult,
     review_history,
 };
 

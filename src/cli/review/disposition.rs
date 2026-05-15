@@ -3,10 +3,10 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 use shore::model::{DispositionId, InterventionId, ObservationId, ReviewTargetRef, ReviewUnitId};
+use shore::session::event::ReviewDisposition;
 use shore::session::{
     DispositionAddOptions, DispositionAddResult, DispositionShowFilters, DispositionShowOptions,
-    DispositionShowResult, DispositionTargetSelector, ReviewDisposition, record_disposition,
-    show_dispositions,
+    DispositionShowResult, DispositionTargetSelector, record_disposition, show_dispositions,
 };
 
 use crate::cli::json;

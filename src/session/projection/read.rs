@@ -3,9 +3,9 @@ use std::path::Path;
 
 use crate::error::Result;
 use crate::session::body_artifact::load_body_artifact;
-use crate::session::event::{EventType, ReviewNoteImportedPayload};
+use crate::session::event::{EventType, ReviewNoteImportedPayload, ShoreEvent};
 use crate::session::state::SessionState;
-use crate::session::{EventStore, ShoreEvent, ShoreStorePaths, sweep_stale_temp_files};
+use crate::session::{EventStore, ShoreStorePaths, sweep_stale_temp_files};
 use crate::sidecar::{
     ParsedReviewNotes, ReviewNoteEntry, ReviewNoteTarget, ReviewNotesFile, ReviewNotesSidecar,
 };
