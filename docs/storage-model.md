@@ -12,6 +12,39 @@ storage, and notification side effects behind explicit seams. The storage model 
 common failure modes of long-running coordination tools: hidden in-memory authority, direct delivery
 before persistence, shared mutable JSON files, unbounded retries, and helper bypasses.
 
+## Storage Authority
+
+Shore V1 intentionally uses filesystem-backed `.shore/events/` and `.shore/artifacts/` as the
+authoritative local store. This is a deliberate split between canonical immutable facts and derived
+projections, not a temporary gap waiting to be replaced by a database.
+
+**Authoritative facts.** Durable history lives in two places:
+
+- `.shore/events/` — append-only, immutable per-fact event files. Events are independently written
+  and never moved, retried in place, or rewritten on read.
+- `.shore/artifacts/` — immutable or content-addressed support records, including captured
+  ReviewUnit snapshots and large bodies for imported notes, native observations, interventions, and
+  dispositions.
+
+These are the only authoritative durable storage in V1. Everything else is a cache or projection.
+
+**Rebuildable projections.** `state.json`, command-output views such as `shore.review-history` and
+`shore.review-unit`, and any future read indexes are derived from durable events and artifacts.
+They may be deleted and regenerated. Freshness against the current event set is verified through
+`eventSetHash`, not through the projection's existence or `eventCount` alone.
+
+**Consumer contract.** Stable automation should depend on Shore commands and named JSON documents,
+not on raw storage paths. Commands and documents expose semantic IDs, content hashes, and freshness
+metadata as the public surface. Event filenames, artifact paths, fan-out layout, the internal shape
+of `state.json`, raw storage envelopes, and row or hunk identifier formatting are Shore-owned
+storage details. They may change without a deprecation cycle unless a later design explicitly
+promotes them to a stable contract.
+
+**Deferred options.** SQLite-backed read indexes, content-address fan-out, snapshot compaction or
+delta packs, store manifests, and retention policy are implementation choices Shore may add later
+as derived layers. None of them are current authority, and none of them are part of the consumer
+contract until a later design explicitly promotes them.
+
 ## Storage Layers
 
 Use distinct storage concepts for distinct semantics:
