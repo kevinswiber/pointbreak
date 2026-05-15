@@ -51,6 +51,8 @@ fn notes_apply(
     args: NotesApplyArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let span = tracing::info_span!("shore.notes.apply");
+    let _entered = span.enter();
     let result = import_notes(notes_apply_options(&args.input)?)?;
     let document = NotesApplyDocument::from(result);
     json::write_json(stdout, &document, false)

@@ -36,6 +36,8 @@ pub(super) fn run(
     tracing: &TracingArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let span = tracing::info_span!("shore.review.capture");
+    let _entered = span.enter();
     tracing::debug!(command = "review.capture", "command_start");
     let result = capture_worktree_review(capture_options(&args, tracing));
     let document = capture_document(result?);

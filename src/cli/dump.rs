@@ -24,6 +24,8 @@ pub(super) fn run(
     tracing: &TracingArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let span = tracing::info_span!("shore.dump");
+    let _entered = span.enter();
     let document = document_for_dump(&args, tracing)?;
     json::write_json(stdout, &document, should_pretty_print(&args))
 }

@@ -12,7 +12,7 @@ serde_json = "1"
 sha2 = "0.10"
 thiserror = "1"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
-tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "fmt", "json", "std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "fmt", "json", "registry", "std"] }
 
 [dev-dependencies]
 ctor = "0.2"
