@@ -255,9 +255,10 @@ shore review unit show --pretty --track agent:codex \
 - Default output has every observation/intervention/disposition object present in the top-level
   lists but with no `body` / `summary` / `reason` field. `--include-body` adds those fields
   inline.
-- The `--track agent:codex` filter returns only `agent:codex` facts in the top-level lists and
-  drops their narrative rows. `snapshot_remainder_count` is the same as without the filter, and
-  the snapshot remainder still includes every captured file.
+- The `--track agent:codex` filter keeps only `agent:codex` facts in the top-level lists and
+  narrows the narrative rows to the matching track (non-`agent:codex` narrative rows are dropped;
+  the rows for the kept facts remain). `snapshot_remainder_count` is the same as without the
+  filter, and the snapshot remainder still includes every captured file.
 
 ## H. Notes apply + dump/show compatibility path
 
