@@ -424,9 +424,11 @@ elision threshold, no generated-file detection, and no metadata-only marker for 
 - **Row inventory.** A captured snapshot for a newly added 10,000-line text file produces one
   artifact with roughly 10,000 inline `DiffRow` objects. V1 does not elide.
 - **Metadata rows.** `FileMetadataKind` is `{ BinarySummary, ModeChange, RenameSummary,
-  SubmoduleSummary }` today. `BinarySummary` is the only metadata-only marker emitted by ingest;
-  binary patches set `is_binary = true` and leave `hunks` empty. There is no `ElidedFile` or
-  `GeneratedFile` variant.
+  SubmoduleSummary }` today. `BinarySummary` is the V1 *content-omission* marker — binary
+  patches set `is_binary = true`, get a `BinarySummary` row, and leave `hunks` empty. The other
+  three variants carry file-level Git facts (rename, mode change, submodule pointer change) and
+  also leave `hunks` empty, but they are not content-omission markers. There is no `ElidedFile`
+  or `GeneratedFile` variant.
 - **Read surface.** `shore review unit show` is narrative-first plus snapshot-complete: reviewed
   ledger material appears first, and the snapshot remainder includes every captured file, metadata
   row, hunk header, and diff row. No flag omits row bodies.

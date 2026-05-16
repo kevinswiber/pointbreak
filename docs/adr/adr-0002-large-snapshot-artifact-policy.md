@@ -21,9 +21,11 @@ snapshot artifact should behave at scale.
 ## Decision
 
 V1 keeps the current behavior. The snapshot artifact remains the authoritative carrier of
-every captured row; no elision, no generated-file detection, no metadata-only row beyond
-the existing `FileMetadataKind::BinarySummary`. Each of the five issue-#64 questions
-receives an explicit answer below.
+every captured row; no elision, no generated-file detection, and no new content-omission marker
+beyond the existing `FileMetadataKind::BinarySummary`. The other V1 metadata-row variants
+(`RenameSummary`, `ModeChange`, `SubmoduleSummary`) describe file-level Git facts and continue
+to be emitted as today; they are not content-omission markers. Each of the five issue-#64
+questions receives an explicit answer below.
 
 - **Q1: Should large text files be elided past a size or line-count threshold?**
   No. V1 stores every captured row inline. A real workload producing snapshot artifacts
@@ -35,10 +37,12 @@ receives an explicit answer below.
   apply any heuristic. Detection rules and their interaction with review-stream noise
   are V2 design decisions.
 - **Q3: Should binary / too-large / elided files produce explicit metadata rows?**
-  Partial. `FileMetadataKind::BinarySummary` already covers the binary case and ingest
-  emits it today (`src/git/ingest.rs`). No new variants for "too-large" or "elided" —
-  both would require V1 to commit to a threshold and a marker shape that V2 may want
-  to redesign.
+  Partial. `FileMetadataKind::BinarySummary` is the V1 content-omission marker — ingest
+  emits it for binary patches and leaves `hunks` empty (`src/git/ingest.rs`). The remaining
+  V1 variants (`RenameSummary`, `ModeChange`, `SubmoduleSummary`) carry file-level Git
+  facts rather than mark omitted content, even though ingest also leaves `hunks` empty
+  for them. No new variants for "too-large" or "elided" — both would require V1 to commit
+  to a threshold and a marker shape that V2 may want to redesign.
 - **Q4: Should `shore review unit show` preserve file presence while omitting row bodies?**
   No. All captured rows continue to flow through `build_snapshot_rows`
   (`src/session/workflow/review_unit_projection/rows.rs`) into the
