@@ -81,6 +81,53 @@ fn review_capture_changes_when_untracked_content_changes() {
     assert_ne!(first["reviewUnit"]["id"], second["reviewUnit"]["id"]);
 }
 
+#[test]
+fn capture_preserves_inline_rows_for_normal_added_file() {
+    let repo = bounded_added_file_repo();
+    let _capture =
+        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+
+    let snapshots_dir = shore::session::shore_dir_for_repo(repo.path())
+        .expect("shore dir resolves")
+        .join("artifacts/snapshots");
+    let artifact_path = std::fs::read_dir(&snapshots_dir)
+        .expect("snapshots dir exists")
+        .filter_map(|entry| entry.ok())
+        .find(|entry| entry.path().extension().and_then(|s| s.to_str()) == Some("json"))
+        .map(|entry| entry.path())
+        .expect("at least one snapshot artifact");
+    let artifact: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&artifact_path).expect("read artifact"))
+            .expect("artifact JSON parses");
+
+    let files = artifact["snapshot"]["files"]
+        .as_array()
+        .expect("files array");
+    let added = files
+        .iter()
+        .find(|f| f["new_path"].as_str() == Some("notes/added.txt"))
+        .expect("captured added file present");
+    let hunks = added["hunks"].as_array().expect("hunks array");
+
+    // V1: every captured row stays inline in the artifact JSON; no elision.
+    assert_eq!(hunks.len(), 1);
+    let rows = hunks[0]["rows"].as_array().expect("rows array");
+    assert_eq!(rows.len(), 50);
+    let metadata = added["metadata_rows"]
+        .as_array()
+        .expect("metadata_rows array");
+    assert!(metadata.is_empty());
+}
+
+fn bounded_added_file_repo() -> GitRepo {
+    let repo = GitRepo::new();
+    repo.write("README.md", "base\n");
+    repo.commit_all("base");
+    let body = (1..=50).map(|n| format!("line {n}\n")).collect::<String>();
+    repo.write("notes/added.txt", body);
+    repo
+}
+
 fn shore<I, S>(args: I) -> std::process::Output
 where
     I: IntoIterator<Item = S>,

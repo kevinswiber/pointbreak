@@ -137,6 +137,46 @@ mod tests {
     use crate::session::{compute_review_unit_fingerprint, read_snapshot_artifact};
 
     #[test]
+    fn snapshot_artifact_schema_is_pinned_at_shore_snapshot_v1() {
+        // Any future elision-aware artifact must bump one of these constants
+        // (see docs/adr/adr-0002-large-snapshot-artifact-policy.md, "Future Reversal").
+        assert_eq!(super::SNAPSHOT_ARTIFACT_SCHEMA, "shore.snapshot");
+        assert_eq!(super::SNAPSHOT_ARTIFACT_VERSION, 1);
+    }
+
+    #[test]
+    fn captured_text_rows_remain_inline_in_snapshot_artifact() {
+        let repo = TestRepo::new();
+        repo.write("README.md", "base\n");
+        repo.commit_all("base");
+
+        let added = (1..=25).map(|n| format!("line {n}\n")).collect::<String>();
+        repo.write("docs/example.md", added);
+
+        let files = capture_worktree_diff_files(repo.path()).unwrap();
+        let fingerprint = compute_review_unit_fingerprint(repo.path()).unwrap();
+        let snapshot = DiffSnapshot::new(
+            ReviewId::new("review:default"),
+            fingerprint.snapshot_id.clone(),
+            files,
+        );
+        let artifact = super::write_snapshot_artifact(repo.path(), &fingerprint, snapshot).unwrap();
+
+        let stored = read_snapshot_artifact(repo.path(), &artifact.snapshot.snapshot_id).unwrap();
+        let added_file = stored
+            .snapshot
+            .files
+            .iter()
+            .find(|f| f.new_path.as_deref() == Some("docs/example.md"))
+            .expect("captured added file");
+
+        // V1: every captured row stays inline in the artifact JSON; no elision.
+        assert_eq!(added_file.hunks.len(), 1);
+        assert_eq!(added_file.hunks[0].rows.len(), 25);
+        assert!(added_file.metadata_rows.is_empty());
+    }
+
+    #[test]
     fn write_snapshot_artifact_stores_full_snapshot() {
         let repo = modified_repo();
         let artifact = write_current_snapshot_artifact(&repo);

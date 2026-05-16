@@ -193,6 +193,38 @@ fn file_level_git_entries_are_preserved_as_metadata_rows() {
     assert!(submodule.hunks.is_empty());
 }
 
+fn variant_is_v1(kind: &shore::model::FileMetadataKind) -> bool {
+    // Exhaustive match — NO wildcard arm. Adding a new FileMetadataKind variant
+    // will fail to compile here, and that compile error is the tripwire. ADR-0002
+    // ratifies these four as the V1 set; any new variant is itself a V2 decision.
+    use shore::model::FileMetadataKind::*;
+    match kind {
+        BinarySummary | ModeChange | RenameSummary | SubmoduleSummary => true,
+    }
+}
+
+#[test]
+fn ingest_only_emits_v1_file_metadata_kinds() {
+    // Body intentionally tiny — the load-bearing assertion is the exhaustive
+    // match above. The runtime check below just exercises the helper on one
+    // real ingest fixture so the test fails loudly if the helper is ever
+    // changed to a wildcard.
+    let repo = GitRepo::new();
+    repo.write("README.md", "base\n");
+    repo.commit_all("base");
+    repo.write("assets/data.bin", [0u8, 159, 146, 150]);
+    let snapshot = ingest_tracked_diff(repo.path()).expect("ingest");
+    for file in &snapshot.files {
+        for row in &file.metadata_rows {
+            assert!(
+                variant_is_v1(&row.kind),
+                "ingest emitted unexpected metadata kind {:?} — ADR-0002 ratifies the V1 set",
+                row.kind
+            );
+        }
+    }
+}
+
 #[test]
 fn untracked_files_are_synthesized_without_staging_them() {
     let repo = GitRepo::new();
