@@ -57,7 +57,7 @@ pub fn translate_session(parsed: &ParsedSession) -> Vec<AdapterIntent> {
         let ParsedMessage::Assistant(a) = msg else {
             continue;
         };
-        if !assistant_turn_is_state_mutating(a) {
+        if !assistant_turn_produces_boundary(a) {
             continue;
         }
         let tool_use_ids: Vec<String> = a.tool_uses.iter().map(|t| t.id.clone()).collect();
@@ -170,8 +170,25 @@ fn first_user_prompt_text(parsed: &ParsedSession) -> String {
     String::new()
 }
 
+/// Q1 boundary: assistant turns produce a checkpoint when they either mutate
+/// state (file edit, side-effecting tool call) **or** carry verification
+/// output (hook tail) on a paired tool_result. Hook output on a read-only
+/// turn still counts — it is a structural signal that something verified the
+/// turn, not a prose interpretation.
+fn assistant_turn_produces_boundary(msg: &AssistantMessage) -> bool {
+    assistant_turn_is_state_mutating(msg) || assistant_turn_has_verification_output(msg)
+}
+
 fn assistant_turn_is_state_mutating(msg: &AssistantMessage) -> bool {
     msg.tool_uses.iter().any(tool_use_is_state_mutating)
+}
+
+fn assistant_turn_has_verification_output(msg: &AssistantMessage) -> bool {
+    msg.tool_uses.iter().any(|t| {
+        t.matching_result
+            .as_ref()
+            .is_some_and(|r| content_carries_hook_output(&r.content))
+    })
 }
 
 fn tool_use_is_state_mutating(tool: &ToolUse) -> bool {
@@ -445,6 +462,63 @@ mod tests {
             ))
         );
         assert_eq!(observation.2, AssertionMode::Advisory);
+    }
+
+    #[test]
+    fn translate_emits_checkpoint_and_observation_for_verification_output_on_read_only_turn() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("synthetic-verification.jsonl");
+        let uuid = "55555555-5555-5555-5555-555555555555";
+        let tu_id = "tu_verify_1";
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, r#"{{"type":"agent-setting","sessionId":"{uuid}"}}"#).unwrap();
+        writeln!(
+            f,
+            r#"{{"type":"user","sessionId":"{uuid}","uuid":"u1","timestamp":"t1","message":{{"role":"user","content":"please inspect"}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            f,
+            r#"{{"type":"assistant","sessionId":"{uuid}","uuid":"a1","timestamp":"t2","message":{{"id":"msg_readonly_verified","role":"assistant","content":[{{"type":"tool_use","id":"{tu_id}","name":"Read","input":{{"file_path":"/tmp/x"}}}}]}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            f,
+            r#"{{"type":"user","sessionId":"{uuid}","uuid":"u2","timestamp":"t3","message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"{tu_id}","content":"contents\n<system-reminder>hook ran</system-reminder>"}}]}}}}"#
+        )
+        .unwrap();
+
+        let parsed = parse_session(&path).expect("parses");
+        let intents = translate_session(&parsed);
+
+        let checkpoint_id = intents
+            .iter()
+            .find_map(|i| match i {
+                AdapterIntent::CheckpointCaptured { checkpoint_id, .. } => {
+                    Some(checkpoint_id.clone())
+                }
+                _ => None,
+            })
+            .expect("verification output is a Q1 boundary even on a read-only tool");
+
+        let observation = intents.iter().find_map(|i| match i {
+            AdapterIntent::ObservationRecorded {
+                target, source_ref, ..
+            } => Some((target.clone(), source_ref.clone())),
+            _ => None,
+        });
+        let (target, source_ref) = observation.expect("observation emitted for the hook output");
+        assert_eq!(
+            target,
+            TargetRef::Task(TaskTargetRef::Checkpoint { checkpoint_id })
+        );
+        assert_eq!(
+            source_ref,
+            Some(SourceRef::new(
+                "claude_code",
+                format!("{uuid}#tool_result:{tu_id}")
+            ))
+        );
     }
 
     #[test]

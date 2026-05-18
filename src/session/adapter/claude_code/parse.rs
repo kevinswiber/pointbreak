@@ -28,7 +28,7 @@ pub fn parse_session(path: &Path) -> Result<ParsedSession> {
         .map_err(|e| ShoreError::Message(format!("open {}: {}", path.display(), e)))?;
     let reader = BufReader::new(file);
 
-    let project_path = path
+    let parent_dir_path = path
         .parent()
         .and_then(|p| p.file_name())
         .and_then(|s| s.to_str())
@@ -37,6 +37,7 @@ pub fn parse_session(path: &Path) -> Result<ParsedSession> {
 
     let mut messages: Vec<ParsedMessage> = Vec::new();
     let mut session_uuid: Option<String> = None;
+    let mut first_cwd: Option<String> = None;
 
     for (idx, line) in reader.lines().enumerate() {
         let line_no = idx + 1;
@@ -49,11 +50,17 @@ pub fn parse_session(path: &Path) -> Result<ParsedSession> {
         if session_uuid.is_none() {
             session_uuid = Some(header.session_id.clone());
         }
+        if first_cwd.is_none()
+            && let Some(cwd) = header.cwd.as_ref()
+            && !cwd.is_empty()
+        {
+            first_cwd = Some(cwd.clone());
+        }
 
         match header.r#type.as_str() {
             "user" => {
-                let parsed = decode_user_line(&line, line_no)?;
-                messages.push(parsed);
+                let decoded = decode_user_line(&line, line_no)?;
+                messages.extend(decoded);
             }
             "assistant" => {
                 let parsed = decode_assistant_line(&line, line_no)?;
@@ -74,6 +81,7 @@ pub fn parse_session(path: &Path) -> Result<ParsedSession> {
 
     let claude_session_uuid = session_uuid.unwrap_or_default();
     let session_id = SessionId::new(format!("session:claude:{claude_session_uuid}"));
+    let project_path = first_cwd.unwrap_or(parent_dir_path);
 
     pair_tool_uses_with_results(&mut messages);
 
@@ -188,6 +196,8 @@ struct LineHeader {
     r#type: String,
     #[serde(rename = "sessionId", default)]
     session_id: String,
+    #[serde(default)]
+    cwd: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -219,45 +229,45 @@ struct RawMessage {
     content: serde_json::Value,
 }
 
-fn decode_user_line(line: &str, line_no: usize) -> Result<ParsedMessage> {
+fn decode_user_line(line: &str, line_no: usize) -> Result<Vec<ParsedMessage>> {
     let raw: UserLineRaw = serde_json::from_str(line)?;
     let message = match raw.message {
         Some(m) => m,
         None => {
-            return Ok(ParsedMessage::User(UserMessage {
+            return Ok(vec![ParsedMessage::User(UserMessage {
                 uuid: raw.uuid,
                 parent_uuid: raw.parent_uuid,
                 timestamp: raw.timestamp,
                 line_number: line_no,
                 text: String::new(),
-            }));
+            })]);
         }
     };
 
     if let Some(text) = message.content.as_str() {
-        return Ok(ParsedMessage::User(UserMessage {
+        return Ok(vec![ParsedMessage::User(UserMessage {
             uuid: raw.uuid,
             parent_uuid: raw.parent_uuid,
             timestamp: raw.timestamp,
             line_number: line_no,
             text: text.to_owned(),
-        }));
+        })]);
     }
 
     let blocks = match message.content.as_array() {
         Some(b) => b,
         None => {
-            return Ok(ParsedMessage::User(UserMessage {
+            return Ok(vec![ParsedMessage::User(UserMessage {
                 uuid: raw.uuid,
                 parent_uuid: raw.parent_uuid,
                 timestamp: raw.timestamp,
                 line_number: line_no,
                 text: String::new(),
-            }));
+            })]);
         }
     };
 
-    let mut tool_result: Option<(String, String, bool)> = None;
+    let mut out: Vec<ParsedMessage> = Vec::new();
     let mut texts: Vec<String> = Vec::new();
     for block in blocks {
         let kind = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -273,7 +283,15 @@ fn decode_user_line(line: &str, line_no: usize) -> Result<ParsedMessage> {
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 let content = stringify_content(block.get("content"));
-                tool_result = Some((tool_use_id, content, is_error));
+                out.push(ParsedMessage::ToolResult(ToolResultMessage {
+                    uuid: raw.uuid.clone(),
+                    parent_uuid: raw.parent_uuid.clone(),
+                    timestamp: raw.timestamp.clone(),
+                    line_number: line_no,
+                    tool_use_id,
+                    content,
+                    is_error,
+                }));
             }
             "text" => {
                 if let Some(t) = block.get("text").and_then(|v| v.as_str()) {
@@ -284,25 +302,31 @@ fn decode_user_line(line: &str, line_no: usize) -> Result<ParsedMessage> {
         }
     }
 
-    if let Some((tool_use_id, content, is_error)) = tool_result {
-        Ok(ParsedMessage::ToolResult(ToolResultMessage {
-            uuid: raw.uuid,
-            parent_uuid: raw.parent_uuid,
-            timestamp: raw.timestamp,
-            line_number: line_no,
-            tool_use_id,
-            content,
-            is_error,
-        }))
-    } else {
-        Ok(ParsedMessage::User(UserMessage {
+    if out.is_empty() {
+        out.push(ParsedMessage::User(UserMessage {
             uuid: raw.uuid,
             parent_uuid: raw.parent_uuid,
             timestamp: raw.timestamp,
             line_number: line_no,
             text: texts.join("\n\n"),
-        }))
+        }));
+    } else if !texts.is_empty() {
+        // Tool-result and free-text in the same user line is uncommon but
+        // possible. Preserve both: the User text record sits before the
+        // tool_result entries in source order would require finer interleaving,
+        // but the message-count check stays accurate.
+        out.insert(
+            0,
+            ParsedMessage::User(UserMessage {
+                uuid: raw.uuid,
+                parent_uuid: raw.parent_uuid,
+                timestamp: raw.timestamp,
+                line_number: line_no,
+                text: texts.join("\n\n"),
+            }),
+        );
     }
+    Ok(out)
 }
 
 fn decode_assistant_line(line: &str, line_no: usize) -> Result<AssistantMessage> {
@@ -427,6 +451,38 @@ mod tests {
     }
 
     const FIXTURE_UUID: &str = "a0ce57f0-485d-45b7-98fc-f0f13f467d72";
+
+    #[test]
+    fn parse_session_uses_cwd_from_jsonl_for_project_path() {
+        let parsed = parse_session(&fixture_path()).expect("fixture parses");
+        assert_eq!(
+            parsed.project_path, "/Users/kevin/src/boardwalk",
+            "project_path must come from the cwd field in the JSONL so identity is stable under file moves"
+        );
+    }
+
+    #[test]
+    fn parse_session_falls_back_to_parent_dir_when_no_cwd_present() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("no-cwd.jsonl");
+        let uuid = "66666666-6666-6666-6666-666666666666";
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, r#"{{"type":"agent-setting","sessionId":"{uuid}"}}"#).unwrap();
+        writeln!(
+            f,
+            r#"{{"type":"user","sessionId":"{uuid}","uuid":"u1","message":{{"role":"user","content":"hi"}}}}"#
+        )
+        .unwrap();
+
+        let parsed = parse_session(&path).expect("parses");
+        let expected = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|s| s.to_str())
+            .unwrap()
+            .to_owned();
+        assert_eq!(parsed.project_path, expected);
+    }
 
     #[test]
     fn parse_session_decodes_chosen_fixture_into_typed_messages() {
@@ -555,6 +611,66 @@ mod tests {
             }
             other => panic!("expected UnknownClaudeSessionLineType, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parse_session_decodes_each_tool_result_block_in_parallel_user_line() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("parallel-tool-results.jsonl");
+        let uuid = "44444444-4444-4444-4444-444444444444";
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, r#"{{"type":"agent-setting","sessionId":"{uuid}"}}"#).unwrap();
+        writeln!(
+            f,
+            r#"{{"type":"user","sessionId":"{uuid}","uuid":"u1","message":{{"role":"user","content":"please run two things in parallel"}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            f,
+            r#"{{"type":"assistant","sessionId":"{uuid}","uuid":"a1","message":{{"id":"msg_parallel","role":"assistant","content":[{{"type":"tool_use","id":"tu_a","name":"Read","input":{{"file_path":"/tmp/a"}}}},{{"type":"tool_use","id":"tu_b","name":"Read","input":{{"file_path":"/tmp/b"}}}}]}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            f,
+            r#"{{"type":"user","sessionId":"{uuid}","uuid":"u2","message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"tu_a","content":"contents of a"}},{{"type":"tool_result","tool_use_id":"tu_b","content":"contents of b"}}]}}}}"#
+        )
+        .unwrap();
+
+        let parsed = parse_session(&path).expect("parses");
+
+        let tool_results: Vec<&ToolResultMessage> = parsed
+            .messages
+            .iter()
+            .filter_map(|m| match m {
+                ParsedMessage::ToolResult(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            tool_results.len(),
+            2,
+            "each tool_result block in a parallel user line decodes to its own ParsedMessage"
+        );
+        let ids: std::collections::HashSet<_> = tool_results
+            .iter()
+            .map(|t| t.tool_use_id.as_str())
+            .collect();
+        assert!(ids.contains("tu_a"));
+        assert!(ids.contains("tu_b"));
+
+        // Pairing must reach both parallel tool uses.
+        let mut paired_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for msg in &parsed.messages {
+            if let ParsedMessage::Assistant(a) = msg {
+                for tu in &a.tool_uses {
+                    if tu.matching_result.is_some() {
+                        paired_ids.insert(tu.id.clone());
+                    }
+                }
+            }
+        }
+        assert!(paired_ids.contains("tu_a"));
+        assert!(paired_ids.contains("tu_b"));
     }
 
     #[test]
