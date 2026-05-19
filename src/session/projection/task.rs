@@ -88,6 +88,9 @@ pub(crate) struct TaskAttemptSummary {
     pub claude_session_uuid: String,
     pub initial_prompt_hash: String,
     pub predecessor: Option<WorkObjectId>,
+    /// Opaque fingerprint of the code state at the start of the attempt,
+    /// preserved verbatim from `TaskAttemptCapturedPayload`.
+    pub base_snapshot_fingerprint: Option<String>,
     pub latest_checkpoint: Option<TaskCheckpointSummary>,
     pub checkpoints: Vec<TaskCheckpointSummary>,
     pub observations_without_checkpoint: Vec<TaskObservationSummary>,
@@ -234,6 +237,7 @@ pub(crate) fn task_attempt_summary_from_events(
         claude_session_uuid: attempt_payload.claude_session_uuid,
         initial_prompt_hash: attempt_payload.initial_prompt_hash,
         predecessor: attempt_payload.predecessor,
+        base_snapshot_fingerprint: None,
         latest_checkpoint,
         checkpoints,
         observations_without_checkpoint,
@@ -291,6 +295,10 @@ pub(crate) struct TaskInterventionView {
     pub body_artifact_path: Option<String>,
     pub body_byte_size: Option<u64>,
     pub body_content_hash: Option<String>,
+    /// Opaque fingerprint the requester observed when raising the
+    /// intervention, preserved verbatim from
+    /// `InterventionRequestedPayload`.
+    pub target_fingerprint: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -382,6 +390,7 @@ pub(crate) fn open_task_interventions_from_events(
             body_artifact_path: payload.body_artifact_path,
             body_byte_size: payload.body_byte_size,
             body_content_hash: payload.body_content_hash,
+            target_fingerprint: None,
         });
     }
 
@@ -431,6 +440,11 @@ pub(crate) enum FreshnessBasis {
     /// checkpoint's `checkpoint_fingerprint`; both are `Some`. Opaque-string
     /// `==` comparison only -- no domain semantics.
     CheckpointFingerprintMismatch,
+    /// Resolution's `target_fingerprint` agrees with the latest checkpoint's
+    /// `checkpoint_fingerprint`; both are `Some`. Fingerprint agreement
+    /// overrides the identity-based staleness fallback so a resolver acting
+    /// on the right code state under a stale checkpoint id stays fresh.
+    CheckpointFingerprintMatches,
 }
 
 impl FreshnessBasis {
@@ -815,6 +829,7 @@ fn collect_task_intervention_records(
                     body_artifact_path: payload.body_artifact_path,
                     body_byte_size: payload.body_byte_size,
                     body_content_hash: payload.body_content_hash,
+                    target_fingerprint: None,
                 });
             }
             EventType::InterventionResolved => {
@@ -3088,5 +3103,206 @@ mod tests {
                 .iter()
                 .any(|d| d.code == "agent_resumption_ambiguous_resolutions")
         );
+    }
+
+    #[test]
+    fn agent_resumption_treats_resolution_fresh_when_fingerprints_match_across_different_checkpoint_ids()
+     {
+        // Two checkpoints share a `checkpoint_fingerprint` (same code state
+        // recorded under distinct identities -- a retry or a parallel-write
+        // boundary). The resolver targeted the older checkpoint id but
+        // carried the shared fingerprint. The substrate-level rule is:
+        // agreement on opaque fingerprint overrides the identity-based
+        // staleness fallback. Without the fingerprint-equality short-circuit
+        // the projection would mis-read this as `CheckpointStaleNewerExists`
+        // and block resumption.
+        let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
+        let session_id = SessionId::new("session:claude:uuid-1");
+        let cp_older = CheckpointId::new("checkpoint:sha256:cp-older");
+        let cp_latest = CheckpointId::new("checkpoint:sha256:cp-latest");
+        let intervention_id = InterventionId::new("intervention:sha256:1");
+        let resolution_id = InterventionResolutionId::new("intervention-resolution:sha256:r");
+
+        let mut events = vec![task_attempt_event(
+            &task_attempt_id,
+            &session_id,
+            "uuid-1",
+            "2026-05-18T00:00:00Z",
+        )];
+        events.push(checkpoint_event_with_fingerprint(
+            &task_attempt_id,
+            &session_id,
+            &cp_older,
+            "msg_older",
+            vec![],
+            "2026-05-18T00:00:01Z",
+            Some(FP_A),
+        ));
+        events.push(task_intervention_event_with_target_and_fingerprint(
+            &task_attempt_id,
+            &session_id,
+            &intervention_id,
+            "source:fp-eq",
+            "2026-05-18T00:00:02Z",
+            TargetRef::Task(TaskTargetRef::Checkpoint {
+                checkpoint_id: cp_older.clone(),
+            }),
+            "needs approval at the shared code state",
+            Some(FP_A),
+        ));
+        events.push(checkpoint_event_with_fingerprint(
+            &task_attempt_id,
+            &session_id,
+            &cp_latest,
+            "msg_latest",
+            vec![],
+            "2026-05-18T00:00:03Z",
+            Some(FP_A),
+        ));
+        events.push(user_resolution_event_with_fingerprint(
+            &intervention_id,
+            &resolution_id,
+            InterventionResolutionOutcome::Approved,
+            AssertionMode::Operative,
+            WriterRole::User,
+            "2026-05-18T00:00:04Z",
+            Some(FP_A),
+        ));
+
+        let projection =
+            agent_resumption_from_events(&events, &task_attempt_id, &reader_actor()).unwrap();
+
+        assert_eq!(
+            projection.state,
+            AgentResumptionState::Ready,
+            "fingerprint agreement overrides identity-based staleness"
+        );
+        assert!(projection.may_resume);
+        assert!(projection.treated_as_operative);
+        assert_eq!(
+            projection.freshness,
+            Some(FreshnessBasis::CheckpointFingerprintMatches),
+            "fingerprint match must be the surfaced freshness basis"
+        );
+        let resolution_view = projection
+            .selected_resolution
+            .as_ref()
+            .expect("selected resolution surfaced");
+        assert!(resolution_view.fresh_for_target);
+        assert_eq!(resolution_view.target_fingerprint.as_deref(), Some(FP_A));
+    }
+
+    #[test]
+    fn task_projections_preserve_fingerprint_fields_through_summary_and_intervention_views() {
+        // Codex P2 follow-up. The no-info-loss claim requires that the
+        // payload-level fingerprint fields survive into the sibling projection
+        // views, not just into the resumption policy view. Set every
+        // fingerprint field to a distinct opaque string and confirm each
+        // surfaces verbatim on its intended view.
+        let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
+        let session_id = SessionId::new("session:claude:uuid-1");
+        let cp_a = CheckpointId::new("checkpoint:sha256:cp-a");
+        let intervention_id = InterventionId::new("intervention:sha256:1");
+
+        let attempt = task_attempt_event_with_base_snapshot_fingerprint(
+            &task_attempt_id,
+            &session_id,
+            "uuid-1",
+            "2026-05-18T00:00:00Z",
+            Some(FP_A),
+        );
+        let checkpoint = checkpoint_event_with_fingerprint(
+            &task_attempt_id,
+            &session_id,
+            &cp_a,
+            "msg_a",
+            vec![],
+            "2026-05-18T00:00:01Z",
+            Some(FP_B),
+        );
+        let request = task_intervention_event_with_target_and_fingerprint(
+            &task_attempt_id,
+            &session_id,
+            &intervention_id,
+            "source:p2",
+            "2026-05-18T00:00:02Z",
+            TargetRef::Task(TaskTargetRef::Checkpoint {
+                checkpoint_id: cp_a.clone(),
+            }),
+            "needs approval",
+            Some(FP_C),
+        );
+
+        let events = vec![attempt, checkpoint, request];
+
+        let summary = task_attempt_summary_from_events(&events, &task_attempt_id, &reader_actor())
+            .unwrap()
+            .expect("attempt present");
+        assert_eq!(
+            summary.base_snapshot_fingerprint.as_deref(),
+            Some(FP_A),
+            "base snapshot fingerprint must surface on the attempt summary"
+        );
+        let latest = summary
+            .latest_checkpoint
+            .as_ref()
+            .expect("latest checkpoint surfaced");
+        assert_eq!(
+            latest.checkpoint_fingerprint.as_deref(),
+            Some(FP_B),
+            "checkpoint fingerprint must surface on the latest checkpoint summary"
+        );
+
+        let interventions =
+            open_task_interventions_from_events(&events, &task_attempt_id, &reader_actor())
+                .unwrap();
+        let open = interventions
+            .open_interventions
+            .first()
+            .expect("open intervention surfaced");
+        assert_eq!(
+            open.target_fingerprint.as_deref(),
+            Some(FP_C),
+            "intervention target fingerprint must surface on the open-intervention view"
+        );
+    }
+
+    fn task_attempt_event_with_base_snapshot_fingerprint(
+        task_attempt_id: &WorkObjectId,
+        session_id: &SessionId,
+        claude_session_uuid: &str,
+        occurred_at: &str,
+        base_snapshot_fingerprint: Option<&str>,
+    ) -> ShoreEvent {
+        let target = EventTarget::for_work_object(
+            session_id.clone(),
+            task_attempt_id.clone(),
+            WorkObjectType::TaskAttempt,
+        );
+        let payload = TaskAttemptCapturedPayload {
+            task_attempt_id: task_attempt_id.clone(),
+            project_path: "/repo".to_owned(),
+            claude_session_uuid: claude_session_uuid.to_owned(),
+            initial_prompt_hash: "sha256:prompt".to_owned(),
+            predecessor: None,
+            base_snapshot_fingerprint: base_snapshot_fingerprint.map(str::to_owned),
+        };
+        let idempotency_key = TaskAttemptCapturedPayload::idempotency_key_for_work_object(
+            task_attempt_id,
+            WorkObjectType::TaskAttempt,
+            claude_session_uuid,
+        );
+        let mut event = ShoreEvent::new(
+            EventType::TaskAttemptCaptured,
+            idempotency_key,
+            target,
+            writer_user(),
+            payload,
+            occurred_at,
+        )
+        .unwrap();
+        event.source_ref = Some(SourceRef::new("claude_code", claude_session_uuid));
+        event.assertion_mode = AssertionMode::Advisory;
+        event
     }
 }
