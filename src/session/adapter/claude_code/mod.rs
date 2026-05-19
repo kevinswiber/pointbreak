@@ -1,5 +1,6 @@
 mod parse;
 mod translate;
+pub(crate) mod write;
 
 pub use parse::{
     AssistantMessage, ParsedMessage, ParsedSession, TextBlock, ThinkingBlock, ToolResultMessage,

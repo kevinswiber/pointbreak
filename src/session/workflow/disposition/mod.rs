@@ -25,7 +25,7 @@ mod tests {
     use super::*;
     use crate::model::{
         DispositionId, InterventionId, ObservationId, ReviewTargetRef, ReviewUnitId, RevisionId,
-        SessionId, Side, SnapshotId, TrackId,
+        SessionId, Side, SnapshotId, TargetRef, TrackId,
     };
     use crate::session::event::{
         EventTarget, EventType, InterventionMode, InterventionReasonCode, ReviewDisposition,
@@ -818,9 +818,9 @@ mod tests {
                 revision_id: Some(RevisionId::new("rev:git:sha256:one")),
                 snapshot_id: Some(SnapshotId::new("snap:git:sha256:one")),
                 track_id: Some(TrackId::new("human:kevin")),
-                subject: Some(ReviewTargetRef::ReviewUnit {
+                subject: Some(TargetRef::Review(ReviewTargetRef::ReviewUnit {
                     review_unit_id: review_unit_id.clone(),
-                }),
+                })),
             },
             Writer::shore_local_reviewer("test"),
             ReviewDispositionRecordedPayload {

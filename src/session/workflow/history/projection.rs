@@ -4,6 +4,7 @@ use super::options::ResolvedHistoryFilters;
 use super::result::ReviewHistoryResult;
 use super::summary::{ReviewHistoryEntry, ReviewHistorySummary};
 use crate::error::{Result, ShoreError};
+use crate::model::TargetRef;
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
     EventType, InterventionRequestedPayload, InterventionResolvedPayload,
@@ -185,7 +186,10 @@ pub(super) fn history_entry_from_event(
         revision_id: event.target.revision_id.clone(),
         snapshot_id: event.target.snapshot_id.clone(),
         track_id: event.target.track_id.clone(),
-        subject: event.target.subject.clone(),
+        subject: match event.target.subject.as_ref() {
+            Some(TargetRef::Review(r)) => Some(r.clone()),
+            Some(TargetRef::Task(_)) | None => None,
+        },
         writer: event.writer.clone(),
         summary,
     })
@@ -217,6 +221,16 @@ fn optional_text(
 }
 
 fn event_matches_filters(event: &ShoreEvent, filters: &ResolvedHistoryFilters) -> bool {
+    // Review history is a review-domain projection by name and contract; task-domain events
+    // are not summarized here. A sibling task-history projection is a Phase 5 concern.
+    if matches!(
+        event.event_type,
+        EventType::TaskAttemptCaptured
+            | EventType::TaskCheckpointCaptured
+            | EventType::TaskObservationRecorded
+    ) {
+        return false;
+    }
     if filters
         .review_unit_id
         .as_ref()

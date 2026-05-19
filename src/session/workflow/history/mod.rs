@@ -37,7 +37,7 @@ mod tests {
     use crate::model::{
         DispositionId, EventId, InterventionId, InterventionResolutionId, ObservationId,
         ReviewEndpoint, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId,
-        Side, SnapshotId, TrackId, WorkUnitId, WorktreeCaptureMode,
+        Side, SnapshotId, TargetRef, TrackId, WorkUnitId, WorktreeCaptureMode,
     };
     use crate::session::event::{
         AssertionMode, EventTarget, EventType, ImportedNoteTarget, InterventionMode,
@@ -165,6 +165,100 @@ mod tests {
             ]
         );
         assert!(result.entries[0].event_id.as_str() < result.entries[1].event_id.as_str());
+    }
+
+    #[test]
+    fn review_history_entry_subject_round_trips_review_target_ref_after_envelope_widening() {
+        let event = observation_event("review-unit:sha256:one", "agent:codex", "Pinned");
+
+        let entry = history_entry_from_event(&event, false, None).unwrap();
+
+        assert_eq!(
+            entry.subject,
+            Some(ReviewTargetRef::ReviewUnit {
+                review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+            })
+        );
+    }
+
+    #[test]
+    fn review_history_entry_subject_narrows_task_target_ref_to_none() {
+        use crate::model::{CheckpointId, TargetRef, TaskTargetRef};
+
+        let mut event = review_initialized_event("narrow");
+        event.target.subject = Some(TargetRef::Task(TaskTargetRef::Checkpoint {
+            checkpoint_id: CheckpointId::new("checkpoint:sha256:narrow"),
+        }));
+
+        let entry = history_entry_from_event(&event, false, None).unwrap();
+
+        assert!(entry.subject.is_none());
+    }
+
+    #[test]
+    fn review_history_filters_out_task_event_types_unconditionally() {
+        let init = review_initialized_event("init");
+        let task_event = ShoreEvent {
+            schema: "shore.event".to_owned(),
+            version: 1,
+            event_id: EventId::new("evt:sha256:task-attempt"),
+            event_type: EventType::TaskAttemptCaptured,
+            idempotency_key: "task_attempt_captured:filter".to_owned(),
+            target: EventTarget::new(
+                SessionId::new("session:claude:abc"),
+                WorkUnitId::new("work:default"),
+            ),
+            writer: Writer::shore_local_author("test"),
+            occurred_at: "2026-05-18T10:00:01Z".to_owned(),
+            payload_hash: "sha256:placeholder".to_owned(),
+            assertion_mode: AssertionMode::Advisory,
+            source_ref: None,
+            payload: serde_json::Value::Null,
+        };
+
+        let result =
+            history_from_events(&[init, task_event], ResolvedHistoryFilters::default(), None)
+                .unwrap();
+
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].event_type, EventType::ReviewInitialized);
+    }
+
+    #[test]
+    fn review_history_filter_excludes_all_three_task_event_types() {
+        let init = review_initialized_event("init");
+        let task_events = [
+            EventType::TaskAttemptCaptured,
+            EventType::TaskCheckpointCaptured,
+            EventType::TaskObservationRecorded,
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, event_type)| ShoreEvent {
+            schema: "shore.event".to_owned(),
+            version: 1,
+            event_id: EventId::new(format!("evt:sha256:task-{idx}")),
+            event_type,
+            idempotency_key: format!("task_kind_{idx}"),
+            target: EventTarget::new(
+                SessionId::new("session:claude:abc"),
+                WorkUnitId::new("work:default"),
+            ),
+            writer: Writer::shore_local_author("test"),
+            occurred_at: format!("2026-05-18T10:00:0{}Z", idx + 1),
+            payload_hash: "sha256:placeholder".to_owned(),
+            assertion_mode: AssertionMode::Advisory,
+            source_ref: None,
+            payload: serde_json::Value::Null,
+        });
+
+        let mut events: Vec<ShoreEvent> = vec![init];
+        events.extend(task_events);
+
+        let result = history_from_events(&events, ResolvedHistoryFilters::default(), None).unwrap();
+
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].event_type, EventType::ReviewInitialized);
     }
 
     #[test]
@@ -637,7 +731,9 @@ mod tests {
             snapshot_id("one"),
         );
         target.track_id = Some(TrackId::new(track_id));
-        target.subject = Some(ReviewTargetRef::ReviewUnit { review_unit_id });
+        target.subject = Some(TargetRef::Review(ReviewTargetRef::ReviewUnit {
+            review_unit_id,
+        }));
         ShoreEvent::new(
             event_type,
             idempotency_key,

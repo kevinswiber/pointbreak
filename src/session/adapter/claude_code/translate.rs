@@ -100,6 +100,7 @@ pub fn translate_session(parsed: &ParsedSession) -> Vec<AdapterIntent> {
                 continue;
             }
             intents.push(AdapterIntent::ObservationRecorded {
+                parent_task_attempt_id: task_attempt_id.clone(),
                 target: target.clone(),
                 session_id: parsed.session_id.clone(),
                 source_ref: Some(SourceRef::new(
@@ -144,6 +145,7 @@ pub enum AdapterIntent {
         tool_use_ids: Vec<String>,
     },
     ObservationRecorded {
+        parent_task_attempt_id: WorkObjectId,
         target: TargetRef,
         session_id: SessionId,
         source_ref: Option<SourceRef>,

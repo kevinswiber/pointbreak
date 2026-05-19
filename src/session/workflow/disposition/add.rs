@@ -6,7 +6,8 @@ use serde_json::json;
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    DispositionId, EventId, InterventionId, ObservationId, ReviewTargetRef, ReviewUnitId, TrackId,
+    DispositionId, EventId, InterventionId, ObservationId, ReviewTargetRef, ReviewUnitId,
+    TargetRef, TrackId,
 };
 use crate::session::disposition::{
     DispositionOverrideSelector, DispositionRelationships, DispositionTargetSelector,
@@ -217,7 +218,7 @@ pub fn record_disposition(options: DispositionAddOptions) -> Result<DispositionA
             revision_id: Some(resolved.revision_id),
             snapshot_id: Some(resolved.snapshot_id),
             track_id: Some(track_id.clone()),
-            subject: Some(target.target.clone()),
+            subject: Some(TargetRef::Review(target.target.clone())),
         },
         writer,
         ReviewDispositionRecordedPayload {

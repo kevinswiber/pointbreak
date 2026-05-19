@@ -7,7 +7,7 @@ use super::target::{ObservationTargetSelector, resolve_observation_target, resol
 use super::util::{required_title, staged_body, validated_track_id};
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
-use crate::model::{EventId, ObservationId, ReviewTargetRef, ReviewUnitId, TrackId};
+use crate::model::{EventId, ObservationId, ReviewTargetRef, ReviewUnitId, TargetRef, TrackId};
 use crate::session::event::{EventTarget, EventType, ReviewObservationRecordedPayload, ShoreEvent};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
@@ -168,7 +168,7 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
             revision_id: Some(resolved.revision_id),
             snapshot_id: Some(resolved.snapshot_id),
             track_id: Some(track_id.clone()),
-            subject: Some(target.clone()),
+            subject: Some(TargetRef::Review(target.clone())),
         },
         writer,
         ReviewObservationRecordedPayload {

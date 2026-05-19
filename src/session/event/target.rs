@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    ReviewTargetRef, ReviewUnitId, RevisionId, SessionId, SnapshotId, TrackId, WorkObjectId,
-    WorkObjectType, WorkUnitId,
+    ReviewTargetRef, ReviewUnitId, RevisionId, SessionId, SnapshotId, TargetRef, TrackId,
+    WorkObjectId, WorkObjectType, WorkUnitId,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -29,7 +29,7 @@ pub struct EventTarget {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub track_id: Option<TrackId>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub subject: Option<ReviewTargetRef>,
+    pub subject: Option<TargetRef>,
 }
 
 impl EventTarget {
@@ -62,7 +62,9 @@ impl EventTarget {
             revision_id: Some(revision_id),
             snapshot_id: Some(snapshot_id),
             track_id: None,
-            subject: Some(ReviewTargetRef::ReviewUnit { review_unit_id }),
+            subject: Some(TargetRef::Review(ReviewTargetRef::ReviewUnit {
+                review_unit_id,
+            })),
         }
     }
 
@@ -191,6 +193,38 @@ mod tests {
         let parsed: EventTarget = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed, target);
+    }
+
+    #[test]
+    fn event_target_for_review_unit_subject_serializes_with_review_external_tag() {
+        let target = EventTarget::for_review_unit(
+            SessionId::new("session:default"),
+            ReviewUnitId::new("review-unit:sha256:u"),
+            RevisionId::new("rev:sha256:rev"),
+            SnapshotId::new("snap:sha256:snap"),
+        );
+
+        let json = serde_json::to_value(&target).unwrap();
+
+        assert_eq!(json["subject"]["review"]["kind"], "review_unit");
+        assert_eq!(
+            json["subject"]["review"]["reviewUnitId"],
+            "review-unit:sha256:u"
+        );
+        assert!(json["subject"].get("kind").is_none());
+    }
+
+    #[test]
+    fn event_target_rejects_legacy_subject_review_target_ref_shape() {
+        let legacy = r#"{"sessionId":"session:default","reviewUnitId":"u","revisionId":"r","snapshotId":"s","subject":{"kind":"review_unit","reviewUnitId":"u"}}"#;
+
+        let result: Result<EventTarget, _> = serde_json::from_str(legacy);
+
+        assert!(
+            result.is_err(),
+            "legacy untagged subject JSON must not deserialize, got {:?}",
+            result.ok()
+        );
     }
 
     #[test]

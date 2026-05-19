@@ -42,7 +42,7 @@ mod tests {
     use std::process::Command;
 
     use super::*;
-    use crate::model::{ObservationId, ReviewTargetRef, Side};
+    use crate::model::{ObservationId, ReviewTargetRef, Side, TargetRef};
     use crate::session::{
         CaptureOptions, EventStore, ObservationAddOptions, SessionState, capture_worktree_review,
         record_observation,
@@ -1047,10 +1047,10 @@ mod tests {
                 revision_id: None,
                 snapshot_id: None,
                 track_id: Some(requested.track_id.clone()),
-                subject: Some(ReviewTargetRef::Intervention {
+                subject: Some(TargetRef::Review(ReviewTargetRef::Intervention {
                     review_unit_id: requested.review_unit_id.clone(),
                     intervention_id: requested.intervention_id.clone(),
-                }),
+                })),
             },
             Writer::shore_local_reviewer("test"),
             payload,
@@ -1097,9 +1097,9 @@ mod tests {
                 revision_id: None,
                 snapshot_id: None,
                 track_id: Some(track_id.clone()),
-                subject: Some(ReviewTargetRef::ReviewUnit {
+                subject: Some(TargetRef::Review(ReviewTargetRef::ReviewUnit {
                     review_unit_id: review_unit_id.clone(),
-                }),
+                })),
             },
             Writer::shore_local_reviewer("test"),
             payload,
@@ -1138,10 +1138,10 @@ mod tests {
                 revision_id: None,
                 snapshot_id: None,
                 track_id: Some(track_id.clone()),
-                subject: Some(ReviewTargetRef::Intervention {
+                subject: Some(TargetRef::Review(ReviewTargetRef::Intervention {
                     review_unit_id: review_unit_id.clone(),
                     intervention_id: intervention_id.clone(),
-                }),
+                })),
             },
             Writer::shore_local_reviewer("test"),
             payload,

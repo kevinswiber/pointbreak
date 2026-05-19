@@ -1,0 +1,441 @@
+use std::path::Path;
+
+use super::translate::AdapterIntent;
+use crate::canonical_hash::sha256_bytes_hex;
+use crate::error::{Result, ShoreError};
+use crate::model::{ObservationId, TargetRef, TaskTargetRef, WorkObjectType};
+use crate::session::event::{
+    EventTarget, EventType, ShoreEvent, TaskAttemptCapturedPayload, TaskCheckpointCapturedPayload,
+    TaskObservationRecordedPayload,
+};
+use crate::session::{EventStore, EventWriteOutcome};
+
+#[allow(dead_code)]
+pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
+    match intent {
+        AdapterIntent::TaskAttemptCaptured {
+            task_attempt_id,
+            session_id,
+            source_ref,
+            assertion_mode,
+            writer,
+            occurred_at,
+            project_path,
+            claude_session_uuid,
+            initial_prompt_hash,
+            predecessor,
+        } => {
+            let target = EventTarget::for_work_object(
+                session_id.clone(),
+                task_attempt_id.clone(),
+                WorkObjectType::TaskAttempt,
+            );
+            let payload = TaskAttemptCapturedPayload {
+                task_attempt_id: task_attempt_id.clone(),
+                project_path: project_path.clone(),
+                claude_session_uuid: claude_session_uuid.clone(),
+                initial_prompt_hash: initial_prompt_hash.clone(),
+                predecessor: predecessor.clone(),
+            };
+            let idempotency_key = TaskAttemptCapturedPayload::idempotency_key_for_work_object(
+                task_attempt_id,
+                WorkObjectType::TaskAttempt,
+                claude_session_uuid,
+            );
+            let mut event = ShoreEvent::new(
+                EventType::TaskAttemptCaptured,
+                idempotency_key,
+                target,
+                writer.clone(),
+                payload,
+                occurred_at.clone(),
+            )?;
+            event.source_ref = source_ref.clone();
+            event.assertion_mode = *assertion_mode;
+            Ok(event)
+        }
+        AdapterIntent::CheckpointCaptured {
+            checkpoint_id,
+            parent_task_attempt_id,
+            target: target_ref,
+            session_id,
+            source_ref,
+            assertion_mode,
+            writer,
+            occurred_at,
+            assistant_message_id,
+            tool_use_ids,
+        } => {
+            let mut target = EventTarget::for_work_object(
+                session_id.clone(),
+                parent_task_attempt_id.clone(),
+                WorkObjectType::TaskAttempt,
+            );
+            target.subject = Some(target_ref.clone());
+            let payload = TaskCheckpointCapturedPayload {
+                checkpoint_id: checkpoint_id.clone(),
+                parent_task_attempt_id: parent_task_attempt_id.clone(),
+                assistant_message_id: assistant_message_id.clone(),
+                tool_use_ids: tool_use_ids.clone(),
+            };
+            let idempotency_key = TaskCheckpointCapturedPayload::idempotency_key_for_work_object(
+                parent_task_attempt_id,
+                WorkObjectType::TaskAttempt,
+                checkpoint_id.as_str(),
+            );
+            let mut event = ShoreEvent::new(
+                EventType::TaskCheckpointCaptured,
+                idempotency_key,
+                target,
+                writer.clone(),
+                payload,
+                occurred_at.clone(),
+            )?;
+            event.source_ref = source_ref.clone();
+            event.assertion_mode = *assertion_mode;
+            Ok(event)
+        }
+        AdapterIntent::ObservationRecorded {
+            parent_task_attempt_id,
+            target: target_ref,
+            session_id,
+            source_ref,
+            assertion_mode,
+            writer,
+            occurred_at,
+            title,
+        } => {
+            let source_id = source_ref
+                .as_ref()
+                .map(|s| s.source_id.clone())
+                .unwrap_or_default();
+            let observation_id = ObservationId::new(format!(
+                "obs:sha256:{}",
+                sha256_bytes_hex(source_id.as_bytes())
+            ));
+            let checkpoint_id = match target_ref {
+                TargetRef::Task(TaskTargetRef::Checkpoint { checkpoint_id }) => {
+                    Some(checkpoint_id.clone())
+                }
+                TargetRef::Task(TaskTargetRef::TaskAttempt) => None,
+                _ => {
+                    return Err(ShoreError::Message(
+                        "ObservationRecorded intent target must be TargetRef::Task(...)".to_owned(),
+                    ));
+                }
+            };
+            let mut target = EventTarget::for_work_object(
+                session_id.clone(),
+                parent_task_attempt_id.clone(),
+                WorkObjectType::TaskAttempt,
+            );
+            target.subject = Some(target_ref.clone());
+            let payload = TaskObservationRecordedPayload {
+                observation_id: observation_id.clone(),
+                checkpoint_id,
+                title: title.clone(),
+                body: None,
+                body_artifact_path: None,
+                body_byte_size: None,
+                body_content_hash: None,
+            };
+            let idempotency_key = TaskObservationRecordedPayload::idempotency_key_for_work_object(
+                parent_task_attempt_id,
+                WorkObjectType::TaskAttempt,
+                observation_id.as_str(),
+            );
+            let mut event = ShoreEvent::new(
+                EventType::TaskObservationRecorded,
+                idempotency_key,
+                target,
+                writer.clone(),
+                payload,
+                occurred_at.clone(),
+            )?;
+            event.source_ref = source_ref.clone();
+            event.assertion_mode = *assertion_mode;
+            Ok(event)
+        }
+        AdapterIntent::InterventionRequested => Err(ShoreError::Message(
+            "AdapterIntent::InterventionRequested has no Phase 4 write mapping".to_owned(),
+        )),
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) fn write_session_intents(
+    intents: &[AdapterIntent],
+    shore_dir: &Path,
+) -> Result<Vec<EventWriteOutcome>> {
+    let store = EventStore::open(shore_dir);
+    intents
+        .iter()
+        .map(|intent| {
+            let event = intent_to_event(intent)?;
+            store.record_event_once(&event)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::super::{AdapterIntent, parse_session, translate_session};
+    use super::*;
+    use crate::canonical_hash::sha256_bytes_hex;
+    use crate::model::{
+        ActorId, CheckpointId, ReviewTargetRef, ReviewUnitId, SessionId, TargetRef, TaskTargetRef,
+        WorkObjectId, WorkObjectType,
+    };
+    use crate::session::EventStore;
+    use crate::session::event::{
+        AssertionMode, EventType, ShoreEvent, SourceRef, Writer, WriterRole, WriterTool,
+    };
+
+    fn writer_user_for_test() -> Writer {
+        Writer {
+            actor_id: ActorId::new("actor:claude_code:user"),
+            role: WriterRole::User,
+            tool: WriterTool {
+                name: "claude_code".to_owned(),
+                version: String::new(),
+            },
+        }
+    }
+
+    fn fixture_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/claude_code_session/a0ce57f0-485d-45b7-98fc-f0f13f467d72.jsonl")
+    }
+
+    fn task_attempt_intent_basic() -> AdapterIntent {
+        AdapterIntent::TaskAttemptCaptured {
+            task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
+            session_id: SessionId::new("session:claude:uuid-1"),
+            source_ref: Some(SourceRef::new("claude_code", "uuid-1")),
+            assertion_mode: AssertionMode::Advisory,
+            writer: writer_user_for_test(),
+            occurred_at: "2026-05-18T00:00:00Z".to_owned(),
+            project_path: "/repo".to_owned(),
+            claude_session_uuid: "uuid-1".to_owned(),
+            initial_prompt_hash: "sha256:prompt".to_owned(),
+            predecessor: None,
+        }
+    }
+
+    fn checkpoint_intent_basic() -> AdapterIntent {
+        let checkpoint_id = CheckpointId::new("checkpoint:sha256:cp");
+        AdapterIntent::CheckpointCaptured {
+            checkpoint_id: checkpoint_id.clone(),
+            parent_task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
+            target: TargetRef::Task(TaskTargetRef::Checkpoint { checkpoint_id }),
+            session_id: SessionId::new("session:claude:uuid-1"),
+            source_ref: Some(SourceRef::new("claude_code", "uuid-1#assistant:msg_1")),
+            assertion_mode: AssertionMode::Advisory,
+            writer: Writer::shore_local_reviewer("test"),
+            occurred_at: "2026-05-18T00:00:01Z".to_owned(),
+            assistant_message_id: "msg_1".to_owned(),
+            tool_use_ids: vec!["tu_1".to_owned()],
+        }
+    }
+
+    fn observation_intent_basic() -> AdapterIntent {
+        let checkpoint_id = CheckpointId::new("checkpoint:sha256:cp");
+        AdapterIntent::ObservationRecorded {
+            parent_task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
+            target: TargetRef::Task(TaskTargetRef::Checkpoint { checkpoint_id }),
+            session_id: SessionId::new("session:claude:uuid-1"),
+            source_ref: Some(SourceRef::new("claude_code", "uuid-1#tool_result:tu_1")),
+            assertion_mode: AssertionMode::Advisory,
+            writer: Writer::shore_local_reviewer("test"),
+            occurred_at: "2026-05-18T00:00:02Z".to_owned(),
+            title: "tool_result: Bash".to_owned(),
+        }
+    }
+
+    #[test]
+    fn intent_to_event_maps_task_attempt_captured_intent_to_shore_event() {
+        let intent = task_attempt_intent_basic();
+        let event = intent_to_event(&intent).unwrap();
+
+        assert_eq!(event.event_type, EventType::TaskAttemptCaptured);
+        assert_eq!(
+            event.idempotency_key,
+            "task_attempt_captured:task-attempt:sha256:ta:task_attempt:uuid-1"
+        );
+        assert_eq!(
+            event.target.work_object_id,
+            Some(WorkObjectId::new("task-attempt:sha256:ta"))
+        );
+        assert_eq!(
+            event.target.work_object_type,
+            Some(WorkObjectType::TaskAttempt)
+        );
+        assert_eq!(
+            event.target.session_id,
+            SessionId::new("session:claude:uuid-1")
+        );
+        assert_eq!(event.assertion_mode, AssertionMode::Advisory);
+        assert_eq!(
+            event.source_ref,
+            Some(SourceRef::new("claude_code", "uuid-1"))
+        );
+        assert_eq!(event.writer.role, WriterRole::User);
+    }
+
+    #[test]
+    fn intent_to_event_maps_checkpoint_captured_intent_to_envelope_target() {
+        let intent = checkpoint_intent_basic();
+        let event = intent_to_event(&intent).unwrap();
+
+        assert_eq!(event.event_type, EventType::TaskCheckpointCaptured);
+        assert_eq!(
+            event.target.subject,
+            Some(TargetRef::Task(TaskTargetRef::Checkpoint {
+                checkpoint_id: CheckpointId::new("checkpoint:sha256:cp"),
+            }))
+        );
+        assert_eq!(
+            event.target.work_object_id,
+            Some(WorkObjectId::new("task-attempt:sha256:ta"))
+        );
+        assert_eq!(
+            event.target.work_object_type,
+            Some(WorkObjectType::TaskAttempt)
+        );
+
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["payload"]["checkpointId"], "checkpoint:sha256:cp");
+        assert_eq!(
+            json["payload"]["parentTaskAttemptId"],
+            "task-attempt:sha256:ta"
+        );
+    }
+
+    #[test]
+    fn intent_to_event_maps_observation_recorded_intent() {
+        let intent = observation_intent_basic();
+        let event = intent_to_event(&intent).unwrap();
+
+        assert_eq!(event.event_type, EventType::TaskObservationRecorded);
+        assert_eq!(
+            event.target.work_object_id,
+            Some(WorkObjectId::new("task-attempt:sha256:ta"))
+        );
+        assert_eq!(
+            event.target.subject,
+            Some(TargetRef::Task(TaskTargetRef::Checkpoint {
+                checkpoint_id: CheckpointId::new("checkpoint:sha256:cp"),
+            }))
+        );
+
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["payload"]["title"], "tool_result: Bash");
+
+        let expected_observation_id = format!(
+            "obs:sha256:{}",
+            sha256_bytes_hex(b"uuid-1#tool_result:tu_1")
+        );
+        assert_eq!(json["payload"]["observationId"], expected_observation_id);
+    }
+
+    #[test]
+    fn intent_to_event_propagates_operative_assertion_mode() {
+        let intent = AdapterIntent::TaskAttemptCaptured {
+            task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
+            session_id: SessionId::new("session:claude:uuid-1"),
+            source_ref: Some(SourceRef::new("claude_code", "uuid-1")),
+            assertion_mode: AssertionMode::Operative,
+            writer: writer_user_for_test(),
+            occurred_at: "2026-05-18T00:00:00Z".to_owned(),
+            project_path: "/repo".to_owned(),
+            claude_session_uuid: "uuid-1".to_owned(),
+            initial_prompt_hash: "sha256:prompt".to_owned(),
+            predecessor: None,
+        };
+
+        let event = intent_to_event(&intent).unwrap();
+
+        assert_eq!(event.assertion_mode, AssertionMode::Operative);
+    }
+
+    #[test]
+    fn intent_to_event_rejects_unhandled_intervention_requested_variant() {
+        let result = intent_to_event(&AdapterIntent::InterventionRequested);
+        assert!(result.is_err(), "InterventionRequested must not map");
+    }
+
+    #[test]
+    fn write_session_intents_writes_phase_3_fixture_round_trip() {
+        let parsed = parse_session(&fixture_path()).unwrap();
+        let intents = translate_session(&parsed);
+        let dir = tempfile::tempdir().unwrap();
+
+        let outcomes = write_session_intents(&intents, dir.path()).unwrap();
+
+        for outcome in &outcomes {
+            assert_eq!(*outcome, crate::session::EventWriteOutcome::Created);
+        }
+
+        let events = EventStore::open(dir.path()).list_events().unwrap();
+        assert_eq!(events.len(), intents.len());
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| e.event_type == EventType::TaskAttemptCaptured)
+                .count(),
+            1
+        );
+        let intent_checkpoint_count = intents
+            .iter()
+            .filter(|i| matches!(i, AdapterIntent::CheckpointCaptured { .. }))
+            .count();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| e.event_type == EventType::TaskCheckpointCaptured)
+                .count(),
+            intent_checkpoint_count
+        );
+        for event in &events {
+            assert_eq!(event.assertion_mode, AssertionMode::Advisory);
+            assert!(event.source_ref.is_some());
+        }
+    }
+
+    #[test]
+    fn write_session_intents_is_idempotent_on_replay() {
+        let parsed = parse_session(&fixture_path()).unwrap();
+        let intents = translate_session(&parsed);
+        let dir = tempfile::tempdir().unwrap();
+
+        let _ = write_session_intents(&intents, dir.path()).unwrap();
+        let second = write_session_intents(&intents, dir.path()).unwrap();
+
+        for outcome in &second {
+            assert_eq!(*outcome, crate::session::EventWriteOutcome::Existing);
+        }
+        let events_after = EventStore::open(dir.path()).list_events().unwrap();
+        assert_eq!(events_after.len(), intents.len());
+    }
+
+    #[test]
+    fn task_event_target_subject_serializes_as_externally_tagged_target_ref() {
+        let intent = checkpoint_intent_basic();
+        let event: ShoreEvent = intent_to_event(&intent).unwrap();
+
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["target"]["subject"]["task"]["kind"], "checkpoint");
+        assert_eq!(
+            json["target"]["subject"]["task"]["checkpointId"],
+            "checkpoint:sha256:cp"
+        );
+    }
+
+    fn _suppress_unused_review_target_ref() {
+        let _ = ReviewTargetRef::ReviewUnit {
+            review_unit_id: ReviewUnitId::new("u"),
+        };
+    }
+}

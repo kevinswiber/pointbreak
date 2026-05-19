@@ -6,7 +6,7 @@ use serde_json::json;
 use super::view::{InterventionProjectionRecords, collect_intervention_projection_records};
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
-use crate::model::{EventId, InterventionId, InterventionResolutionId, ReviewTargetRef};
+use crate::model::{EventId, InterventionId, InterventionResolutionId, ReviewTargetRef, TargetRef};
 use crate::session::event::{
     EventTarget, EventType, InterventionResolutionOutcome, InterventionResolvedPayload, ShoreEvent,
 };
@@ -143,10 +143,10 @@ pub fn resolve_intervention(
             revision_id: request_event.target.revision_id.clone(),
             snapshot_id: request_event.target.snapshot_id.clone(),
             track_id: request_event.target.track_id.clone(),
-            subject: Some(ReviewTargetRef::Intervention {
+            subject: Some(TargetRef::Review(ReviewTargetRef::Intervention {
                 review_unit_id,
                 intervention_id: request_payload.intervention_id.clone(),
-            }),
+            })),
         },
         writer,
         InterventionResolvedPayload {

@@ -149,7 +149,7 @@ mod tests {
     use crate::model::{
         DispositionId, InterventionId, InterventionResolutionId, ObservationId, ReviewEndpoint,
         ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId, Side, SnapshotId,
-        TrackId, WorkUnitId, WorktreeCaptureMode,
+        TargetRef, TrackId, WorkUnitId, WorktreeCaptureMode,
     };
 
     #[test]
@@ -369,7 +369,7 @@ mod tests {
                 revision_id: Some(RevisionId::new("rev:git:sha256:one")),
                 snapshot_id: Some(SnapshotId::new("snap:git:sha256:one")),
                 track_id: Some(track_id.clone()),
-                subject: Some(target_ref.clone()),
+                subject: Some(TargetRef::Review(target_ref.clone())),
             },
             Writer::shore_local_reviewer("test"),
             ReviewDispositionRecordedPayload {
@@ -545,7 +545,7 @@ mod tests {
             revision_id: Some(RevisionId::new("rev:git:sha256:def")),
             snapshot_id: Some(SnapshotId::new("snap:git:sha256:ghi")),
             track_id: Some(TrackId::new("agent:codex")),
-            subject: Some(target_ref.clone()),
+            subject: Some(TargetRef::Review(target_ref.clone())),
         };
 
         let event = ShoreEvent::new(
@@ -573,7 +573,7 @@ mod tests {
 
         assert_eq!(json["eventType"], "review_observation_recorded");
         assert_eq!(json["target"]["trackId"], "agent:codex");
-        assert_eq!(json["target"]["subject"]["kind"], "range");
+        assert_eq!(json["target"]["subject"]["review"]["kind"], "range");
         assert_eq!(json["payload"]["observationId"], "obs:sha256:one");
         assert_eq!(json["payload"]["target"]["kind"], "range");
         assert_eq!(json["payload"]["bodyContentHash"], "sha256:body");
@@ -608,7 +608,7 @@ mod tests {
                 revision_id: Some(RevisionId::new("rev:git:sha256:def")),
                 snapshot_id: Some(SnapshotId::new("snap:git:sha256:ghi")),
                 track_id: Some(TrackId::new("agent:codex")),
-                subject: Some(target_ref.clone()),
+                subject: Some(TargetRef::Review(target_ref.clone())),
             },
             Writer::shore_local_reviewer("test"),
             ReviewObservationRecordedPayload {
