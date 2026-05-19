@@ -1,3 +1,4 @@
+pub(in crate::session) mod assessment;
 mod capture;
 mod history;
 mod import;
@@ -9,6 +10,11 @@ pub(in crate::session) mod disposition;
 pub(in crate::session) mod intervention;
 pub(in crate::session) mod observation;
 
+pub use assessment::{
+    AssessmentAddOptions, AssessmentAddResult, AssessmentRecordStatus, AssessmentShowFilters,
+    AssessmentShowOptions, AssessmentShowResult, AssessmentView, CurrentAssessmentStatus,
+    CurrentAssessmentView, record_assessment, show_assessments,
+};
 pub use capture::{CaptureOptions, CaptureResult, capture_worktree_review};
 pub use disposition::{
     CurrentDispositionStatus, CurrentDispositionView, DispositionAddOptions, DispositionAddResult,
@@ -31,8 +37,9 @@ pub use intervention::{
 };
 pub use observation::{
     ObservationAddOptions, ObservationAddResult, ObservationListOptions, ObservationListResult,
-    ObservationStatus, ObservationTargetSelector, ObservationView, list_observations,
-    record_observation,
+    ObservationStatus, ObservationTargetSelector, ObservationView, StateChangeOptions,
+    list_observations, record_deferred_state_change, record_observation,
+    record_overridden_state_change, record_split_out_state_change, record_superseded_state_change,
 };
 #[cfg(test)]
 pub use reload::ReloadOutcome;

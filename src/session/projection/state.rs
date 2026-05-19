@@ -5,14 +5,14 @@ use serde::{Deserialize, Serialize};
 use super::freshness::event_set_hash_for_events;
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    DispositionId, EventId, InterventionId, InterventionResolutionId, ObservationId, ReviewUnitId,
-    RevisionId, SessionId, SnapshotId, WorkUnitId,
+    AssessmentId, DispositionId, EventId, InterventionId, InterventionResolutionId, ObservationId,
+    ReviewUnitId, RevisionId, SessionId, SnapshotId, WorkUnitId,
 };
 use crate::session::EventWriteOutcome;
 use crate::session::event::{
     EventType, InterventionMode, InterventionRequestedPayload, InterventionResolvedPayload,
-    ReviewDispositionRecordedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
-    ShoreEvent,
+    ReviewAssessmentRecordedPayload, ReviewDispositionRecordedPayload,
+    ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, ShoreEvent,
 };
 
 const STATE_SCHEMA: &str = "shore.state";
@@ -23,6 +23,7 @@ pub const DUPLICATE_SEMANTIC_INTERVENTION_REQUEST_EVENT_CODE: &str =
     "duplicate_semantic_intervention_request_event";
 pub const DUPLICATE_SEMANTIC_INTERVENTION_RESOLUTION_EVENT_CODE: &str =
     "duplicate_semantic_intervention_resolution_event";
+pub const DUPLICATE_SEMANTIC_ASSESSMENT_EVENT_CODE: &str = "duplicate_semantic_assessment_event";
 pub const DUPLICATE_SEMANTIC_DISPOSITION_EVENT_CODE: &str = "duplicate_semantic_disposition_event";
 const DUPLICATE_SEMANTIC_DIAGNOSTIC_EVENT_LIMIT: usize = 5;
 
@@ -45,6 +46,8 @@ pub struct SessionState {
     pub note_count: usize,
     #[serde(default)]
     pub observation_count: usize,
+    #[serde(default)]
+    pub assessment_count: usize,
     #[serde(default)]
     pub disposition_count: usize,
     #[serde(default)]
@@ -132,6 +135,7 @@ struct StateReducer {
     captured_review_units: BTreeMap<ReviewUnitId, (RevisionId, SnapshotId)>,
     note_count: usize,
     observation_events: BTreeMap<ObservationId, BTreeSet<EventId>>,
+    assessment_events: BTreeMap<AssessmentId, BTreeSet<EventId>>,
     disposition_events: BTreeMap<DispositionId, BTreeSet<EventId>>,
     intervention_modes: BTreeMap<InterventionId, InterventionMode>,
     intervention_request_events: BTreeMap<InterventionId, BTreeSet<EventId>>,
@@ -147,6 +151,7 @@ impl Default for StateReducer {
             captured_review_units: BTreeMap::new(),
             note_count: 0,
             observation_events: BTreeMap::new(),
+            assessment_events: BTreeMap::new(),
             disposition_events: BTreeMap::new(),
             intervention_modes: BTreeMap::new(),
             intervention_request_events: BTreeMap::new(),
@@ -174,7 +179,7 @@ impl StateReducer {
             EventType::ReviewInitialized => {}
             EventType::ReviewUnitCaptured => self.apply_review_unit_captured(event)?,
             EventType::ReviewObservationRecorded => self.apply_observation_recorded(event)?,
-            EventType::ReviewAssessmentRecorded => {}
+            EventType::ReviewAssessmentRecorded => self.apply_assessment_recorded(event)?,
             EventType::ReviewDispositionRecorded => self.apply_disposition_recorded(event)?,
             EventType::InterventionRequested => self.apply_intervention_requested(event)?,
             EventType::InterventionResolved => self.apply_intervention_resolved(event)?,
@@ -185,7 +190,6 @@ impl StateReducer {
             | EventType::TaskCheckpointCaptured
             | EventType::TaskObservationRecorded => {
                 // Task-domain events do not contribute to review-session state.
-                // Phase 5 may add a sibling task-session reducer.
             }
         }
 
@@ -217,6 +221,16 @@ impl StateReducer {
             serde_json::from_value(event.payload.clone())?;
         self.observation_events
             .entry(payload.observation_id)
+            .or_default()
+            .insert(event.event_id.clone());
+        Ok(())
+    }
+
+    fn apply_assessment_recorded(&mut self, event: &ShoreEvent) -> Result<()> {
+        let payload: ReviewAssessmentRecordedPayload =
+            serde_json::from_value(event.payload.clone())?;
+        self.assessment_events
+            .entry(payload.assessment_id)
             .or_default()
             .insert(event.event_id.clone());
         Ok(())
@@ -315,6 +329,14 @@ impl StateReducer {
         );
         append_duplicate_semantic_diagnostics(
             &mut diagnostics,
+            DUPLICATE_SEMANTIC_ASSESSMENT_EVENT_CODE,
+            "assessment",
+            self.assessment_events
+                .iter()
+                .map(|(assessment_id, event_ids)| (assessment_id.as_str(), event_ids)),
+        );
+        append_duplicate_semantic_diagnostics(
+            &mut diagnostics,
             DUPLICATE_SEMANTIC_DISPOSITION_EVENT_CODE,
             "disposition",
             self.disposition_events
@@ -335,6 +357,7 @@ impl StateReducer {
             event_set_hash: Some(event_set_hash),
             note_count: self.note_count,
             observation_count: self.observation_events.len(),
+            assessment_count: self.assessment_events.len(),
             disposition_count: self.disposition_events.len(),
             intervention_count: self.intervention_modes.len(),
             open_intervention_count,
@@ -621,6 +644,7 @@ mod tests {
         assert_eq!(state.review_unit_count, 0);
         assert_eq!(state.note_count, 0);
         assert_eq!(state.observation_count, 0);
+        assert_eq!(state.assessment_count, 0);
         assert_eq!(state.disposition_count, 0);
         assert_eq!(state.intervention_count, 0);
         assert_eq!(state.open_intervention_count, 0);
@@ -631,7 +655,22 @@ mod tests {
     }
 
     #[test]
-    fn session_state_reducer_ignores_assessment_recorded_until_additive_reducer_lands() {
+    fn session_state_serializes_assessment_count_with_assessment_count_wire_key() {
+        let state = SessionState::from_events(&[]).unwrap();
+        let json = serde_json::to_value(&state).unwrap();
+
+        assert!(
+            json.get("assessmentCount").is_some(),
+            "missing assessmentCount in {json}"
+        );
+        assert!(
+            json.get("dispositionCount").is_some(),
+            "dispositionCount must still serialize while both fields are emitted side by side"
+        );
+    }
+
+    #[test]
+    fn session_state_increments_assessment_count_for_review_assessment_recorded_event() {
         let events = vec![
             review_unit_captured_event("review-unit:sha256:one", "rev:one", "snap:one"),
             assessment_event("assess:sha256:one"),
@@ -643,11 +682,44 @@ mod tests {
         assert_eq!(state.review_unit_count, 1);
         assert_eq!(state.note_count, 0);
         assert_eq!(state.observation_count, 0);
+        assert_eq!(state.assessment_count, 1);
         assert_eq!(state.disposition_count, 0);
         assert_eq!(state.intervention_count, 0);
         assert_eq!(state.open_intervention_count, 0);
         assert_eq!(state.open_blocking_intervention_count, 0);
         assert!(state.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn session_state_legacy_disposition_count_stays_zero_for_assessment_event() {
+        let state = SessionState::from_events(&[assessment_event("assess:sha256:one")]).unwrap();
+
+        assert_eq!(state.assessment_count, 1);
+        assert_eq!(state.disposition_count, 0);
+    }
+
+    #[test]
+    fn duplicate_semantic_assessment_events_are_counted_once_with_assessment_diagnostic_code() {
+        let events = vec![
+            assessment_event_with_source("retry-a", "assess:sha256:same"),
+            assessment_event_with_source("retry-b", "assess:sha256:same"),
+        ];
+
+        let state = SessionState::from_events(&events).unwrap();
+
+        assert_eq!(state.assessment_count, 1);
+        assert!(state.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == DUPLICATE_SEMANTIC_ASSESSMENT_EVENT_CODE
+                && diagnostic.message.contains("assess:sha256:same")
+        }));
+    }
+
+    #[test]
+    fn duplicate_semantic_assessment_event_code_constant_exists() {
+        assert_eq!(
+            DUPLICATE_SEMANTIC_ASSESSMENT_EVENT_CODE,
+            "duplicate_semantic_assessment_event"
+        );
     }
 
     #[test]
@@ -702,6 +774,7 @@ mod tests {
         assert_eq!(state.review_unit_count, 0);
         assert_eq!(state.event_set_hash, None);
         assert_eq!(state.observation_count, 0);
+        assert_eq!(state.assessment_count, 0);
         assert_eq!(state.disposition_count, 0);
         assert_eq!(state.intervention_count, 0);
     }
@@ -774,9 +847,13 @@ mod tests {
     }
 
     fn assessment_event(assessment_id: &str) -> ShoreEvent {
+        assessment_event_with_source(assessment_id, assessment_id)
+    }
+
+    fn assessment_event_with_source(source_key: &str, assessment_id: &str) -> ShoreEvent {
         ShoreEvent::new(
             EventType::ReviewAssessmentRecorded,
-            format!("review_assessment_recorded:{assessment_id}"),
+            format!("review_assessment_recorded:{source_key}"),
             EventTarget::for_review_unit(
                 SessionId::new("session:default"),
                 ReviewUnitId::new("review-unit:sha256:one"),

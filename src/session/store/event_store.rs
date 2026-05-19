@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
-use crate::session::event::ShoreEvent;
+use crate::session::event::{AssertionMode, EventType, ShoreEvent};
 use crate::storage::{CreateFileOutcome, Durability, LocalStorage};
 
 #[derive(Debug)]
@@ -100,6 +100,15 @@ pub enum EventWriteOutcome {
 fn validate_event(event: &ShoreEvent, path: Option<&Path>) -> Result<()> {
     event.validate_schema_version()?;
 
+    if event.event_type == EventType::ReviewAssessmentRecorded
+        && event.assertion_mode != AssertionMode::Operative
+    {
+        return Err(ShoreError::InvalidEvent {
+            message: "review_assessment_recorded events must use assertionMode Operative"
+                .to_owned(),
+        });
+    }
+
     let expected_event_id = format!(
         "evt:sha256:{}",
         sha256_bytes_hex(event.idempotency_key.as_bytes())
@@ -149,10 +158,13 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use crate::model::{SessionId, WorkUnitId};
+    use crate::model::{
+        AssessmentId, ReviewTargetRef, ReviewUnitId, RevisionId, SessionId, SnapshotId, TargetRef,
+        TrackId, WorkUnitId,
+    };
     use crate::session::event::{
-        EventTarget, EventType, ReviewInitializedPayload, ReviewNoteImportedPayload, ShoreEvent,
-        Writer,
+        AssertionMode, EventTarget, EventType, ReviewAssessment, ReviewAssessmentRecordedPayload,
+        ReviewInitializedPayload, ReviewNoteImportedPayload, ShoreEvent, Writer,
     };
 
     #[test]
@@ -214,6 +226,19 @@ mod tests {
             .expect_err("conflict is rejected");
 
         assert!(error.to_string().contains("conflict"));
+    }
+
+    #[test]
+    fn record_event_rejects_advisory_review_assessment_recorded() {
+        let (_root, store) = temp_event_store();
+        let mut event = review_assessment_recorded_event();
+        event.assertion_mode = AssertionMode::Advisory;
+
+        let error = store
+            .record_event_once(&event)
+            .expect_err("advisory assessment event is invalid");
+
+        assert!(error.to_string().contains("assertionMode Operative"));
     }
 
     #[test]
@@ -303,6 +328,50 @@ mod tests {
             Writer::shore_local_author("0.1.0"),
             ReviewInitializedPayload {},
             occurred_at,
+        )
+        .expect("event builds")
+    }
+
+    fn review_assessment_recorded_event() -> ShoreEvent {
+        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
+        let track_id = TrackId::new("human:kevin");
+        let assessment_id = AssessmentId::new("assess:sha256:one");
+        let target_ref = ReviewTargetRef::ReviewUnit {
+            review_unit_id: review_unit_id.clone(),
+        };
+
+        ShoreEvent::new(
+            EventType::ReviewAssessmentRecorded,
+            ReviewAssessmentRecordedPayload::idempotency_key(
+                &review_unit_id,
+                &track_id,
+                assessment_id.as_str(),
+            ),
+            EventTarget {
+                session_id: SessionId::new("session:default"),
+                work_unit_id: None,
+                work_object_id: None,
+                work_object_type: None,
+                review_unit_id: Some(review_unit_id.clone()),
+                revision_id: Some(RevisionId::new("rev:git:sha256:one")),
+                snapshot_id: Some(SnapshotId::new("snap:git:sha256:one")),
+                track_id: Some(track_id),
+                subject: Some(TargetRef::Review(target_ref.clone())),
+            },
+            Writer::shore_local_reviewer("test"),
+            ReviewAssessmentRecordedPayload {
+                assessment_id,
+                target: target_ref,
+                assessment: ReviewAssessment::Accepted,
+                summary: Some("Ship it".to_owned()),
+                summary_artifact_path: None,
+                summary_byte_size: Some(7),
+                summary_content_hash: Some("sha256:summary".to_owned()),
+                replaces_assessment_ids: Vec::new(),
+                related_observation_ids: Vec::new(),
+                related_intervention_ids: Vec::new(),
+            },
+            "2026-05-10T00:00:00Z",
         )
         .expect("event builds")
     }

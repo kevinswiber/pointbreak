@@ -41,6 +41,13 @@ pub use writer::{Writer, WriterRole, WriterTool};
 const EVENT_SCHEMA: &str = "shore.event";
 const EVENT_VERSION: u32 = 1;
 
+fn default_assertion_mode(event_type: EventType) -> AssertionMode {
+    match event_type {
+        EventType::ReviewAssessmentRecorded => AssertionMode::Operative,
+        _ => AssertionMode::Advisory,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShoreEvent {
@@ -107,10 +114,15 @@ impl ShoreEvent {
             writer,
             occurred_at: occurred_at.into(),
             payload_hash,
-            assertion_mode: AssertionMode::Advisory,
+            assertion_mode: default_assertion_mode(event_type),
             source_ref: None,
             payload,
         })
+    }
+
+    pub fn with_assertion_mode(mut self, mode: AssertionMode) -> Self {
+        self.assertion_mode = mode;
+        self
     }
 
     pub fn validate_schema_version(&self) -> Result<()> {
@@ -149,9 +161,9 @@ mod tests {
     use super::*;
     use crate::error::ShoreError;
     use crate::model::{
-        DispositionId, InterventionId, InterventionResolutionId, ObservationId, ReviewEndpoint,
-        ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId, Side, SnapshotId,
-        TargetRef, TrackId, WorkUnitId, WorktreeCaptureMode,
+        AssessmentId, DispositionId, InterventionId, InterventionResolutionId, ObservationId,
+        ReviewEndpoint, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId,
+        Side, SnapshotId, TargetRef, TrackId, WorkUnitId, WorktreeCaptureMode,
     };
 
     #[test]
@@ -632,6 +644,50 @@ mod tests {
         .unwrap()
     }
 
+    fn valid_review_assessment_recorded_event() -> ShoreEvent {
+        let review_unit_id = ReviewUnitId::new("review-unit:sha256:assessment");
+        let track_id = TrackId::new("human:kevin");
+        let assessment_id = AssessmentId::new("assess:sha256:one");
+        let target_ref = ReviewTargetRef::ReviewUnit {
+            review_unit_id: review_unit_id.clone(),
+        };
+
+        ShoreEvent::new(
+            EventType::ReviewAssessmentRecorded,
+            ReviewAssessmentRecordedPayload::idempotency_key(
+                &review_unit_id,
+                &track_id,
+                assessment_id.as_str(),
+            ),
+            EventTarget {
+                session_id: SessionId::new("session:default"),
+                work_unit_id: None,
+                work_object_id: None,
+                work_object_type: None,
+                review_unit_id: Some(review_unit_id.clone()),
+                revision_id: Some(RevisionId::new("rev:git:sha256:one")),
+                snapshot_id: Some(SnapshotId::new("snap:git:sha256:one")),
+                track_id: Some(track_id),
+                subject: Some(TargetRef::Review(target_ref.clone())),
+            },
+            Writer::shore_local_reviewer("test"),
+            ReviewAssessmentRecordedPayload {
+                assessment_id,
+                target: target_ref,
+                assessment: ReviewAssessment::Accepted,
+                summary: Some("Ship it".to_owned()),
+                summary_artifact_path: None,
+                summary_byte_size: Some(7),
+                summary_content_hash: Some("sha256:summary".to_owned()),
+                replaces_assessment_ids: vec![],
+                related_observation_ids: vec![],
+                related_intervention_ids: vec![],
+            },
+            FixedClock::at("2026-05-12T00:00:00Z"),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn review_note_imported_event_serializes_with_payload_hash() {
         let event = ShoreEvent::new(
@@ -766,6 +822,13 @@ mod tests {
 
         let round: ShoreEvent = serde_json::from_value(json).unwrap();
         assert_eq!(round.assertion_mode, AssertionMode::Operative);
+    }
+
+    #[test]
+    fn assessment_recorded_events_default_to_operative_assertion_mode() {
+        let event = valid_review_assessment_recorded_event();
+
+        assert_eq!(event.assertion_mode, AssertionMode::Operative);
     }
 
     #[test]

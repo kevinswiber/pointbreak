@@ -1,11 +1,19 @@
 mod add;
 mod list;
+mod state_change;
 mod target;
 mod util;
 mod view;
 
 pub use self::add::{ObservationAddOptions, ObservationAddResult, record_observation};
+pub(in crate::session::workflow::observation) use self::add::{
+    ObservationWriteInput, write_observation_event,
+};
 pub use self::list::{ObservationListOptions, ObservationListResult, list_observations};
+pub use self::state_change::{
+    StateChangeOptions, record_deferred_state_change, record_overridden_state_change,
+    record_split_out_state_change, record_superseded_state_change,
+};
 pub use self::target::ObservationTargetSelector;
 pub(crate) use self::target::{
     ResolvedReviewUnit, resolve_observation_target, resolve_review_unit,

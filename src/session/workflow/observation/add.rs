@@ -108,43 +108,79 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
     let paths = ShoreStorePaths::resolve(&options.repo)?;
     let worktree_root = paths.worktree_root();
     let shore_dir = paths.shore_dir();
+    let event_store = EventStore::open(shore_dir);
+    let events = event_store.list_events()?;
+    let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
+    let target = resolve_observation_target(worktree_root, &resolved, &options.target)?;
+    let title = required_title(options.title.as_deref())?;
+
+    write_observation_event(ObservationWriteInput {
+        repo: options.repo,
+        resolved,
+        target,
+        track: options.track,
+        title,
+        body: options.body,
+        tags: options.tags,
+        confidence: options.confidence,
+        supersedes_observation_ids: options.supersedes_observation_ids,
+        idempotency_key: options.idempotency_key,
+    })
+}
+
+pub(in crate::session::workflow::observation) struct ObservationWriteInput {
+    pub(in crate::session::workflow::observation) repo: PathBuf,
+    pub(in crate::session::workflow::observation) resolved: super::ResolvedReviewUnit,
+    pub(in crate::session::workflow::observation) target: ReviewTargetRef,
+    pub(in crate::session::workflow::observation) track: Option<String>,
+    pub(in crate::session::workflow::observation) title: String,
+    pub(in crate::session::workflow::observation) body: Option<String>,
+    pub(in crate::session::workflow::observation) tags: Vec<String>,
+    pub(in crate::session::workflow::observation) confidence: Option<String>,
+    pub(in crate::session::workflow::observation) supersedes_observation_ids: Vec<ObservationId>,
+    pub(in crate::session::workflow::observation) idempotency_key: Option<String>,
+}
+
+pub(in crate::session::workflow::observation) fn write_observation_event(
+    input: ObservationWriteInput,
+) -> Result<ObservationAddResult> {
+    let paths = ShoreStorePaths::resolve(&input.repo)?;
+    let worktree_root = paths.worktree_root();
+    let shore_dir = paths.shore_dir();
     let storage = LocalStorage::new(shore_dir);
     prepare_shore_writer(&paths, &storage)?;
 
     let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
-    let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
-    let target = resolve_observation_target(worktree_root, &resolved, &options.target)?;
-    let track_id = validated_track_id(options.track.as_deref().ok_or_else(|| {
+    let track_id = validated_track_id(input.track.as_deref().ok_or_else(|| {
         ShoreError::WorkflowInputInvalid {
             reason: "track is required".to_owned(),
         }
     })?)?;
-    let title = required_title(options.title.as_deref())?;
     let writer = reviewer_from_git_config(worktree_root);
-    let body_content_hash = options
+    let body_content_hash = input
         .body
         .as_ref()
         .map(|body| format!("sha256:{}", sha256_bytes_hex(body.as_bytes())));
     let (body, body_artifact_path, body_artifact_bytes, body_byte_size) =
-        staged_body(options.body.as_deref())?;
+        staged_body(input.body.as_deref())?;
     let observation_id = build_observation_id(ObservationIdMaterial {
-        review_unit_id: &resolved.review_unit_id,
+        review_unit_id: &input.resolved.review_unit_id,
         track_id: &track_id,
-        target: &target,
-        title: &title,
+        target: &input.target,
+        title: &input.title,
         body_content_hash: body_content_hash.as_deref(),
-        tags: &options.tags,
-        confidence: options.confidence.as_deref(),
-        supersedes_observation_ids: &options.supersedes_observation_ids,
+        tags: &input.tags,
+        confidence: input.confidence.as_deref(),
+        supersedes_observation_ids: &input.supersedes_observation_ids,
         writer_actor_id: writer.actor_id.as_str(),
     })?;
-    let source_key = options
+    let source_key = input
         .idempotency_key
         .as_deref()
         .unwrap_or_else(|| observation_id.as_str());
     let idempotency_key = ReviewObservationRecordedPayload::idempotency_key(
-        &resolved.review_unit_id,
+        &input.resolved.review_unit_id,
         &track_id,
         source_key,
     );
@@ -160,28 +196,28 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
         EventType::ReviewObservationRecorded,
         idempotency_key,
         EventTarget {
-            session_id: resolved.session_id,
+            session_id: input.resolved.session_id,
             work_unit_id: None,
             work_object_id: None,
             work_object_type: None,
-            review_unit_id: Some(resolved.review_unit_id.clone()),
-            revision_id: Some(resolved.revision_id),
-            snapshot_id: Some(resolved.snapshot_id),
+            review_unit_id: Some(input.resolved.review_unit_id.clone()),
+            revision_id: Some(input.resolved.revision_id),
+            snapshot_id: Some(input.resolved.snapshot_id),
             track_id: Some(track_id.clone()),
-            subject: Some(TargetRef::Review(target.clone())),
+            subject: Some(TargetRef::Review(input.target.clone())),
         },
         writer,
         ReviewObservationRecordedPayload {
             observation_id: observation_id.clone(),
-            target: target.clone(),
-            title,
+            target: input.target.clone(),
+            title: input.title,
             body,
             body_artifact_path,
             body_byte_size,
             body_content_hash: body_content_hash.clone(),
-            tags: options.tags,
-            confidence: options.confidence,
-            supersedes_observation_ids: options.supersedes_observation_ids,
+            tags: input.tags,
+            confidence: input.confidence,
+            supersedes_observation_ids: input.supersedes_observation_ids,
         },
         current_timestamp(),
     )?;
@@ -201,11 +237,11 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
     storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
 
     Ok(ObservationAddResult {
-        review_unit_id: resolved.review_unit_id,
+        review_unit_id: input.resolved.review_unit_id,
         observation_id,
         event_id,
         track_id,
-        target,
+        target: input.target,
         body_content_hash,
         events_created,
         events_existing,
