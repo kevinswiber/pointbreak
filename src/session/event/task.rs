@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::kind::EventType;
 use super::payload::EventPayload;
-use crate::model::{CheckpointId, WorkObjectId, WorkObjectType};
+use crate::model::{CheckpointId, ObservationId, WorkObjectId, WorkObjectType};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,13 +75,57 @@ impl EventPayload for TaskCheckpointCapturedPayload {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskObservationRecordedPayload {
+    pub observation_id: ObservationId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkpoint_id: Option<CheckpointId>,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_artifact_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_byte_size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_content_hash: Option<String>,
+}
+
+impl TaskObservationRecordedPayload {
+    pub fn idempotency_key_for_work_object(
+        work_object_id: &WorkObjectId,
+        work_object_type: WorkObjectType,
+        source_key: &str,
+    ) -> String {
+        let kind = match work_object_type {
+            WorkObjectType::ReviewUnit => "review_unit",
+            WorkObjectType::TaskAttempt => "task_attempt",
+        };
+        format!(
+            "task_observation_recorded:{}:{}:{}",
+            work_object_id.as_str(),
+            kind,
+            source_key
+        )
+    }
+}
+
+impl EventPayload for TaskObservationRecordedPayload {
+    fn event_type(&self) -> EventType {
+        EventType::TaskObservationRecorded
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{CheckpointId, SessionId, WorkObjectId, WorkObjectType};
+    use crate::model::{
+        CheckpointId, ObservationId, ReviewUnitId, SessionId, TrackId, WorkObjectId, WorkObjectType,
+    };
     use crate::session::event::{
         AssertionMode, EventPayload, EventTarget, EventType, InterventionRequestedPayload,
-        ShoreEvent, Writer,
+        ReviewObservationRecordedPayload, ShoreEvent, Writer,
     };
 
     fn sample_payload() -> TaskAttemptCapturedPayload {
@@ -316,5 +360,124 @@ mod tests {
             !keys.iter().any(|k| k.eq_ignore_ascii_case("toolName")),
             "no toolName field; got keys {keys:?}"
         );
+    }
+
+    fn sample_observation_payload() -> TaskObservationRecordedPayload {
+        TaskObservationRecordedPayload {
+            observation_id: ObservationId::new("obs:sha256:o1"),
+            checkpoint_id: Some(CheckpointId::new("checkpoint:sha256:cp")),
+            title: "tool_result: Bash".to_owned(),
+            body: None,
+            body_artifact_path: None,
+            body_byte_size: None,
+            body_content_hash: None,
+        }
+    }
+
+    #[test]
+    fn task_observation_recorded_payload_round_trips_through_serde() {
+        let payload = sample_observation_payload();
+        let json = serde_json::to_string(&payload).unwrap();
+        let round: TaskObservationRecordedPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(round, payload);
+    }
+
+    #[test]
+    fn task_observation_recorded_payload_serializes_camel_case_fields() {
+        let json = serde_json::to_value(sample_observation_payload()).unwrap();
+
+        assert_eq!(json["observationId"], "obs:sha256:o1");
+        assert_eq!(json["checkpointId"], "checkpoint:sha256:cp");
+        assert_eq!(json["title"], "tool_result: Bash");
+        assert!(json.get("body").is_none());
+        assert!(json.get("bodyArtifactPath").is_none());
+        assert!(json.get("bodyByteSize").is_none());
+        assert!(json.get("bodyContentHash").is_none());
+        assert!(json.get("error").is_none());
+        assert!(json.get("severity").is_none());
+        assert!(json.get("toolIntent").is_none());
+        assert!(json.get("toolName").is_none());
+        assert!(json.get("assertionMode").is_none());
+        assert!(json.get("sourceRef").is_none());
+        assert!(json.get("submissionId").is_none());
+        assert!(json.get("relationType").is_none());
+    }
+
+    #[test]
+    fn task_observation_recorded_payload_omits_checkpoint_id_for_task_attempt_targeted_observation()
+    {
+        let payload = TaskObservationRecordedPayload {
+            checkpoint_id: None,
+            ..sample_observation_payload()
+        };
+        let json = serde_json::to_value(&payload).unwrap();
+        assert!(json.get("checkpointId").is_none());
+    }
+
+    #[test]
+    fn task_observation_recorded_idempotency_key_for_work_object_uses_substrate_form() {
+        let key = TaskObservationRecordedPayload::idempotency_key_for_work_object(
+            &WorkObjectId::new("task-attempt:sha256:ta"),
+            WorkObjectType::TaskAttempt,
+            "obs:sha256:o1",
+        );
+        assert_eq!(
+            key,
+            "task_observation_recorded:task-attempt:sha256:ta:task_attempt:obs:sha256:o1"
+        );
+    }
+
+    #[test]
+    fn task_observation_recorded_idempotency_key_does_not_collide_with_review_observation_recorded()
+    {
+        let task_key = TaskObservationRecordedPayload::idempotency_key_for_work_object(
+            &WorkObjectId::new("shared"),
+            WorkObjectType::TaskAttempt,
+            "shared-source",
+        );
+        let review_key = ReviewObservationRecordedPayload::idempotency_key(
+            &ReviewUnitId::new("shared"),
+            &TrackId::new("agent:codex"),
+            "shared-source",
+        );
+        assert_ne!(task_key, review_key);
+    }
+
+    #[test]
+    fn task_observation_recorded_payload_reports_matching_event_type() {
+        assert_eq!(
+            sample_observation_payload().event_type(),
+            EventType::TaskObservationRecorded
+        );
+    }
+
+    #[test]
+    fn task_observation_recorded_event_builds_through_shore_event_new() {
+        let target = EventTarget::for_work_object(
+            SessionId::new("session:claude:uuid-1"),
+            WorkObjectId::new("task-attempt:sha256:ta"),
+            WorkObjectType::TaskAttempt,
+        );
+        let idempotency_key = TaskObservationRecordedPayload::idempotency_key_for_work_object(
+            &WorkObjectId::new("task-attempt:sha256:ta"),
+            WorkObjectType::TaskAttempt,
+            "obs:sha256:o1",
+        );
+
+        let event = ShoreEvent::new(
+            EventType::TaskObservationRecorded,
+            idempotency_key,
+            target,
+            Writer::shore_local_author("test"),
+            sample_observation_payload(),
+            "2026-05-18T00:00:00Z",
+        )
+        .unwrap();
+
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["eventType"], "task_observation_recorded");
+        assert_eq!(json["target"]["workObjectId"], "task-attempt:sha256:ta");
+        assert_eq!(json["target"]["workObjectType"], "task_attempt");
+        assert_eq!(json["payload"]["observationId"], "obs:sha256:o1");
     }
 }
