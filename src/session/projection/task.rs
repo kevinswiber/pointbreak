@@ -7,10 +7,15 @@
 use std::collections::BTreeMap;
 
 use crate::error::Result;
-use crate::model::{ActorId, CheckpointId, EventId, ObservationId, WorkObjectId, WorkObjectType};
+use crate::model::{
+    ActorId, CheckpointId, EventId, InterventionId, ObservationId, ReviewTargetRef, TargetRef,
+    WorkObjectId, WorkObjectType,
+};
 use crate::session::event::{
-    AssertionMode, EventTarget, EventType, ShoreEvent, SourceRef, TaskAttemptCapturedPayload,
-    TaskCheckpointCapturedPayload, TaskObservationRecordedPayload, Writer,
+    AssertionMode, EventTarget, EventType, InterventionMode, InterventionReasonCode,
+    InterventionRequestedPayload, InterventionResolvedPayload, ShoreEvent, SourceRef,
+    TaskAttemptCapturedPayload, TaskCheckpointCapturedPayload, TaskObservationRecordedPayload,
+    Writer,
 };
 
 /// Envelope-level fields preserved on every projected event, so the projection
@@ -263,6 +268,132 @@ fn sort_observations_recent_first(observations: &mut [TaskObservationSummary]) {
                     .cmp(right.envelope.event_id.as_str())
             })
     });
+}
+
+/// One open task-targeted intervention. The envelope is authoritative; the
+/// payload's review-shaped `target` is preserved so callers can detect the
+/// current shape mismatch without losing data.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TaskInterventionView {
+    pub intervention_id: InterventionId,
+    pub envelope: TaskProjectionEventEnvelope,
+    pub target: TargetRef,
+    pub payload_review_target: ReviewTargetRef,
+    pub mode: InterventionMode,
+    pub reason_code: InterventionReasonCode,
+    pub title: String,
+    pub body: Option<String>,
+    pub body_artifact_path: Option<String>,
+    pub body_byte_size: Option<u64>,
+    pub body_content_hash: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TaskInterventionsProjection {
+    pub reader_actor_id: ActorId,
+    pub task_attempt_id: WorkObjectId,
+    pub open_interventions: Vec<TaskInterventionView>,
+    pub diagnostics: Vec<TaskProjectionDiagnostic>,
+}
+
+/// Project the unresolved `InterventionRequested` events whose durable envelope
+/// targets the given `TaskAttempt`. Resolved interventions (matched by
+/// `intervention_id`) are excluded.
+#[allow(dead_code)]
+pub(crate) fn open_task_interventions_from_events(
+    events: &[ShoreEvent],
+    task_attempt_id: &WorkObjectId,
+    reader_actor_id: &ActorId,
+) -> Result<TaskInterventionsProjection> {
+    let mut requests: Vec<(
+        TaskProjectionEventEnvelope,
+        InterventionRequestedPayload,
+        TargetRef,
+    )> = Vec::new();
+    let mut resolved: std::collections::BTreeSet<InterventionId> =
+        std::collections::BTreeSet::new();
+
+    for event in events {
+        event.validate_schema_version()?;
+
+        match event.event_type {
+            EventType::InterventionRequested => {
+                if !envelope_targets_task_attempt(&event.target, task_attempt_id) {
+                    continue;
+                }
+                let Some(subject) = event.target.subject.clone() else {
+                    continue;
+                };
+                if !matches!(subject, TargetRef::Task(_)) {
+                    continue;
+                }
+                let payload: InterventionRequestedPayload =
+                    serde_json::from_value(event.payload.clone())?;
+                requests.push((
+                    TaskProjectionEventEnvelope::from_event(event),
+                    payload,
+                    subject,
+                ));
+            }
+            EventType::InterventionResolved => {
+                let payload: InterventionResolvedPayload =
+                    serde_json::from_value(event.payload.clone())?;
+                resolved.insert(payload.intervention_id);
+            }
+            _ => {}
+        }
+    }
+
+    let mut diagnostics: Vec<TaskProjectionDiagnostic> = Vec::new();
+    let mut open_interventions: Vec<TaskInterventionView> = Vec::new();
+
+    for (envelope, payload, subject) in requests {
+        if resolved.contains(&payload.intervention_id) {
+            continue;
+        }
+
+        // The payload's review-shaped `target` is preserved verbatim so callers
+        // see the current shape mismatch instead of having it silently
+        // promoted to the task target.
+        diagnostics.push(TaskProjectionDiagnostic {
+            code: "task_intervention_payload_target_is_review_shaped".to_owned(),
+            message: format!(
+                "intervention {} targets a TaskAttempt via the envelope but its \
+                 payload `target` is still a ReviewTargetRef",
+                payload.intervention_id.as_str()
+            ),
+            event_id: Some(envelope.event_id.clone()),
+        });
+
+        open_interventions.push(TaskInterventionView {
+            intervention_id: payload.intervention_id,
+            envelope,
+            target: subject,
+            payload_review_target: payload.target,
+            mode: payload.mode,
+            reason_code: payload.reason_code,
+            title: payload.title,
+            body: payload.body,
+            body_artifact_path: payload.body_artifact_path,
+            body_byte_size: payload.body_byte_size,
+            body_content_hash: payload.body_content_hash,
+        });
+    }
+
+    open_interventions
+        .sort_by(|left, right| envelope_chronological_order(&left.envelope, &right.envelope));
+
+    Ok(TaskInterventionsProjection {
+        reader_actor_id: reader_actor_id.clone(),
+        task_attempt_id: task_attempt_id.clone(),
+        open_interventions,
+        diagnostics,
+    })
+}
+
+fn envelope_targets_task_attempt(target: &EventTarget, task_attempt_id: &WorkObjectId) -> bool {
+    target.work_object_id.as_ref() == Some(task_attempt_id)
+        && target.work_object_type == Some(WorkObjectType::TaskAttempt)
 }
 
 #[cfg(test)]
@@ -771,5 +902,388 @@ mod tests {
         let summary =
             task_attempt_summary_from_events(&events, &queried_attempt, &reader_actor()).unwrap();
         assert!(summary.is_none());
+    }
+
+    // -- Task 5.2: open_task_interventions ---------------------------------
+
+    use crate::model::{
+        InterventionId, InterventionResolutionId, ReviewTargetRef, ReviewUnitId, TrackId,
+    };
+    use crate::session::event::{
+        InterventionMode, InterventionReasonCode, InterventionRequestedPayload,
+        InterventionResolutionOutcome, InterventionResolvedPayload,
+    };
+
+    #[allow(clippy::too_many_arguments)]
+    fn task_intervention_event(
+        task_attempt_id: &WorkObjectId,
+        session_id: &SessionId,
+        intervention_id: &InterventionId,
+        source_key: &str,
+        occurred_at: &str,
+        mode: InterventionMode,
+        reason_code: InterventionReasonCode,
+        title: &str,
+    ) -> ShoreEvent {
+        let mut target = EventTarget::for_work_object(
+            session_id.clone(),
+            task_attempt_id.clone(),
+            WorkObjectType::TaskAttempt,
+        );
+        target.subject = Some(TargetRef::Task(TaskTargetRef::TaskAttempt));
+        // Current `InterventionRequestedPayload.target` is review-shaped. The
+        // task envelope is authoritative; this placeholder is preserved by the
+        // projection only as diagnostic evidence.
+        let payload = InterventionRequestedPayload {
+            intervention_id: intervention_id.clone(),
+            target: ReviewTargetRef::ReviewUnit {
+                review_unit_id: ReviewUnitId::new("review-unit:placeholder"),
+            },
+            mode,
+            reason_code,
+            title: title.to_owned(),
+            body: None,
+            body_artifact_path: None,
+            body_byte_size: None,
+            body_content_hash: None,
+        };
+        let idempotency_key = InterventionRequestedPayload::idempotency_key_for_work_object(
+            task_attempt_id,
+            WorkObjectType::TaskAttempt,
+            source_key,
+        );
+        let mut event = ShoreEvent::new(
+            EventType::InterventionRequested,
+            idempotency_key,
+            target,
+            Writer::shore_local_reviewer("test"),
+            payload,
+            occurred_at,
+        )
+        .unwrap();
+        event.source_ref = Some(SourceRef::new("claude_code", source_key));
+        event.assertion_mode = AssertionMode::Advisory;
+        event
+    }
+
+    fn task_intervention_resolved_event(
+        task_attempt_id: &WorkObjectId,
+        session_id: &SessionId,
+        intervention_id: &InterventionId,
+        resolution_id: &InterventionResolutionId,
+        occurred_at: &str,
+    ) -> ShoreEvent {
+        let target = EventTarget::for_work_object(
+            session_id.clone(),
+            task_attempt_id.clone(),
+            WorkObjectType::TaskAttempt,
+        );
+        let payload = InterventionResolvedPayload {
+            intervention_resolution_id: resolution_id.clone(),
+            intervention_id: intervention_id.clone(),
+            outcome: InterventionResolutionOutcome::Approved,
+            reason: None,
+            reason_artifact_path: None,
+            reason_byte_size: None,
+            reason_content_hash: None,
+        };
+        let idempotency_key =
+            InterventionResolvedPayload::idempotency_key(intervention_id, resolution_id.as_str());
+        ShoreEvent::new(
+            EventType::InterventionResolved,
+            idempotency_key,
+            target,
+            Writer::shore_local_reviewer("test"),
+            payload,
+            occurred_at,
+        )
+        .unwrap()
+    }
+
+    fn review_intervention_event(
+        review_unit_id: &ReviewUnitId,
+        track_id: &TrackId,
+        intervention_id: &InterventionId,
+        source_key: &str,
+        occurred_at: &str,
+    ) -> ShoreEvent {
+        let target = EventTarget {
+            session_id: SessionId::new("session:review"),
+            work_unit_id: None,
+            work_object_id: None,
+            work_object_type: None,
+            review_unit_id: Some(review_unit_id.clone()),
+            revision_id: None,
+            snapshot_id: None,
+            track_id: Some(track_id.clone()),
+            subject: Some(TargetRef::Review(ReviewTargetRef::ReviewUnit {
+                review_unit_id: review_unit_id.clone(),
+            })),
+        };
+        let payload = InterventionRequestedPayload {
+            intervention_id: intervention_id.clone(),
+            target: ReviewTargetRef::ReviewUnit {
+                review_unit_id: review_unit_id.clone(),
+            },
+            mode: InterventionMode::Blocking,
+            reason_code: InterventionReasonCode::ManualDecisionRequired,
+            title: "review-domain".to_owned(),
+            body: None,
+            body_artifact_path: None,
+            body_byte_size: None,
+            body_content_hash: None,
+        };
+        let idempotency_key =
+            InterventionRequestedPayload::idempotency_key(review_unit_id, track_id, source_key);
+        ShoreEvent::new(
+            EventType::InterventionRequested,
+            idempotency_key,
+            target,
+            Writer::shore_local_reviewer("test"),
+            payload,
+            occurred_at,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn open_task_interventions_returns_task_targeted_unresolved_requests() {
+        let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
+        let session_id = SessionId::new("session:claude:uuid-1");
+        let intervention_id = InterventionId::new("intervention:sha256:1");
+
+        let events = vec![task_intervention_event(
+            &task_attempt_id,
+            &session_id,
+            &intervention_id,
+            "source:1",
+            "2026-05-18T00:00:00Z",
+            InterventionMode::Blocking,
+            InterventionReasonCode::ManualDecisionRequired,
+            "Need a call",
+        )];
+
+        let projection =
+            open_task_interventions_from_events(&events, &task_attempt_id, &reader_actor())
+                .unwrap();
+
+        assert_eq!(projection.task_attempt_id, task_attempt_id);
+        assert_eq!(projection.reader_actor_id, reader_actor());
+        assert_eq!(projection.open_interventions.len(), 1);
+        let view = &projection.open_interventions[0];
+        assert_eq!(view.intervention_id, intervention_id);
+        assert_eq!(
+            view.target,
+            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            "task target is read from the durable envelope, not the payload"
+        );
+        // The payload placeholder is preserved verbatim as evidence.
+        assert_eq!(
+            view.payload_review_target,
+            ReviewTargetRef::ReviewUnit {
+                review_unit_id: ReviewUnitId::new("review-unit:placeholder"),
+            }
+        );
+    }
+
+    #[test]
+    fn open_task_interventions_excludes_resolved_intervention_ids() {
+        let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
+        let session_id = SessionId::new("session:claude:uuid-1");
+        let intervention_id = InterventionId::new("intervention:sha256:1");
+        let resolution_id = InterventionResolutionId::new("intervention-resolution:sha256:r1");
+
+        let events = vec![
+            task_intervention_event(
+                &task_attempt_id,
+                &session_id,
+                &intervention_id,
+                "source:1",
+                "2026-05-18T00:00:00Z",
+                InterventionMode::Blocking,
+                InterventionReasonCode::ManualDecisionRequired,
+                "Need a call",
+            ),
+            task_intervention_resolved_event(
+                &task_attempt_id,
+                &session_id,
+                &intervention_id,
+                &resolution_id,
+                "2026-05-18T00:00:01Z",
+            ),
+        ];
+
+        let projection =
+            open_task_interventions_from_events(&events, &task_attempt_id, &reader_actor())
+                .unwrap();
+
+        assert!(
+            projection.open_interventions.is_empty(),
+            "resolved intervention must not appear in open set; got {:?}",
+            projection.open_interventions
+        );
+    }
+
+    #[test]
+    fn open_task_interventions_ignores_review_domain_requests() {
+        let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
+        let review_unit_id = ReviewUnitId::new("review-unit:sha256:u");
+        let track_id = TrackId::new("agent:codex");
+        let task_intervention_id = InterventionId::new("intervention:sha256:task");
+        let review_intervention_id = InterventionId::new("intervention:sha256:review");
+
+        let events = vec![
+            task_intervention_event(
+                &task_attempt_id,
+                &SessionId::new("session:claude:uuid-1"),
+                &task_intervention_id,
+                "source:task",
+                "2026-05-18T00:00:00Z",
+                InterventionMode::Advisory,
+                InterventionReasonCode::FailedGate,
+                "task-domain",
+            ),
+            review_intervention_event(
+                &review_unit_id,
+                &track_id,
+                &review_intervention_id,
+                "source:review",
+                "2026-05-18T00:00:00Z",
+            ),
+        ];
+
+        let projection =
+            open_task_interventions_from_events(&events, &task_attempt_id, &reader_actor())
+                .unwrap();
+
+        assert_eq!(projection.open_interventions.len(), 1);
+        assert_eq!(
+            projection.open_interventions[0].intervention_id,
+            task_intervention_id
+        );
+        for view in &projection.open_interventions {
+            assert_ne!(view.intervention_id, review_intervention_id);
+        }
+    }
+
+    #[test]
+    fn open_task_interventions_preserves_payload_target_mismatch_as_diagnostic() {
+        let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
+        let session_id = SessionId::new("session:claude:uuid-1");
+        let intervention_id = InterventionId::new("intervention:sha256:1");
+
+        let events = vec![task_intervention_event(
+            &task_attempt_id,
+            &session_id,
+            &intervention_id,
+            "source:1",
+            "2026-05-18T00:00:00Z",
+            InterventionMode::Blocking,
+            InterventionReasonCode::ManualDecisionRequired,
+            "Need a call",
+        )];
+
+        let projection =
+            open_task_interventions_from_events(&events, &task_attempt_id, &reader_actor())
+                .unwrap();
+
+        assert_eq!(projection.open_interventions.len(), 1);
+        let diag = projection
+            .diagnostics
+            .iter()
+            .find(|d| d.code == "task_intervention_payload_target_is_review_shaped")
+            .expect("payload target mismatch diagnostic is emitted");
+        assert_eq!(
+            diag.event_id,
+            Some(projection.open_interventions[0].envelope.event_id.clone())
+        );
+    }
+
+    #[test]
+    fn open_task_interventions_preserves_envelope_policy_fields() {
+        let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
+        let session_id = SessionId::new("session:claude:uuid-1");
+        let intervention_id = InterventionId::new("intervention:sha256:1");
+
+        let request_event = task_intervention_event(
+            &task_attempt_id,
+            &session_id,
+            &intervention_id,
+            "source:1",
+            "2026-05-18T00:00:00Z",
+            InterventionMode::Blocking,
+            InterventionReasonCode::ManualDecisionRequired,
+            "Need a call",
+        );
+
+        let events = vec![request_event.clone()];
+
+        let projection =
+            open_task_interventions_from_events(&events, &task_attempt_id, &reader_actor())
+                .unwrap();
+
+        let view = &projection.open_interventions[0];
+        assert_eq!(view.envelope.event_id, request_event.event_id);
+        assert_eq!(view.envelope.event_type, EventType::InterventionRequested);
+        assert_eq!(view.envelope.occurred_at, request_event.occurred_at);
+        assert_eq!(view.envelope.payload_hash, request_event.payload_hash);
+        assert_eq!(view.envelope.writer, request_event.writer);
+        assert_eq!(view.envelope.assertion_mode, AssertionMode::Advisory);
+        assert_eq!(view.envelope.source_ref, request_event.source_ref);
+        assert_eq!(view.envelope.target, request_event.target);
+        assert_eq!(view.mode, InterventionMode::Blocking);
+        assert_eq!(
+            view.reason_code,
+            InterventionReasonCode::ManualDecisionRequired
+        );
+        assert_eq!(view.title, "Need a call");
+        assert_eq!(view.body, None);
+        assert_eq!(view.body_artifact_path, None);
+        assert_eq!(view.body_byte_size, None);
+        assert_eq!(view.body_content_hash, None);
+    }
+
+    #[test]
+    fn open_task_interventions_separates_multiple_open_requests() {
+        let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
+        let session_id = SessionId::new("session:claude:uuid-1");
+        let a = InterventionId::new("intervention:sha256:a");
+        let b = InterventionId::new("intervention:sha256:b");
+
+        let events = vec![
+            task_intervention_event(
+                &task_attempt_id,
+                &session_id,
+                &a,
+                "source:a",
+                "2026-05-18T00:00:00Z",
+                InterventionMode::Advisory,
+                InterventionReasonCode::FailedGate,
+                "first",
+            ),
+            task_intervention_event(
+                &task_attempt_id,
+                &session_id,
+                &b,
+                "source:b",
+                "2026-05-18T00:00:01Z",
+                InterventionMode::Blocking,
+                InterventionReasonCode::ManualDecisionRequired,
+                "second",
+            ),
+        ];
+
+        let projection =
+            open_task_interventions_from_events(&events, &task_attempt_id, &reader_actor())
+                .unwrap();
+
+        let ids: Vec<InterventionId> = projection
+            .open_interventions
+            .iter()
+            .map(|view| view.intervention_id.clone())
+            .collect();
+        assert!(ids.contains(&a), "first intervention should be present");
+        assert!(ids.contains(&b), "second intervention should be present");
+        assert_eq!(ids.len(), 2, "no collapse by target");
     }
 }
