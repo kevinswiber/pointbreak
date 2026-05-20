@@ -2,7 +2,7 @@
 name = "shoreline"
 version = "0.1.0"
 edition = "2024"
-description = "Durable terminal code review for changes humans and coding agents work on together"
+description = "Durable terminal code review for changes humans and coding agents collaborate on together"
 rust-version = "1.95"
 license = "Apache-2.0"
 authors = ["Kevin Swiber <kevin@swiber.dev>"]
