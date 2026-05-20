@@ -81,6 +81,17 @@ impl GitRepo {
         self.git(["commit", "-m", message]);
     }
 
+    pub fn mark_executable_in_index(&self, path: impl AsRef<Path>) {
+        let path = path.as_ref();
+        self.git(["config", "core.filemode", "false"]);
+        self.git([
+            "update-index",
+            "--chmod=+x",
+            "--",
+            path.to_str().expect("fixture path is utf-8"),
+        ]);
+    }
+
     pub fn git<I, S>(&self, args: I) -> GitOutput
     where
         I: IntoIterator<Item = S>,

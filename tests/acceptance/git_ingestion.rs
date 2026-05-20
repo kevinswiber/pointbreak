@@ -130,7 +130,7 @@ fn file_level_git_entries_are_preserved_as_metadata_rows() {
 
     repo.git(["mv", "src/old_name.rs", "src/new_name.rs"]);
     repo.write("assets/data.bin", [0, 159, 146, 151]);
-    make_executable(repo.path().join("scripts/run.sh"));
+    repo.mark_executable_in_index("scripts/run.sh");
 
     submodule_source.write("lib.rs", "pub fn submodule() -> u8 { 2 }\n");
     submodule_source.commit_all("submodule update");
@@ -191,6 +191,23 @@ fn file_level_git_entries_are_preserved_as_metadata_rows() {
         vec![FileMetadataKind::SubmoduleSummary]
     );
     assert!(submodule.hunks.is_empty());
+}
+
+#[test]
+fn executable_fixture_reports_git_mode_change() {
+    let repo = GitRepo::new();
+    repo.write("scripts/run.sh", "#!/bin/sh\necho shore\n");
+    repo.commit_all("base");
+
+    repo.mark_executable_in_index("scripts/run.sh");
+
+    let raw = repo
+        .git(["diff", "--raw", "HEAD", "--", "scripts/run.sh"])
+        .stdout;
+    assert!(
+        raw.contains(":100644 100755"),
+        "expected executable mode change in git diff:\n{raw}"
+    );
 }
 
 fn variant_is_v1(kind: &shoreline::model::FileMetadataKind) -> bool {
@@ -392,21 +409,4 @@ fn metadata_kinds(file: &DiffFile) -> Vec<FileMetadataKind> {
         .iter()
         .map(|row| row.kind.clone())
         .collect()
-}
-
-#[cfg(unix)]
-fn make_executable(path: impl AsRef<std::path::Path>) {
-    use std::os::unix::fs::PermissionsExt;
-
-    let path = path.as_ref();
-    let mut permissions = std::fs::metadata(path)
-        .expect("read file metadata")
-        .permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(path, permissions).expect("set executable bit");
-}
-
-#[cfg(not(unix))]
-fn make_executable(path: impl AsRef<std::path::Path>) {
-    let _ = path;
 }

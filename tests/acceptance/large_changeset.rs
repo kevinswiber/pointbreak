@@ -103,7 +103,7 @@ fn bounded_changeset_repo() -> GitRepo {
         numbered_source("file_b", &[(4, 204), (17, 217)]),
     );
     repo.write("assets/data.bin", [0, 159, 146, 151]);
-    make_executable(repo.path().join("scripts/run.sh"));
+    repo.mark_executable_in_index("scripts/run.sh");
     repo.write(
         "src/untracked.rs",
         "pub fn untracked_01() {}\npub fn untracked_02() {}\npub fn untracked_03() {}\n",
@@ -252,21 +252,4 @@ fn row_ids_matching(
 
 fn row_ids(stream: &ReviewStream) -> Vec<RowId> {
     stream.rows.iter().map(|row| row.id.clone()).collect()
-}
-
-#[cfg(unix)]
-fn make_executable(path: impl AsRef<std::path::Path>) {
-    use std::os::unix::fs::PermissionsExt;
-
-    let path = path.as_ref();
-    let mut permissions = std::fs::metadata(path)
-        .expect("read file metadata")
-        .permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(path, permissions).expect("set executable bit");
-}
-
-#[cfg(not(unix))]
-fn make_executable(path: impl AsRef<std::path::Path>) {
-    let _ = path;
 }
