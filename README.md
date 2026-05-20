@@ -2,6 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/shoreline.svg)](https://crates.io/crates/shoreline)
 [![Documentation](https://docs.rs/shoreline/badge.svg)](https://docs.rs/shoreline)
+[![CI](https://github.com/kevinswiber/shore/actions/workflows/ci.yml/badge.svg)](https://github.com/kevinswiber/shore/actions/workflows/ci.yml)
 
 Shore is an experimental Rust terminal review tool for understanding what changed and why,
 especially in tool-assisted changesets.
@@ -26,6 +27,8 @@ Maintainers running a confidence pass after big changes can use the manual testi
 [docs/manual-testing.md](docs/manual-testing.md): copy/paste scratch-repo recipes for capture,
 observations, input requests, assessments, history, unit show, sidecar import, stale-note reload,
 and storage rebuildability.
+
+Release planning and publishing are documented in [docs/releasing.md](docs/releasing.md).
 
 ## Name
 

@@ -8,7 +8,15 @@ documentation = "https://docs.rs/shoreline"
 readme = "README.md"
 keywords = ["code-review", "review", "terminal", "cli"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = [".claude/**", ".codex/**", "AGENTS.md", "CLAUDE.md", "mise.toml"]
+exclude = [
+    ".claude/**",
+    ".codex/**",
+    ".github/**",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "mise.toml",
+    "scripts/**",
+]
 
 [lib]
 name = "shoreline"

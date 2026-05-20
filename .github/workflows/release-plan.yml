@@ -1,0 +1,279 @@
+name: Release Plan
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Plan (preview only) or Release (execute bump)"
+        required: true
+        default: "plan"
+        type: choice
+        options:
+          - plan
+          - release
+      version:
+        description: "Exact version to release (optional, e.g. 1.0.0)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: release-plan
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Release Plan
+    if: inputs.mode == 'plan'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install tools
+        run: cargo binstall --no-confirm cocogitto@6.5.0 cargo-edit
+
+      - name: Generate release plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          PLAN_FILE="${RUNNER_TEMP}/release-plan.md"
+          out() { tee -a "$PLAN_FILE" >> "$GITHUB_STEP_SUMMARY"; }
+
+          HEAD_SHA=$(git rev-parse HEAD)
+          HEAD_SHORT=$(git rev-parse --short HEAD)
+          REPO="${GITHUB_REPOSITORY}"
+          BRANCH="${GITHUB_REF_NAME}"
+          CURRENT_VERSION=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "shoreline") | .version')
+          LATEST_TAG=$(git describe --tags --match "v[0-9]*" --abbrev=0 2>/dev/null || echo "")
+
+          {
+            echo "# Release Plan"
+            echo ""
+            echo "## Branch Status"
+            echo ""
+            echo "**Commit:** [\`${HEAD_SHORT}\`](https://github.com/${REPO}/commit/${HEAD_SHA}) on \`${BRANCH}\`"
+            echo ""
+            echo "### CI Workflows"
+            echo ""
+            echo "| Workflow | Status | Commit |"
+            echo "|----------|--------|--------|"
+          } | out
+
+          gh run list --branch "${BRANCH}" --limit 20 \
+            --json name,conclusion,headSha,status \
+            --jq '[group_by(.name)[] | sort_by(.headSha) | last] | sort_by(.name)[] | "| \(.name) | \(if .conclusion != "" and .conclusion != null then .conclusion else .status end) | `\(.headSha[0:7])` |"' \
+            | out
+
+          {
+            echo ""
+            echo "## Crate Release"
+            echo ""
+            echo "**Crate:** \`shoreline\`"
+            echo ""
+          } | out
+
+          bump_command=""
+
+          if [ -n "$INPUT_VERSION" ]; then
+            NEXT_VERSION="${INPUT_VERSION#v}"
+            bump_command="cog bump --version ${NEXT_VERSION} --hook-profile ci"
+            {
+              echo "**Current crate version:** ${CURRENT_VERSION}"
+              echo ""
+              if [ -n "$LATEST_TAG" ]; then
+                echo "**Current release:** ${LATEST_TAG#v} **-->** ${NEXT_VERSION}"
+              else
+                echo "**Requested release:** ${NEXT_VERSION}"
+              fi
+              echo ""
+              echo "This plan uses an explicit target version instead of Cocogitto's automatic bump calculation."
+              echo ""
+            } | out
+            if [ -n "$LATEST_TAG" ]; then
+              changelog=$(cog changelog "${LATEST_TAG}..HEAD" 2>&1 || echo "(changelog generation failed)")
+            else
+              changelog=$(cog changelog 2>&1 || echo "(changelog generation failed)")
+            fi
+          elif [ -z "$LATEST_TAG" ]; then
+            NEXT_VERSION="$CURRENT_VERSION"
+            bump_command="cog bump --version ${NEXT_VERSION} --hook-profile ci"
+            {
+              echo "**Current crate version:** ${CURRENT_VERSION}"
+              echo ""
+              echo "**Bootstrap release:** ${NEXT_VERSION}"
+              echo ""
+              echo "No prior \`v*\` release tag was found. The first automated release keeps the current crate version and creates \`v${NEXT_VERSION}\`; later releases can use Cocogitto's automatic bump calculation."
+              echo ""
+            } | out
+            changelog=$(cog changelog 2>&1 || echo "(changelog generation failed)")
+          else
+            CURRENT_RELEASE="${LATEST_TAG#v}"
+            if dry_output=$(cog bump --auto --dry-run --skip-untracked 2>&1); then
+              NEXT_VERSION=$(echo "$dry_output" | sed -nE "s/^v([0-9]+\.[0-9]+\.[0-9]+.*)$/\1/p" | tail -1)
+              if [ -z "$NEXT_VERSION" ]; then
+                {
+                  echo "**Current release:** ${CURRENT_RELEASE}"
+                  echo ""
+                  echo "Could not parse next version from Cocogitto dry-run output."
+                  echo ""
+                  echo '```'
+                  echo "$dry_output"
+                  echo '```'
+                  echo ""
+                } | out
+                exit 1
+              fi
+              bump_command="cog bump --auto --hook-profile ci"
+              {
+                echo "**Current release:** ${CURRENT_RELEASE} **-->** ${NEXT_VERSION}"
+                echo ""
+              } | out
+              changelog=$(cog changelog "${LATEST_TAG}..HEAD" 2>&1 || echo "(changelog generation failed)")
+            elif echo "$dry_output" | grep -q "No conventional commit found"; then
+              {
+                echo "**Current release:** ${CURRENT_RELEASE}"
+                echo ""
+                echo "No unreleased changes."
+                echo ""
+              } | out
+              changelog=""
+            else
+              {
+                echo "**Current release:** ${CURRENT_RELEASE}"
+                echo ""
+                echo "Could not determine next version."
+                echo ""
+                echo '```'
+                echo "$dry_output"
+                echo '```'
+                echo ""
+              } | out
+              exit 1
+            fi
+          fi
+
+          if [ -n "${changelog:-}" ]; then
+            {
+              echo "<details>"
+              echo "<summary>Changelog preview</summary>"
+              echo ""
+              echo "$changelog"
+              echo ""
+              echo "</details>"
+              echo ""
+            } | out
+          fi
+
+          {
+            echo "---"
+            echo ""
+          } | out
+
+          if [ -n "$bump_command" ]; then
+            {
+              echo "## Next Steps"
+              echo ""
+              echo "To execute this release, re-run this workflow with **mode: release**."
+              echo ""
+              echo "Release mode will run:"
+              echo ""
+              echo '```bash'
+              echo "$bump_command"
+              echo '```'
+              echo ""
+              echo "The Cocogitto CI bump profile pushes the bump commit and tag, then dispatches \`release.yml\` for the new tag."
+            } | out
+          else
+            echo "No release is planned." | out
+          fi
+
+      - name: Upload release plan
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-plan
+          path: ${{ runner.temp }}/release-plan.md
+          retention-days: 90
+
+  release:
+    name: Execute Release
+    if: inputs.mode == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install tools
+        run: cargo binstall --no-confirm cocogitto@6.5.0 cargo-edit
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+          git_config_global: true
+          git_tag_gpgsign: true
+          git_committer_name: "Kevin Swiber"
+          git_committer_email: "kswiber@gmail.com"
+
+      - name: Execute release bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          PLAN_FILE="${RUNNER_TEMP}/release-plan.md"
+          out() { tee -a "$PLAN_FILE" >> "$GITHUB_STEP_SUMMARY"; }
+          CURRENT_VERSION=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "shoreline") | .version')
+          LATEST_TAG=$(git describe --tags --match "v[0-9]*" --abbrev=0 2>/dev/null || echo "")
+
+          if [ -n "$INPUT_VERSION" ]; then
+            TARGET_VERSION="${INPUT_VERSION#v}"
+            cog bump --version "$TARGET_VERSION" --hook-profile ci
+            BUMP_COMMAND="cog bump --version ${TARGET_VERSION} --hook-profile ci"
+          elif [ -z "$LATEST_TAG" ]; then
+            cog bump --version "$CURRENT_VERSION" --hook-profile ci
+            BUMP_COMMAND="cog bump --version ${CURRENT_VERSION} --hook-profile ci"
+          else
+            cog bump --auto --hook-profile ci
+            BUMP_COMMAND="cog bump --auto --hook-profile ci"
+          fi
+
+          {
+            echo "# Release Bump Complete"
+            echo ""
+            echo "Executed \`${BUMP_COMMAND}\`."
+            echo ""
+            echo "The \`release.yml\` workflow was dispatched by the Cocogitto post-bump hook."
+          } | out
+
+      - name: Upload release report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-plan
+          path: ${{ runner.temp }}/release-plan.md
+          retention-days: 90

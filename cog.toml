@@ -27,7 +27,11 @@ post_bump_hooks = []
 pre_bump_hooks = [
     "cargo set-version {{version}}",
 ]
-post_bump_hooks = []
+post_bump_hooks = [
+    "git push",
+    "git push origin v{{version}}",
+    "gh workflow run release.yml -f tag=v{{version}}",
+]
 
 [git_hooks.commit-msg]
 script = '''#!/bin/sh

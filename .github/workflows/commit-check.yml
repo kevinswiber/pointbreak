@@ -1,0 +1,85 @@
+name: Commit Check
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+
+jobs:
+  conventional-commits:
+    name: Conventional Commits
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch PR refs
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --prune origin \
+            "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}" \
+            "+refs/pull/${PR_NUMBER}/head:refs/remotes/pull/${PR_NUMBER}/head"
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install cocogitto
+        run: cargo binstall --no-confirm cocogitto@6.5.0
+
+      - name: Check PR commit messages
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          NO_COLOR: "1"
+        run: |
+          set -euo pipefail
+
+          RANGE="${BASE_SHA}..${HEAD_SHA}"
+          SCOPES=$(awk -F' = ' '$1 == "scopes" { print $2; exit }' cog.toml)
+
+          echo "Checking conventional commits in ${RANGE}"
+          git log --oneline --no-decorate "${RANGE}"
+
+          set +e
+          output=$(cog check "${RANGE}" 2>&1)
+          status=$?
+          set -e
+
+          printf '%s\n' "$output"
+
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+
+          {
+            echo "## Conventional commit check failed"
+            echo ""
+            echo "\`cog check ${RANGE}\` rejected one or more PR commits."
+            echo ""
+            echo "Configured scopes from \`cog.toml\`: \`${SCOPES}\`."
+            echo "Use an unscoped commit for root crate changes."
+            echo ""
+            echo "Example valid headers:"
+            echo ""
+            echo "- \`feat: add review unit discovery\`"
+            echo "- \`fix: correct input request projection\`"
+            echo ""
+            echo "Cocogitto output:"
+            echo ""
+            echo '```text'
+            printf '%s\n' "$output"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::error title=Invalid conventional commit::Run cog check ${RANGE} locally. Configured scopes: ${SCOPES}. Use an unscoped commit for root crate changes."
+          exit "$status"

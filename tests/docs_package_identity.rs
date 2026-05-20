@@ -18,6 +18,8 @@ fn readme_has_release_badges_for_shoreline() {
     assert!(readme.contains("https://img.shields.io/crates/v/shoreline"));
     assert!(readme.contains("https://docs.rs/shoreline"));
     assert!(readme.contains("https://docs.rs/shoreline/badge.svg"));
+    assert!(readme.contains("https://github.com/kevinswiber/shore/actions/workflows/ci.yml"));
+    assert!(readme.contains("actions/workflows/ci.yml/badge.svg"));
 }
 
 #[test]
