@@ -46,3 +46,33 @@ fn getting_started_walks_through_first_review() {
 
     assert!(!guide.contains("Gumbo"));
 }
+
+#[test]
+fn contributor_docs_cover_local_development_flow() {
+    let contributing = std::fs::read_to_string("CONTRIBUTING.md").expect("read contributing");
+
+    for required in [
+        "just setup-hooks",
+        "just check",
+        "just lint",
+        "just test",
+        "cog check",
+        "unscoped commit",
+        "feat/",
+        "fix/",
+    ] {
+        assert!(
+            contributing.contains(required),
+            "missing contributor guidance: {required}"
+        );
+    }
+
+    assert!(!contributing.contains("Gumbo"));
+}
+
+#[test]
+fn community_health_files_exist() {
+    assert!(std::path::Path::new("SECURITY.md").exists());
+    assert!(std::path::Path::new(".github/pull_request_template.md").exists());
+    assert!(std::path::Path::new(".github/ISSUE_TEMPLATE/bug_report.md").exists());
+}
