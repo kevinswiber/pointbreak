@@ -76,10 +76,12 @@ with a period.
 Use an unscoped commit unless `cog.toml` grows an explicit scopes list. Today the scopes list is
 empty, so scoped commits such as `docs(readme): ...` are rejected.
 
-Check the current branch with:
+Check the current branch against the upstream default branch. In a fork, add an `upstream` remote
+that points to `kevinswiber/shoreline`; in the maintainer clone, replace `upstream` with `origin`
+if `origin` is the upstream repository.
 
 ```bash
-cog check origin/main..HEAD
+cog check upstream/main..HEAD
 ```
 
 ## Pull Requests

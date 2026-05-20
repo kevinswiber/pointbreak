@@ -23,6 +23,40 @@ fn cli_reference_exists_and_covers_current_commands() {
     assert!(cli.contains("shore.review-unit"));
     assert!(cli.contains("eventSetHash"));
     assert!(!cli.contains("Gumbo"));
+
+    assert_markdown_section_contains(
+        &cli,
+        "## `shore review observation`",
+        &[
+            "--review-unit <review-unit-id>",
+            "--include-body",
+            "--pretty",
+            "--compact",
+        ],
+    );
+    assert_markdown_section_contains(
+        &cli,
+        "## `shore review input-request`",
+        &[
+            "--review-unit <review-unit-id>",
+            "--track <track-id>",
+            "--mode operative|advisory",
+            "--file <path>",
+            "--include-body",
+            "--pretty",
+            "--compact",
+        ],
+    );
+    assert_markdown_section_contains(
+        &cli,
+        "## `shore review assessment`",
+        &[
+            "--review-unit <review-unit-id>",
+            "--include-summary",
+            "--pretty",
+            "--compact",
+        ],
+    );
 }
 
 #[test]
@@ -44,6 +78,9 @@ fn getting_started_walks_through_first_review() {
         );
     }
 
+    assert!(guide.contains(
+        "--start-line 6 \\\n  --body \"The fallback value is visible user-facing behavior"
+    ));
     assert!(!guide.contains("Gumbo"));
 }
 
@@ -57,6 +94,7 @@ fn contributor_docs_cover_local_development_flow() {
         "just lint",
         "just test",
         "cog check",
+        "upstream/main..HEAD",
         "unscoped commit",
         "feat/",
         "fix/",
@@ -67,14 +105,24 @@ fn contributor_docs_cover_local_development_flow() {
         );
     }
 
+    assert!(!contributing.contains("cog check origin/main..HEAD"));
     assert!(!contributing.contains("Gumbo"));
 }
 
 #[test]
-fn community_health_files_exist() {
-    assert!(std::path::Path::new("SECURITY.md").exists());
-    assert!(std::path::Path::new(".github/pull_request_template.md").exists());
-    assert!(std::path::Path::new(".github/ISSUE_TEMPLATE/bug_report.md").exists());
+fn community_health_files_carry_required_guidance() {
+    let security = std::fs::read_to_string("SECURITY.md").expect("read security policy");
+    let pull_request_template = std::fs::read_to_string(".github/pull_request_template.md")
+        .expect("read pull request template");
+    let bug_report_template = std::fs::read_to_string(".github/ISSUE_TEMPLATE/bug_report.md")
+        .expect("read bug report template");
+
+    assert!(security.contains("kevin@swiber.dev"));
+    assert!(security.contains("Please do not file security-sensitive reports"));
+    assert!(pull_request_template.contains("just check"));
+    assert!(pull_request_template.contains("unscoped"));
+    assert!(bug_report_template.contains("## Reproduction"));
+    assert!(bug_report_template.contains("security policy"));
 }
 
 #[test]
@@ -101,6 +149,9 @@ fn readme_is_concise_and_routes_to_deeper_docs() {
         );
     }
 
+    assert!(!readme.contains("substrate-language"));
+    assert!(!readme.contains("substrate-thesis-summary"));
+    assert!(!readme.contains("internal architecture language"));
     assert!(!readme.contains("Gumbo"));
 }
 
@@ -114,4 +165,23 @@ fn release_docs_are_current_after_v0_1_publish() {
     assert!(releasing.contains("Release Plan"));
     assert!(releasing.contains("Release"));
     assert!(releasing.contains("Apache-2.0"));
+}
+
+fn assert_markdown_section_contains(markdown: &str, heading: &str, required: &[&str]) {
+    let start = markdown
+        .find(heading)
+        .unwrap_or_else(|| panic!("missing section heading: {heading}"));
+    let tail = &markdown[start..];
+    let end = tail[heading.len()..]
+        .find("\n## ")
+        .map(|idx| heading.len() + idx)
+        .unwrap_or(tail.len());
+    let section = &tail[..end];
+
+    for token in required {
+        assert!(
+            section.contains(token),
+            "section {heading} missing token: {token}"
+        );
+    }
 }

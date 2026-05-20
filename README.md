@@ -82,9 +82,6 @@ Architecture and model notes:
 - [docs/input-request-model.md](docs/input-request-model.md) - operative and advisory input
   requests.
 - [docs/assessment-model.md](docs/assessment-model.md) - review assessments and replacements.
-- [docs/substrate-language.md](docs/substrate-language.md) and
-  [docs/substrate-thesis-summary.md](docs/substrate-thesis-summary.md) - internal architecture
-  language for substrate-shaped refactors.
 - [docs/adr/](docs/adr/) - architectural decision records.
 
 ## Project Status

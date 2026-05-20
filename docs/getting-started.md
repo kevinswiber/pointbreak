@@ -97,7 +97,7 @@ shore review observation add \
   --track human:local \
   --title "Fallback name should be intentional" \
   --file src/example.rs \
-  --start-line 5 \
+  --start-line 6 \
   --body "The fallback value is visible user-facing behavior; keep it deliberate."
 ```
 

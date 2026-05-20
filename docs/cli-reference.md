@@ -98,7 +98,8 @@ or note mutation.
 
 ```bash
 shore review observation add --track <track-id> --title <title> [target options]
-shore review observation list [--track <track-id>] [--file <path>] [--tag <tag>] [--include-body]
+shore review observation list [--review-unit <review-unit-id>] [--track <track-id>] \
+  [--file <path>] [--tag <tag>] [--include-body] [--pretty|--compact]
 ```
 
 Observations are append-only review notes for a captured ReviewUnit.
@@ -114,18 +115,20 @@ Observations are append-only review notes for a captured ReviewUnit.
   artifact paths private.
 - `--supersedes <observation-id>` records a correction by appending a new observation that names the
   older observation.
-- `observation list` replays durable events for the ReviewUnit and hydrates body text only with
-  `--include-body`.
+- `observation list` replays durable events for the ReviewUnit and may filter by ReviewUnit, track,
+  file, or tag. It hydrates body text only with `--include-body`.
 
 Output is compact `shore.review-observation-add` or `shore.review-observation-list` JSON by
-default. `observation list` also accepts `--pretty`.
+default. `observation list` also accepts `--pretty` and `--compact`.
 
 ## `shore review input-request`
 
 ```bash
 shore review input-request open --track <track-id> --title <title> --reason <reason> \
   [--mode operative|advisory]
-shore review input-request list [--status open|responded|ambiguous|all]
+shore review input-request list [--review-unit <review-unit-id>] [--track <track-id>] \
+  [--mode operative|advisory] [--file <path>] [--status open|responded|ambiguous|all] \
+  [--include-body] [--pretty|--compact]
 shore review input-request fetch <input-request-id> [--include-body]
 shore review input-request respond <input-request-id> --outcome <outcome> [reason options]
 ```
@@ -140,7 +143,8 @@ Input requests are durable pause or decision requests for a captured ReviewUnit.
 - Request bodies may come from `--body`, `--body-file`, or `--body-stdin`.
 - Large request bodies reuse Shoreline-owned `shore.note-body` artifacts while command output keeps
   artifact paths private.
-- `input-request list` is the V1 polling read surface and defaults to open requests.
+- `input-request list` is the V1 polling read surface and defaults to open requests. It may filter
+  by ReviewUnit, track, mode, file, or status, and hydrates body text only with `--include-body`.
 - `input-request fetch <id> --include-body` returns one request and hydrates the body when
   requested.
 - `input-request respond <id>` appends an `input_request_responded` event.
@@ -148,7 +152,8 @@ Input requests are durable pause or decision requests for a captured ReviewUnit.
 
 Output documents are compact `shore.review-input-request-open`,
 `shore.review-input-request-list`, `shore.review-input-request-fetch`, and
-`shore.review-input-request-respond` JSON by default. Read commands also accept `--pretty`.
+`shore.review-input-request-respond` JSON by default. Read commands also accept `--pretty` and
+`--compact`.
 
 V1 is durable and polling-friendly. It does not add a daemon, filesystem watch mode, TUI prompt,
 notification transport, or cancellation/escalation event.
@@ -157,7 +162,8 @@ notification transport, or cancellation/escalation event.
 
 ```bash
 shore review assessment add --track <track-id> --assessment <assessment> [target options]
-shore review assessment show [--all] [--track <track-id>] [--include-summary]
+shore review assessment show [--review-unit <review-unit-id>] [--all] [--track <track-id>] \
+  [--include-summary] [--pretty|--compact]
 ```
 
 Assessments record review calls for a captured ReviewUnit.
@@ -174,10 +180,12 @@ Assessments record review calls for a captured ReviewUnit.
   the current set.
 - `--related-observation` and `--related-input-request` record evidence links; they do not mutate
   observations or close input requests.
-- `assessment show` reports current status as `unassessed`, `resolved`, or `ambiguous`.
+- `assessment show` reports current status as `unassessed`, `resolved`, or `ambiguous`. It may
+  filter by ReviewUnit or track, include replaced assessments with `--all`, and hydrate summaries
+  with `--include-summary`.
 
 Output documents are compact `shore.review-assessment-add` and `shore.review-assessment-show` JSON
-by default. `assessment show` also accepts `--pretty`.
+by default. `assessment show` also accepts `--pretty` and `--compact`.
 
 State-change outcomes such as deferred, split-out, overridden, and superseded are ordinary review
 observations when needed.
