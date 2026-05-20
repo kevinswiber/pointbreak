@@ -21,6 +21,7 @@ pub(crate) struct ObservationProjectionOptions<'a> {
     pub resolved: &'a ResolvedReviewUnit,
     pub track_filter: Option<TrackId>,
     pub file_filter: Option<&'a str>,
+    pub tag_filters: &'a [String],
     pub include_body: bool,
 }
 
@@ -82,6 +83,13 @@ pub(crate) fn project_observations(
         if options
             .file_filter
             .is_some_and(|file| !target_matches_file(&payload.target, file))
+        {
+            continue;
+        }
+        if !options
+            .tag_filters
+            .iter()
+            .all(|tag| payload.tags.iter().any(|candidate| candidate == tag))
         {
             continue;
         }
@@ -148,7 +156,6 @@ pub(crate) fn target_matches_file(target: &ReviewTargetRef, file: &str) -> bool 
         ReviewTargetRef::ReviewUnit { .. }
         | ReviewTargetRef::Observation { .. }
         | ReviewTargetRef::Intervention { .. }
-        | ReviewTargetRef::Disposition { .. }
         | ReviewTargetRef::Assessment { .. }
         | ReviewTargetRef::Event { .. } => false,
     }

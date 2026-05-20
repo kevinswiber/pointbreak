@@ -206,8 +206,8 @@ Intervention transport is independent of review-exchange transport. An intervent
 artifact, verdict, or review note. A future adapter may export or import intervention facts, but the
 core model should keep them separate.
 
-Native dispositions may relate to interventions through `--related-intervention`, but that
-relationship is evidence, not lifecycle. A disposition does not close an intervention. Use
+Native assessments may relate to interventions through `--related-intervention`, but that
+relationship is evidence, not lifecycle. An assessment does not close an intervention. Use
 `shore review intervention resolve` to append the explicit closure event.
 
 ## Non-Goals

@@ -1,10 +1,10 @@
 use super::ReviewUnitProjectionSummary;
 use super::adapter_notes::AdapterNoteView;
 use crate::model::{
-    DiffFile, DiffSnapshot, DispositionId, InterventionId, ObservationId, ReviewTargetRef,
+    AssessmentId, DiffFile, DiffSnapshot, InterventionId, ObservationId, ReviewTargetRef,
     ReviewUnitId, RowId,
 };
-use crate::session::disposition::DispositionView;
+use crate::session::assessment::AssessmentView;
 use crate::session::intervention::InterventionView;
 use crate::session::observation::ObservationView;
 
@@ -21,7 +21,7 @@ pub struct ReviewUnitProjectionRow {
     pub old_path: Option<String>,
     pub related_observation_ids: Vec<ObservationId>,
     pub related_intervention_ids: Vec<InterventionId>,
-    pub related_disposition_ids: Vec<DispositionId>,
+    pub related_assessment_ids: Vec<AssessmentId>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -32,7 +32,7 @@ pub enum ReviewUnitProjectionRowKind {
     Diff,
     Observation,
     Intervention,
-    Disposition,
+    Assessment,
     AdapterNote,
     EmptyState,
 }
@@ -46,7 +46,7 @@ impl ReviewUnitProjectionRowKind {
             Self::Diff => "diff",
             Self::Observation => "observation",
             Self::Intervention => "intervention",
-            Self::Disposition => "disposition",
+            Self::Assessment => "assessment",
             Self::AdapterNote => "adapter_note",
             Self::EmptyState => "empty_state",
         }
@@ -216,7 +216,7 @@ pub(super) fn build_observation_rows(
                 old_path,
                 related_observation_ids: vec![observation.id.clone()],
                 related_intervention_ids: Vec::new(),
-                related_disposition_ids: Vec::new(),
+                related_assessment_ids: Vec::new(),
             }
         })
         .collect()
@@ -242,33 +242,33 @@ pub(super) fn build_intervention_rows(
                 old_path,
                 related_observation_ids: Vec::new(),
                 related_intervention_ids: vec![intervention.id.clone()],
-                related_disposition_ids: Vec::new(),
+                related_assessment_ids: Vec::new(),
             }
         })
         .collect()
 }
 
-pub(super) fn build_disposition_rows(
-    dispositions: &[DispositionView],
+pub(super) fn build_assessment_rows(
+    assessments: &[AssessmentView],
 ) -> Vec<ReviewUnitProjectionRow> {
-    dispositions
+    assessments
         .iter()
         .enumerate()
-        .map(|(index, disposition)| {
-            let (file_path, old_path) = target_paths(&disposition.target);
+        .map(|(index, assessment)| {
+            let (file_path, old_path) = target_paths(&assessment.target);
             ReviewUnitProjectionRow {
                 id: RowId::new(format!("row:{index:06}")),
-                kind: ReviewUnitProjectionRowKind::Disposition,
+                kind: ReviewUnitProjectionRowKind::Assessment,
                 projection_phase: ProjectionPhase::Narrative,
                 projection_order: index,
                 snapshot_order: None,
                 coverage: ProjectionCoverage::Reviewed,
-                target: Some(disposition.target.clone()),
+                target: Some(assessment.target.clone()),
                 file_path,
                 old_path,
-                related_observation_ids: disposition.related_observations.clone(),
-                related_intervention_ids: disposition.related_interventions.clone(),
-                related_disposition_ids: vec![disposition.id.clone()],
+                related_observation_ids: assessment.related_observations.clone(),
+                related_intervention_ids: assessment.related_interventions.clone(),
+                related_assessment_ids: vec![assessment.id.clone()],
             }
         })
         .collect()
@@ -301,7 +301,7 @@ pub(super) fn build_adapter_note_rows(
                 old_path: note.file_old_path.clone(),
                 related_observation_ids: Vec::new(),
                 related_intervention_ids: Vec::new(),
-                related_disposition_ids: Vec::new(),
+                related_assessment_ids: Vec::new(),
             }
         })
         .collect()
@@ -328,7 +328,7 @@ pub(super) fn snapshot_row(
         old_path,
         related_observation_ids: Vec::new(),
         related_intervention_ids: Vec::new(),
-        related_disposition_ids: Vec::new(),
+        related_assessment_ids: Vec::new(),
     }
 }
 
@@ -351,7 +351,6 @@ pub(super) fn target_paths(target: &ReviewTargetRef) -> (Option<String>, Option<
         ReviewTargetRef::ReviewUnit { .. }
         | ReviewTargetRef::Observation { .. }
         | ReviewTargetRef::Intervention { .. }
-        | ReviewTargetRef::Disposition { .. }
         | ReviewTargetRef::Assessment { .. }
         | ReviewTargetRef::Event { .. } => (None, None),
     }

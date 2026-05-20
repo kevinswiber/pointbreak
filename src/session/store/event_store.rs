@@ -70,6 +70,20 @@ impl EventStore {
 
     pub fn read_event(&self, path: &Path) -> Result<ShoreEvent> {
         let bytes = self.storage.read_bytes(path)?;
+        #[derive(serde::Deserialize)]
+        struct EventTypeProbe<'a> {
+            #[serde(rename = "eventType", borrow)]
+            event_type: &'a str,
+        }
+        let probe: EventTypeProbe<'_> = serde_json::from_slice(&bytes)?;
+        if probe.event_type == "review_disposition_recorded" {
+            return Err(ShoreError::UnsupportedEventType {
+                event_type: probe.event_type.to_owned(),
+                migration_hint:
+                    "review_disposition_recorded is no longer supported; see docs/assessment-model.md#legacy-disposition-events"
+                        .to_owned(),
+            });
+        }
         let event: ShoreEvent = serde_json::from_slice(&bytes)?;
         validate_event(&event, Some(path))?;
         Ok(event)
@@ -239,6 +253,32 @@ mod tests {
             .expect_err("advisory assessment event is invalid");
 
         assert!(error.to_string().contains("assertionMode Operative"));
+    }
+
+    #[test]
+    fn legacy_review_disposition_recorded_event_returns_typed_unsupported_error() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("legacy.json");
+        fs::write(
+            &path,
+            r#"{"eventType":"review_disposition_recorded","schema":"shore.event","version":1,"eventId":"evt:sha256:0","idempotencyKey":"x","target":{},"writer":{},"occurredAt":"2026-05-19T00:00:00Z","payloadHash":"sha256:0","payload":{}}"#,
+        )
+        .unwrap();
+        let store = EventStore::open(root.path());
+
+        let err = store
+            .read_event(&path)
+            .expect_err("legacy event type must be rejected");
+
+        assert!(matches!(
+            err,
+            ShoreError::UnsupportedEventType { ref event_type, .. }
+                if event_type == "review_disposition_recorded"
+        ));
+        assert!(
+            err.to_string()
+                .contains("docs/assessment-model.md#legacy-disposition-events")
+        );
     }
 
     #[test]

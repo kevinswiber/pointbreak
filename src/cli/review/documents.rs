@@ -1,12 +1,10 @@
 // Shared view-document mappers used by review unit show and the leaf read commands.
 use shore::model::ReviewTargetRef;
 use shore::session::event::{
-    InterventionMode, InterventionReasonCode, InterventionResolutionOutcome, ReviewDisposition,
+    InterventionMode, InterventionReasonCode, InterventionResolutionOutcome, ReviewAssessment,
     Writer,
 };
-use shore::session::{
-    CurrentDispositionStatus, DispositionView, InterventionView, ObservationView,
-};
+use shore::session::{AssessmentView, CurrentAssessmentStatus, InterventionView, ObservationView};
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,24 +63,24 @@ pub(super) struct InterventionResolutionViewDocument {
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct CurrentDispositionDocument {
+pub(super) struct CurrentAssessmentDocument {
     status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    disposition_id: Option<String>,
+    assessment_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    disposition: Option<ReviewDisposition>,
+    assessment: Option<ReviewAssessment>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    candidates: Vec<DispositionViewDocument>,
+    candidates: Vec<AssessmentViewDocument>,
 }
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct DispositionViewDocument {
+pub(super) struct AssessmentViewDocument {
     id: String,
     event_id: String,
     track_id: String,
     target: ReviewTargetRef,
-    disposition: ReviewDisposition,
+    assessment: ReviewAssessment,
     #[serde(skip_serializing_if = "Option::is_none")]
     summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -91,7 +89,6 @@ pub(super) struct DispositionViewDocument {
     replaces: Vec<String>,
     related_observations: Vec<String>,
     related_interventions: Vec<String>,
-    overrides: Vec<ReviewTargetRef>,
     created_at: String,
     writer: Writer,
 }
@@ -158,53 +155,53 @@ impl From<shore::session::InterventionResolutionView> for InterventionResolution
     }
 }
 
-impl From<shore::session::CurrentDispositionView> for CurrentDispositionDocument {
-    fn from(current: shore::session::CurrentDispositionView) -> Self {
+impl From<shore::session::CurrentAssessmentView> for CurrentAssessmentDocument {
+    fn from(current: shore::session::CurrentAssessmentView) -> Self {
         let status = current.status;
-        let mut dispositions = current.dispositions.into_iter();
+        let mut records = current.records.into_iter();
         match status {
-            CurrentDispositionStatus::None => Self {
+            CurrentAssessmentStatus::Unassessed => Self {
                 status: status.as_str(),
-                disposition_id: None,
-                disposition: None,
+                assessment_id: None,
+                assessment: None,
                 candidates: Vec::new(),
             },
-            CurrentDispositionStatus::Resolved => {
-                let disposition = dispositions
+            CurrentAssessmentStatus::Resolved(assessment) => {
+                let record = records
                     .next()
-                    .expect("resolved current disposition has one record");
+                    .expect("resolved current assessment has one record");
                 Self {
                     status: status.as_str(),
-                    disposition_id: Some(disposition.id.as_str().to_owned()),
-                    disposition: Some(disposition.disposition),
+                    assessment_id: Some(record.id.as_str().to_owned()),
+                    assessment: Some(assessment),
                     candidates: Vec::new(),
                 }
             }
-            CurrentDispositionStatus::Ambiguous => Self {
+            CurrentAssessmentStatus::Ambiguous(_) => Self {
                 status: status.as_str(),
-                disposition_id: None,
-                disposition: None,
-                candidates: dispositions.map(DispositionViewDocument::from).collect(),
+                assessment_id: None,
+                assessment: None,
+                candidates: records.map(AssessmentViewDocument::from).collect(),
             },
         }
     }
 }
 
-impl From<DispositionView> for DispositionViewDocument {
-    fn from(view: DispositionView) -> Self {
+impl From<AssessmentView> for AssessmentViewDocument {
+    fn from(view: AssessmentView) -> Self {
         Self {
             id: view.id.as_str().to_owned(),
             event_id: view.event_id.as_str().to_owned(),
             track_id: view.track_id.as_str().to_owned(),
             target: view.target,
-            disposition: view.disposition,
+            assessment: view.assessment,
             summary: view.summary,
             summary_content_hash: view.summary_content_hash,
             status: view.status.as_str(),
             replaces: view
                 .replaces
                 .into_iter()
-                .map(|disposition_id| disposition_id.as_str().to_owned())
+                .map(|assessment_id| assessment_id.as_str().to_owned())
                 .collect(),
             related_observations: view
                 .related_observations
@@ -216,7 +213,6 @@ impl From<DispositionView> for DispositionViewDocument {
                 .into_iter()
                 .map(|intervention_id| intervention_id.as_str().to_owned())
                 .collect(),
-            overrides: view.overrides,
             created_at: view.created_at,
             writer: view.writer,
         }

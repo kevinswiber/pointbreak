@@ -87,7 +87,7 @@ different architecture.
 |---|---|---|
 | review unit | work object | Captured working-tree state for review. |
 | review observation | assertion | An attributed claim about a review unit or target inside it. |
-| review disposition | assertion | A formal review-domain call. Future naming may split this further. |
+| review assessment | assertion | A formal review-domain call. |
 | review note | imported assertion | A note imported from an external review source. |
 | intervention | assertion / input request | A durable request for attention, decision, or explicit response. |
 | intervention resolution | assertion / response | A durable answer to an intervention. |

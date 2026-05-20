@@ -1,6 +1,6 @@
 use crate::error::Result;
 use crate::session::EventStore;
-use crate::session::disposition::{DispositionProjectionOptions, project_dispositions};
+use crate::session::assessment::{AssessmentProjectionOptions, project_assessments};
 use crate::session::intervention::{
     InterventionProjectionOptions, InterventionStatusFilter, project_interventions,
 };
@@ -25,7 +25,7 @@ pub use self::identity::{
 use self::resolving::selected_review_unit_capture;
 pub use self::rows::{ReviewUnitProjectionRow, SnapshotOrder};
 use self::rows::{
-    build_adapter_note_rows, build_disposition_rows, build_intervention_rows,
+    build_adapter_note_rows, build_assessment_rows, build_intervention_rows,
     build_observation_rows, build_snapshot_rows, renumber_projection_rows,
 };
 use self::snapshot::load_bound_snapshot_artifact;
@@ -47,6 +47,7 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         resolved: &resolved,
         track_filter: track_id.clone(),
         file_filter: None,
+        tag_filters: &[],
         include_body: options.include_body,
     })?;
     let interventions = project_interventions(InterventionProjectionOptions {
@@ -59,7 +60,7 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         status_filter: InterventionStatusFilter::All,
         include_body: options.include_body,
     })?;
-    let (current_disposition, dispositions) = project_dispositions(DispositionProjectionOptions {
+    let (current_assessment, assessments) = project_assessments(AssessmentProjectionOptions {
         shore_dir: paths.shore_dir(),
         events: &events,
         resolved: &resolved,
@@ -77,9 +78,9 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
     let intervention_rows = build_intervention_rows(&interventions);
     summary.intervention_count = interventions.len();
     narrative_rows.extend(intervention_rows);
-    let disposition_rows = build_disposition_rows(&dispositions);
-    summary.disposition_count = dispositions.len();
-    narrative_rows.extend(disposition_rows);
+    let assessment_rows = build_assessment_rows(&assessments);
+    summary.assessment_count = assessments.len();
+    narrative_rows.extend(assessment_rows);
     let adapter_note_rows = build_adapter_note_rows(&adapter_notes, &review_unit.id);
     summary.adapter_note_count = adapter_notes.len();
     narrative_rows.extend(adapter_note_rows);
@@ -105,10 +106,10 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
             include_body: options.include_body,
         },
         summary,
-        current_disposition,
+        current_assessment,
         observations,
         interventions,
-        dispositions,
+        assessments,
         adapter_notes,
         rows,
         diagnostics: state.diagnostics,
@@ -126,16 +127,16 @@ mod tests {
     use crate::canonical_hash::sha256_json_prefixed;
     use crate::model::{DiffSnapshot, ReviewId, ReviewUnitId, SnapshotId};
     use crate::session::event::{
-        InterventionReasonCode, InterventionResolutionOutcome, ReviewDisposition,
+        InterventionReasonCode, InterventionResolutionOutcome, ReviewAssessment,
     };
     use crate::session::{
-        CaptureOptions, CurrentDispositionStatus, DispositionAddOptions, DispositionShowOptions,
+        AssessmentAddOptions, AssessmentShowOptions, CaptureOptions, CurrentAssessmentStatus,
         ImportNotesOptions, InterventionListOptions, InterventionRequestOptions,
         InterventionResolveOptions, InterventionStatus, InterventionStatusFilter,
         ObservationAddOptions, ObservationListOptions, ObservationTargetSelector,
         capture_worktree_review, import_notes, list_interventions, list_observations,
-        record_disposition, record_observation, request_intervention, resolve_intervention,
-        show_dispositions,
+        record_assessment, record_observation, request_intervention, resolve_intervention,
+        show_assessments,
     };
 
     #[test]
@@ -411,13 +412,13 @@ mod tests {
     }
 
     #[test]
-    fn show_review_unit_includes_current_disposition() {
+    fn show_review_unit_includes_current_assessment() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let disposition = record_disposition(
-            DispositionAddOptions::new(repo.path())
+        let assessment = record_assessment(
+            AssessmentAddOptions::new(repo.path())
                 .with_track("human:kevin")
-                .with_disposition(ReviewDisposition::Accepted)
+                .with_assessment(ReviewAssessment::Accepted)
                 .with_summary("ship it"),
         )
         .unwrap();
@@ -425,37 +426,37 @@ mod tests {
         let unit = show_review_unit(ReviewUnitShowOptions::new(repo.path())).unwrap();
 
         assert_eq!(
-            unit.current_disposition.status,
-            CurrentDispositionStatus::Resolved
+            unit.current_assessment.status,
+            CurrentAssessmentStatus::Resolved(ReviewAssessment::Accepted)
         );
-        assert_eq!(unit.dispositions.len(), 1);
-        assert_eq!(unit.dispositions[0].id, disposition.disposition_id);
-        assert_eq!(unit.summary.disposition_count, 1);
+        assert_eq!(unit.assessments.len(), 1);
+        assert_eq!(unit.assessments[0].id, assessment.assessment_id);
+        assert_eq!(unit.summary.assessment_count, 1);
         assert!(
             unit.rows
                 .iter()
-                .any(|row| row.kind.as_str() == "disposition")
+                .any(|row| row.kind.as_str() == "assessment")
         );
     }
 
     #[test]
-    fn show_review_unit_dispositions_match_show_semantics() {
+    fn show_review_unit_assessments_match_show_semantics() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        add_replaced_and_duplicate_dispositions(&repo);
+        add_replaced_and_duplicate_assessments(&repo);
 
         let unit =
             show_review_unit(ReviewUnitShowOptions::new(repo.path()).with_include_body(true))
                 .unwrap();
-        let show = show_dispositions(
-            DispositionShowOptions::new(repo.path())
+        let show = show_assessments(
+            AssessmentShowOptions::new(repo.path())
                 .with_include_summary(true)
                 .with_all(true),
         )
         .unwrap();
 
-        assert_eq!(unit.current_disposition, show.current);
-        assert_eq!(unit.dispositions, show.dispositions);
+        assert_eq!(unit.current_assessment, show.current);
+        assert_eq!(unit.assessments, show.assessments);
         assert_eq!(unit.diagnostics, show.diagnostics);
     }
 
@@ -764,29 +765,29 @@ mod tests {
         .unwrap();
     }
 
-    fn add_replaced_and_duplicate_dispositions(repo: &TestRepo) {
-        let duplicate_options = DispositionAddOptions::new(repo.path())
+    fn add_replaced_and_duplicate_assessments(repo: &TestRepo) {
+        let duplicate_options = AssessmentAddOptions::new(repo.path())
             .with_track("human:kevin")
-            .with_disposition(ReviewDisposition::NeedsClarification)
+            .with_assessment(ReviewAssessment::NeedsClarification)
             .with_summary("same summary");
-        let first = record_disposition(
+        let first = record_assessment(
             duplicate_options
                 .clone()
-                .with_idempotency_key("disposition-retry-a"),
+                .with_idempotency_key("assessment-retry-a"),
         )
         .unwrap();
         let second =
-            record_disposition(duplicate_options.with_idempotency_key("disposition-retry-b"))
+            record_assessment(duplicate_options.with_idempotency_key("assessment-retry-b"))
                 .unwrap();
 
-        assert_eq!(first.disposition_id, second.disposition_id);
+        assert_eq!(first.assessment_id, second.assessment_id);
 
-        record_disposition(
-            DispositionAddOptions::new(repo.path())
+        record_assessment(
+            AssessmentAddOptions::new(repo.path())
                 .with_track("human:kevin")
-                .with_disposition(ReviewDisposition::AcceptedWithFollowUp)
+                .with_assessment(ReviewAssessment::AcceptedWithFollowUp)
                 .with_summary("replacement")
-                .replacing(first.disposition_id),
+                .replacing(first.assessment_id),
         )
         .unwrap();
     }

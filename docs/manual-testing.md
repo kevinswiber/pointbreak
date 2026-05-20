@@ -89,12 +89,13 @@ that has no other diff.
 ## C. Observations — add and list
 
 **Goal.** Confirm observations attach to a ReviewUnit, support review-wide and range targets, and
-can be filtered by track on read.
+can be filtered by track or tag on read.
 
 ```bash
 shore review observation add \
   --track agent:codex \
-  --title "Check epsilon handling"
+  --title "Check epsilon handling" \
+  --tag correctness
 
 shore review observation add \
   --track human:kevin \
@@ -104,6 +105,7 @@ shore review observation add \
 
 shore review observation list --pretty
 shore review observation list --pretty --track agent:codex
+shore review observation list --pretty --tag correctness
 shore review observation list --pretty --include-body
 ```
 
@@ -114,6 +116,7 @@ shore review observation list --pretty --include-body
 - `observation list` returns both observations under the same `reviewUnitId`. The range-targeted
   observation has `target.kind: "range"` with `filePath`, `side`, `startLine`, `endLine`.
 - The `--track agent:codex` filter returns only the first observation.
+- The `--tag correctness` filter returns only observations carrying that exact tag.
 - The default `observation list` omits body text; `--include-body` hydrates it.
 
 ## D. Interventions — request, list, fetch, resolve
@@ -150,40 +153,39 @@ shore review intervention list --pretty --status all
   and one entry under `resolutions`. `intervention list` with the default `--status open` returns
   zero entries.
 
-## E. Dispositions — add and show
+## E. Assessments — add and show
 
-**Goal.** Confirm a final disposition lands, and that `--replaces` is the only thing that removes
-an older disposition from the current set.
+**Goal.** Confirm a review assessment lands, and that `--replaces` is the only thing that removes
+an older assessment from the current set.
 
 ```bash
-shore review disposition add \
+shore review assessment add \
   --track human:kevin \
-  --disposition accepted \
+  --assessment accepted \
   --summary "looks good, ship it"
 
-shore review disposition show --pretty
-shore review disposition show --pretty --include-summary
+shore review assessment show --pretty
+shore review assessment show --pretty --include-summary
 
-# Overriding/replacing example
-DISP_OLD=$(shore review disposition show | jq -r '.current.dispositionId')
-shore review disposition add \
+# Replacing example
+ASSESS_OLD=$(shore review assessment show | jq -r '.current.assessmentId')
+shore review assessment add \
   --track human:kevin \
-  --disposition overridden \
-  --summary "second pass; deferring" \
-  --overrides-disposition "$DISP_OLD" \
-  --replaces "$DISP_OLD"
+  --assessment accepted-with-follow-up \
+  --summary "second pass; follow-up filed" \
+  --replaces "$ASSESS_OLD"
 
-shore review disposition show --pretty
-shore review disposition show --pretty --all
+shore review assessment show --pretty
+shore review assessment show --pretty --all
 ```
 
 **Expect.**
 
-- After the first `add`, `disposition show` reports `current.status: "resolved"` and
-  `current.disposition: "accepted"`.
+- After the first `add`, `assessment show` reports `current.status: "resolved"` and
+  `current.assessment: "accepted"`.
 - `--include-summary` adds the summary text inline; without it, only the `summaryContentHash`
   appears.
-- After the second `add`, the original disposition is no longer in the current list. It still
+- After the second `add`, the original assessment is no longer in the current list. It still
   appears under `--all` with `status: "replaced"`.
 
 ## F. Review history with filters
@@ -207,9 +209,9 @@ shore review history --pretty --include-body \
   scan; `historyCount` reflects the returned entries. The `eventSetHash` is identical across
   filtered and unfiltered runs of the same event set.
 - `--include-body` hydrates observation bodies, intervention bodies and resolution reasons, and
-  disposition summaries inline. In a history entry, the event-specific fields (including any
+  assessment summaries inline. In a history entry, the event-specific fields (including any
   hydrated body) live under `.summary`, not at the entry root — for example, an observation body
-  is `.summary.body`, a disposition summary is `.summary.summary`, and an intervention resolution
+  is `.summary.body`, an assessment summary is `.summary.summary`, and an intervention resolution
   reason is on the resolved entry's `.summary.reason`.
 
 ## G. Review unit list and show with and without `--include-body`
@@ -241,10 +243,10 @@ shore review unit list --pretty | jq '.entries[] | {reviewUnitId, capturedAt, sn
 
 `shore review unit show` puts each ReviewUnit fact in two places:
 
-- top-level `observations[]`, `interventions[]`, `dispositions[]`, and `adapterNotes[]` carry the
+- top-level `observations[]`, `interventions[]`, `assessments[]`, and `adapterNotes[]` carry the
   hydrated facts (including `body` / `summary` / `reason` when `--include-body` is passed).
 - `rows[]` carries the projection rendering. Each row has `kind` as a **string**
-  (`"observation"`, `"intervention"`, `"disposition"`, `"file_header"`, `"hunk_header"`,
+  (`"observation"`, `"intervention"`, `"assessment"`, `"file_header"`, `"hunk_header"`,
   `"diff"`, `"metadata"`, `"adapter_note"`, etc.) and a `projectionPhase` of either `"narrative"`
   or `"snapshot_remainder"`. Body text is **not** carried on rows.
 
@@ -257,14 +259,14 @@ shore review unit show --pretty \
 # Bodies are omitted by default and live on the top-level fact lists when hydrated.
 shore review unit show --pretty | jq '.observations[] | {title, body}'
 shore review unit show --pretty --include-body | jq '.observations[] | {title, body}'
-shore review unit show --pretty --include-body | jq '.dispositions[] | {disposition, summary}'
+shore review unit show --pretty --include-body | jq '.assessments[] | {assessment, summary}'
 
 # Track filter narrows narrative material but leaves the snapshot remainder intact.
 shore review unit show --pretty --track agent:codex \
   | jq '{
       observations: [.observations[].trackId] | unique,
       interventions_count: (.interventions | length),
-      dispositions_count: (.dispositions | length),
+      assessments_count: (.assessments | length),
       narrative_rows: [.rows[] | select(.projectionPhase=="narrative") | .kind],
       snapshot_remainder_count: [.rows[] | select(.projectionPhase=="snapshot_remainder")] | length
     }'
@@ -274,7 +276,7 @@ shore review unit show --pretty --track agent:codex \
 
 - `[.rows[].kind] | unique` returns a flat list of row-kind strings; the narrative-phase rows
   appear before the snapshot-remainder rows in `rows[]` order.
-- Default output has every observation/intervention/disposition object present in the top-level
+- Default output has every observation/intervention/assessment object present in the top-level
   lists but with no `body` / `summary` / `reason` field. `--include-body` adds those fields
   inline.
 - The `--track agent:codex` filter keeps only `agent:codex` facts in the top-level lists and
@@ -364,7 +366,7 @@ The authority split (see `docs/storage-model.md`):
 - `.shore/events/` — append-only immutable per-fact events.
 - `.shore/artifacts/` — immutable support records that events bind to: captured ReviewUnit
   snapshots (`artifacts/snapshots/`), and content-addressed bodies for large observation,
-  intervention, and disposition payloads (`artifacts/notes/`). `review unit show` reads the
+  intervention, and assessment payloads (`artifacts/notes/`). `review unit show` reads the
   snapshot artifact for the selected ReviewUnit; the event log alone cannot reconstruct snapshot
   rows or large note bodies.
 - `.shore/state.json` — rebuildable projection summary. Reads do not depend on its existence;

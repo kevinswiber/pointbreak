@@ -5,14 +5,14 @@ use serde::{Deserialize, Serialize};
 use super::freshness::event_set_hash_for_events;
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    AssessmentId, DispositionId, EventId, InterventionId, InterventionResolutionId, ObservationId,
-    ReviewUnitId, RevisionId, SessionId, SnapshotId, WorkUnitId,
+    AssessmentId, EventId, InterventionId, InterventionResolutionId, ObservationId, ReviewUnitId,
+    RevisionId, SessionId, SnapshotId, WorkUnitId,
 };
 use crate::session::EventWriteOutcome;
 use crate::session::event::{
     EventType, InterventionMode, InterventionRequestedPayload, InterventionResolvedPayload,
-    ReviewAssessmentRecordedPayload, ReviewDispositionRecordedPayload,
-    ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, ShoreEvent,
+    ReviewAssessmentRecordedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
+    ShoreEvent,
 };
 
 const STATE_SCHEMA: &str = "shore.state";
@@ -24,7 +24,6 @@ pub const DUPLICATE_SEMANTIC_INTERVENTION_REQUEST_EVENT_CODE: &str =
 pub const DUPLICATE_SEMANTIC_INTERVENTION_RESOLUTION_EVENT_CODE: &str =
     "duplicate_semantic_intervention_resolution_event";
 pub const DUPLICATE_SEMANTIC_ASSESSMENT_EVENT_CODE: &str = "duplicate_semantic_assessment_event";
-pub const DUPLICATE_SEMANTIC_DISPOSITION_EVENT_CODE: &str = "duplicate_semantic_disposition_event";
 const DUPLICATE_SEMANTIC_DIAGNOSTIC_EVENT_LIMIT: usize = 5;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -48,8 +47,6 @@ pub struct SessionState {
     pub observation_count: usize,
     #[serde(default)]
     pub assessment_count: usize,
-    #[serde(default)]
-    pub disposition_count: usize,
     #[serde(default)]
     pub intervention_count: usize,
     #[serde(default)]
@@ -136,7 +133,6 @@ struct StateReducer {
     note_count: usize,
     observation_events: BTreeMap<ObservationId, BTreeSet<EventId>>,
     assessment_events: BTreeMap<AssessmentId, BTreeSet<EventId>>,
-    disposition_events: BTreeMap<DispositionId, BTreeSet<EventId>>,
     intervention_modes: BTreeMap<InterventionId, InterventionMode>,
     intervention_request_events: BTreeMap<InterventionId, BTreeSet<EventId>>,
     intervention_resolution_events: BTreeMap<InterventionResolutionId, BTreeSet<EventId>>,
@@ -152,7 +148,6 @@ impl Default for StateReducer {
             note_count: 0,
             observation_events: BTreeMap::new(),
             assessment_events: BTreeMap::new(),
-            disposition_events: BTreeMap::new(),
             intervention_modes: BTreeMap::new(),
             intervention_request_events: BTreeMap::new(),
             intervention_resolution_events: BTreeMap::new(),
@@ -180,7 +175,6 @@ impl StateReducer {
             EventType::ReviewUnitCaptured => self.apply_review_unit_captured(event)?,
             EventType::ReviewObservationRecorded => self.apply_observation_recorded(event)?,
             EventType::ReviewAssessmentRecorded => self.apply_assessment_recorded(event)?,
-            EventType::ReviewDispositionRecorded => self.apply_disposition_recorded(event)?,
             EventType::InterventionRequested => self.apply_intervention_requested(event)?,
             EventType::InterventionResolved => self.apply_intervention_resolved(event)?,
             EventType::ReviewNoteImported => {
@@ -231,16 +225,6 @@ impl StateReducer {
             serde_json::from_value(event.payload.clone())?;
         self.assessment_events
             .entry(payload.assessment_id)
-            .or_default()
-            .insert(event.event_id.clone());
-        Ok(())
-    }
-
-    fn apply_disposition_recorded(&mut self, event: &ShoreEvent) -> Result<()> {
-        let payload: ReviewDispositionRecordedPayload =
-            serde_json::from_value(event.payload.clone())?;
-        self.disposition_events
-            .entry(payload.disposition_id)
             .or_default()
             .insert(event.event_id.clone());
         Ok(())
@@ -335,15 +319,6 @@ impl StateReducer {
                 .iter()
                 .map(|(assessment_id, event_ids)| (assessment_id.as_str(), event_ids)),
         );
-        append_duplicate_semantic_diagnostics(
-            &mut diagnostics,
-            DUPLICATE_SEMANTIC_DISPOSITION_EVENT_CODE,
-            "disposition",
-            self.disposition_events
-                .iter()
-                .map(|(disposition_id, event_ids)| (disposition_id.as_str(), event_ids)),
-        );
-
         Ok(SessionState {
             schema: STATE_SCHEMA.to_owned(),
             version: STATE_VERSION,
@@ -358,7 +333,6 @@ impl StateReducer {
             note_count: self.note_count,
             observation_count: self.observation_events.len(),
             assessment_count: self.assessment_events.len(),
-            disposition_count: self.disposition_events.len(),
             intervention_count: self.intervention_modes.len(),
             open_intervention_count,
             open_blocking_intervention_count,
@@ -645,7 +619,6 @@ mod tests {
         assert_eq!(state.note_count, 0);
         assert_eq!(state.observation_count, 0);
         assert_eq!(state.assessment_count, 0);
-        assert_eq!(state.disposition_count, 0);
         assert_eq!(state.intervention_count, 0);
         assert_eq!(state.open_intervention_count, 0);
         assert_eq!(state.open_blocking_intervention_count, 0);
@@ -663,9 +636,10 @@ mod tests {
             json.get("assessmentCount").is_some(),
             "missing assessmentCount in {json}"
         );
+        let legacy_count_key = format!("{}Count", "disposition");
         assert!(
-            json.get("dispositionCount").is_some(),
-            "dispositionCount must still serialize while both fields are emitted side by side"
+            json.get(&legacy_count_key).is_none(),
+            "legacy {legacy_count_key} must not serialize after the assessment split"
         );
     }
 
@@ -683,7 +657,6 @@ mod tests {
         assert_eq!(state.note_count, 0);
         assert_eq!(state.observation_count, 0);
         assert_eq!(state.assessment_count, 1);
-        assert_eq!(state.disposition_count, 0);
         assert_eq!(state.intervention_count, 0);
         assert_eq!(state.open_intervention_count, 0);
         assert_eq!(state.open_blocking_intervention_count, 0);
@@ -691,11 +664,13 @@ mod tests {
     }
 
     #[test]
-    fn session_state_legacy_disposition_count_stays_zero_for_assessment_event() {
+    fn session_state_omits_legacy_outcome_count_wire_key_after_split() {
         let state = SessionState::from_events(&[assessment_event("assess:sha256:one")]).unwrap();
+        let json = serde_json::to_value(&state).unwrap();
+        let legacy_count_key = format!("{}Count", "disposition");
 
         assert_eq!(state.assessment_count, 1);
-        assert_eq!(state.disposition_count, 0);
+        assert!(json.get(legacy_count_key).is_none());
     }
 
     #[test]
@@ -775,7 +750,6 @@ mod tests {
         assert_eq!(state.event_set_hash, None);
         assert_eq!(state.observation_count, 0);
         assert_eq!(state.assessment_count, 0);
-        assert_eq!(state.disposition_count, 0);
         assert_eq!(state.intervention_count, 0);
     }
 

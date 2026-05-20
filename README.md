@@ -8,14 +8,14 @@ small, Rust-native review core with a data model that is easy to reason about, t
 expose to other tools.
 
 For a narrative end-to-end walkthrough of the current review workflow — capturing a ReviewUnit,
-inspecting it, recording observations, interventions, and dispositions, and the distinction between
+inspecting it, recording observations, interventions, and assessments, and the distinction between
 durable events, rebuildable projections, and command-output JSON — see
 [docs/review-workflow.md](docs/review-workflow.md). The "Current CLI" section below remains the
 per-command reference.
 
 Maintainers running a confidence pass after big changes can use the manual testing playbook in
 [docs/manual-testing.md](docs/manual-testing.md): copy/paste scratch-repo recipes for capture,
-observations, interventions, dispositions, history, unit show, sidecar import, stale-note reload,
+observations, interventions, assessments, history, unit show, sidecar import, stale-note reload,
 and storage rebuildability.
 
 ## Name
@@ -94,8 +94,8 @@ the authoritative owners of scroll, selection, or navigation semantics.
 
 Durable workflow guidance is captured in [docs/storage-model.md](docs/storage-model.md),
 [docs/intervention-model.md](docs/intervention-model.md), and
-[docs/disposition-model.md](docs/disposition-model.md). Treat those as architecture guidance for
-storage, event, interruption, disposition, and escalation design, not current V1 implementation
+[docs/assessment-model.md](docs/assessment-model.md). Treat those as architecture guidance for
+storage, event, interruption, assessment, and escalation design, not current V1 implementation
 scope.
 
 ## Initial Scope
@@ -120,7 +120,7 @@ Prefer shelling out to `git` at first. A VCS abstraction can come later if the m
 
 The current executable surfaces are `shore show`, `shore dump`, `shore review capture`,
 `shore review observation add/list`, `shore review intervention request/list/fetch/resolve`,
-`shore review disposition add/show`, `shore review history`, `shore review unit list/show`, and
+`shore review assessment add/show`, `shore review history`, `shore review unit list/show`, and
 `shore notes apply`.
 
 All commands accept optional tracing flags:
@@ -302,7 +302,8 @@ Behavior:
 - `--supersedes <observation-id>` records a correction by appending a new observation that names the
   older observation. Standalone retraction is deferred.
 - `shore review observation list` replays durable events for the ReviewUnit. Bodies are omitted by
-  default and hydrated only with `--include-body`; `--track` and `--file` filter the returned rows.
+  default and hydrated only with `--include-body`; `--track`, `--file`, and repeated `--tag` filter
+  the returned rows.
 - If repeated writes create multiple events with the same `observationId`, `observation list`
   returns one logical row and includes a duplicate semantic diagnostic.
 - Output is compact `shore.review-observation-add` or `shore.review-observation-list` JSON by
@@ -349,40 +350,41 @@ Behavior:
 - Native interventions appear in `shore review unit show`. They are not yet projected into
   `shore dump` or `shore show`.
 
-`shore review disposition` records and reads final review outcomes for a captured ReviewUnit:
+`shore review assessment` records and reads review calls for a captured ReviewUnit:
 
 ```bash
-shore review disposition add --track human:kevin --disposition accepted --summary "ship it"
-shore review disposition show [--all] [--track human:kevin] [--include-summary]
+shore review assessment add --track human:kevin --assessment accepted --summary "ship it"
+shore review assessment show [--all] [--track human:kevin] [--include-summary]
 ```
 
 Behavior:
 
-- `disposition add` requires `--track` and `--disposition`. Tracks are review lanes; writer
+- `assessment add` requires `--track` and `--assessment`. Tracks are review lanes; writer
   provenance still comes from the event envelope.
-- V1 disposition values are `accepted`, `accepted-with-follow-up`, `needs-changes`,
-  `needs-clarification`, `overridden`, `deferred`, `split-out`, and `superseded`.
+- V1 assessment values are `accepted`, `accepted-with-follow-up`, `needs-changes`, and
+  `needs-clarification`.
 - Targets mirror the ReviewUnit ledger: review-wide by default, `--file <path>` for a captured
   file, `--file <path> --start-line <n> [--end-line <n>]` for a range, `--observation
-  <observation-id>`, `--intervention <intervention-id>`, or `--target-disposition
-  <disposition-id>` for native facts in the same ReviewUnit.
+  <observation-id>`, `--intervention <intervention-id>`, or `--target-assessment
+  <assessment-id>` for native facts in the same ReviewUnit.
 - Summaries may come from `--summary`, `--summary-file`, or `--summary-stdin`. Large summaries reuse
   Shore-owned `shore.note-body` artifacts while command output keeps artifact paths private.
-- `--replaces <disposition-id>` is the only V1 relationship that removes an older disposition from
-  the current set. `--overrides-*` records authority metadata and does not replace by itself.
-- `overridden` requires a non-empty summary and at least one override reference. `superseded` is a
-  disposition value, not an implicit replacement instruction.
+- `--replaces <assessment-id>` is the only V1 relationship that removes an older assessment from the
+  current set.
 - `--related-observation` and `--related-intervention` record evidence links. They do not mutate
   observations or close interventions; use `shore review intervention resolve` for intervention
   lifecycle.
-- `disposition show` replays `.shore/events/`, reports current status as `none`, `resolved`, or
-  `ambiguous`, and defaults to current dispositions only. `--all` includes replaced records.
-- Repeated writes with the same `dispositionId` are preserved but collapsed in read output with a
+- `assessment show` replays `.shore/events/`, reports current status as `unassessed`, `resolved`,
+  or `ambiguous`, and defaults to current assessments only. `--all` includes replaced records.
+- Repeated writes with the same `assessmentId` are preserved but collapsed in read output with a
   duplicate semantic diagnostic.
-- Output documents are compact `shore.review-disposition-add` and `shore.review-disposition-show`
-  JSON by default. `disposition show` also accepts `--pretty`.
-- Native dispositions appear in `shore review unit show`. They are not yet projected into
+- Output documents are compact `shore.review-assessment-add` and `shore.review-assessment-show`
+  JSON by default. `assessment show` also accepts `--pretty`.
+- Native assessments appear in `shore review unit show`. They are not yet projected into
   `shore dump` or `shore show`.
+- State-change outcomes such as deferred, split-out, overridden, and superseded are ordinary review
+  observations when they are needed. Record them with `shore review observation add` and a concrete
+  tag such as `--tag state-change:deferred`.
 
 `shore review history` reads the chronological ledger of durable Shore events:
 
@@ -402,7 +404,7 @@ Behavior:
 - `--review-unit`, `--track`, and repeated `--event-type` narrow the returned entries. Event-type
   CLI values are kebab-case, such as `review-observation-recorded`.
 - Body-like text is omitted by default. `--include-body` hydrates observation bodies, intervention
-  request bodies, intervention resolution reasons, disposition summaries, and imported-note bodies.
+  request bodies, intervention resolution reasons, assessment summaries, and imported-note bodies.
 - History preserves raw append-only facts. Duplicate semantic events remain visible as separate
   entries while shared duplicate diagnostics are included in the document.
 - Raw event files, event filenames, artifact paths, and `state.json` remain internal storage. The
@@ -423,7 +425,7 @@ Behavior:
 - When exactly one ReviewUnit has been captured, Shore selects it automatically. If multiple
   captured ReviewUnits exist, pass `--review-unit <id>` to select one explicitly.
 - The output includes ReviewUnit identity, event-set freshness metadata, filters, summary counts,
-  current disposition status, native observations, interventions, dispositions, imported adapter
+  current assessment status, native observations, interventions, assessments, imported adapter
   notes, projection rows, and diagnostics.
 - Rows are narrative-first, then snapshot-complete. Native ledger facts and imported adapter notes
   appear before the captured snapshot remainder; the snapshot remainder still includes every
@@ -431,7 +433,7 @@ Behavior:
 - `--track <track-id>` filters narrative facts without changing the selected ReviewUnit, event-set
   freshness metadata, or captured snapshot completeness.
 - Body-like text is omitted by default. `--include-body` hydrates observation bodies, intervention
-  request bodies and resolution reasons, disposition summaries, and imported-note bodies.
+  request bodies and resolution reasons, assessment summaries, and imported-note bodies.
 - Raw event files, event filenames, artifact paths, snapshot artifact paths, and `state.json` remain
   internal storage. The command-output JSON is the integration surface.
 - `shore review unit show` is distinct from `shore review history`: history is the chronological raw

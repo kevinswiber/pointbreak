@@ -15,6 +15,7 @@ pub struct ObservationListOptions {
     review_unit_id: Option<ReviewUnitId>,
     track: Option<String>,
     file: Option<String>,
+    tags: Vec<String>,
     include_body: bool,
 }
 
@@ -25,6 +26,7 @@ impl ObservationListOptions {
             review_unit_id: None,
             track: None,
             file: None,
+            tags: Vec::new(),
             include_body: false,
         }
     }
@@ -44,6 +46,11 @@ impl ObservationListOptions {
         self
     }
 
+    pub fn with_tag(mut self, tag: impl Into<String>) -> Self {
+        self.tags.push(tag.into());
+        self
+    }
+
     pub fn with_include_body(mut self, include_body: bool) -> Self {
         self.include_body = include_body;
         self
@@ -54,6 +61,7 @@ impl ObservationListOptions {
 pub struct ObservationListFilters {
     pub track_id: Option<TrackId>,
     pub file: Option<String>,
+    pub tags: Vec<String>,
     pub include_body: bool,
 }
 
@@ -82,6 +90,7 @@ pub fn list_observations(options: ObservationListOptions) -> Result<ObservationL
         resolved: &resolved,
         track_filter: track_filter.clone(),
         file_filter: options.file.as_deref(),
+        tag_filters: &options.tags,
         include_body: options.include_body,
     })?;
     let diagnostics = SessionState::from_events(&events)?.diagnostics;
@@ -91,6 +100,7 @@ pub fn list_observations(options: ObservationListOptions) -> Result<ObservationL
         filters: ObservationListFilters {
             track_id: track_filter,
             file: options.file,
+            tags: options.tags,
             include_body: options.include_body,
         },
         observations,

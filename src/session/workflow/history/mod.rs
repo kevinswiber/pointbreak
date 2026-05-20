@@ -36,17 +36,16 @@ mod tests {
     use super::summary::ReviewHistorySummary;
     use super::*;
     use crate::model::{
-        AssessmentId, DispositionId, EventId, InterventionId, InterventionResolutionId,
-        ObservationId, ReviewEndpoint, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId,
-        SessionId, Side, SnapshotId, TargetRef, TrackId, WorkUnitId, WorktreeCaptureMode,
+        AssessmentId, EventId, InterventionId, InterventionResolutionId, ObservationId,
+        ReviewEndpoint, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId,
+        Side, SnapshotId, TargetRef, TrackId, WorkUnitId, WorktreeCaptureMode,
     };
     use crate::session::event::{
         AssertionMode, EventTarget, EventType, ImportedNoteTarget, InterventionMode,
         InterventionReasonCode, InterventionRequestedPayload, InterventionResolutionOutcome,
         InterventionResolvedPayload, ReviewAssessment, ReviewAssessmentRecordedPayload,
-        ReviewDisposition, ReviewDispositionRecordedPayload, ReviewInitializedPayload,
-        ReviewNoteImportedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
-        ShoreEvent, SidecarSource, Writer,
+        ReviewInitializedPayload, ReviewNoteImportedPayload, ReviewObservationRecordedPayload,
+        ReviewUnitCapturedPayload, ShoreEvent, SidecarSource, Writer,
     };
     use crate::session::state::DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE;
 
@@ -113,11 +112,6 @@ mod tests {
                 intervention_resolved_event(),
                 EventType::InterventionResolved,
                 "intervention_resolved",
-            ),
-            (
-                disposition_event(),
-                EventType::ReviewDispositionRecorded,
-                "review_disposition_recorded",
             ),
             (
                 review_note_imported_event(),
@@ -365,9 +359,9 @@ mod tests {
         };
         let events = [
             observation_event_with_body("observation body"),
+            assessment_event(),
             intervention_requested_event(),
             intervention_resolved_event(),
-            disposition_event(),
             review_note_imported_event(),
         ];
 
@@ -378,11 +372,25 @@ mod tests {
             .map(|entry| serde_json::to_value(entry).unwrap())
             .collect::<Vec<_>>();
 
-        assert_eq!(entries[0]["summary"]["body"], "observation body");
-        assert_eq!(entries[1]["summary"]["body"], "body");
-        assert_eq!(entries[2]["summary"]["reason"], "approved");
-        assert_eq!(entries[3]["summary"]["summary"], "ship it");
-        assert_eq!(entries[4]["summary"]["body"], "body");
+        assert!(entries.iter().any(|entry| {
+            entry["summary"]["kind"] == "review_observation_recorded"
+                && entry["summary"]["body"] == "observation body"
+        }));
+        assert!(entries.iter().any(|entry| {
+            entry["summary"]["kind"] == "review_assessment_recorded"
+                && entry["summary"]["summary"] == "ship it"
+        }));
+        assert!(entries.iter().any(|entry| {
+            entry["summary"]["kind"] == "intervention_requested"
+                && entry["summary"]["body"] == "body"
+        }));
+        assert!(entries.iter().any(|entry| {
+            entry["summary"]["kind"] == "intervention_resolved"
+                && entry["summary"]["reason"] == "approved"
+        }));
+        assert!(entries.iter().any(|entry| {
+            entry["summary"]["kind"] == "review_note_imported" && entry["summary"]["body"] == "body"
+        }));
     }
 
     #[test]
@@ -685,31 +693,6 @@ mod tests {
             "human:kevin",
             payload,
             "2026-05-13T10:00:03Z",
-        )
-    }
-
-    fn disposition_event() -> ShoreEvent {
-        let payload = ReviewDispositionRecordedPayload {
-            disposition_id: DispositionId::new("disp:sha256:one"),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: review_unit_id("one"),
-            },
-            disposition: ReviewDisposition::Accepted,
-            summary: Some("ship it".to_owned()),
-            summary_artifact_path: None,
-            summary_byte_size: Some(7),
-            summary_content_hash: Some("sha256:summary".to_owned()),
-            replaces_disposition_ids: vec![],
-            related_observation_ids: vec![ObservationId::new("obs:sha256:one")],
-            related_intervention_ids: vec![InterventionId::new("intervention:sha256:one")],
-            overrides: vec![],
-        };
-        tracked_event(
-            EventType::ReviewDispositionRecorded,
-            "disposition:one",
-            "human:kevin",
-            payload,
-            "2026-05-13T10:00:04Z",
         )
     }
 

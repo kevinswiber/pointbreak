@@ -86,6 +86,9 @@ struct ObservationListArgs {
     #[arg(long)]
     file: Option<String>,
 
+    #[arg(long = "tag")]
+    tags: Vec<String>,
+
     #[arg(long)]
     include_body: bool,
 
@@ -122,6 +125,8 @@ struct ObservationListFiltersDocument {
     track_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     file: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tags: Vec<String>,
     include_body: bool,
 }
 
@@ -219,6 +224,9 @@ fn observation_list_options(args: ObservationListArgs) -> ObservationListOptions
     if let Some(file) = args.file {
         options = options.with_file(file);
     }
+    for tag in args.tags {
+        options = options.with_tag(tag);
+    }
     options
 }
 
@@ -268,6 +276,7 @@ fn observation_list_document(
                     .track_id
                     .map(|track_id| track_id.as_str().to_owned()),
                 file: result.filters.file,
+                tags: result.filters.tags,
                 include_body: result.filters.include_body,
             },
             observations: result

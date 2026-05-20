@@ -6,7 +6,7 @@ use crate::canonical_hash::sha256_bytes_hex;
 use crate::error::{Result, ShoreError};
 
 /// Inline/artifact threshold for note-shaped event bodies (observations,
-/// intervention bodies / resolution reasons, disposition summaries, imported
+/// intervention bodies / resolution reasons, assessment summaries, imported
 /// review notes).
 ///
 /// Bodies whose byte length is at most this value remain inline in the event

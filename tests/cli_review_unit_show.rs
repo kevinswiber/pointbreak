@@ -42,9 +42,9 @@ fn review_unit_show_emits_v1_json() {
     );
     assert_eq!(json["eventCount"], 1);
     assert_eq!(json["reviewUnit"]["id"], json["filters"]["reviewUnitId"]);
-    assert_eq!(json["currentDisposition"]["status"], "none");
-    assert!(json["currentDisposition"].get("disposition").is_none());
-    assert!(json["currentDisposition"].get("dispositionId").is_none());
+    assert_eq!(json["currentAssessment"]["status"], "unassessed");
+    assert!(json["currentAssessment"].get("assessment").is_none());
+    assert!(json["currentAssessment"].get("assessmentId").is_none());
     assert!(json.get("statePath").is_none());
 }
 
@@ -251,10 +251,10 @@ fn review_unit_show_track_filter_echoes_and_narrows_narrative_only() {
 }
 
 #[test]
-fn review_unit_show_includes_current_disposition_status() {
+fn review_unit_show_includes_current_assessment_status() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
-    add_disposition(&repo);
+    add_assessment(&repo);
 
     let json = parse_json(
         &shore([
@@ -267,9 +267,9 @@ fn review_unit_show_includes_current_disposition_status() {
         .stdout,
     );
 
-    assert_eq!(json["currentDisposition"]["status"], "resolved");
-    assert_eq!(json["currentDisposition"]["disposition"], "accepted");
-    assert_eq!(json["dispositions"].as_array().unwrap().len(), 1);
+    assert_eq!(json["currentAssessment"]["status"], "resolved");
+    assert_eq!(json["currentAssessment"]["assessment"], "accepted");
+    assert_eq!(json["assessments"].as_array().unwrap().len(), 1);
 }
 
 #[test]
@@ -364,17 +364,17 @@ fn add_observation_with_body(repo: &GitRepo, track: &str, title: &str, body: &st
     )
 }
 
-fn add_disposition(repo: &GitRepo) -> Value {
+fn add_assessment(repo: &GitRepo) -> Value {
     parse_json(
         &shore([
             "review",
-            "disposition",
+            "assessment",
             "add",
             "--repo",
             repo.path().to_str().unwrap(),
             "--track",
             "human:kevin",
-            "--disposition",
+            "--assessment",
             "accepted",
             "--summary",
             "ship it",

@@ -24,7 +24,7 @@ projections, not a temporary gap waiting to be replaced by a database.
   and never moved, retried in place, or rewritten on read.
 - `.shore/artifacts/` — immutable or content-addressed support records, including captured
   ReviewUnit snapshots and large bodies for imported notes, native observations, interventions, and
-  dispositions.
+  assessments.
 
 These are the only authoritative durable storage in V1. Everything else is a cache or projection.
 
@@ -162,40 +162,42 @@ event filenames, and `state.json` paths are internal storage details, not comman
 interventions also appear in the composite `shore review unit show` projection, but they are not
 projected into `shore dump` or `shore show`.
 
-Native dispositions follow the same ReviewUnit ledger model:
+Native assessments follow the same ReviewUnit ledger model:
 
-- immutable `review_disposition_recorded` events in `events/` carry durable disposition facts
-- each disposition targets a ReviewUnit, captured file or range, native observation, native
-  intervention, or native disposition in that same ReviewUnit
-- each disposition belongs to a required track; actor/tool provenance remains in the event writer
+- immutable `review_assessment_recorded` events in `events/` carry durable assessment facts
+- each assessment targets a ReviewUnit, captured file or range, native observation, native
+  intervention, or native assessment in that same ReviewUnit
+- each assessment belongs to a required track; actor/tool provenance remains in the event writer
   envelope
-- bounded `state.json` summarizes disposition state with `dispositionCount`, but it does not embed
-  disposition history, summaries, relationship graphs, or current-disposition candidates
+- bounded `state.json` summarizes assessment state with `assessmentCount`, but it does not embed
+  assessment history, summaries, relationship graphs, or current-assessment candidates
 
-Disposition values are closed in V1: `accepted`, `accepted_with_follow_up`, `needs_changes`,
-`needs_clarification`, `overridden`, `deferred`, `split_out`, and `superseded`.
+Assessment values are closed in V1: `accepted`, `accepted_with_follow_up`, `needs_changes`, and
+`needs_clarification`.
 
-Disposition replacement is explicit. `replacesDispositionIds` is the only V1 relationship that
-removes an older disposition from the current set. Override references are metadata; they record
-that one fact overrides another but do not change current/replaced status unless the older
-disposition is also named in `replacesDispositionIds`.
+Assessment replacement is explicit. `replacesAssessmentIds` is the only V1 relationship that
+removes an older assessment from the current set. Related observation and intervention references
+are evidence links; they do not change current/replaced status.
 
-Disposition read projections use semantic IDs rather than event filenames as logical identity.
-Multiple `review_disposition_recorded` events with the same `dispositionId` collapse to one
-disposition row with a duplicate semantic diagnostic. Multiple unreplaced disposition IDs remain
+Assessment read projections use semantic IDs rather than event filenames as logical identity.
+Multiple `review_assessment_recorded` events with the same `assessmentId` collapse to one
+assessment row with a duplicate semantic diagnostic. Multiple unreplaced assessment IDs remain
 append-only facts; read surfaces report the current state as ambiguous instead of choosing a
 timestamp winner.
 
-Disposition summaries use the shared inline-or-artifact mechanics. Summaries under or equal to
+Assessment summaries use the shared inline-or-artifact mechanics. Summaries under or equal to
 `BODY_INLINE_LIMIT` (4096 bytes today) stay inline in the event payload; summaries above the
 threshold are externalized to `artifacts/notes/<sha256(body)>.json` with the `shore.note-body`
 envelope (schema `shore.note-body`, version `1`), keeping `state.json` bounded and avoiding
 unbounded event payload growth.
 
-The direct read surface is `shore review disposition show`, which replays events and can optionally
+The direct read surface is `shore review assessment show`, which replays events and can optionally
 hydrate summaries. Summary artifact paths, event filenames, and `state.json` paths are internal
-storage details, not command-output API. Native dispositions also appear in the composite
+storage details, not command-output API. Native assessments also appear in the composite
 `shore review unit show` projection, but they are not projected into `shore dump` or `shore show`.
+
+State-change outcomes such as deferred, split-out, overridden, and superseded are represented as
+native observations tagged with `state-change:*`, not as assessment values.
 
 Review history is the chronological read surface over durable events:
 
@@ -211,7 +213,7 @@ Review history is the chronological read surface over durable events:
   default output keeps large text omitted
 
 History preserves raw append-only facts. It does not collapse duplicate semantic events, choose
-current dispositions, resolve interventions, or build the full ReviewUnit row projection. Shared
+current assessments, resolve interventions, or build the full ReviewUnit row projection. Shared
 state diagnostics are still included so callers can see duplicate semantic facts while inspecting
 the underlying events. Raw event files, artifact paths, event filenames, and `state.json` are
 storage details, not history output API.
@@ -222,8 +224,8 @@ ReviewUnit show is the composite read surface for one captured ReviewUnit:
   `.shore/events/` plus the bound immutable snapshot artifact for the selected ReviewUnit
 - `eventSetHash` and `eventCount` describe the full event set read for the command, not only the
   selected ReviewUnit's returned narrative facts
-- the output includes ReviewUnit identity, filters, summary counts, current disposition, native
-  observations, interventions, dispositions, imported adapter notes, projection rows, and
+- the output includes ReviewUnit identity, filters, summary counts, current assessment, native
+  observations, interventions, assessments, imported adapter notes, projection rows, and
   diagnostics
 - rows are narrative-first plus snapshot-complete: reviewed ledger material appears first, and the
   snapshot remainder still includes every captured file, metadata row, hunk header, and diff row
@@ -300,7 +302,7 @@ Artifact filenames follow two deliberate rules, paired to what the file represen
   the V2 reversal shape.
 - **Content-addressed artifacts** use a hash of the artifact body as the filename stem. Note-body
   artifacts live at `artifacts/notes/<sha256(body)>.json`. Hashing the body gives deterministic
-  addressing and deduplication across observations, interventions, and dispositions that share
+  addressing and deduplication across observations, interventions, and assessments that share
   text. Native-recorded payloads may carry a payload-level body hash
   (`body_content_hash` / `reason_content_hash` / `summary_content_hash`) so future read paths or
   repair tools can verify the artifact against the event ledger; imported-note payloads do not
@@ -358,7 +360,7 @@ version `1`), so the authoritative event and rebuildable projection remain bound
 ## Note Body Materialization
 
 Shore stores note-shaped event bodies (observations, intervention bodies, intervention resolution
-reasons, disposition summaries, imported review notes) using a threshold split, not as a uniform
+reasons, assessment summaries, imported review notes) using a threshold split, not as a uniform
 artifact-per-body materialization.
 
 - **Inline path.** Bodies whose byte length is at most `BODY_INLINE_LIMIT` (4096 bytes today, defined
@@ -366,7 +368,7 @@ artifact-per-body materialization.
   carries the body bytes verbatim under its `body` (or `summary` / `reason`) field.
   `body_artifact_path` stays `None`. The materialization discriminator is `body` vs
   `body_artifact_path`, not `body_byte_size`: native ledger payloads (observations, interventions,
-  dispositions) currently set `body_byte_size = Some(_)` on the inline arm via the shared
+  assessments) currently set `body_byte_size = Some(_)` on the inline arm via the shared
   `staged_body` helper, while imported-note payloads leave `body_byte_size = None` inline. Consumers
   that need an inline length should read it from the inline string directly.
 - **Artifact path.** Bodies above the threshold are externalized to
@@ -374,7 +376,7 @@ artifact-per-body materialization.
   (`{"schema":"shore.note-body","version":1,"body":"..."}`). The event payload's `body` field is
   `None`; its `body_artifact_path` carries the relative path and `body_byte_size` carries the body's
   length. Native-recorded payloads (observations, interventions, intervention resolutions,
-  dispositions) additionally carry `body_content_hash` / `reason_content_hash` /
+  assessments) additionally carry `body_content_hash` / `reason_content_hash` /
   `summary_content_hash`; imported-note payloads do not. `load_body_artifact` validates the path
   shape and the envelope's `schema` / `version` fields, not the body bytes themselves — hash-based
   cross-validation against the event payload, where available, is a caller's responsibility.
@@ -392,16 +394,16 @@ artifact-per-body materialization.
 
 ### Why threshold-based
 
-- Most observations and disposition summaries are short. Externalizing every body would emit one
+- Most observations and assessment summaries are short. Externalizing every body would emit one
   additional fsync per body-bearing event (both inline event and artifact use `Durability::Durable`
   writes), with proportional file-count growth.
 - The body's identity does not depend on materialization: native-recorded payloads (observations,
-  interventions, dispositions) already carry a `*_content_hash`, and imported-note artifacts are
+  interventions, assessments) already carry a `*_content_hash`, and imported-note artifacts are
   content-addressed by `sha256(body)` in their filenames. Materializing every body would not
   strengthen those guarantees, only change where canonical bytes live.
 - Artifact-only enumeration is not a supported read path. Even if all bodies were materialized, an
   artifact file under `artifacts/notes/<hash>.json` carries the body and the envelope schema /
-  version but no referrer identity — it cannot answer "which note / observation / disposition does
+  version but no referrer identity — it cannot answer "which note / observation / assessment does
   this body belong to?" without joining back to the event ledger.
 
 ### Threshold is tunable

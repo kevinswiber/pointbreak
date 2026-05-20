@@ -5,7 +5,7 @@ use crate::model::{
     DiffSnapshot, ReviewEndpoint, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId,
     SnapshotId, TrackId,
 };
-use crate::session::disposition::{CurrentDispositionView, DispositionView};
+use crate::session::assessment::{AssessmentView, CurrentAssessmentView};
 use crate::session::intervention::InterventionView;
 use crate::session::observation::ObservationView;
 use crate::session::state::ProjectionDiagnostic;
@@ -52,10 +52,10 @@ pub struct ReviewUnitShowResult {
     pub snapshot: DiffSnapshot,
     pub filters: ReviewUnitShowFilters,
     pub summary: ReviewUnitProjectionSummary,
-    pub current_disposition: CurrentDispositionView,
+    pub current_assessment: CurrentAssessmentView,
     pub observations: Vec<ObservationView>,
     pub interventions: Vec<InterventionView>,
-    pub dispositions: Vec<DispositionView>,
+    pub assessments: Vec<AssessmentView>,
     pub adapter_notes: Vec<AdapterNoteView>,
     pub rows: Vec<ReviewUnitProjectionRow>,
     pub diagnostics: Vec<ProjectionDiagnostic>,
@@ -89,6 +89,6 @@ pub struct ReviewUnitProjectionSummary {
     pub snapshot_remainder_row_count: usize,
     pub observation_count: usize,
     pub intervention_count: usize,
-    pub disposition_count: usize,
+    pub assessment_count: usize,
     pub adapter_note_count: usize,
 }

@@ -1,13 +1,12 @@
 use serde::Serialize;
 
 use crate::model::{
-    AssessmentId, DispositionId, EventId, InterventionId, InterventionResolutionId, ObservationId,
-    ReviewEndpoint, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId,
-    SnapshotId, TrackId,
+    AssessmentId, EventId, InterventionId, InterventionResolutionId, ObservationId, ReviewEndpoint,
+    ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId, SnapshotId, TrackId,
 };
 use crate::session::event::{
     EventType, ImportedNoteTarget, InterventionMode, InterventionReasonCode,
-    InterventionResolutionOutcome, ReviewAssessment, ReviewDisposition, SidecarSource, Writer,
+    InterventionResolutionOutcome, ReviewAssessment, SidecarSource, Writer,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -106,25 +105,6 @@ pub enum ReviewHistorySummary {
         related_observations: Vec<ObservationId>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         related_interventions: Vec<InterventionId>,
-    },
-    ReviewDispositionRecorded {
-        disposition_id: DispositionId,
-        target: ReviewTargetRef,
-        disposition: ReviewDisposition,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        summary: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        summary_byte_size: Option<u64>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        summary_content_hash: Option<String>,
-        #[serde(skip_serializing_if = "Vec::is_empty")]
-        replaces: Vec<DispositionId>,
-        #[serde(skip_serializing_if = "Vec::is_empty")]
-        related_observations: Vec<ObservationId>,
-        #[serde(skip_serializing_if = "Vec::is_empty")]
-        related_interventions: Vec<InterventionId>,
-        #[serde(skip_serializing_if = "Vec::is_empty")]
-        overrides: Vec<ReviewTargetRef>,
     },
     ReviewNoteImported {
         sidecar_source: SidecarSource,

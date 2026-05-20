@@ -7,7 +7,6 @@ pub enum EventType {
     ReviewUnitCaptured,
     ReviewObservationRecorded,
     ReviewAssessmentRecorded,
-    ReviewDispositionRecorded,
     InterventionRequested,
     InterventionResolved,
     ReviewNoteImported,
@@ -56,7 +55,6 @@ mod tests {
             EventType::ReviewUnitCaptured,
             EventType::ReviewObservationRecorded,
             EventType::ReviewAssessmentRecorded,
-            EventType::ReviewDispositionRecorded,
             EventType::InterventionRequested,
             EventType::InterventionResolved,
             EventType::ReviewNoteImported,
@@ -96,10 +94,7 @@ mod tests {
         }
     }
 
-    // Pinned for the legacy-removal slice. The ignored tests become normal
-    // tests when ReviewDispositionRecorded is removed from EventType.
     #[test]
-    #[ignore = "legacy disposition event type is removed in the legacy-removal slice"]
     fn legacy_review_disposition_recorded_event_type_fails_to_decode_after_split() {
         let result: Result<EventType, _> = serde_json::from_str("\"review_disposition_recorded\"");
         assert!(

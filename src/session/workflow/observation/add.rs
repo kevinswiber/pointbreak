@@ -97,6 +97,7 @@ pub struct ObservationAddResult {
     pub event_id: EventId,
     pub track_id: TrackId,
     pub target: ReviewTargetRef,
+    pub tags: Vec<String>,
     pub body_content_hash: Option<String>,
     pub events_created: usize,
     pub events_existing: usize,
@@ -128,22 +129,20 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
     })
 }
 
-pub(in crate::session::workflow::observation) struct ObservationWriteInput {
-    pub(in crate::session::workflow::observation) repo: PathBuf,
-    pub(in crate::session::workflow::observation) resolved: super::ResolvedReviewUnit,
-    pub(in crate::session::workflow::observation) target: ReviewTargetRef,
-    pub(in crate::session::workflow::observation) track: Option<String>,
-    pub(in crate::session::workflow::observation) title: String,
-    pub(in crate::session::workflow::observation) body: Option<String>,
-    pub(in crate::session::workflow::observation) tags: Vec<String>,
-    pub(in crate::session::workflow::observation) confidence: Option<String>,
-    pub(in crate::session::workflow::observation) supersedes_observation_ids: Vec<ObservationId>,
-    pub(in crate::session::workflow::observation) idempotency_key: Option<String>,
+struct ObservationWriteInput {
+    repo: PathBuf,
+    resolved: super::ResolvedReviewUnit,
+    target: ReviewTargetRef,
+    track: Option<String>,
+    title: String,
+    body: Option<String>,
+    tags: Vec<String>,
+    confidence: Option<String>,
+    supersedes_observation_ids: Vec<ObservationId>,
+    idempotency_key: Option<String>,
 }
 
-pub(in crate::session::workflow::observation) fn write_observation_event(
-    input: ObservationWriteInput,
-) -> Result<ObservationAddResult> {
+fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAddResult> {
     let paths = ShoreStorePaths::resolve(&input.repo)?;
     let worktree_root = paths.worktree_root();
     let shore_dir = paths.shore_dir();
@@ -162,6 +161,7 @@ pub(in crate::session::workflow::observation) fn write_observation_event(
         .body
         .as_ref()
         .map(|body| format!("sha256:{}", sha256_bytes_hex(body.as_bytes())));
+    let tags = input.tags.clone();
     let (body, body_artifact_path, body_artifact_bytes, body_byte_size) =
         staged_body(input.body.as_deref())?;
     let observation_id = build_observation_id(ObservationIdMaterial {
@@ -242,6 +242,7 @@ pub(in crate::session::workflow::observation) fn write_observation_event(
         event_id,
         track_id,
         target: input.target,
+        tags,
         body_content_hash,
         events_created,
         events_existing,

@@ -20,32 +20,26 @@ pub use store::{capture_worktree_fingerprint, ensure_shore_ignored, shore_dir_fo
 pub(crate) use store::{compute_review_unit_fingerprint, read_snapshot_artifact};
 pub use workflow::{
     AdapterNoteView, AssessmentAddOptions, AssessmentAddResult, AssessmentRecordStatus,
-    AssessmentShowFilters, AssessmentShowOptions, AssessmentShowResult, AssessmentView,
-    CaptureOptions, CaptureResult, CurrentAssessmentStatus, CurrentAssessmentView,
-    CurrentDispositionStatus, CurrentDispositionView, DispositionAddOptions, DispositionAddResult,
-    DispositionShowFilters, DispositionShowOptions, DispositionShowResult,
-    DispositionTargetSelector, DispositionView, ImportNotesOptions, ImportNotesResult,
-    InterventionFetchOptions, InterventionFetchResult, InterventionListOptions,
-    InterventionListResult, InterventionRequestOptions, InterventionRequestResult,
-    InterventionResolutionView, InterventionResolveOptions, InterventionResolveResult,
-    InterventionStatusFilter, InterventionTargetSelector, InterventionView, ObservationAddOptions,
-    ObservationAddResult, ObservationListOptions, ObservationListResult, ObservationStatus,
-    ObservationTargetSelector, ObservationView, ReloadDiagnosticCode, ReviewHistoryEntry,
-    ReviewHistoryFilters, ReviewHistoryOptions, ReviewHistoryResult, ReviewUnitListEntry,
-    ReviewUnitListOptions, ReviewUnitListResult, ReviewUnitProjectionIdentity,
-    ReviewUnitProjectionRow, ReviewUnitProjectionSummary, ReviewUnitShowFilters,
-    ReviewUnitShowOptions, ReviewUnitShowResult, SnapshotOrder, StateChangeOptions,
+    AssessmentShowFilters, AssessmentShowOptions, AssessmentShowResult, AssessmentTargetSelector,
+    AssessmentView, CaptureOptions, CaptureResult, CurrentAssessmentStatus, CurrentAssessmentView,
+    ImportNotesOptions, ImportNotesResult, InterventionFetchOptions, InterventionFetchResult,
+    InterventionListOptions, InterventionListResult, InterventionRequestOptions,
+    InterventionRequestResult, InterventionResolutionView, InterventionResolveOptions,
+    InterventionResolveResult, InterventionStatusFilter, InterventionTargetSelector,
+    InterventionView, ObservationAddOptions, ObservationAddResult, ObservationListOptions,
+    ObservationListResult, ObservationStatus, ObservationTargetSelector, ObservationView,
+    ReloadDiagnosticCode, ReviewHistoryEntry, ReviewHistoryFilters, ReviewHistoryOptions,
+    ReviewHistoryResult, ReviewUnitListEntry, ReviewUnitListOptions, ReviewUnitListResult,
+    ReviewUnitProjectionIdentity, ReviewUnitProjectionRow, ReviewUnitProjectionSummary,
+    ReviewUnitShowFilters, ReviewUnitShowOptions, ReviewUnitShowResult, SnapshotOrder,
     capture_worktree_review, fetch_intervention, import_notes, list_interventions,
-    list_observations, list_review_units, record_assessment, record_deferred_state_change,
-    record_disposition, record_observation, record_overridden_state_change,
-    record_split_out_state_change, record_superseded_state_change, reload_session,
-    request_intervention, resolve_intervention, review_history, show_assessments,
-    show_dispositions, show_review_unit,
+    list_observations, list_review_units, record_assessment, record_observation, reload_session,
+    request_intervention, resolve_intervention, review_history, show_assessments, show_review_unit,
 };
 #[cfg(test)]
 pub(crate) use workflow::{InterventionStatus, ReloadOutcome};
 pub(crate) use workflow::{ReloadDiagnostic, reload_diagnostics_for_document};
-pub(in crate::session) use workflow::{disposition, intervention, observation};
+pub(in crate::session) use workflow::{assessment, intervention, observation};
 
 #[cfg(test)]
 mod tests {

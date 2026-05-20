@@ -12,7 +12,7 @@ use shore::session::{
 
 use crate::cli::json;
 use crate::cli::review::documents::{
-    CurrentDispositionDocument, DispositionViewDocument, InterventionViewDocument,
+    AssessmentViewDocument, CurrentAssessmentDocument, InterventionViewDocument,
     ObservationViewDocument,
 };
 
@@ -78,10 +78,10 @@ struct UnitShowBody {
     review_unit: UnitReviewUnitDocument,
     filters: UnitShowFiltersDocument,
     summary: UnitShowSummaryDocument,
-    current_disposition: CurrentDispositionDocument,
+    current_assessment: CurrentAssessmentDocument,
     observations: Vec<ObservationViewDocument>,
     interventions: Vec<InterventionViewDocument>,
-    dispositions: Vec<DispositionViewDocument>,
+    assessments: Vec<AssessmentViewDocument>,
     adapter_notes: Vec<AdapterNoteDocument>,
     rows: Vec<UnitProjectionRowDocument>,
 }
@@ -118,7 +118,7 @@ struct UnitShowSummaryDocument {
     snapshot_remainder_row_count: usize,
     observation_count: usize,
     intervention_count: usize,
-    disposition_count: usize,
+    assessment_count: usize,
     adapter_note_count: usize,
 }
 
@@ -173,7 +173,7 @@ struct UnitProjectionRowDocument {
     old_path: Option<String>,
     related_observation_ids: Vec<String>,
     related_intervention_ids: Vec<String>,
-    related_disposition_ids: Vec<String>,
+    related_assessment_ids: Vec<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -270,7 +270,7 @@ fn unit_show_document(result: ReviewUnitShowResult) -> json::DiagnosticDocument<
             review_unit: UnitReviewUnitDocument::from(result.review_unit),
             filters: UnitShowFiltersDocument::from(result.filters),
             summary: UnitShowSummaryDocument::from(result.summary),
-            current_disposition: CurrentDispositionDocument::from(result.current_disposition),
+            current_assessment: CurrentAssessmentDocument::from(result.current_assessment),
             observations: result
                 .observations
                 .into_iter()
@@ -281,10 +281,10 @@ fn unit_show_document(result: ReviewUnitShowResult) -> json::DiagnosticDocument<
                 .into_iter()
                 .map(InterventionViewDocument::from)
                 .collect(),
-            dispositions: result
-                .dispositions
+            assessments: result
+                .assessments
                 .into_iter()
-                .map(DispositionViewDocument::from)
+                .map(AssessmentViewDocument::from)
                 .collect(),
             adapter_notes: result
                 .adapter_notes
@@ -338,7 +338,7 @@ impl From<ReviewUnitProjectionSummary> for UnitShowSummaryDocument {
             snapshot_remainder_row_count: summary.snapshot_remainder_row_count,
             observation_count: summary.observation_count,
             intervention_count: summary.intervention_count,
-            disposition_count: summary.disposition_count,
+            assessment_count: summary.assessment_count,
             adapter_note_count: summary.adapter_note_count,
         }
     }
@@ -396,8 +396,8 @@ impl From<ReviewUnitProjectionRow> for UnitProjectionRowDocument {
                 .into_iter()
                 .map(|id| id.as_str().to_owned())
                 .collect(),
-            related_disposition_ids: row
-                .related_disposition_ids
+            related_assessment_ids: row
+                .related_assessment_ids
                 .into_iter()
                 .map(|id| id.as_str().to_owned())
                 .collect(),

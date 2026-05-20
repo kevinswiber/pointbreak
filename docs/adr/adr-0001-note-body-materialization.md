@@ -7,7 +7,7 @@
 ## Context
 
 Shore stores note-shaped event bodies (observations, intervention bodies, intervention resolution
-reasons, disposition summaries, imported review notes) using a threshold split: small bodies live
+reasons, assessment summaries, imported review notes) using a threshold split: small bodies live
 inline in the event payload, larger bodies are externalized to `artifacts/notes/<sha256(body)>.json`
 under the `shore.note-body` envelope. Issue #17 asked whether note bodies should always materialize
 as durable artifacts even when small, or stay on the current threshold model.
@@ -24,8 +24,8 @@ Stay on the threshold model. Replay is authoritative.
   when present, is a content-addressed sidecar.
 - `.shore/artifacts/notes/` is an overflow store, not a complete inventory of note bodies. Tooling
   that wants a complete list of note bodies must replay events.
-- `state.json` projects bounded counts (`note_count`, `observation_count`, `intervention_count`,
-  `disposition_count`, plus open / blocking-intervention counts and projection diagnostics). It does
+- `state.json` projects bounded counts (`note_count`, `observation_count`, `assessment_count`,
+  `intervention_count`, plus open / blocking-intervention counts and projection diagnostics). It does
   not project body content, body sizes, or artifact paths.
 - The 4096-byte threshold is internal storage tuning. It may change without a deprecation cycle.
   The inline-or-artifact bifurcation itself is a stable contract for storage consumers.
@@ -35,7 +35,7 @@ Stay on the threshold model. Replay is authoritative.
 - Native-recorded payloads carry a hash: `ReviewObservationRecordedPayload.body_content_hash`,
   `InterventionRequestedPayload.body_content_hash`,
   `InterventionResolvedPayload.reason_content_hash`,
-  `ReviewDispositionRecordedPayload.summary_content_hash`.
+  `ReviewAssessmentRecordedPayload.summary_content_hash`.
 - `ReviewNoteImportedPayload` does **not** carry a payload-level body hash. Imported-note artifact
   identity is content-addressed by `sha256(body)` in the artifact filename, but the event payload
   does not duplicate that hash.
@@ -75,24 +75,24 @@ Stay on the threshold model. Replay is authoritative.
 Rejected for these reasons:
 
 1. **Doubled durable writes per body-bearing event.** Every observation, intervention body,
-   intervention resolution reason, disposition summary, and imported note would emit an additional
+   intervention resolution reason, assessment summary, and imported note would emit an additional
    `Durability::Durable` write (one fsync per artifact, in addition to the event's existing fsync).
-   Shore's expected workload has many short observations and disposition summaries; this multiplies
+   Shore's expected workload has many short observations and assessment summaries; this multiplies
    file-count and fsync growth roughly 1:1 with the event log.
 2. **No simplification on the read path.** Every consumer already handles both arms via a uniform
    `inline-or-load_body_artifact` fallback (see `observation_body`, `intervention_body`,
-   `disposition_summary`, `optional_text`, `replay_note_entry`, `adapter_notes`). Switching to
+   `assessment_summary`, `optional_text`, `replay_note_entry`, `adapter_notes`). Switching to
    option (b) removes a one-arm match in those helpers; it does not eliminate the JSON-envelope
    deserialize.
 3. **Materialization alone does not deliver artifact-authoritative tooling.** An artifact under
    `artifacts/notes/<sha256>.json` is anonymous — it carries body bytes and envelope
    schema / version, but no referrer ID. Without joining back to the event ledger, an
-   artifact-only tool cannot answer "which note / observation / disposition does this body belong
+   artifact-only tool cannot answer "which note / observation / assessment does this body belong
    to?". Real artifact-authoritative tooling would require enlarging `NoteBodyEnvelope` to carry
    referrer IDs and reconciling consistency between the envelope and the event payload that names
    it — a significantly larger change than threshold tuning.
 4. **No real consumer is currently requesting artifact-only enumeration.** Every read surface today
-   (history, review-unit show, observation list, intervention list / fetch, disposition show,
+   (history, review-unit show, observation list, intervention list / fetch, assessment show,
    dump's adapter notes) replays events first. There is no `shore notes artifacts ls` CLI or
    library entry point that walks `artifacts/notes/` directly.
 

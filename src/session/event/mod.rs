@@ -6,7 +6,6 @@ use crate::model::EventId;
 
 mod assertion;
 mod assessment;
-mod disposition;
 mod intervention;
 mod kind;
 mod observation;
@@ -19,7 +18,6 @@ mod writer;
 
 pub use assertion::AssertionMode;
 pub use assessment::{ReviewAssessment, ReviewAssessmentRecordedPayload};
-pub use disposition::{ReviewDisposition, ReviewDispositionRecordedPayload};
 pub use intervention::{
     InterventionMode, InterventionReasonCode, InterventionRequestedPayload,
     InterventionResolutionOutcome, InterventionResolvedPayload,
@@ -161,9 +159,9 @@ mod tests {
     use super::*;
     use crate::error::ShoreError;
     use crate::model::{
-        AssessmentId, DispositionId, InterventionId, InterventionResolutionId, ObservationId,
-        ReviewEndpoint, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId,
-        Side, SnapshotId, TargetRef, TrackId, WorkUnitId, WorktreeCaptureMode,
+        AssessmentId, InterventionId, InterventionResolutionId, ObservationId, ReviewEndpoint,
+        ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId, Side, SnapshotId,
+        TargetRef, TrackId, WorkUnitId, WorktreeCaptureMode,
     };
 
     #[test]
@@ -246,22 +244,6 @@ mod tests {
         assert_eq!(writer.role, WriterRole::Reviewer);
         assert_eq!(writer.tool.name, "shore");
         assert_eq!(writer.tool.version, "0.0.1");
-    }
-
-    #[test]
-    fn review_disposition_serializes_as_snake_case() {
-        assert_eq!(
-            serde_json::to_string(&ReviewDisposition::AcceptedWithFollowUp).unwrap(),
-            "\"accepted_with_follow_up\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ReviewDisposition::NeedsClarification).unwrap(),
-            "\"needs_clarification\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ReviewDisposition::SplitOut).unwrap(),
-            "\"split_out\""
-        );
     }
 
     #[test]
@@ -356,96 +338,6 @@ mod tests {
             serde_json::to_string(&EventType::InterventionResolved).unwrap(),
             "\"intervention_resolved\""
         );
-    }
-
-    #[test]
-    fn disposition_recorded_event_serializes_target_and_payload() {
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
-        let track_id = TrackId::new("human:kevin");
-        let disposition_id = DispositionId::new("disp:sha256:one");
-        let target_ref = ReviewTargetRef::ReviewUnit {
-            review_unit_id: review_unit_id.clone(),
-        };
-
-        let event = ShoreEvent::new(
-            EventType::ReviewDispositionRecorded,
-            ReviewDispositionRecordedPayload::idempotency_key(
-                &review_unit_id,
-                &track_id,
-                disposition_id.as_str(),
-            ),
-            EventTarget {
-                session_id: SessionId::new("session:default"),
-                work_unit_id: None,
-                work_object_id: None,
-                work_object_type: None,
-                review_unit_id: Some(review_unit_id.clone()),
-                revision_id: Some(RevisionId::new("rev:git:sha256:one")),
-                snapshot_id: Some(SnapshotId::new("snap:git:sha256:one")),
-                track_id: Some(track_id.clone()),
-                subject: Some(TargetRef::Review(target_ref.clone())),
-            },
-            Writer::shore_local_reviewer("test"),
-            ReviewDispositionRecordedPayload {
-                disposition_id: disposition_id.clone(),
-                target: target_ref,
-                disposition: ReviewDisposition::Accepted,
-                summary: Some("Ship it".to_owned()),
-                summary_artifact_path: None,
-                summary_byte_size: Some(7),
-                summary_content_hash: Some("sha256:summary".to_owned()),
-                replaces_disposition_ids: vec![],
-                related_observation_ids: vec![],
-                related_intervention_ids: vec![],
-                overrides: vec![],
-            },
-            "2026-05-12T00:00:00Z",
-        )
-        .unwrap();
-
-        let json = serde_json::to_value(&event).unwrap();
-
-        assert_eq!(json["eventType"], "review_disposition_recorded");
-        assert_eq!(json["target"]["reviewUnitId"], "review-unit:sha256:one");
-        assert_eq!(json["target"]["trackId"], "human:kevin");
-        assert_eq!(json["payload"]["dispositionId"], "disp:sha256:one");
-        assert_eq!(json["payload"]["disposition"], "accepted");
-        assert_eq!(json["payload"]["summaryContentHash"], "sha256:summary");
-        assert!(json["payload"].get("replacesDispositionIds").is_none());
-    }
-
-    #[test]
-    fn disposition_recorded_rejects_payload_event_type_mismatch() {
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
-        let error = ShoreEvent::new(
-            EventType::ReviewObservationRecorded,
-            "review_disposition_recorded:review-unit:sha256:one:human:kevin:disp:sha256:one",
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                review_unit_id.clone(),
-                RevisionId::new("rev:git:sha256:one"),
-                SnapshotId::new("snap:git:sha256:one"),
-            ),
-            Writer::shore_local_reviewer("test"),
-            ReviewDispositionRecordedPayload {
-                disposition_id: DispositionId::new("disp:sha256:one"),
-                target: ReviewTargetRef::ReviewUnit { review_unit_id },
-                disposition: ReviewDisposition::Accepted,
-                summary: None,
-                summary_artifact_path: None,
-                summary_byte_size: None,
-                summary_content_hash: None,
-                replaces_disposition_ids: vec![],
-                related_observation_ids: vec![],
-                related_intervention_ids: vec![],
-                overrides: vec![],
-            },
-            "2026-05-12T00:00:00Z",
-        )
-        .expect_err("payload mismatch rejected");
-
-        assert!(matches!(error, ShoreError::InvalidEvent { .. }));
-        assert!(error.to_string().contains("payload type"));
     }
 
     #[test]

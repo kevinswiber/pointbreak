@@ -8,9 +8,8 @@ use crate::model::TargetRef;
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
     EventType, InterventionRequestedPayload, InterventionResolvedPayload,
-    ReviewAssessmentRecordedPayload, ReviewDispositionRecordedPayload, ReviewInitializedPayload,
-    ReviewNoteImportedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
-    ShoreEvent,
+    ReviewAssessmentRecordedPayload, ReviewInitializedPayload, ReviewNoteImportedPayload,
+    ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, ShoreEvent,
 };
 use crate::session::state::SessionState;
 
@@ -141,27 +140,6 @@ pub(super) fn history_entry_from_event(
                 )?,
                 reason_byte_size: payload.reason_byte_size,
                 reason_content_hash: payload.reason_content_hash,
-            }
-        }
-        EventType::ReviewDispositionRecorded => {
-            let payload: ReviewDispositionRecordedPayload =
-                serde_json::from_value(event.payload.clone())?;
-            ReviewHistorySummary::ReviewDispositionRecorded {
-                disposition_id: payload.disposition_id,
-                target: payload.target,
-                disposition: payload.disposition,
-                summary: optional_text(
-                    shore_dir,
-                    include_body,
-                    payload.summary,
-                    payload.summary_artifact_path.as_deref(),
-                )?,
-                summary_byte_size: payload.summary_byte_size,
-                summary_content_hash: payload.summary_content_hash,
-                replaces: payload.replaces_disposition_ids,
-                related_observations: payload.related_observation_ids,
-                related_interventions: payload.related_intervention_ids,
-                overrides: payload.overrides,
             }
         }
         EventType::ReviewNoteImported => {

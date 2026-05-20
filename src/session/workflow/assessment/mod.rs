@@ -1,5 +1,6 @@
 mod add;
 mod show;
+mod target;
 mod util;
 mod view;
 
@@ -7,6 +8,7 @@ pub use self::add::{AssessmentAddOptions, AssessmentAddResult, record_assessment
 pub use self::show::{
     AssessmentShowFilters, AssessmentShowOptions, AssessmentShowResult, show_assessments,
 };
+pub use self::target::AssessmentTargetSelector;
 pub(crate) use self::view::{AssessmentProjectionOptions, project_assessments};
 pub use self::view::{
     AssessmentRecordStatus, AssessmentView, CurrentAssessmentStatus, CurrentAssessmentView,
@@ -18,13 +20,13 @@ mod tests {
     use std::process::Command;
 
     use super::*;
-    use crate::model::{DispositionId, ReviewTargetRef};
+    use crate::model::ReviewTargetRef;
     use crate::session::event::{
         AssertionMode, EventType, ReviewAssessment, ReviewAssessmentRecordedPayload,
     };
     use crate::session::{
-        CaptureOptions, EventStore, SessionState, StateChangeOptions, capture_worktree_review,
-        record_deferred_state_change,
+        CaptureOptions, EventStore, ObservationAddOptions, SessionState, capture_worktree_review,
+        record_observation,
     };
 
     #[test]
@@ -193,26 +195,6 @@ mod tests {
     }
 
     #[test]
-    fn record_review_assessment_rejects_legacy_disposition_target_ref() {
-        let repo = modified_repo();
-        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-
-        let error = record_assessment(
-            AssessmentAddOptions::new(repo.path())
-                .with_track("human:kevin")
-                .with_assessment(ReviewAssessment::Accepted)
-                .with_summary("ship it")
-                .with_target(ReviewTargetRef::Disposition {
-                    review_unit_id: capture.review_unit_id,
-                    disposition_id: DispositionId::new("disp:sha256:legacy"),
-                }),
-        )
-        .unwrap_err();
-
-        assert!(error.to_string().contains("legacy disposition"));
-    }
-
-    #[test]
     fn current_assessment_view_is_unassessed_when_no_assessment_exists() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
@@ -321,11 +303,12 @@ mod tests {
     fn current_assessment_view_ignores_state_change_observations() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        record_deferred_state_change(
-            StateChangeOptions::new(repo.path())
+        record_observation(
+            ObservationAddOptions::new(repo.path())
                 .with_track("human:kevin")
                 .with_title("Defer")
-                .with_body("Out of scope"),
+                .with_body("Out of scope")
+                .with_tag("state-change:deferred"),
         )
         .unwrap();
 

@@ -211,6 +211,58 @@ fn observation_list_filters_by_track_and_file() {
 }
 
 #[test]
+fn observation_list_filters_by_tag() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore([
+        "review",
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "agent:codex",
+        "--title",
+        "Parser",
+        "--tag",
+        "correctness",
+        "--tag",
+        "parser",
+    ]);
+    shore([
+        "review",
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "agent:codex",
+        "--title",
+        "Docs",
+        "--tag",
+        "documentation",
+    ]);
+
+    let output = shore([
+        "review",
+        "observation",
+        "list",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--tag",
+        "correctness",
+        "--tag",
+        "parser",
+    ]);
+
+    let json = parse_json(&output.stdout);
+    assert_eq!(json["filters"]["tags"][0], "correctness");
+    assert_eq!(json["filters"]["tags"][1], "parser");
+    assert_eq!(json["observations"].as_array().unwrap().len(), 1);
+    assert_eq!(json["observations"][0]["title"], "Parser");
+}
+
+#[test]
 fn observation_list_include_body_hydrates_body() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);

@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::json;
 
+use super::AssessmentTargetSelector;
+use super::target::resolve_assessment_target;
 use super::util::sorted_unique;
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
@@ -27,7 +29,7 @@ pub struct AssessmentAddOptions {
     track: Option<String>,
     assessment: Option<ReviewAssessment>,
     summary: Option<String>,
-    target: Option<ReviewTargetRef>,
+    target: AssessmentTargetSelector,
     replaces_assessment_ids: Vec<AssessmentId>,
     related_observation_ids: Vec<ObservationId>,
     related_intervention_ids: Vec<InterventionId>,
@@ -42,7 +44,7 @@ impl AssessmentAddOptions {
             track: None,
             assessment: None,
             summary: None,
-            target: None,
+            target: AssessmentTargetSelector::review_unit(),
             replaces_assessment_ids: Vec::new(),
             related_observation_ids: Vec::new(),
             related_intervention_ids: Vec::new(),
@@ -71,7 +73,12 @@ impl AssessmentAddOptions {
     }
 
     pub fn with_target(mut self, target: ReviewTargetRef) -> Self {
-        self.target = Some(target);
+        self.target = AssessmentTargetSelector::direct(target);
+        self
+    }
+
+    pub fn with_target_selector(mut self, target: AssessmentTargetSelector) -> Self {
+        self.target = target;
         self
     }
 
@@ -121,7 +128,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
     let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
     let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
-    let target = resolve_assessment_target(&resolved.review_unit_id, options.target)?;
+    let target = resolve_assessment_target(worktree_root, &events, &resolved, &options.target)?;
     let track_id = validated_track_id(options.track.as_deref().ok_or_else(|| {
         ShoreError::WorkflowInputInvalid {
             reason: "track is required".to_owned(),
@@ -240,27 +247,6 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
     })
 }
 
-fn resolve_assessment_target(
-    review_unit_id: &ReviewUnitId,
-    target: Option<ReviewTargetRef>,
-) -> Result<ReviewTargetRef> {
-    let target = target.unwrap_or_else(|| ReviewTargetRef::ReviewUnit {
-        review_unit_id: review_unit_id.clone(),
-    });
-    if matches!(target, ReviewTargetRef::Disposition { .. }) {
-        return Err(ShoreError::WorkflowInputInvalid {
-            reason: "assessment target cannot use a legacy disposition reference".to_owned(),
-        });
-    }
-    let target_review_unit_id = review_unit_id_for_target(&target);
-    if target_review_unit_id != review_unit_id {
-        return Err(ShoreError::WorkflowInputInvalid {
-            reason: "assessment target must belong to the selected review unit".to_owned(),
-        });
-    }
-    Ok(target)
-}
-
 fn validate_assessment_relationships(
     events: &[ShoreEvent],
     review_unit_id: &ReviewUnitId,
@@ -355,19 +341,6 @@ fn has_intervention(
         }
     }
     Ok(false)
-}
-
-fn review_unit_id_for_target(target: &ReviewTargetRef) -> &ReviewUnitId {
-    match target {
-        ReviewTargetRef::ReviewUnit { review_unit_id }
-        | ReviewTargetRef::File { review_unit_id, .. }
-        | ReviewTargetRef::Range { review_unit_id, .. }
-        | ReviewTargetRef::Observation { review_unit_id, .. }
-        | ReviewTargetRef::Intervention { review_unit_id, .. }
-        | ReviewTargetRef::Disposition { review_unit_id, .. }
-        | ReviewTargetRef::Assessment { review_unit_id, .. }
-        | ReviewTargetRef::Event { review_unit_id, .. } => review_unit_id,
-    }
 }
 
 struct AssessmentIdMaterial<'a> {

@@ -6,21 +6,15 @@ mod reload;
 mod review_unit_list;
 mod review_unit_projection;
 
-pub(in crate::session) mod disposition;
 pub(in crate::session) mod intervention;
 pub(in crate::session) mod observation;
 
 pub use assessment::{
     AssessmentAddOptions, AssessmentAddResult, AssessmentRecordStatus, AssessmentShowFilters,
-    AssessmentShowOptions, AssessmentShowResult, AssessmentView, CurrentAssessmentStatus,
-    CurrentAssessmentView, record_assessment, show_assessments,
+    AssessmentShowOptions, AssessmentShowResult, AssessmentTargetSelector, AssessmentView,
+    CurrentAssessmentStatus, CurrentAssessmentView, record_assessment, show_assessments,
 };
 pub use capture::{CaptureOptions, CaptureResult, capture_worktree_review};
-pub use disposition::{
-    CurrentDispositionStatus, CurrentDispositionView, DispositionAddOptions, DispositionAddResult,
-    DispositionShowFilters, DispositionShowOptions, DispositionShowResult,
-    DispositionTargetSelector, DispositionView, record_disposition, show_dispositions,
-};
 pub use history::{
     ReviewHistoryEntry, ReviewHistoryFilters, ReviewHistoryOptions, ReviewHistoryResult,
     review_history,
@@ -37,9 +31,8 @@ pub use intervention::{
 };
 pub use observation::{
     ObservationAddOptions, ObservationAddResult, ObservationListOptions, ObservationListResult,
-    ObservationStatus, ObservationTargetSelector, ObservationView, StateChangeOptions,
-    list_observations, record_deferred_state_change, record_observation,
-    record_overridden_state_change, record_split_out_state_change, record_superseded_state_change,
+    ObservationStatus, ObservationTargetSelector, ObservationView, list_observations,
+    record_observation,
 };
 #[cfg(test)]
 pub use reload::ReloadOutcome;
