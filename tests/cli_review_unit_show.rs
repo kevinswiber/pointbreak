@@ -185,6 +185,7 @@ fn review_unit_show_includes_input_requests_and_omits_legacy_fields() {
         "--include-body",
     ]);
     let json = parse_json(&output.stdout);
+    let stdout = String::from_utf8_lossy(&output.stdout);
     let input_request_id = requested["inputRequestId"].as_str().unwrap();
 
     assert_eq!(json["inputRequests"].as_array().unwrap().len(), 1);
@@ -195,6 +196,9 @@ fn review_unit_show_includes_input_requests_and_omits_legacy_fields() {
         "approved"
     );
     assert_eq!(json["summary"]["inputRequestCount"], 1);
+    assert!(!stdout.contains("artifacts/notes/"));
+    assert!(!stdout.contains("artifacts/snapshots/"));
+    assert!(!stdout.contains(".shore/events"));
     assert!(json.get("interventions").is_none());
     assert!(json["summary"].get("interventionCount").is_none());
     assert!(json["inputRequests"][0].get("resolutions").is_none());
