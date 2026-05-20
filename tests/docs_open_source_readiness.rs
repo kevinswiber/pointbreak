@@ -62,6 +62,7 @@ fn cli_reference_exists_and_covers_current_commands() {
 #[test]
 fn getting_started_walks_through_first_review() {
     let guide = std::fs::read_to_string("docs/getting-started.md").expect("read getting started");
+    let normalized_guide = guide.replace("\r\n", "\n");
 
     for required in [
         "cargo install shoreline",
@@ -78,7 +79,7 @@ fn getting_started_walks_through_first_review() {
         );
     }
 
-    assert!(guide.contains(
+    assert!(normalized_guide.contains(
         "--start-line 6 \\\n  --body \"The fallback value is visible user-facing behavior"
     ));
     assert!(!guide.contains("Gumbo"));
