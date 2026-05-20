@@ -28,8 +28,10 @@ pre_bump_hooks = [
     "cargo set-version {{version}}",
 ]
 post_bump_hooks = [
-    "git push",
-    "git push origin v{{version}}",
+    "git commit --amend -m 'chore: v{{version}}'",
+    "git tag -f v{{version}}",
+    "git push origin HEAD:main",
+    "git push origin refs/tags/v{{version}}",
     "gh workflow run release.yml -f tag=v{{version}}",
 ]
 

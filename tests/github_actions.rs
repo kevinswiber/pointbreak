@@ -33,7 +33,10 @@ fn release_workflows_target_single_shoreline_crate() {
     assert!(release.contains("https://crates.io/api/v1/crates/shoreline/${VERSION}"));
     assert!(release_script.contains(r#"REPO="kevinswiber/shoreline""#));
     assert!(!release.contains("boardwalk"));
-    assert!(cog.contains("git push origin v{{version}}"));
+    assert!(cog.contains(r#""git commit --amend -m 'chore: v{{version}}'""#));
+    assert!(cog.contains(r#""git tag -f v{{version}}""#));
+    assert!(cog.contains(r#""git push origin HEAD:main""#));
+    assert!(cog.contains(r#""git push origin refs/tags/v{{version}}""#));
     assert!(cog.contains("gh workflow run release.yml -f tag=v{{version}}"));
     assert!(cog.contains(r#"repository = "shoreline""#));
 }

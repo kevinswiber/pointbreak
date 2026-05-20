@@ -197,7 +197,7 @@ jobs:
               echo "$bump_command"
               echo '```'
               echo ""
-              echo "The Cocogitto CI bump profile pushes the bump commit and tag, then dispatches \`release.yml\` for the new tag."
+              echo "The Cocogitto CI bump profile rewrites Cocogitto's scoped bump commit to an unscoped commit, pushes the bump commit and tag, then dispatches \`release.yml\` for the new tag."
             } | out
           else
             echo "No release is planned." | out
