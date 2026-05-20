@@ -76,3 +76,30 @@ fn community_health_files_exist() {
     assert!(std::path::Path::new(".github/pull_request_template.md").exists());
     assert!(std::path::Path::new(".github/ISSUE_TEMPLATE/bug_report.md").exists());
 }
+
+#[test]
+fn readme_is_concise_and_routes_to_deeper_docs() {
+    let readme = std::fs::read_to_string("README.md").expect("read README");
+    let line_count = readme.lines().count();
+
+    assert!(
+        line_count <= 220,
+        "README should be a concise landing page, got {line_count} lines"
+    );
+
+    for required in [
+        "cargo install shoreline",
+        "docs/getting-started.md",
+        "docs/cli-reference.md",
+        "CONTRIBUTING.md",
+        "docs/releasing.md",
+        "docs/review-workflow.md",
+    ] {
+        assert!(
+            readme.contains(required),
+            "README missing route to {required}"
+        );
+    }
+
+    assert!(!readme.contains("Gumbo"));
+}
