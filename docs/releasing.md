@@ -2,25 +2,24 @@
 
 Shoreline releases are driven from GitHub Actions through Cocogitto.
 
+The published crate is `shoreline`; it installs the `shore` command. The crate is licensed
+Apache-2.0 through `Cargo.toml` and the repository `LICENSE` file.
+
 Use the **Release Plan** workflow in `plan` mode first. It reports the current commit, recent CI
 status, the version Cocogitto will publish, and a changelog preview. For an exact release, set the
-optional `version` input, for example `0.1.0`. After checking the plan, re-run the same workflow in
+optional `version` input, for example `0.1.1`. After checking the plan, re-run the same workflow in
 `release` mode with the same version input.
 
 Release mode creates the Cocogitto version commit and tag, pushes both to `main`, and dispatches the
-**Release** workflow for that tag. The Release workflow publishes the `shoreline` crate, then creates
-the GitHub Release.
-
-Before the first v0.1.0 publish, decide whether the crate should use a manifest `license` field or a
-repository license file. Cargo package preflight currently passes, but warns when neither value is
-present.
+**Release** workflow for that tag. The Release workflow publishes the `shoreline` crate to crates.io,
+then creates the GitHub Release.
 
 ## Local helper
 
 ```sh
 ./scripts/run-release-plan.sh
-./scripts/run-release-plan.sh plan 0.1.0
-./scripts/run-release-plan.sh release 0.1.0
+./scripts/run-release-plan.sh plan 0.1.1
+./scripts/run-release-plan.sh release 0.1.1
 ```
 
 Set `RELEASE_PLAN_DIR=.` to keep the downloaded `release-plan.md`.
@@ -41,9 +40,12 @@ Repository secrets:
 
 No Homebrew, npm, or binary-asset secrets are needed for Shoreline.
 
-## Cocogitto Major Bumps
+## Cocogitto Notes
 
 For normal automatic releases, Cocogitto infers a major bump from a breaking-change conventional
-commit such as `feat!:` or a commit with a `BREAKING CHANGE:` footer. For the first Shoreline `0.1.0`
-release, use the explicit workflow version input instead of creating an artificial breaking-change
-commit.
+commit such as `feat!:` or a commit with a `BREAKING CHANGE:` footer. Exact releases should use the
+workflow `version` input instead of creating artificial breaking-change commits.
+
+The CI release profile amends Cocogitto's generated version bump commit to an unscoped
+`chore: v<version>` header before pushing and tagging. Keep that behavior while `cog.toml` has an
+empty scopes list.

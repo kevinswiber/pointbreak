@@ -103,3 +103,15 @@ fn readme_is_concise_and_routes_to_deeper_docs() {
 
     assert!(!readme.contains("Gumbo"));
 }
+
+#[test]
+fn release_docs_are_current_after_v0_1_publish() {
+    let releasing = std::fs::read_to_string("docs/releasing.md").expect("read releasing docs");
+
+    assert!(!releasing.contains("Before the first v0.1.0 publish"));
+    assert!(!releasing.contains("Cargo package preflight currently passes, but warns"));
+    assert!(releasing.contains("shoreline"));
+    assert!(releasing.contains("Release Plan"));
+    assert!(releasing.contains("Release"));
+    assert!(releasing.contains("Apache-2.0"));
+}
