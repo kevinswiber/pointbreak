@@ -6,7 +6,7 @@ use crate::model::{
     SnapshotId, TrackId,
 };
 use crate::session::assessment::{AssessmentView, CurrentAssessmentView};
-use crate::session::intervention::InterventionView;
+use crate::session::input_request::InputRequestView;
 use crate::session::observation::ObservationView;
 use crate::session::state::ProjectionDiagnostic;
 
@@ -54,7 +54,7 @@ pub struct ReviewUnitShowResult {
     pub summary: ReviewUnitProjectionSummary,
     pub current_assessment: CurrentAssessmentView,
     pub observations: Vec<ObservationView>,
-    pub interventions: Vec<InterventionView>,
+    pub interventions: Vec<InputRequestView>,
     pub assessments: Vec<AssessmentView>,
     pub adapter_notes: Vec<AdapterNoteView>,
     pub rows: Vec<ReviewUnitProjectionRow>,

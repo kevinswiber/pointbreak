@@ -8,7 +8,7 @@ use crate::session::observation::{
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum InterventionTargetSelector {
+pub enum InputRequestTargetSelector {
     ReviewUnit,
     File {
         path: String,
@@ -24,7 +24,7 @@ pub enum InterventionTargetSelector {
     },
 }
 
-impl InterventionTargetSelector {
+impl InputRequestTargetSelector {
     pub fn review_unit() -> Self {
         Self::ReviewUnit
     }
@@ -52,20 +52,20 @@ impl InterventionTargetSelector {
     }
 }
 
-pub(super) fn resolve_intervention_target(
+pub(super) fn resolve_input_request_target(
     repo: &Path,
     events: &[ShoreEvent],
     resolved: &ResolvedReviewUnit,
-    selector: &InterventionTargetSelector,
+    selector: &InputRequestTargetSelector,
 ) -> Result<ReviewTargetRef> {
     match selector {
-        InterventionTargetSelector::ReviewUnit => {
+        InputRequestTargetSelector::ReviewUnit => {
             resolve_observation_target(repo, resolved, &ObservationTargetSelector::review_unit())
         }
-        InterventionTargetSelector::File { path } => {
+        InputRequestTargetSelector::File { path } => {
             resolve_observation_target(repo, resolved, &ObservationTargetSelector::file(path))
         }
-        InterventionTargetSelector::Range {
+        InputRequestTargetSelector::Range {
             path,
             side,
             start_line,
@@ -75,7 +75,7 @@ pub(super) fn resolve_intervention_target(
             resolved,
             &ObservationTargetSelector::range(path, *side, *start_line, *end_line),
         ),
-        InterventionTargetSelector::Observation { observation_id } => {
+        InputRequestTargetSelector::Observation { observation_id } => {
             resolve_native_observation_target(events, resolved, observation_id)
         }
     }

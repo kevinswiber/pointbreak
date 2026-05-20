@@ -1,8 +1,8 @@
 use crate::error::Result;
 use crate::session::EventStore;
 use crate::session::assessment::{AssessmentProjectionOptions, project_assessments};
-use crate::session::intervention::{
-    InterventionProjectionOptions, InterventionStatusFilter, project_interventions,
+use crate::session::input_request::{
+    InputRequestProjectionOptions, InputRequestStatusFilter, project_input_requests,
 };
 use crate::session::observation::{
     ObservationProjectionOptions, project_observations, resolve_review_unit, validated_track_id,
@@ -50,14 +50,14 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         tag_filters: &[],
         include_body: options.include_body,
     })?;
-    let interventions = project_interventions(InterventionProjectionOptions {
+    let interventions = project_input_requests(InputRequestProjectionOptions {
         shore_dir: paths.shore_dir(),
         events: &events,
         resolved: &resolved,
         track_filter: track_id.clone(),
         mode_filter: None,
         file_filter: None,
-        status_filter: InterventionStatusFilter::All,
+        status_filter: InputRequestStatusFilter::All,
         include_body: options.include_body,
     })?;
     let (current_assessment, assessments) = project_assessments(AssessmentProjectionOptions {
@@ -131,11 +131,11 @@ mod tests {
     };
     use crate::session::{
         AssessmentAddOptions, AssessmentShowOptions, CaptureOptions, CurrentAssessmentStatus,
-        ImportNotesOptions, InterventionListOptions, InterventionRequestOptions,
-        InterventionResolveOptions, InterventionStatus, InterventionStatusFilter,
+        ImportNotesOptions, InputRequestListOptions, InputRequestOpenOptions,
+        InputRequestRespondOptions, InputRequestStatus, InputRequestStatusFilter,
         ObservationAddOptions, ObservationListOptions, ObservationTargetSelector,
-        capture_worktree_review, import_notes, list_interventions, list_observations,
-        record_assessment, record_observation, request_intervention, resolve_intervention,
+        capture_worktree_review, import_notes, list_input_requests, list_observations,
+        open_input_request, record_assessment, record_observation, respond_input_request,
         show_assessments,
     };
 
@@ -367,15 +367,15 @@ mod tests {
     fn show_review_unit_includes_open_and_resolved_interventions() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let request = request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        let request = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_track("agent:codex")
                 .with_title("Need decision")
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired),
         )
         .unwrap();
-        resolve_intervention(
-            InterventionResolveOptions::new(repo.path(), request.input_request_id.clone())
+        respond_input_request(
+            InputRequestRespondOptions::new(repo.path(), request.input_request_id.clone())
                 .with_outcome(InputRequestResponseOutcome::Approved)
                 .with_reason("ok"),
         )
@@ -385,7 +385,7 @@ mod tests {
 
         assert_eq!(unit.interventions.len(), 1);
         assert_eq!(unit.interventions[0].id, request.input_request_id);
-        assert_eq!(unit.interventions[0].status, InterventionStatus::Resolved);
+        assert_eq!(unit.interventions[0].status, InputRequestStatus::Responded);
         assert_eq!(unit.summary.intervention_count, 1);
         assert!(
             unit.rows
@@ -402,12 +402,12 @@ mod tests {
         add_ambiguous_intervention_resolutions(&repo);
 
         let unit = show_review_unit(ReviewUnitShowOptions::new(repo.path())).unwrap();
-        let list = list_interventions(
-            InterventionListOptions::new(repo.path()).with_status(InterventionStatusFilter::All),
+        let list = list_input_requests(
+            InputRequestListOptions::new(repo.path()).with_status(InputRequestStatusFilter::All),
         )
         .unwrap();
 
-        assert_eq!(unit.interventions, list.interventions);
+        assert_eq!(unit.interventions, list.input_requests);
         assert_eq!(unit.diagnostics, list.diagnostics);
     }
 
@@ -723,8 +723,8 @@ mod tests {
     }
 
     fn add_duplicate_intervention_requests(repo: &TestRepo) {
-        let first = request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        let first = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_track("agent:codex")
                 .with_title("Same decision")
                 .with_body("same body")
@@ -732,8 +732,8 @@ mod tests {
                 .with_idempotency_key("intervention-retry-a"),
         )
         .unwrap();
-        let second = request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        let second = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_track("agent:codex")
                 .with_title("Same decision")
                 .with_body("same body")
@@ -746,20 +746,20 @@ mod tests {
     }
 
     fn add_ambiguous_intervention_resolutions(repo: &TestRepo) {
-        let request = request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        let request = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_track("agent:codex")
                 .with_title("Ambiguous")
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired),
         )
         .unwrap();
-        resolve_intervention(
-            InterventionResolveOptions::new(repo.path(), request.input_request_id.clone())
+        respond_input_request(
+            InputRequestRespondOptions::new(repo.path(), request.input_request_id.clone())
                 .with_outcome(InputRequestResponseOutcome::Approved),
         )
         .unwrap();
-        resolve_intervention(
-            InterventionResolveOptions::new(repo.path(), request.input_request_id)
+        respond_input_request(
+            InputRequestRespondOptions::new(repo.path(), request.input_request_id)
                 .with_outcome(InputRequestResponseOutcome::Rejected),
         )
         .unwrap();

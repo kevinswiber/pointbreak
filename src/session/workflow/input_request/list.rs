@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use super::view::{
-    InterventionProjectionOptions, InterventionStatusFilter, InterventionView,
-    project_interventions,
+    InputRequestProjectionOptions, InputRequestStatusFilter, InputRequestView,
+    project_input_requests,
 };
 use crate::error::Result;
 use crate::model::{ReviewUnitId, TrackId};
@@ -13,17 +13,17 @@ use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::ShoreStorePaths;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InterventionListOptions {
+pub struct InputRequestListOptions {
     repo: PathBuf,
     review_unit_id: Option<ReviewUnitId>,
     track: Option<String>,
     mode: Option<InputRequestMode>,
     file: Option<String>,
-    status: InterventionStatusFilter,
+    status: InputRequestStatusFilter,
     include_body: bool,
 }
 
-impl InterventionListOptions {
+impl InputRequestListOptions {
     pub fn new(repo: impl AsRef<Path>) -> Self {
         Self {
             repo: repo.as_ref().to_path_buf(),
@@ -31,7 +31,7 @@ impl InterventionListOptions {
             track: None,
             mode: None,
             file: None,
-            status: InterventionStatusFilter::Open,
+            status: InputRequestStatusFilter::Open,
             include_body: false,
         }
     }
@@ -56,7 +56,7 @@ impl InterventionListOptions {
         self
     }
 
-    pub fn with_status(mut self, status: InterventionStatusFilter) -> Self {
+    pub fn with_status(mut self, status: InputRequestStatusFilter) -> Self {
         self.status = status;
         self
     }
@@ -68,23 +68,23 @@ impl InterventionListOptions {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InterventionListFilters {
+pub struct InputRequestListFilters {
     pub track_id: Option<TrackId>,
     pub mode: Option<InputRequestMode>,
     pub file: Option<String>,
-    pub status: InterventionStatusFilter,
+    pub status: InputRequestStatusFilter,
     pub include_body: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InterventionListResult {
+pub struct InputRequestListResult {
     pub review_unit_id: ReviewUnitId,
-    pub filters: InterventionListFilters,
-    pub interventions: Vec<InterventionView>,
+    pub filters: InputRequestListFilters,
+    pub input_requests: Vec<InputRequestView>,
     pub diagnostics: Vec<ProjectionDiagnostic>,
 }
 
-pub fn list_interventions(options: InterventionListOptions) -> Result<InterventionListResult> {
+pub fn list_input_requests(options: InputRequestListOptions) -> Result<InputRequestListResult> {
     let paths = ShoreStorePaths::resolve(&options.repo)?;
     let shore_dir = paths.shore_dir();
     let event_store = EventStore::open(shore_dir);
@@ -95,7 +95,7 @@ pub fn list_interventions(options: InterventionListOptions) -> Result<Interventi
         .as_deref()
         .map(validated_track_id)
         .transpose()?;
-    let interventions = project_interventions(InterventionProjectionOptions {
+    let input_requests = project_input_requests(InputRequestProjectionOptions {
         shore_dir,
         events: &events,
         resolved: &resolved,
@@ -107,16 +107,16 @@ pub fn list_interventions(options: InterventionListOptions) -> Result<Interventi
     })?;
     let diagnostics = SessionState::from_events(&events)?.diagnostics;
 
-    Ok(InterventionListResult {
+    Ok(InputRequestListResult {
         review_unit_id: resolved.review_unit_id,
-        filters: InterventionListFilters {
+        filters: InputRequestListFilters {
             track_id: track_filter,
             mode: options.mode,
             file: options.file,
             status: options.status,
             include_body: options.include_body,
         },
-        interventions,
+        input_requests,
         diagnostics,
     })
 }

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::json;
 
-use super::view::{InterventionProjectionRecords, collect_intervention_projection_records};
+use super::view::{InputRequestProjectionRecords, collect_input_request_projection_records};
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
 use crate::model::{EventId, InputRequestId, InputRequestResponseId, ReviewTargetRef, TargetRef};
@@ -17,7 +17,7 @@ use crate::session::{EventStore, EventWriteOutcome, current_timestamp, reviewer_
 use crate::storage::{Durability, LocalStorage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InterventionResolveOptions {
+pub struct InputRequestRespondOptions {
     repo: PathBuf,
     input_request_id: InputRequestId,
     outcome: Option<InputRequestResponseOutcome>,
@@ -25,7 +25,7 @@ pub struct InterventionResolveOptions {
     idempotency_key: Option<String>,
 }
 
-impl InterventionResolveOptions {
+impl InputRequestRespondOptions {
     pub fn new(repo: impl AsRef<Path>, input_request_id: InputRequestId) -> Self {
         Self {
             repo: repo.as_ref().to_path_buf(),
@@ -53,7 +53,7 @@ impl InterventionResolveOptions {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InterventionResolveResult {
+pub struct InputRequestRespondResult {
     pub input_request_id: InputRequestId,
     pub input_request_response_id: InputRequestResponseId,
     pub event_id: EventId,
@@ -65,9 +65,9 @@ pub struct InterventionResolveResult {
     pub diagnostics: Vec<ProjectionDiagnostic>,
 }
 
-pub fn resolve_intervention(
-    options: InterventionResolveOptions,
-) -> Result<InterventionResolveResult> {
+pub fn respond_input_request(
+    options: InputRequestRespondOptions,
+) -> Result<InputRequestRespondResult> {
     let paths = ShoreStorePaths::resolve(&options.repo)?;
     let worktree_root = paths.worktree_root();
     let shore_dir = paths.shore_dir();
@@ -76,15 +76,15 @@ pub fn resolve_intervention(
 
     let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
-    let InterventionProjectionRecords {
+    let InputRequestProjectionRecords {
         mut request_records,
         ..
-    } = collect_intervention_projection_records(&events)?;
+    } = collect_input_request_projection_records(&events)?;
     let request_record = request_records
         .remove(&options.input_request_id)
         .ok_or_else(|| {
             ShoreError::Message(format!(
-                "unknown intervention: {}",
+                "unknown input request: {}",
                 options.input_request_id.as_str()
             ))
         })?;
@@ -103,7 +103,7 @@ pub fn resolve_intervention(
     let (reason, reason_artifact_path, reason_artifact_bytes, reason_byte_size) =
         staged_body(options.reason.as_deref())?;
     let input_request_response_id =
-        build_intervention_resolution_id(InputRequestResponseIdMaterial {
+        build_input_request_response_id(InputRequestResponseIdMaterial {
             input_request_id: &request_payload.input_request_id,
             outcome,
             reason_content_hash: reason_content_hash.as_deref(),
@@ -131,7 +131,7 @@ pub fn resolve_intervention(
 
     let review_unit_id =
         request_event.target.review_unit_id.clone().ok_or_else(|| {
-            ShoreError::Message("intervention event missing review unit".to_owned())
+            ShoreError::Message("input request event missing review unit".to_owned())
         })?;
     let event = ShoreEvent::new(
         EventType::InputRequestResponded,
@@ -178,7 +178,7 @@ pub fn resolve_intervention(
     let state = SessionState::from_prior_events_and_committed(&events, &event, write_outcome)?;
     storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
 
-    Ok(InterventionResolveResult {
+    Ok(InputRequestRespondResult {
         input_request_id: request_payload.input_request_id,
         input_request_response_id,
         event_id,
@@ -198,7 +198,7 @@ struct InputRequestResponseIdMaterial<'a> {
     writer_actor_id: &'a str,
 }
 
-fn build_intervention_resolution_id(
+fn build_input_request_response_id(
     material: InputRequestResponseIdMaterial<'_>,
 ) -> Result<InputRequestResponseId> {
     let digest = sha256_json_prefixed(&json!({

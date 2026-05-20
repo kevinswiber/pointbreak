@@ -6,7 +6,7 @@ mod reload;
 mod review_unit_list;
 mod review_unit_projection;
 
-pub(in crate::session) mod intervention;
+pub(in crate::session) mod input_request;
 pub(in crate::session) mod observation;
 
 pub use assessment::{
@@ -21,13 +21,13 @@ pub use history::{
 };
 pub use import::{ImportNotesOptions, ImportNotesResult, import_notes};
 #[cfg(test)]
-pub use intervention::InterventionStatus;
-pub use intervention::{
-    InterventionFetchOptions, InterventionFetchResult, InterventionListOptions,
-    InterventionListResult, InterventionRequestOptions, InterventionRequestResult,
-    InterventionResolutionView, InterventionResolveOptions, InterventionResolveResult,
-    InterventionStatusFilter, InterventionTargetSelector, InterventionView, fetch_intervention,
-    list_interventions, request_intervention, resolve_intervention,
+pub use input_request::InputRequestStatus;
+pub use input_request::{
+    InputRequestFetchOptions, InputRequestFetchResult, InputRequestListOptions,
+    InputRequestListResult, InputRequestOpenOptions, InputRequestOpenResult,
+    InputRequestRespondOptions, InputRequestRespondResult, InputRequestResponseView,
+    InputRequestStatusFilter, InputRequestTargetSelector, InputRequestView, fetch_input_request,
+    list_input_requests, open_input_request, respond_input_request,
 };
 pub use observation::{
     ObservationAddOptions, ObservationAddResult, ObservationListOptions, ObservationListResult,

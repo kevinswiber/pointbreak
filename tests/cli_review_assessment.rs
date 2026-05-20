@@ -188,7 +188,7 @@ fn shore_review_assessment_add_records_related_facts_and_replacement() {
     let repo_arg = repo.path().to_str().unwrap();
     shore(["review", "capture", "--repo", repo_arg]);
     let observation = add_observation(&repo, "Related observation");
-    let intervention = request_intervention(&repo, "Related intervention");
+    let intervention = open_input_request(&repo, "Related intervention");
     let first = add_assessment(repo_arg, "human:kevin", "needs-changes", "Fix this");
 
     let second = shore([
@@ -247,7 +247,7 @@ fn shore_review_assessment_add_targets_input_request_and_emits_related_input_req
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
     shore(["review", "capture", "--repo", repo_arg]);
-    let request = request_intervention(&repo, "Needs clarification");
+    let request = open_input_request(&repo, "Needs clarification");
     let request_id = request["inputRequestId"].as_str().unwrap();
 
     let assessment = shore([
@@ -316,7 +316,7 @@ fn shore_review_assessment_add_rejects_old_intervention_flags() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
     shore(["review", "capture", "--repo", repo_arg]);
-    let request = request_intervention(&repo, "Legacy flag target");
+    let request = open_input_request(&repo, "Legacy flag target");
     let request_id = request["inputRequestId"].as_str().unwrap();
 
     let old_target_flag = shore([
@@ -583,7 +583,7 @@ fn add_observation(repo: &GitRepo, title: &str) -> Value {
     )
 }
 
-fn request_intervention(repo: &GitRepo, title: &str) -> Value {
+fn open_input_request(repo: &GitRepo, title: &str) -> Value {
     parse_json(
         &shore([
             "review",

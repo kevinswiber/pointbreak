@@ -19,10 +19,10 @@ const STATE_SCHEMA: &str = "shore.state";
 const STATE_VERSION: u32 = 1;
 pub const AMBIGUOUS_CURRENT_REVIEW_UNIT_CODE: &str = "ambiguous_current_review_unit";
 pub const DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE: &str = "duplicate_semantic_observation_event";
-pub const DUPLICATE_SEMANTIC_INTERVENTION_REQUEST_EVENT_CODE: &str =
-    "duplicate_semantic_intervention_request_event";
-pub const DUPLICATE_SEMANTIC_INTERVENTION_RESOLUTION_EVENT_CODE: &str =
-    "duplicate_semantic_intervention_resolution_event";
+pub const DUPLICATE_SEMANTIC_INPUT_REQUEST_OPEN_EVENT_CODE: &str =
+    "duplicate_semantic_input_request_open_event";
+pub const DUPLICATE_SEMANTIC_INPUT_REQUEST_RESPONSE_EVENT_CODE: &str =
+    "duplicate_semantic_input_request_response_event";
 pub const DUPLICATE_SEMANTIC_ASSESSMENT_EVENT_CODE: &str = "duplicate_semantic_assessment_event";
 const DUPLICATE_SEMANTIC_DIAGNOSTIC_EVENT_LIMIT: usize = 5;
 
@@ -48,11 +48,11 @@ pub struct SessionState {
     #[serde(default)]
     pub assessment_count: usize,
     #[serde(default)]
-    pub intervention_count: usize,
+    pub input_request_count: usize,
     #[serde(default)]
-    pub open_intervention_count: usize,
+    pub open_input_request_count: usize,
     #[serde(default)]
-    pub open_blocking_intervention_count: usize,
+    pub open_blocking_input_request_count: usize,
     pub diagnostics: Vec<ProjectionDiagnostic>,
 }
 
@@ -133,10 +133,10 @@ struct StateReducer {
     note_count: usize,
     observation_events: BTreeMap<ObservationId, BTreeSet<EventId>>,
     assessment_events: BTreeMap<AssessmentId, BTreeSet<EventId>>,
-    intervention_modes: BTreeMap<InputRequestId, InputRequestMode>,
-    intervention_request_events: BTreeMap<InputRequestId, BTreeSet<EventId>>,
-    intervention_resolution_events: BTreeMap<InputRequestResponseId, BTreeSet<EventId>>,
-    resolved_intervention_ids: BTreeSet<InputRequestId>,
+    input_request_modes: BTreeMap<InputRequestId, InputRequestMode>,
+    input_request_open_events: BTreeMap<InputRequestId, BTreeSet<EventId>>,
+    input_request_response_events: BTreeMap<InputRequestResponseId, BTreeSet<EventId>>,
+    responded_input_request_ids: BTreeSet<InputRequestId>,
 }
 
 impl Default for StateReducer {
@@ -148,10 +148,10 @@ impl Default for StateReducer {
             note_count: 0,
             observation_events: BTreeMap::new(),
             assessment_events: BTreeMap::new(),
-            intervention_modes: BTreeMap::new(),
-            intervention_request_events: BTreeMap::new(),
-            intervention_resolution_events: BTreeMap::new(),
-            resolved_intervention_ids: BTreeSet::new(),
+            input_request_modes: BTreeMap::new(),
+            input_request_open_events: BTreeMap::new(),
+            input_request_response_events: BTreeMap::new(),
+            responded_input_request_ids: BTreeSet::new(),
         }
     }
 }
@@ -175,8 +175,8 @@ impl StateReducer {
             EventType::ReviewUnitCaptured => self.apply_review_unit_captured(event)?,
             EventType::ReviewObservationRecorded => self.apply_observation_recorded(event)?,
             EventType::ReviewAssessmentRecorded => self.apply_assessment_recorded(event)?,
-            EventType::InputRequestOpened => self.apply_intervention_requested(event)?,
-            EventType::InputRequestResponded => self.apply_intervention_resolved(event)?,
+            EventType::InputRequestOpened => self.apply_input_request_opened(event)?,
+            EventType::InputRequestResponded => self.apply_input_request_responded(event)?,
             EventType::ReviewNoteImported => {
                 self.note_count += 1;
             }
@@ -230,26 +230,26 @@ impl StateReducer {
         Ok(())
     }
 
-    fn apply_intervention_requested(&mut self, event: &ShoreEvent) -> Result<()> {
+    fn apply_input_request_opened(&mut self, event: &ShoreEvent) -> Result<()> {
         let payload: InputRequestOpenedPayload = serde_json::from_value(event.payload.clone())?;
         let input_request_id = payload.input_request_id;
-        self.intervention_request_events
+        self.input_request_open_events
             .entry(input_request_id.clone())
             .or_default()
             .insert(event.event_id.clone());
-        self.intervention_modes
+        self.input_request_modes
             .entry(input_request_id)
             .or_insert(payload.mode);
         Ok(())
     }
 
-    fn apply_intervention_resolved(&mut self, event: &ShoreEvent) -> Result<()> {
+    fn apply_input_request_responded(&mut self, event: &ShoreEvent) -> Result<()> {
         let payload: InputRequestRespondedPayload = serde_json::from_value(event.payload.clone())?;
-        self.intervention_resolution_events
+        self.input_request_response_events
             .entry(payload.input_request_response_id)
             .or_default()
             .insert(event.event_id.clone());
-        self.resolved_intervention_ids
+        self.responded_input_request_ids
             .insert(payload.input_request_id);
         Ok(())
     }
@@ -273,17 +273,19 @@ impl StateReducer {
             current_review_unit.map(|(_, (revision_id, _))| revision_id.clone());
         let current_snapshot_id =
             current_review_unit.map(|(_, (_, snapshot_id))| snapshot_id.clone());
-        let open_intervention_count = self
-            .intervention_modes
+        let open_input_request_count = self
+            .input_request_modes
             .keys()
-            .filter(|input_request_id| !self.resolved_intervention_ids.contains(*input_request_id))
+            .filter(|input_request_id| {
+                !self.responded_input_request_ids.contains(*input_request_id)
+            })
             .count();
-        let open_blocking_intervention_count = self
-            .intervention_modes
+        let open_blocking_input_request_count = self
+            .input_request_modes
             .iter()
             .filter(|(input_request_id, mode)| {
                 **mode == InputRequestMode::Blocking
-                    && !self.resolved_intervention_ids.contains(*input_request_id)
+                    && !self.responded_input_request_ids.contains(*input_request_id)
             })
             .count();
 
@@ -297,17 +299,17 @@ impl StateReducer {
         );
         append_duplicate_semantic_diagnostics(
             &mut diagnostics,
-            DUPLICATE_SEMANTIC_INTERVENTION_REQUEST_EVENT_CODE,
-            "intervention request",
-            self.intervention_request_events
+            DUPLICATE_SEMANTIC_INPUT_REQUEST_OPEN_EVENT_CODE,
+            "input request",
+            self.input_request_open_events
                 .iter()
                 .map(|(input_request_id, event_ids)| (input_request_id.as_str(), event_ids)),
         );
         append_duplicate_semantic_diagnostics(
             &mut diagnostics,
-            DUPLICATE_SEMANTIC_INTERVENTION_RESOLUTION_EVENT_CODE,
-            "intervention resolution",
-            self.intervention_resolution_events
+            DUPLICATE_SEMANTIC_INPUT_REQUEST_RESPONSE_EVENT_CODE,
+            "input request response",
+            self.input_request_response_events
                 .iter()
                 .map(|(resolution_id, event_ids)| (resolution_id.as_str(), event_ids)),
         );
@@ -333,9 +335,9 @@ impl StateReducer {
             note_count: self.note_count,
             observation_count: self.observation_events.len(),
             assessment_count: self.assessment_events.len(),
-            intervention_count: self.intervention_modes.len(),
-            open_intervention_count,
-            open_blocking_intervention_count,
+            input_request_count: self.input_request_modes.len(),
+            open_input_request_count,
+            open_blocking_input_request_count,
             diagnostics,
         })
     }
@@ -379,8 +381,9 @@ mod tests {
     };
     use crate::session::EventWriteOutcome;
     use crate::session::event::{
-        AssertionMode, EventTarget, ReviewAssessment, ReviewAssessmentRecordedPayload,
-        ReviewObservationRecordedPayload, Writer,
+        AssertionMode, EventTarget, InputRequestReasonCode, InputRequestResponseOutcome,
+        ReviewAssessment, ReviewAssessmentRecordedPayload, ReviewObservationRecordedPayload,
+        Writer,
     };
 
     #[test]
@@ -619,9 +622,9 @@ mod tests {
         assert_eq!(state.note_count, 0);
         assert_eq!(state.observation_count, 0);
         assert_eq!(state.assessment_count, 0);
-        assert_eq!(state.intervention_count, 0);
-        assert_eq!(state.open_intervention_count, 0);
-        assert_eq!(state.open_blocking_intervention_count, 0);
+        assert_eq!(state.input_request_count, 0);
+        assert_eq!(state.open_input_request_count, 0);
+        assert_eq!(state.open_blocking_input_request_count, 0);
         assert!(state.current_review_unit_id.is_none());
         assert!(state.current_revision_id.is_none());
         assert!(state.current_snapshot_id.is_none());
@@ -657,9 +660,9 @@ mod tests {
         assert_eq!(state.note_count, 0);
         assert_eq!(state.observation_count, 0);
         assert_eq!(state.assessment_count, 1);
-        assert_eq!(state.intervention_count, 0);
-        assert_eq!(state.open_intervention_count, 0);
-        assert_eq!(state.open_blocking_intervention_count, 0);
+        assert_eq!(state.input_request_count, 0);
+        assert_eq!(state.open_input_request_count, 0);
+        assert_eq!(state.open_blocking_input_request_count, 0);
         assert!(state.diagnostics.is_empty());
     }
 
@@ -695,6 +698,91 @@ mod tests {
             DUPLICATE_SEMANTIC_ASSESSMENT_EVENT_CODE,
             "duplicate_semantic_assessment_event"
         );
+    }
+
+    #[test]
+    fn session_state_serializes_input_request_counts_not_intervention_counts() {
+        let events = vec![input_request_opened_event(
+            "retry-a",
+            "input-request:sha256:one",
+            InputRequestMode::Blocking,
+        )];
+
+        let state = SessionState::from_events(&events).unwrap();
+        let json = serde_json::to_value(&state).unwrap();
+
+        assert_eq!(state.input_request_count, 1);
+        assert_eq!(state.open_input_request_count, 1);
+        assert_eq!(state.open_blocking_input_request_count, 1);
+        assert_eq!(json["inputRequestCount"], 1);
+        assert_eq!(json["openInputRequestCount"], 1);
+        assert_eq!(json["openBlockingInputRequestCount"], 1);
+        assert!(json.get("interventionCount").is_none());
+        assert!(json.get("openInterventionCount").is_none());
+        assert!(json.get("openBlockingInterventionCount").is_none());
+    }
+
+    #[test]
+    fn input_request_response_closes_open_state_count() {
+        let events = vec![
+            input_request_opened_event(
+                "retry-a",
+                "input-request:sha256:one",
+                InputRequestMode::Blocking,
+            ),
+            input_request_responded_event(
+                "retry-a",
+                "input-request-response:sha256:one",
+                "input-request:sha256:one",
+            ),
+        ];
+
+        let state = SessionState::from_events(&events).unwrap();
+
+        assert_eq!(state.input_request_count, 1);
+        assert_eq!(state.open_input_request_count, 0);
+        assert_eq!(state.open_blocking_input_request_count, 0);
+    }
+
+    #[test]
+    fn duplicate_semantic_input_request_events_use_input_request_diagnostic_codes() {
+        let events = vec![
+            input_request_opened_event(
+                "retry-a",
+                "input-request:sha256:same",
+                InputRequestMode::Blocking,
+            ),
+            input_request_opened_event(
+                "retry-b",
+                "input-request:sha256:same",
+                InputRequestMode::Blocking,
+            ),
+            input_request_responded_event(
+                "retry-a",
+                "input-request-response:sha256:same",
+                "input-request:sha256:same",
+            ),
+            input_request_responded_event(
+                "retry-b",
+                "input-request-response:sha256:same",
+                "input-request:sha256:same",
+            ),
+        ];
+
+        let state = SessionState::from_events(&events).unwrap();
+
+        assert_eq!(state.input_request_count, 1);
+        assert_eq!(state.open_input_request_count, 0);
+        assert!(state.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == DUPLICATE_SEMANTIC_INPUT_REQUEST_OPEN_EVENT_CODE
+                && diagnostic.message.contains("input-request:sha256:same")
+        }));
+        assert!(state.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == DUPLICATE_SEMANTIC_INPUT_REQUEST_RESPONSE_EVENT_CODE
+                && diagnostic
+                    .message
+                    .contains("input-request-response:sha256:same")
+        }));
     }
 
     #[test]
@@ -750,7 +838,7 @@ mod tests {
         assert_eq!(state.event_set_hash, None);
         assert_eq!(state.observation_count, 0);
         assert_eq!(state.assessment_count, 0);
-        assert_eq!(state.intervention_count, 0);
+        assert_eq!(state.input_request_count, 0);
     }
 
     fn review_unit_captured_event(
@@ -850,6 +938,79 @@ mod tests {
                 related_input_request_ids: Vec::new(),
             },
             "2026-05-10T00:00:01Z",
+        )
+        .unwrap()
+    }
+
+    fn input_request_opened_event(
+        source_key: &str,
+        input_request_id: &str,
+        mode: InputRequestMode,
+    ) -> ShoreEvent {
+        let mut target = EventTarget::for_review_unit(
+            SessionId::new("session:default"),
+            ReviewUnitId::new("review-unit:sha256:one"),
+            RevisionId::new("rev:one"),
+            SnapshotId::new("snap:one"),
+        );
+        target.track_id = Some(crate::model::TrackId::new("agent:codex"));
+        ShoreEvent::new(
+            EventType::InputRequestOpened,
+            format!("input_request_opened:{source_key}"),
+            target,
+            Writer::shore_local_reviewer("0.1.0"),
+            InputRequestOpenedPayload {
+                input_request_id: InputRequestId::new(input_request_id),
+                target: ReviewTargetRef::ReviewUnit {
+                    review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+                },
+                mode,
+                reason_code: InputRequestReasonCode::ManualDecisionRequired,
+                title: "Need input".to_owned(),
+                body: None,
+                body_artifact_path: None,
+                body_byte_size: None,
+                body_content_hash: None,
+                target_fingerprint: None,
+            },
+            "2026-05-10T00:00:02Z",
+        )
+        .unwrap()
+    }
+
+    fn input_request_responded_event(
+        source_key: &str,
+        input_request_response_id: &str,
+        input_request_id: &str,
+    ) -> ShoreEvent {
+        let mut target = EventTarget::for_review_unit(
+            SessionId::new("session:default"),
+            ReviewUnitId::new("review-unit:sha256:one"),
+            RevisionId::new("rev:one"),
+            SnapshotId::new("snap:one"),
+        );
+        target.subject = Some(crate::model::TargetRef::Review(
+            ReviewTargetRef::InputRequest {
+                review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+                input_request_id: InputRequestId::new(input_request_id),
+            },
+        ));
+        ShoreEvent::new(
+            EventType::InputRequestResponded,
+            format!("input_request_responded:{source_key}"),
+            target,
+            Writer::shore_local_reviewer("0.1.0"),
+            InputRequestRespondedPayload {
+                input_request_response_id: InputRequestResponseId::new(input_request_response_id),
+                input_request_id: InputRequestId::new(input_request_id),
+                outcome: InputRequestResponseOutcome::Approved,
+                reason: None,
+                reason_artifact_path: None,
+                reason_byte_size: None,
+                reason_content_hash: None,
+                target_fingerprint: None,
+            },
+            "2026-05-10T00:00:03Z",
         )
         .unwrap()
     }

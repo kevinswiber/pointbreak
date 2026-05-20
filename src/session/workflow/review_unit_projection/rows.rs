@@ -5,7 +5,7 @@ use crate::model::{
     ReviewUnitId, RowId,
 };
 use crate::session::assessment::AssessmentView;
-use crate::session::intervention::InterventionView;
+use crate::session::input_request::InputRequestView;
 use crate::session::observation::ObservationView;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -223,7 +223,7 @@ pub(super) fn build_observation_rows(
 }
 
 pub(super) fn build_intervention_rows(
-    interventions: &[InterventionView],
+    interventions: &[InputRequestView],
 ) -> Vec<ReviewUnitProjectionRow> {
     interventions
         .iter()

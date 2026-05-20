@@ -1,27 +1,25 @@
 mod fetch;
 mod list;
-mod request;
-mod resolve;
+mod open;
+mod respond;
 mod target;
 mod view;
 
-pub use self::fetch::{InterventionFetchOptions, InterventionFetchResult, fetch_intervention};
-pub use self::list::{InterventionListOptions, InterventionListResult, list_interventions};
-pub use self::request::{
-    InterventionRequestOptions, InterventionRequestResult, request_intervention,
+pub use self::fetch::{InputRequestFetchOptions, InputRequestFetchResult, fetch_input_request};
+pub use self::list::{InputRequestListOptions, InputRequestListResult, list_input_requests};
+pub use self::open::{InputRequestOpenOptions, InputRequestOpenResult, open_input_request};
+pub use self::respond::{
+    InputRequestRespondOptions, InputRequestRespondResult, respond_input_request,
 };
-pub use self::resolve::{
-    InterventionResolveOptions, InterventionResolveResult, resolve_intervention,
-};
-pub use self::target::InterventionTargetSelector;
+pub use self::target::InputRequestTargetSelector;
 #[cfg(test)]
-pub use self::view::InterventionStatus;
+pub use self::view::InputRequestStatus;
 #[cfg(test)]
-use self::view::collect_intervention_projection_records;
+use self::view::collect_input_request_projection_records;
 #[cfg(test)]
-use self::view::sort_intervention_views;
-pub(crate) use self::view::{InterventionProjectionOptions, project_interventions};
-pub use self::view::{InterventionResolutionView, InterventionStatusFilter, InterventionView};
+use self::view::sort_input_request_views;
+pub(crate) use self::view::{InputRequestProjectionOptions, project_input_requests};
+pub use self::view::{InputRequestResponseView, InputRequestStatusFilter, InputRequestView};
 #[cfg(test)]
 use crate::canonical_hash::sha256_bytes_hex;
 #[cfg(test)]
@@ -49,17 +47,17 @@ mod tests {
     };
 
     #[test]
-    fn request_intervention_writes_event_and_updates_state() {
+    fn open_input_request_writes_event_and_updates_state() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-        let result = request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        let result = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_track("human:kevin")
                 .with_title("Need approval")
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired)
                 .with_mode(InputRequestMode::Blocking)
-                .with_target(InterventionTargetSelector::review_unit()),
+                .with_target(InputRequestTargetSelector::review_unit()),
         )
         .unwrap();
 
@@ -84,23 +82,23 @@ mod tests {
             .list_events()
             .unwrap();
         let state = SessionState::from_events(&events).unwrap();
-        assert_eq!(state.intervention_count, 1);
-        assert_eq!(state.open_intervention_count, 1);
-        assert_eq!(state.open_blocking_intervention_count, 1);
+        assert_eq!(state.input_request_count, 1);
+        assert_eq!(state.open_input_request_count, 1);
+        assert_eq!(state.open_blocking_input_request_count, 1);
     }
 
     #[test]
-    fn request_intervention_is_idempotent_for_same_logical_input() {
+    fn open_input_request_is_idempotent_for_same_logical_input() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let options = InterventionRequestOptions::new(repo.path())
+        let options = InputRequestOpenOptions::new(repo.path())
             .with_track("agent:codex")
             .with_title("Pause")
             .with_reason_code(InputRequestReasonCode::UnsafeAction)
             .with_body("same body");
 
-        let first = request_intervention(options.clone()).unwrap();
-        let second = request_intervention(options).unwrap();
+        let first = open_input_request(options.clone()).unwrap();
+        let second = open_input_request(options).unwrap();
 
         assert_eq!(first.input_request_id, second.input_request_id);
         assert_eq!(first.events_created, 1);
@@ -109,17 +107,17 @@ mod tests {
     }
 
     #[test]
-    fn request_intervention_state_json_equals_full_replay_after_created_and_existing_paths() {
+    fn open_input_request_state_json_equals_full_replay_after_created_and_existing_paths() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-        let options = InterventionRequestOptions::new(repo.path())
+        let options = InputRequestOpenOptions::new(repo.path())
             .with_track("agent:codex")
             .with_title("blocking-finding")
             .with_mode(InputRequestMode::Blocking)
             .with_reason_code(InputRequestReasonCode::UnsafeAction);
 
-        let first = request_intervention(options.clone()).unwrap();
+        let first = open_input_request(options.clone()).unwrap();
         assert_eq!(first.events_created, 1);
         let on_disk: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(repo.path().join(".shore/state.json")).unwrap(),
@@ -131,7 +129,7 @@ mod tests {
         let replay = serde_json::to_value(SessionState::from_events(&events).unwrap()).unwrap();
         assert_eq!(on_disk, replay, "Created path drifted");
 
-        let second = request_intervention(options).unwrap();
+        let second = open_input_request(options).unwrap();
         assert_eq!(second.events_existing, 1);
         let on_disk: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(repo.path().join(".shore/state.json")).unwrap(),
@@ -145,11 +143,11 @@ mod tests {
     }
 
     #[test]
-    fn resolve_intervention_state_json_equals_full_replay_after_created_and_existing_paths() {
+    fn respond_input_request_state_json_equals_full_replay_after_created_and_existing_paths() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let request = request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        let request = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_track("agent:codex")
                 .with_title("to-resolve")
                 .with_mode(InputRequestMode::Blocking)
@@ -158,10 +156,10 @@ mod tests {
         .unwrap();
 
         let options =
-            InterventionResolveOptions::new(repo.path(), request.input_request_id.clone())
+            InputRequestRespondOptions::new(repo.path(), request.input_request_id.clone())
                 .with_outcome(InputRequestResponseOutcome::Approved);
 
-        let first = resolve_intervention(options.clone()).unwrap();
+        let first = respond_input_request(options.clone()).unwrap();
         assert_eq!(first.events_created, 1);
         let on_disk: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(repo.path().join(".shore/state.json")).unwrap(),
@@ -173,7 +171,7 @@ mod tests {
         let replay = serde_json::to_value(SessionState::from_events(&events).unwrap()).unwrap();
         assert_eq!(on_disk, replay, "Resolve Created path drifted");
 
-        let second = resolve_intervention(options).unwrap();
+        let second = respond_input_request(options).unwrap();
         assert_eq!(second.events_existing, 1);
         let on_disk: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(repo.path().join(".shore/state.json")).unwrap(),
@@ -187,11 +185,11 @@ mod tests {
     }
 
     #[test]
-    fn request_intervention_requires_a_captured_review_unit() {
+    fn open_input_request_requires_a_captured_review_unit() {
         let repo = modified_repo();
 
-        let error = request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        let error = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_track("human:kevin")
                 .with_title("Need approval")
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired),
@@ -202,14 +200,14 @@ mod tests {
     }
 
     #[test]
-    fn request_intervention_requires_explicit_review_unit_when_current_is_ambiguous() {
+    fn open_input_request_requires_explicit_review_unit_when_current_is_ambiguous() {
         let repo = modified_repo();
         let first = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         repo.write("src/lib.rs", "pub fn value() -> u32 {\n    3\n}\n");
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-        let ambiguous = request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        let ambiguous = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_track("human:kevin")
                 .with_title("Need approval")
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired),
@@ -221,8 +219,8 @@ mod tests {
                 .contains("multiple captured review units")
         );
 
-        let explicit = request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        let explicit = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_review_unit_id(first.review_unit_id.clone())
                 .with_track("human:kevin")
                 .with_title("Need approval")
@@ -233,12 +231,12 @@ mod tests {
     }
 
     #[test]
-    fn request_intervention_rejects_invalid_track() {
+    fn open_input_request_rejects_invalid_track() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-        let error = request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        let error = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_track("system:shore")
                 .with_title("Need approval")
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired),
@@ -249,16 +247,16 @@ mod tests {
     }
 
     #[test]
-    fn request_intervention_rejects_file_target_absent_from_snapshot() {
+    fn open_input_request_rejects_file_target_absent_from_snapshot() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-        let error = request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        let error = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_track("human:kevin")
                 .with_title("Need approval")
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired)
-                .with_target(InterventionTargetSelector::file("missing.rs")),
+                .with_target(InputRequestTargetSelector::file("missing.rs")),
         )
         .unwrap_err();
 
@@ -270,16 +268,16 @@ mod tests {
     }
 
     #[test]
-    fn request_intervention_supports_file_range_targets() {
+    fn open_input_request_supports_file_range_targets() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-        let result = request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        let result = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_track("human:kevin")
                 .with_title("Need approval")
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired)
-                .with_target(InterventionTargetSelector::range(
+                .with_target(InputRequestTargetSelector::range(
                     "src/lib.rs",
                     Side::New,
                     2,
@@ -296,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn request_intervention_validates_native_observation_target() {
+    fn open_input_request_validates_native_observation_target() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let observation = record_observation(
@@ -306,12 +304,12 @@ mod tests {
         )
         .unwrap();
 
-        let result = request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        let result = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_track("human:kevin")
                 .with_title("Need approval")
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired)
-                .with_target(InterventionTargetSelector::observation(
+                .with_target(InputRequestTargetSelector::observation(
                     observation.observation_id.clone(),
                 )),
         )
@@ -327,16 +325,16 @@ mod tests {
     }
 
     #[test]
-    fn request_intervention_rejects_unknown_observation_target() {
+    fn open_input_request_rejects_unknown_observation_target() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-        let error = request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        let error = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_track("human:kevin")
                 .with_title("Need approval")
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired)
-                .with_target(InterventionTargetSelector::observation(ObservationId::new(
+                .with_target(InputRequestTargetSelector::observation(ObservationId::new(
                     "obs:sha256:missing",
                 ))),
         )
@@ -346,13 +344,13 @@ mod tests {
     }
 
     #[test]
-    fn large_intervention_body_is_stored_as_internal_body_artifact() {
+    fn large_input_request_body_is_stored_as_internal_body_artifact() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let body = "x".repeat(crate::session::body_artifact::BODY_INLINE_LIMIT + 1);
 
-        let result = request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        let result = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_track("human:kevin")
                 .with_title("Need approval")
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired)
@@ -383,16 +381,16 @@ mod tests {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-        request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_track("human:kevin")
                 .with_title("First")
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired)
                 .with_idempotency_key("retry-key"),
         )
         .unwrap();
-        let error = request_intervention(
-            InterventionRequestOptions::new(repo.path())
+        let error = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
                 .with_track("human:kevin")
                 .with_title("Second")
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired)
@@ -404,17 +402,17 @@ mod tests {
     }
 
     #[test]
-    fn list_interventions_defaults_to_open_interventions() {
+    fn list_input_requests_defaults_to_open_input_requests() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let first = request_intervention(open_request(repo.path(), "First")).unwrap();
+        let first = open_input_request(open_request(repo.path(), "First")).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(2));
-        let second = request_intervention(open_request(repo.path(), "Second")).unwrap();
+        let second = open_input_request(open_request(repo.path(), "Second")).unwrap();
 
-        let result = list_interventions(InterventionListOptions::new(repo.path())).unwrap();
+        let result = list_input_requests(InputRequestListOptions::new(repo.path())).unwrap();
 
         let ids = result
-            .interventions
+            .input_requests
             .iter()
             .map(|view| view.id.clone())
             .collect::<Vec<_>>();
@@ -422,25 +420,25 @@ mod tests {
     }
 
     #[test]
-    fn list_interventions_collapses_duplicate_requests() {
+    fn list_input_requests_collapses_duplicate_requests() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let first = request_intervention(
+        let first = open_input_request(
             open_request(repo.path(), "Need approval")
                 .with_body("same body")
                 .with_idempotency_key("retry-a"),
         )
         .unwrap();
-        let second = request_intervention(
+        let second = open_input_request(
             open_request(repo.path(), "Need approval")
                 .with_body("same body")
                 .with_idempotency_key("retry-b"),
         )
         .unwrap();
 
-        let result = list_interventions(
-            InterventionListOptions::new(repo.path())
-                .with_status(InterventionStatusFilter::All)
+        let result = list_input_requests(
+            InputRequestListOptions::new(repo.path())
+                .with_status(InputRequestStatusFilter::All)
                 .with_include_body(true),
         )
         .unwrap();
@@ -448,166 +446,166 @@ mod tests {
         assert_eq!(first.input_request_id, second.input_request_id);
         assert_eq!(first.events_created, 1);
         assert_eq!(second.events_created, 1);
-        assert_eq!(result.interventions.len(), 1);
-        assert_eq!(result.interventions[0].id, first.input_request_id);
-        assert_eq!(result.interventions[0].body.as_deref(), Some("same body"));
+        assert_eq!(result.input_requests.len(), 1);
+        assert_eq!(result.input_requests[0].id, first.input_request_id);
+        assert_eq!(result.input_requests[0].body.as_deref(), Some("same body"));
         assert!(result.diagnostics.iter().any(|diagnostic| {
             diagnostic.code
-                == crate::session::state::DUPLICATE_SEMANTIC_INTERVENTION_REQUEST_EVENT_CODE
+                == crate::session::state::DUPLICATE_SEMANTIC_INPUT_REQUEST_OPEN_EVENT_CODE
         }));
     }
 
     #[test]
-    fn fetch_intervention_hydrates_body_by_id() {
+    fn fetch_input_request_hydrates_body_by_id() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let requested = request_intervention(
+        let requested = open_input_request(
             open_request(repo.path(), "Need details").with_body("full request body"),
         )
         .unwrap();
 
-        let result = fetch_intervention(
-            InterventionFetchOptions::new(repo.path(), requested.input_request_id.clone())
+        let result = fetch_input_request(
+            InputRequestFetchOptions::new(repo.path(), requested.input_request_id.clone())
                 .with_include_body(true),
         )
         .unwrap();
 
-        assert_eq!(result.intervention.id, requested.input_request_id);
+        assert_eq!(result.input_request.id, requested.input_request_id);
         assert_eq!(
-            result.intervention.body.as_deref(),
+            result.input_request.body.as_deref(),
             Some("full request body")
         );
     }
 
     #[test]
-    fn fetch_intervention_collapses_duplicate_requests() {
+    fn fetch_input_request_collapses_duplicate_requests() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let first = request_intervention(
+        let first = open_input_request(
             open_request(repo.path(), "Need approval")
                 .with_body("same body")
                 .with_idempotency_key("retry-a"),
         )
         .unwrap();
-        let second = request_intervention(
+        let second = open_input_request(
             open_request(repo.path(), "Need approval")
                 .with_body("same body")
                 .with_idempotency_key("retry-b"),
         )
         .unwrap();
 
-        let result = fetch_intervention(
-            InterventionFetchOptions::new(repo.path(), first.input_request_id.clone())
+        let result = fetch_input_request(
+            InputRequestFetchOptions::new(repo.path(), first.input_request_id.clone())
                 .with_include_body(true),
         )
         .unwrap();
 
         assert_eq!(first.input_request_id, second.input_request_id);
-        assert_eq!(result.intervention.id, first.input_request_id);
-        assert_eq!(result.intervention.body.as_deref(), Some("same body"));
+        assert_eq!(result.input_request.id, first.input_request_id);
+        assert_eq!(result.input_request.body.as_deref(), Some("same body"));
         assert!(result.diagnostics.iter().any(|diagnostic| {
             diagnostic.code
-                == crate::session::state::DUPLICATE_SEMANTIC_INTERVENTION_REQUEST_EVENT_CODE
+                == crate::session::state::DUPLICATE_SEMANTIC_INPUT_REQUEST_OPEN_EVENT_CODE
         }));
     }
 
     #[test]
-    fn list_interventions_all_includes_resolved_and_ambiguous_statuses() {
+    fn list_input_requests_all_includes_responded_and_ambiguous_statuses() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let open = request_intervention(open_request(repo.path(), "Open")).unwrap();
-        let resolved = request_intervention(open_request(repo.path(), "Resolved")).unwrap();
-        let ambiguous = request_intervention(open_request(repo.path(), "Ambiguous")).unwrap();
-        write_resolution_event(
+        let open = open_input_request(open_request(repo.path(), "Open")).unwrap();
+        let responded = open_input_request(open_request(repo.path(), "Responded")).unwrap();
+        let ambiguous = open_input_request(open_request(repo.path(), "Ambiguous")).unwrap();
+        write_response_event(
             repo.path(),
-            &resolved,
+            &responded,
             "approved",
             InputRequestResponseOutcome::Approved,
         );
-        write_resolution_event(
+        write_response_event(
             repo.path(),
             &ambiguous,
             "approved",
             InputRequestResponseOutcome::Approved,
         );
-        write_resolution_event(
+        write_response_event(
             repo.path(),
             &ambiguous,
             "rejected",
             InputRequestResponseOutcome::Rejected,
         );
 
-        let result = list_interventions(
-            InterventionListOptions::new(repo.path()).with_status(InterventionStatusFilter::All),
+        let result = list_input_requests(
+            InputRequestListOptions::new(repo.path()).with_status(InputRequestStatusFilter::All),
         )
         .unwrap();
 
-        assert_status(&result, &open.input_request_id, InterventionStatus::Open);
+        assert_status(&result, &open.input_request_id, InputRequestStatus::Open);
         assert_status(
             &result,
-            &resolved.input_request_id,
-            InterventionStatus::Resolved,
+            &responded.input_request_id,
+            InputRequestStatus::Responded,
         );
         assert_status(
             &result,
             &ambiguous.input_request_id,
-            InterventionStatus::Ambiguous,
+            InputRequestStatus::Ambiguous,
         );
     }
 
     #[test]
-    fn list_interventions_filters_by_track_mode_and_file() {
+    fn list_input_requests_filters_by_track_mode_and_file() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let matching = request_intervention(
+        let matching = open_input_request(
             open_request(repo.path(), "Match")
                 .with_track("agent:codex")
                 .with_mode(InputRequestMode::Advisory)
-                .with_target(InterventionTargetSelector::file("src/lib.rs")),
+                .with_target(InputRequestTargetSelector::file("src/lib.rs")),
         )
         .unwrap();
-        request_intervention(
+        open_input_request(
             open_request(repo.path(), "Wrong track")
                 .with_track("agent:claude")
                 .with_mode(InputRequestMode::Advisory)
-                .with_target(InterventionTargetSelector::file("src/lib.rs")),
+                .with_target(InputRequestTargetSelector::file("src/lib.rs")),
         )
         .unwrap();
-        request_intervention(
+        open_input_request(
             open_request(repo.path(), "Wrong mode")
                 .with_track("agent:codex")
                 .with_mode(InputRequestMode::Blocking)
-                .with_target(InterventionTargetSelector::file("src/lib.rs")),
+                .with_target(InputRequestTargetSelector::file("src/lib.rs")),
         )
         .unwrap();
 
-        let result = list_interventions(
-            InterventionListOptions::new(repo.path())
+        let result = list_input_requests(
+            InputRequestListOptions::new(repo.path())
                 .with_track("agent:codex")
                 .with_mode(InputRequestMode::Advisory)
                 .with_file("src/lib.rs"),
         )
         .unwrap();
 
-        assert_eq!(result.interventions.len(), 1);
-        assert_eq!(result.interventions[0].id, matching.input_request_id);
+        assert_eq!(result.input_requests.len(), 1);
+        assert_eq!(result.input_requests[0].id, matching.input_request_id);
     }
 
     #[test]
-    fn list_interventions_include_body_hydrates_artifact_backed_bodies() {
+    fn list_input_requests_include_body_hydrates_artifact_backed_bodies() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let body = "large ".repeat(1000);
         let requested =
-            request_intervention(open_request(repo.path(), "Large body").with_body(body.clone()))
+            open_input_request(open_request(repo.path(), "Large body").with_body(body.clone()))
                 .unwrap();
 
         let result =
-            list_interventions(InterventionListOptions::new(repo.path()).with_include_body(true))
+            list_input_requests(InputRequestListOptions::new(repo.path()).with_include_body(true))
                 .unwrap();
 
         let view = result
-            .interventions
+            .input_requests
             .iter()
             .find(|view| view.id == requested.input_request_id)
             .unwrap();
@@ -619,98 +617,98 @@ mod tests {
     }
 
     #[test]
-    fn fetch_intervention_rejects_unknown_id() {
+    fn fetch_input_request_rejects_unknown_id() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-        let error = fetch_intervention(InterventionFetchOptions::new(
+        let error = fetch_input_request(InputRequestFetchOptions::new(
             repo.path(),
             InputRequestId::new("input-request:sha256:missing"),
         ))
         .unwrap_err();
 
-        assert!(error.to_string().contains("unknown intervention"));
+        assert!(error.to_string().contains("unknown input request"));
     }
 
     #[test]
-    fn resolved_intervention_view_includes_resolution_details() {
+    fn responded_input_request_view_includes_response_details() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let requested = request_intervention(open_request(repo.path(), "Resolved")).unwrap();
-        let resolution_event_id = write_resolution_event(
+        let requested = open_input_request(open_request(repo.path(), "Responded")).unwrap();
+        let response_event_id = write_response_event(
             repo.path(),
             &requested,
             "approved",
             InputRequestResponseOutcome::Approved,
         );
 
-        let result = fetch_intervention(InterventionFetchOptions::new(
+        let result = fetch_input_request(InputRequestFetchOptions::new(
             repo.path(),
             requested.input_request_id.clone(),
         ))
         .unwrap();
 
-        assert_eq!(result.intervention.status, InterventionStatus::Resolved);
-        assert_eq!(result.intervention.resolutions.len(), 1);
+        assert_eq!(result.input_request.status, InputRequestStatus::Responded);
+        assert_eq!(result.input_request.responses.len(), 1);
         assert_eq!(
-            result.intervention.resolutions[0].event_id,
-            resolution_event_id
+            result.input_request.responses[0].event_id,
+            response_event_id
         );
         assert_eq!(
-            result.intervention.resolutions[0].outcome,
+            result.input_request.responses[0].outcome,
             InputRequestResponseOutcome::Approved
         );
     }
 
     #[test]
-    fn multiple_resolution_events_make_intervention_ambiguous() {
+    fn multiple_response_events_make_input_request_ambiguous() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let requested = request_intervention(open_request(repo.path(), "Ambiguous")).unwrap();
-        write_resolution_event(
+        let requested = open_input_request(open_request(repo.path(), "Ambiguous")).unwrap();
+        write_response_event(
             repo.path(),
             &requested,
             "approved",
             InputRequestResponseOutcome::Approved,
         );
-        write_resolution_event(
+        write_response_event(
             repo.path(),
             &requested,
             "rejected",
             InputRequestResponseOutcome::Rejected,
         );
 
-        let result = fetch_intervention(InterventionFetchOptions::new(
+        let result = fetch_input_request(InputRequestFetchOptions::new(
             repo.path(),
             requested.input_request_id,
         ))
         .unwrap();
 
-        assert_eq!(result.intervention.status, InterventionStatus::Ambiguous);
-        assert_eq!(result.intervention.resolutions.len(), 2);
+        assert_eq!(result.input_request.status, InputRequestStatus::Ambiguous);
+        assert_eq!(result.input_request.responses.len(), 2);
     }
 
     #[test]
-    fn duplicate_resolution_events_do_not_make_intervention_ambiguous() {
+    fn duplicate_response_events_do_not_make_input_request_ambiguous() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let requested = request_intervention(open_request(repo.path(), "Need approval")).unwrap();
-        let first = resolve_intervention(
-            InterventionResolveOptions::new(repo.path(), requested.input_request_id.clone())
+        let requested = open_input_request(open_request(repo.path(), "Need approval")).unwrap();
+        let first = respond_input_request(
+            InputRequestRespondOptions::new(repo.path(), requested.input_request_id.clone())
                 .with_outcome(InputRequestResponseOutcome::Approved)
                 .with_reason("approved locally")
                 .with_idempotency_key("retry-a"),
         )
         .unwrap();
-        let second = resolve_intervention(
-            InterventionResolveOptions::new(repo.path(), requested.input_request_id.clone())
+        let second = respond_input_request(
+            InputRequestRespondOptions::new(repo.path(), requested.input_request_id.clone())
                 .with_outcome(InputRequestResponseOutcome::Approved)
                 .with_reason("approved locally")
                 .with_idempotency_key("retry-b"),
         )
         .unwrap();
 
-        let result = fetch_intervention(InterventionFetchOptions::new(
+        let result = fetch_input_request(InputRequestFetchOptions::new(
             repo.path(),
             requested.input_request_id,
         ))
@@ -722,23 +720,23 @@ mod tests {
         );
         assert_eq!(first.events_created, 1);
         assert_eq!(second.events_created, 1);
-        assert_eq!(result.intervention.status, InterventionStatus::Resolved);
-        assert_eq!(result.intervention.resolutions.len(), 1);
+        assert_eq!(result.input_request.status, InputRequestStatus::Responded);
+        assert_eq!(result.input_request.responses.len(), 1);
         assert!(result.diagnostics.iter().any(|diagnostic| {
             diagnostic.code
-                == crate::session::state::DUPLICATE_SEMANTIC_INTERVENTION_RESOLUTION_EVENT_CODE
+                == crate::session::state::DUPLICATE_SEMANTIC_INPUT_REQUEST_RESPONSE_EVENT_CODE
         }));
     }
 
     #[test]
-    fn collect_intervention_projection_records_is_order_independent_and_collapses_duplicates() {
+    fn collect_input_request_projection_records_is_order_independent_and_collapses_duplicates() {
         let session_id = SessionId::new("session:default");
         let review_unit_id = ReviewUnitId::new("review-unit:sha256:test");
         let track_id = TrackId::new("human:kevin");
         let input_request_id = InputRequestId::new("input-request:sha256:alpha");
-        let approve_resolution_id =
+        let approve_response_id =
             InputRequestResponseId::new("input-request-response:sha256:approve");
-        let reject_resolution_id =
+        let reject_response_id =
             InputRequestResponseId::new("input-request-response:sha256:reject");
 
         let request_a = projection_request_event(
@@ -757,30 +755,30 @@ mod tests {
             "retry-b",
             "2026-01-01T00:00:00Z",
         );
-        let approve_x = projection_resolution_event(
+        let approve_x = projection_response_event(
             &session_id,
             &review_unit_id,
             &track_id,
             &input_request_id,
-            &approve_resolution_id,
+            &approve_response_id,
             "retry-x",
             "2026-01-02T00:00:00Z",
         );
-        let approve_y = projection_resolution_event(
+        let approve_y = projection_response_event(
             &session_id,
             &review_unit_id,
             &track_id,
             &input_request_id,
-            &approve_resolution_id,
+            &approve_response_id,
             "retry-y",
             "2026-01-02T00:00:00Z",
         );
-        let reject_z = projection_resolution_event(
+        let reject_z = projection_response_event(
             &session_id,
             &review_unit_id,
             &track_id,
             &input_request_id,
-            &reject_resolution_id,
+            &reject_response_id,
             "retry-z",
             "2026-01-03T00:00:00Z",
         );
@@ -799,8 +797,8 @@ mod tests {
         ];
         let reverse: Vec<ShoreEvent> = forward.iter().rev().cloned().collect();
 
-        let forward_records = collect_intervention_projection_records(&forward).unwrap();
-        let reverse_records = collect_intervention_projection_records(&reverse).unwrap();
+        let forward_records = collect_input_request_projection_records(&forward).unwrap();
+        let reverse_records = collect_input_request_projection_records(&reverse).unwrap();
 
         assert_eq!(forward_records.request_records.len(), 1);
         assert_eq!(
@@ -818,27 +816,27 @@ mod tests {
             lowest_request_event_id,
         );
 
-        let forward_resolutions = &forward_records.resolutions[&input_request_id];
-        let reverse_resolutions = &reverse_records.resolutions[&input_request_id];
-        assert_eq!(forward_resolutions, reverse_resolutions);
-        assert_eq!(forward_resolutions.len(), 2);
+        let forward_responses = &forward_records.responses[&input_request_id];
+        let reverse_responses = &reverse_records.responses[&input_request_id];
+        assert_eq!(forward_responses, reverse_responses);
+        assert_eq!(forward_responses.len(), 2);
 
-        let approve_view = forward_resolutions
+        let approve_view = forward_responses
             .iter()
-            .find(|view| view.id == approve_resolution_id)
+            .find(|view| view.id == approve_response_id)
             .unwrap();
         assert_eq!(approve_view.event_id.as_str(), lowest_approve_event_id);
     }
 
     #[test]
-    fn sort_intervention_views_uses_created_at_then_event_id() {
+    fn sort_input_request_views_uses_created_at_then_event_id() {
         let mut views = vec![
-            intervention_view_for_sort("input-request:sha256:b", "evt:sha256:b", "unix-ms:2"),
-            intervention_view_for_sort("input-request:sha256:c", "evt:sha256:c", "unix-ms:1"),
-            intervention_view_for_sort("input-request:sha256:a", "evt:sha256:a", "unix-ms:1"),
+            input_request_view_for_sort("input-request:sha256:b", "evt:sha256:b", "unix-ms:2"),
+            input_request_view_for_sort("input-request:sha256:c", "evt:sha256:c", "unix-ms:1"),
+            input_request_view_for_sort("input-request:sha256:a", "evt:sha256:a", "unix-ms:1"),
         ];
 
-        sort_intervention_views(&mut views);
+        sort_input_request_views(&mut views);
 
         assert_eq!(
             views
@@ -854,27 +852,27 @@ mod tests {
     }
 
     #[test]
-    fn resolve_intervention_records_resolution_and_closes_open_count() {
+    fn respond_input_request_records_response_and_closes_open_count() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let requested = request_intervention(open_request(repo.path(), "Need approval")).unwrap();
+        let requested = open_input_request(open_request(repo.path(), "Need approval")).unwrap();
 
-        let resolved = resolve_intervention(
-            InterventionResolveOptions::new(repo.path(), requested.input_request_id.clone())
+        let responded = respond_input_request(
+            InputRequestRespondOptions::new(repo.path(), requested.input_request_id.clone())
                 .with_outcome(InputRequestResponseOutcome::Approved)
                 .with_reason("approved locally"),
         )
         .unwrap();
 
         assert!(
-            resolved
+            responded
                 .input_request_response_id
                 .as_str()
                 .starts_with("input-request-response:sha256:")
         );
-        assert_eq!(resolved.outcome, InputRequestResponseOutcome::Approved);
+        assert_eq!(responded.outcome, InputRequestResponseOutcome::Approved);
         assert_eq!(
-            resolved.events_created_by_type["input_request_responded"],
+            responded.events_created_by_type["input_request_responded"],
             1
         );
 
@@ -884,18 +882,18 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        assert_eq!(state.intervention_count, 1);
-        assert_eq!(state.open_intervention_count, 0);
-        assert_eq!(state.open_blocking_intervention_count, 0);
+        assert_eq!(state.input_request_count, 1);
+        assert_eq!(state.open_input_request_count, 0);
+        assert_eq!(state.open_blocking_input_request_count, 0);
     }
 
     #[test]
-    fn resolving_unknown_intervention_fails() {
+    fn resolving_unknown_input_request_fails() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-        let error = resolve_intervention(
-            InterventionResolveOptions::new(
+        let error = respond_input_request(
+            InputRequestRespondOptions::new(
                 repo.path(),
                 InputRequestId::new("input-request:sha256:missing"),
             )
@@ -903,21 +901,21 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(error.to_string().contains("unknown intervention"));
+        assert!(error.to_string().contains("unknown input request"));
     }
 
     #[test]
-    fn resolve_intervention_is_idempotent_for_same_logical_input() {
+    fn respond_input_request_is_idempotent_for_same_logical_input() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let requested = request_intervention(open_request(repo.path(), "Need approval")).unwrap();
+        let requested = open_input_request(open_request(repo.path(), "Need approval")).unwrap();
         let options =
-            InterventionResolveOptions::new(repo.path(), requested.input_request_id.clone())
+            InputRequestRespondOptions::new(repo.path(), requested.input_request_id.clone())
                 .with_outcome(InputRequestResponseOutcome::Approved)
                 .with_reason("approved locally");
 
-        let first = resolve_intervention(options.clone()).unwrap();
-        let second = resolve_intervention(options).unwrap();
+        let first = respond_input_request(options.clone()).unwrap();
+        let second = respond_input_request(options).unwrap();
 
         assert_eq!(
             first.input_request_response_id,
@@ -929,19 +927,19 @@ mod tests {
     }
 
     #[test]
-    fn explicit_same_resolution_idempotency_key_with_different_payload_conflicts() {
+    fn explicit_same_response_idempotency_key_with_different_payload_conflicts() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let requested = request_intervention(open_request(repo.path(), "Need approval")).unwrap();
+        let requested = open_input_request(open_request(repo.path(), "Need approval")).unwrap();
 
-        resolve_intervention(
-            InterventionResolveOptions::new(repo.path(), requested.input_request_id.clone())
+        respond_input_request(
+            InputRequestRespondOptions::new(repo.path(), requested.input_request_id.clone())
                 .with_outcome(InputRequestResponseOutcome::Approved)
                 .with_idempotency_key("retry-key"),
         )
         .unwrap();
-        let error = resolve_intervention(
-            InterventionResolveOptions::new(repo.path(), requested.input_request_id.clone())
+        let error = respond_input_request(
+            InputRequestRespondOptions::new(repo.path(), requested.input_request_id.clone())
                 .with_outcome(InputRequestResponseOutcome::Rejected)
                 .with_idempotency_key("retry-key"),
         )
@@ -954,38 +952,38 @@ mod tests {
     fn resolving_twice_with_different_outcomes_is_append_only_and_ambiguous() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let requested = request_intervention(open_request(repo.path(), "Need approval")).unwrap();
+        let requested = open_input_request(open_request(repo.path(), "Need approval")).unwrap();
 
-        resolve_intervention(
-            InterventionResolveOptions::new(repo.path(), requested.input_request_id.clone())
+        respond_input_request(
+            InputRequestRespondOptions::new(repo.path(), requested.input_request_id.clone())
                 .with_outcome(InputRequestResponseOutcome::Approved),
         )
         .unwrap();
-        resolve_intervention(
-            InterventionResolveOptions::new(repo.path(), requested.input_request_id.clone())
+        respond_input_request(
+            InputRequestRespondOptions::new(repo.path(), requested.input_request_id.clone())
                 .with_outcome(InputRequestResponseOutcome::Rejected),
         )
         .unwrap();
 
-        let result = fetch_intervention(InterventionFetchOptions::new(
+        let result = fetch_input_request(InputRequestFetchOptions::new(
             repo.path(),
             requested.input_request_id,
         ))
         .unwrap();
 
-        assert_eq!(result.intervention.status, InterventionStatus::Ambiguous);
-        assert_eq!(result.intervention.resolutions.len(), 2);
+        assert_eq!(result.input_request.status, InputRequestStatus::Ambiguous);
+        assert_eq!(result.input_request.responses.len(), 2);
     }
 
     #[test]
-    fn large_resolution_reason_is_stored_as_internal_body_artifact() {
+    fn large_response_reason_is_stored_as_internal_body_artifact() {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let requested = request_intervention(open_request(repo.path(), "Need approval")).unwrap();
-        let reason = "resolved ".repeat(1000);
+        let requested = open_input_request(open_request(repo.path(), "Need approval")).unwrap();
+        let reason = "responded ".repeat(1000);
 
-        let result = resolve_intervention(
-            InterventionResolveOptions::new(repo.path(), requested.input_request_id)
+        let result = respond_input_request(
+            InputRequestRespondOptions::new(repo.path(), requested.input_request_id)
                 .with_outcome(InputRequestResponseOutcome::Approved)
                 .with_reason(reason),
         )
@@ -1012,33 +1010,32 @@ mod tests {
         repo
     }
 
-    fn open_request(repo: &Path, title: &str) -> InterventionRequestOptions {
-        InterventionRequestOptions::new(repo)
+    fn open_request(repo: &Path, title: &str) -> InputRequestOpenOptions {
+        InputRequestOpenOptions::new(repo)
             .with_track("human:kevin")
             .with_title(title)
             .with_reason_code(InputRequestReasonCode::ManualDecisionRequired)
     }
 
-    fn write_resolution_event(
+    fn write_response_event(
         repo: &Path,
-        requested: &InterventionRequestResult,
+        requested: &InputRequestOpenResult,
         source_key: &str,
         outcome: InputRequestResponseOutcome,
     ) -> EventId {
-        let resolution_id_material =
-            format!("{}:{source_key}", requested.input_request_id.as_str());
-        let resolution_id = InputRequestResponseId::new(format!(
+        let response_id_material = format!("{}:{source_key}", requested.input_request_id.as_str());
+        let response_id = InputRequestResponseId::new(format!(
             "input-request-response:sha256:{}",
-            sha256_bytes_hex(resolution_id_material.as_bytes())
+            sha256_bytes_hex(response_id_material.as_bytes())
         ));
         let payload = InputRequestRespondedPayload {
-            input_request_response_id: resolution_id,
+            input_request_response_id: response_id,
             input_request_id: requested.input_request_id.clone(),
             outcome,
-            reason: Some("resolved".to_owned()),
+            reason: Some("responded".to_owned()),
             reason_artifact_path: None,
             reason_byte_size: Some(8),
-            reason_content_hash: Some("sha256:resolved".to_owned()),
+            reason_content_hash: Some("sha256:responded".to_owned()),
             target_fingerprint: None,
         };
         let event = ShoreEvent::new(
@@ -1115,17 +1112,17 @@ mod tests {
         .unwrap()
     }
 
-    fn projection_resolution_event(
+    fn projection_response_event(
         session_id: &SessionId,
         review_unit_id: &ReviewUnitId,
         track_id: &TrackId,
         input_request_id: &InputRequestId,
-        resolution_id: &InputRequestResponseId,
+        response_id: &InputRequestResponseId,
         source_key: &str,
         occurred_at: &str,
     ) -> ShoreEvent {
         let payload = InputRequestRespondedPayload {
-            input_request_response_id: resolution_id.clone(),
+            input_request_response_id: response_id.clone(),
             input_request_id: input_request_id.clone(),
             outcome: InputRequestResponseOutcome::Approved,
             reason: None,
@@ -1159,25 +1156,25 @@ mod tests {
     }
 
     fn assert_status(
-        result: &InterventionListResult,
+        result: &InputRequestListResult,
         id: &InputRequestId,
-        status: InterventionStatus,
+        status: InputRequestStatus,
     ) {
         let view = result
-            .interventions
+            .input_requests
             .iter()
             .find(|view| &view.id == id)
             .unwrap();
         assert_eq!(view.status, status);
     }
 
-    fn intervention_view_for_sort(
+    fn input_request_view_for_sort(
         input_request_id: &str,
         event_id: &str,
         created_at: &str,
-    ) -> InterventionView {
+    ) -> InputRequestView {
         let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
-        InterventionView {
+        InputRequestView {
             id: InputRequestId::new(input_request_id),
             event_id: EventId::new(event_id),
             track_id: TrackId::new("agent:codex"),
@@ -1187,8 +1184,8 @@ mod tests {
             title: "sort".to_owned(),
             body: None,
             body_content_hash: None,
-            status: InterventionStatus::Open,
-            resolutions: vec![],
+            status: InputRequestStatus::Open,
+            responses: vec![],
             created_at: created_at.to_owned(),
             writer: Writer::shore_local_reviewer("test"),
         }

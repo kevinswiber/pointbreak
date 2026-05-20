@@ -3,7 +3,7 @@ use shore::model::ReviewTargetRef;
 use shore::session::event::{
     InputRequestMode, InputRequestReasonCode, InputRequestResponseOutcome, ReviewAssessment, Writer,
 };
-use shore::session::{AssessmentView, CurrentAssessmentStatus, InterventionView, ObservationView};
+use shore::session::{AssessmentView, CurrentAssessmentStatus, InputRequestView, ObservationView};
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -116,8 +116,8 @@ impl From<ObservationView> for ObservationViewDocument {
     }
 }
 
-impl From<InterventionView> for InterventionViewDocument {
-    fn from(view: InterventionView) -> Self {
+impl From<InputRequestView> for InterventionViewDocument {
+    fn from(view: InputRequestView) -> Self {
         Self {
             id: view.id.as_str().to_owned(),
             event_id: view.event_id.as_str().to_owned(),
@@ -130,7 +130,7 @@ impl From<InterventionView> for InterventionViewDocument {
             body_content_hash: view.body_content_hash,
             status: view.status.as_str(),
             resolutions: view
-                .resolutions
+                .responses
                 .into_iter()
                 .map(InterventionResolutionViewDocument::from)
                 .collect(),
@@ -140,8 +140,8 @@ impl From<InterventionView> for InterventionViewDocument {
     }
 }
 
-impl From<shore::session::InterventionResolutionView> for InterventionResolutionViewDocument {
-    fn from(view: shore::session::InterventionResolutionView) -> Self {
+impl From<shore::session::InputRequestResponseView> for InterventionResolutionViewDocument {
+    fn from(view: shore::session::InputRequestResponseView) -> Self {
         Self {
             id: view.id.as_str().to_owned(),
             event_id: view.event_id.as_str().to_owned(),

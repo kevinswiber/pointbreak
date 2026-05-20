@@ -10,19 +10,19 @@ use crate::session::event::{
 };
 use crate::session::observation::{ResolvedReviewUnit, target_matches_file};
 
-pub(crate) struct InterventionProjectionOptions<'a> {
+pub(crate) struct InputRequestProjectionOptions<'a> {
     pub shore_dir: &'a Path,
     pub events: &'a [ShoreEvent],
     pub resolved: &'a ResolvedReviewUnit,
     pub track_filter: Option<TrackId>,
     pub mode_filter: Option<InputRequestMode>,
     pub file_filter: Option<&'a str>,
-    pub status_filter: InterventionStatusFilter,
+    pub status_filter: InputRequestStatusFilter,
     pub include_body: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InterventionView {
+pub struct InputRequestView {
     pub id: InputRequestId,
     pub event_id: EventId,
     pub track_id: TrackId,
@@ -32,14 +32,14 @@ pub struct InterventionView {
     pub title: String,
     pub body: Option<String>,
     pub body_content_hash: Option<String>,
-    pub status: InterventionStatus,
-    pub resolutions: Vec<InterventionResolutionView>,
+    pub status: InputRequestStatus,
+    pub responses: Vec<InputRequestResponseView>,
     pub created_at: String,
     pub writer: Writer,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InterventionResolutionView {
+pub struct InputRequestResponseView {
     pub id: InputRequestResponseId,
     pub event_id: EventId,
     pub outcome: InputRequestResponseOutcome,
@@ -50,58 +50,58 @@ pub struct InterventionResolutionView {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum InterventionStatus {
+pub enum InputRequestStatus {
     Open,
-    Resolved,
+    Responded,
     Ambiguous,
 }
 
-impl InterventionStatus {
+impl InputRequestStatus {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Open => "open",
-            Self::Resolved => "resolved",
+            Self::Responded => "responded",
             Self::Ambiguous => "ambiguous",
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum InterventionStatusFilter {
+pub enum InputRequestStatusFilter {
     Open,
-    Resolved,
+    Responded,
     Ambiguous,
     All,
 }
 
-impl InterventionStatusFilter {
+impl InputRequestStatusFilter {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Open => "open",
-            Self::Resolved => "resolved",
+            Self::Responded => "responded",
             Self::Ambiguous => "ambiguous",
             Self::All => "all",
         }
     }
 
-    pub(super) fn matches(self, status: InterventionStatus) -> bool {
+    pub(super) fn matches(self, status: InputRequestStatus) -> bool {
         match self {
-            Self::Open => status == InterventionStatus::Open,
-            Self::Resolved => status == InterventionStatus::Resolved,
-            Self::Ambiguous => status == InterventionStatus::Ambiguous,
+            Self::Open => status == InputRequestStatus::Open,
+            Self::Responded => status == InputRequestStatus::Responded,
+            Self::Ambiguous => status == InputRequestStatus::Ambiguous,
             Self::All => true,
         }
     }
 }
 
-pub(crate) fn project_interventions(
-    options: InterventionProjectionOptions<'_>,
-) -> Result<Vec<InterventionView>> {
-    let InterventionProjectionRecords {
+pub(crate) fn project_input_requests(
+    options: InputRequestProjectionOptions<'_>,
+) -> Result<Vec<InputRequestView>> {
+    let InputRequestProjectionRecords {
         request_records,
-        resolutions,
-    } = collect_intervention_projection_records(options.events)?;
-    let mut interventions = Vec::new();
+        responses,
+    } = collect_input_request_projection_records(options.events)?;
+    let mut input_requests = Vec::new();
 
     for record in request_records.into_values() {
         let event = record.event;
@@ -130,49 +130,48 @@ pub(crate) fn project_interventions(
         }
 
         let input_request_id = record.payload.input_request_id.clone();
-        let resolutions = resolutions
+        let responses = responses
             .get(&input_request_id)
             .cloned()
             .unwrap_or_default();
-        let view = intervention_view_from_event(
+        let view = input_request_view_from_event(
             options.shore_dir,
             event,
             record.payload,
             record.track_id,
-            resolutions,
+            responses,
             options.include_body,
         )?;
         if options.status_filter.matches(view.status) {
-            interventions.push(view);
+            input_requests.push(view);
         }
     }
 
-    sort_intervention_views(&mut interventions);
-    Ok(interventions)
+    sort_input_request_views(&mut input_requests);
+    Ok(input_requests)
 }
 
-pub(super) struct InterventionRequestRecord<'a> {
+pub(super) struct InputRequestOpenRecord<'a> {
     pub(super) event: &'a ShoreEvent,
     pub(super) payload: InputRequestOpenedPayload,
     pub(super) track_id: TrackId,
 }
 
-struct InterventionResolutionRecord<'a> {
+struct InputRequestResponseRecord<'a> {
     event: &'a ShoreEvent,
     payload: InputRequestRespondedPayload,
 }
 
-pub(super) struct InterventionProjectionRecords<'a> {
-    pub(super) request_records: BTreeMap<InputRequestId, InterventionRequestRecord<'a>>,
-    pub(super) resolutions: BTreeMap<InputRequestId, Vec<InterventionResolutionView>>,
+pub(super) struct InputRequestProjectionRecords<'a> {
+    pub(super) request_records: BTreeMap<InputRequestId, InputRequestOpenRecord<'a>>,
+    pub(super) responses: BTreeMap<InputRequestId, Vec<InputRequestResponseView>>,
 }
 
-pub(super) fn collect_intervention_projection_records<'a>(
+pub(super) fn collect_input_request_projection_records<'a>(
     events: &'a [ShoreEvent],
-) -> Result<InterventionProjectionRecords<'a>> {
-    let mut request_records: BTreeMap<InputRequestId, InterventionRequestRecord<'a>> =
-        BTreeMap::new();
-    let mut resolution_records: BTreeMap<InputRequestResponseId, InterventionResolutionRecord<'a>> =
+) -> Result<InputRequestProjectionRecords<'a>> {
+    let mut request_records: BTreeMap<InputRequestId, InputRequestOpenRecord<'a>> = BTreeMap::new();
+    let mut response_records: BTreeMap<InputRequestResponseId, InputRequestResponseRecord<'a>> =
         BTreeMap::new();
 
     for event in events {
@@ -181,7 +180,7 @@ pub(super) fn collect_intervention_projection_records<'a>(
                 let payload: InputRequestOpenedPayload =
                     serde_json::from_value(event.payload.clone())?;
                 let track_id = event.target.track_id.clone().ok_or_else(|| {
-                    ShoreError::Message("intervention event missing track id".to_owned())
+                    ShoreError::Message("input request event missing track id".to_owned())
                 })?;
                 let input_request_id = payload.input_request_id.clone();
                 if should_replace_representative(
@@ -192,7 +191,7 @@ pub(super) fn collect_intervention_projection_records<'a>(
                 ) {
                     request_records.insert(
                         input_request_id,
-                        InterventionRequestRecord {
+                        InputRequestOpenRecord {
                             event,
                             payload,
                             track_id,
@@ -203,32 +202,29 @@ pub(super) fn collect_intervention_projection_records<'a>(
             EventType::InputRequestResponded => {
                 let payload: InputRequestRespondedPayload =
                     serde_json::from_value(event.payload.clone())?;
-                let resolution_id = payload.input_request_response_id.clone();
+                let response_id = payload.input_request_response_id.clone();
                 if should_replace_representative(
-                    resolution_records
-                        .get(&resolution_id)
+                    response_records
+                        .get(&response_id)
                         .map(|record| record.event),
                     event,
                 ) {
-                    resolution_records.insert(
-                        resolution_id,
-                        InterventionResolutionRecord { event, payload },
-                    );
+                    response_records
+                        .insert(response_id, InputRequestResponseRecord { event, payload });
                 }
             }
             _ => {}
         }
     }
 
-    let mut resolutions: BTreeMap<InputRequestId, Vec<InterventionResolutionView>> =
-        BTreeMap::new();
-    for record in resolution_records.into_values() {
+    let mut responses: BTreeMap<InputRequestId, Vec<InputRequestResponseView>> = BTreeMap::new();
+    for record in response_records.into_values() {
         let event = record.event;
         let payload = record.payload;
-        resolutions
+        responses
             .entry(payload.input_request_id)
             .or_default()
-            .push(InterventionResolutionView {
+            .push(InputRequestResponseView {
                 id: payload.input_request_response_id,
                 event_id: event.event_id.clone(),
                 outcome: payload.outcome,
@@ -239,13 +235,13 @@ pub(super) fn collect_intervention_projection_records<'a>(
             });
     }
 
-    for resolution_views in resolutions.values_mut() {
-        sort_resolution_views(resolution_views);
+    for response_views in responses.values_mut() {
+        sort_response_views(response_views);
     }
 
-    Ok(InterventionProjectionRecords {
+    Ok(InputRequestProjectionRecords {
         request_records,
-        resolutions,
+        responses,
     })
 }
 
@@ -255,22 +251,22 @@ fn should_replace_representative(current: Option<&ShoreEvent>, candidate: &Shore
     current.is_none_or(|existing| candidate.event_id.as_str() < existing.event_id.as_str())
 }
 
-pub(super) fn intervention_view_from_event(
+pub(super) fn input_request_view_from_event(
     shore_dir: &Path,
     event: &ShoreEvent,
     payload: InputRequestOpenedPayload,
     track_id: TrackId,
-    resolutions: Vec<InterventionResolutionView>,
+    responses: Vec<InputRequestResponseView>,
     include_body: bool,
-) -> Result<InterventionView> {
+) -> Result<InputRequestView> {
     let body = if include_body {
-        intervention_body(shore_dir, &payload)?
+        input_request_body(shore_dir, &payload)?
     } else {
         None
     };
-    let status = status_for_resolutions(&resolutions);
+    let status = status_for_responses(&responses);
 
-    Ok(InterventionView {
+    Ok(InputRequestView {
         id: payload.input_request_id,
         event_id: event.event_id.clone(),
         track_id,
@@ -281,13 +277,13 @@ pub(super) fn intervention_view_from_event(
         body,
         body_content_hash: payload.body_content_hash,
         status,
-        resolutions,
+        responses,
         created_at: event.occurred_at.clone(),
         writer: event.writer.clone(),
     })
 }
 
-fn intervention_body(
+fn input_request_body(
     shore_dir: &Path,
     payload: &InputRequestOpenedPayload,
 ) -> Result<Option<String>> {
@@ -300,24 +296,24 @@ fn intervention_body(
     }
 }
 
-fn status_for_resolutions(resolutions: &[InterventionResolutionView]) -> InterventionStatus {
-    match resolutions.len() {
-        0 => InterventionStatus::Open,
-        1 => InterventionStatus::Resolved,
-        _ => InterventionStatus::Ambiguous,
+fn status_for_responses(responses: &[InputRequestResponseView]) -> InputRequestStatus {
+    match responses.len() {
+        0 => InputRequestStatus::Open,
+        1 => InputRequestStatus::Responded,
+        _ => InputRequestStatus::Ambiguous,
     }
 }
 
-pub(super) fn sort_intervention_views(interventions: &mut [InterventionView]) {
-    interventions.sort_by(|left, right| {
+pub(super) fn sort_input_request_views(input_requests: &mut [InputRequestView]) {
+    input_requests.sort_by(|left, right| {
         left.created_at
             .cmp(&right.created_at)
             .then_with(|| left.event_id.as_str().cmp(right.event_id.as_str()))
     });
 }
 
-fn sort_resolution_views(resolutions: &mut [InterventionResolutionView]) {
-    resolutions.sort_by(|left, right| {
+fn sort_response_views(responses: &mut [InputRequestResponseView]) {
+    responses.sort_by(|left, right| {
         left.created_at
             .cmp(&right.created_at)
             .then_with(|| left.event_id.as_str().cmp(right.event_id.as_str()))

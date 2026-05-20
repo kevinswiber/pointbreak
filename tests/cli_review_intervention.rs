@@ -140,7 +140,7 @@ fn intervention_list_collapses_duplicate_request_events() {
         "--include-body",
     ]);
     let json = parse_json(&list.stdout);
-    let diagnostic = diagnostic_with_code(&json, "duplicate_semantic_intervention_request_event");
+    let diagnostic = diagnostic_with_code(&json, "duplicate_semantic_input_request_open_event");
     let input_request_id = first["inputRequestId"].as_str().unwrap();
 
     assert_eq!(first["inputRequestId"], second["inputRequestId"]);
@@ -277,15 +277,14 @@ fn intervention_fetch_collapses_duplicate_resolution_events() {
         repo.path().to_str().unwrap(),
     ]);
     let json = parse_json(&fetch.stdout);
-    let diagnostic =
-        diagnostic_with_code(&json, "duplicate_semantic_intervention_resolution_event");
+    let diagnostic = diagnostic_with_code(&json, "duplicate_semantic_input_request_response_event");
     let resolution_id = first["inputRequestResponseId"].as_str().unwrap();
 
     assert_eq!(
         first["inputRequestResponseId"],
         second["inputRequestResponseId"]
     );
-    assert_eq!(json["intervention"]["status"], "resolved");
+    assert_eq!(json["intervention"]["status"], "responded");
     assert_eq!(
         json["intervention"]["resolutions"]
             .as_array()

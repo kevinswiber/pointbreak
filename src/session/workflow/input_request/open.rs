@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::json;
 
-use super::target::{InterventionTargetSelector, resolve_intervention_target};
+use super::target::{InputRequestTargetSelector, resolve_input_request_target};
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, ShoreError};
 use crate::model::{EventId, InputRequestId, ReviewTargetRef, ReviewUnitId, TargetRef, TrackId};
@@ -20,19 +20,19 @@ use crate::session::{EventStore, EventWriteOutcome, current_timestamp, reviewer_
 use crate::storage::{Durability, LocalStorage};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InterventionRequestOptions {
+pub struct InputRequestOpenOptions {
     repo: PathBuf,
     review_unit_id: Option<ReviewUnitId>,
     track: Option<String>,
     title: Option<String>,
     body: Option<String>,
-    target: InterventionTargetSelector,
+    target: InputRequestTargetSelector,
     mode: InputRequestMode,
     reason_code: Option<InputRequestReasonCode>,
     idempotency_key: Option<String>,
 }
 
-impl InterventionRequestOptions {
+impl InputRequestOpenOptions {
     pub fn new(repo: impl AsRef<Path>) -> Self {
         Self {
             repo: repo.as_ref().to_path_buf(),
@@ -40,7 +40,7 @@ impl InterventionRequestOptions {
             track: None,
             title: None,
             body: None,
-            target: InterventionTargetSelector::review_unit(),
+            target: InputRequestTargetSelector::review_unit(),
             mode: InputRequestMode::Blocking,
             reason_code: None,
             idempotency_key: None,
@@ -67,7 +67,7 @@ impl InterventionRequestOptions {
         self
     }
 
-    pub fn with_target(mut self, target: InterventionTargetSelector) -> Self {
+    pub fn with_target(mut self, target: InputRequestTargetSelector) -> Self {
         self.target = target;
         self
     }
@@ -89,7 +89,7 @@ impl InterventionRequestOptions {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InterventionRequestResult {
+pub struct InputRequestOpenResult {
     pub review_unit_id: ReviewUnitId,
     pub input_request_id: InputRequestId,
     pub event_id: EventId,
@@ -104,9 +104,7 @@ pub struct InterventionRequestResult {
     pub diagnostics: Vec<ProjectionDiagnostic>,
 }
 
-pub fn request_intervention(
-    options: InterventionRequestOptions,
-) -> Result<InterventionRequestResult> {
+pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputRequestOpenResult> {
     let paths = ShoreStorePaths::resolve(&options.repo)?;
     let worktree_root = paths.worktree_root();
     let shore_dir = paths.shore_dir();
@@ -116,7 +114,7 @@ pub fn request_intervention(
     let event_store = EventStore::open(shore_dir);
     let events = event_store.list_events()?;
     let resolved = resolve_review_unit(&events, options.review_unit_id.as_ref())?;
-    let target = resolve_intervention_target(worktree_root, &events, &resolved, &options.target)?;
+    let target = resolve_input_request_target(worktree_root, &events, &resolved, &options.target)?;
     let track_id = validated_track_id(options.track.as_deref().ok_or_else(|| {
         ShoreError::WorkflowInputInvalid {
             reason: "track is required".to_owned(),
@@ -135,7 +133,7 @@ pub fn request_intervention(
         .map(|body| format!("sha256:{}", sha256_bytes_hex(body.as_bytes())));
     let (body, body_artifact_path, body_artifact_bytes, body_byte_size) =
         staged_body(options.body.as_deref())?;
-    let input_request_id = build_intervention_id(InputRequestIdMaterial {
+    let input_request_id = build_input_request_id(InputRequestIdMaterial {
         review_unit_id: &resolved.review_unit_id,
         track_id: &track_id,
         target: &target,
@@ -205,7 +203,7 @@ pub fn request_intervention(
     let state = SessionState::from_prior_events_and_committed(&events, &event, outcome)?;
     storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
 
-    Ok(InterventionRequestResult {
+    Ok(InputRequestOpenResult {
         review_unit_id: resolved.review_unit_id,
         input_request_id,
         event_id,
@@ -232,7 +230,7 @@ struct InputRequestIdMaterial<'a> {
     writer_actor_id: &'a str,
 }
 
-fn build_intervention_id(material: InputRequestIdMaterial<'_>) -> Result<InputRequestId> {
+fn build_input_request_id(material: InputRequestIdMaterial<'_>) -> Result<InputRequestId> {
     let digest = sha256_json_prefixed(&json!({
         "reviewUnitId": material.review_unit_id.as_str(),
         "trackId": material.track_id.as_str(),

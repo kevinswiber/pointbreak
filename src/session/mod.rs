@@ -22,24 +22,25 @@ pub use workflow::{
     AdapterNoteView, AssessmentAddOptions, AssessmentAddResult, AssessmentRecordStatus,
     AssessmentShowFilters, AssessmentShowOptions, AssessmentShowResult, AssessmentTargetSelector,
     AssessmentView, CaptureOptions, CaptureResult, CurrentAssessmentStatus, CurrentAssessmentView,
-    ImportNotesOptions, ImportNotesResult, InterventionFetchOptions, InterventionFetchResult,
-    InterventionListOptions, InterventionListResult, InterventionRequestOptions,
-    InterventionRequestResult, InterventionResolutionView, InterventionResolveOptions,
-    InterventionResolveResult, InterventionStatusFilter, InterventionTargetSelector,
-    InterventionView, ObservationAddOptions, ObservationAddResult, ObservationListOptions,
+    ImportNotesOptions, ImportNotesResult, InputRequestFetchOptions, InputRequestFetchResult,
+    InputRequestListOptions, InputRequestListResult, InputRequestOpenOptions,
+    InputRequestOpenResult, InputRequestRespondOptions, InputRequestRespondResult,
+    InputRequestResponseView, InputRequestStatusFilter, InputRequestTargetSelector,
+    InputRequestView, ObservationAddOptions, ObservationAddResult, ObservationListOptions,
     ObservationListResult, ObservationStatus, ObservationTargetSelector, ObservationView,
     ReloadDiagnosticCode, ReviewHistoryEntry, ReviewHistoryFilters, ReviewHistoryOptions,
     ReviewHistoryResult, ReviewUnitListEntry, ReviewUnitListOptions, ReviewUnitListResult,
     ReviewUnitProjectionIdentity, ReviewUnitProjectionRow, ReviewUnitProjectionSummary,
     ReviewUnitShowFilters, ReviewUnitShowOptions, ReviewUnitShowResult, SnapshotOrder,
-    capture_worktree_review, fetch_intervention, import_notes, list_interventions,
-    list_observations, list_review_units, record_assessment, record_observation, reload_session,
-    request_intervention, resolve_intervention, review_history, show_assessments, show_review_unit,
+    capture_worktree_review, fetch_input_request, import_notes, list_input_requests,
+    list_observations, list_review_units, open_input_request, record_assessment,
+    record_observation, reload_session, respond_input_request, review_history, show_assessments,
+    show_review_unit,
 };
 #[cfg(test)]
-pub(crate) use workflow::{InterventionStatus, ReloadOutcome};
+pub(crate) use workflow::{InputRequestStatus, ReloadOutcome};
 pub(crate) use workflow::{ReloadDiagnostic, reload_diagnostics_for_document};
-pub(in crate::session) use workflow::{assessment, intervention, observation};
+pub(in crate::session) use workflow::{assessment, input_request, observation};
 
 #[cfg(test)]
 mod tests {

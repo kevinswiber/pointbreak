@@ -7,11 +7,11 @@ use shore::session::event::{
     InputRequestMode, InputRequestReasonCode, InputRequestResponseOutcome,
 };
 use shore::session::{
-    InterventionFetchOptions, InterventionFetchResult, InterventionListOptions,
-    InterventionListResult, InterventionRequestOptions, InterventionRequestResult,
-    InterventionResolveOptions, InterventionResolveResult, InterventionStatusFilter,
-    InterventionTargetSelector, fetch_intervention, list_interventions, request_intervention,
-    resolve_intervention,
+    InputRequestFetchOptions, InputRequestFetchResult, InputRequestListOptions,
+    InputRequestListResult, InputRequestOpenOptions, InputRequestOpenResult,
+    InputRequestRespondOptions, InputRequestRespondResult, InputRequestStatusFilter,
+    InputRequestTargetSelector, fetch_input_request, list_input_requests, open_input_request,
+    respond_input_request,
 };
 
 use crate::cli::json;
@@ -277,7 +277,7 @@ fn review_intervention_request(
     args: InterventionRequestArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result = request_intervention(intervention_request_options(args)?)?;
+    let result = open_input_request(intervention_request_options(args)?)?;
     let document = intervention_request_document(result);
     json::write_json(stdout, &document, false)
 }
@@ -287,7 +287,7 @@ fn review_intervention_list(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
-    let result = list_interventions(intervention_list_options(args));
+    let result = list_input_requests(intervention_list_options(args));
     let document = intervention_list_document(result?);
     json::write_json(stdout, &document, pretty)
 }
@@ -297,8 +297,8 @@ fn review_intervention_fetch(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
-    let result = fetch_intervention(
-        InterventionFetchOptions::new(&args.repo, InputRequestId::new(args.input_request_id))
+    let result = fetch_input_request(
+        InputRequestFetchOptions::new(&args.repo, InputRequestId::new(args.input_request_id))
             .with_include_body(args.include_body),
     );
     let document = intervention_fetch_document(result?);
@@ -309,21 +309,21 @@ fn review_intervention_resolve(
     args: InterventionResolveArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result = resolve_intervention(intervention_resolve_options(args)?)?;
+    let result = respond_input_request(intervention_resolve_options(args)?)?;
     let document = intervention_resolve_document(result);
     json::write_json(stdout, &document, false)
 }
 
 fn intervention_request_options(
     args: InterventionRequestArgs,
-) -> Result<InterventionRequestOptions, Box<dyn std::error::Error>> {
+) -> Result<InputRequestOpenOptions, Box<dyn std::error::Error>> {
     let target = intervention_target(&args)?;
     let body = read_body_input(
         args.body.as_deref(),
         args.body_file.as_deref(),
         args.body_stdin,
     )?;
-    let mut options = InterventionRequestOptions::new(&args.repo)
+    let mut options = InputRequestOpenOptions::new(&args.repo)
         .with_track(args.track)
         .with_title(args.title)
         .with_reason_code(args.reason.into())
@@ -343,8 +343,8 @@ fn intervention_request_options(
     Ok(options)
 }
 
-fn intervention_list_options(args: InterventionListArgs) -> InterventionListOptions {
-    let mut options = InterventionListOptions::new(&args.repo)
+fn intervention_list_options(args: InterventionListArgs) -> InputRequestListOptions {
+    let mut options = InputRequestListOptions::new(&args.repo)
         .with_status(args.status.into())
         .with_include_body(args.include_body);
     if let Some(review_unit) = args.review_unit {
@@ -364,14 +364,14 @@ fn intervention_list_options(args: InterventionListArgs) -> InterventionListOpti
 
 fn intervention_resolve_options(
     args: InterventionResolveArgs,
-) -> Result<InterventionResolveOptions, Box<dyn std::error::Error>> {
+) -> Result<InputRequestRespondOptions, Box<dyn std::error::Error>> {
     let reason = read_body_input(
         args.reason.as_deref(),
         args.reason_file.as_deref(),
         args.reason_stdin,
     )?;
     let mut options =
-        InterventionResolveOptions::new(&args.repo, InputRequestId::new(args.input_request_id))
+        InputRequestRespondOptions::new(&args.repo, InputRequestId::new(args.input_request_id))
             .with_outcome(args.outcome.into());
     if let Some(reason) = reason {
         options = options.with_reason(reason);
@@ -384,12 +384,12 @@ fn intervention_resolve_options(
 
 fn intervention_target(
     args: &InterventionRequestArgs,
-) -> Result<InterventionTargetSelector, Box<dyn std::error::Error>> {
+) -> Result<InputRequestTargetSelector, Box<dyn std::error::Error>> {
     if let Some(observation_id) = &args.observation {
         if args.file.is_some() || args.start_line.is_some() || args.end_line.is_some() {
             return Err("observation target cannot be combined with file or line target".into());
         }
-        return Ok(InterventionTargetSelector::observation(ObservationId::new(
+        return Ok(InputRequestTargetSelector::observation(ObservationId::new(
             observation_id.clone(),
         )));
     }
@@ -403,20 +403,20 @@ fn intervention_target(
     }
 
     match (&args.file, args.start_line) {
-        (Some(file), Some(start_line)) => Ok(InterventionTargetSelector::range(
+        (Some(file), Some(start_line)) => Ok(InputRequestTargetSelector::range(
             file.clone(),
             args.side.into(),
             start_line,
             args.end_line,
         )),
-        (Some(file), None) => Ok(InterventionTargetSelector::file(file.clone())),
+        (Some(file), None) => Ok(InputRequestTargetSelector::file(file.clone())),
         (None, Some(_)) => Err("file is required when selecting intervention lines".into()),
-        (None, None) => Ok(InterventionTargetSelector::review_unit()),
+        (None, None) => Ok(InputRequestTargetSelector::review_unit()),
     }
 }
 
 fn intervention_request_document(
-    result: InterventionRequestResult,
+    result: InputRequestOpenResult,
 ) -> json::EventWriteDocument<InterventionRequestBody> {
     json::EventWriteDocument::new(
         "shore.review-intervention-request",
@@ -438,7 +438,7 @@ fn intervention_request_document(
 }
 
 fn intervention_list_document(
-    result: InterventionListResult,
+    result: InputRequestListResult,
 ) -> json::DiagnosticDocument<InterventionListBody> {
     json::DiagnosticDocument::new(
         "shore.review-intervention-list",
@@ -455,7 +455,7 @@ fn intervention_list_document(
                 include_body: result.filters.include_body,
             },
             interventions: result
-                .interventions
+                .input_requests
                 .into_iter()
                 .map(InterventionViewDocument::from)
                 .collect(),
@@ -465,19 +465,19 @@ fn intervention_list_document(
 }
 
 fn intervention_fetch_document(
-    result: InterventionFetchResult,
+    result: InputRequestFetchResult,
 ) -> json::DiagnosticDocument<InterventionFetchBody> {
     json::DiagnosticDocument::new(
         "shore.review-intervention-fetch",
         InterventionFetchBody {
-            intervention: InterventionViewDocument::from(result.intervention),
+            intervention: InterventionViewDocument::from(result.input_request),
         },
         result.diagnostics,
     )
 }
 
 fn intervention_resolve_document(
-    result: InterventionResolveResult,
+    result: InputRequestRespondResult,
 ) -> json::EventWriteDocument<InterventionResolveBody> {
     json::EventWriteDocument::new(
         "shore.review-intervention-resolve",
@@ -521,13 +521,13 @@ impl From<InterventionReasonArg> for InputRequestReasonCode {
     }
 }
 
-impl From<InterventionStatusArg> for InterventionStatusFilter {
+impl From<InterventionStatusArg> for InputRequestStatusFilter {
     fn from(value: InterventionStatusArg) -> Self {
         match value {
-            InterventionStatusArg::Open => InterventionStatusFilter::Open,
-            InterventionStatusArg::Resolved => InterventionStatusFilter::Resolved,
-            InterventionStatusArg::Ambiguous => InterventionStatusFilter::Ambiguous,
-            InterventionStatusArg::All => InterventionStatusFilter::All,
+            InterventionStatusArg::Open => InputRequestStatusFilter::Open,
+            InterventionStatusArg::Resolved => InputRequestStatusFilter::Responded,
+            InterventionStatusArg::Ambiguous => InputRequestStatusFilter::Ambiguous,
+            InterventionStatusArg::All => InputRequestStatusFilter::All,
         }
     }
 }
