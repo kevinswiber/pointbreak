@@ -184,8 +184,8 @@ exposes those paths.
 
 An input request is a durable pause/decision request. Use it when a reviewer
 or tool needs an explicit answer before proceeding. `--mode` defaults to
-`blocking`; `advisory` requests are still durable but do not imply that a
-cooperative client must pause.
+`operative`; `advisory` requests are still durable and visible but do not
+imply that a cooperative client must pause.
 
 ```bash
 shore review input-request open \

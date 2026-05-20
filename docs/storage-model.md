@@ -136,7 +136,7 @@ Native input requests follow the same ReviewUnit ledger model:
 - each request belongs to a required track; actor/tool provenance remains in the event writer
   envelope
 - bounded `state.json` summarizes input request state with `inputRequestCount`,
-  `openInputRequestCount`, and `openBlockingInputRequestCount`, but it does not embed request
+  `openInputRequestCount`, and `openOperativeInputRequestCount`, but it does not embed request
   history, response history, body content, or reason content
 
 Request `reasonCode` and response `outcome` are intentionally separate classification axes.

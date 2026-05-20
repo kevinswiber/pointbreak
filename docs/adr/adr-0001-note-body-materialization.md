@@ -25,7 +25,7 @@ Stay on the threshold model. Replay is authoritative.
 - `.shore/artifacts/notes/` is an overflow store, not a complete inventory of note bodies. Tooling
   that wants a complete list of note bodies must replay events.
 - `state.json` projects bounded counts (`noteCount`, `observationCount`, `assessmentCount`,
-  `inputRequestCount`, `openInputRequestCount`, `openBlockingInputRequestCount`, and projection
+  `inputRequestCount`, `openInputRequestCount`, `openOperativeInputRequestCount`, and projection
   diagnostics). It does
   not project body content, body sizes, or artifact paths.
 - The 4096-byte threshold is internal storage tuning. It may change without a deprecation cycle.

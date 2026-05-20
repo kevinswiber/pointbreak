@@ -315,7 +315,7 @@ ReviewUnit:
 
 ```bash
 shore review input-request open --track human:kevin --title "Need approval" \
-  --reason manual-decision-required [--mode blocking|advisory]
+  --reason manual-decision-required [--mode operative|advisory]
 shore review input-request list [--status open|responded|ambiguous|all]
 shore review input-request fetch <input-request-id> [--include-body]
 shore review input-request respond <input-request-id> --outcome approved [--reason "approved"]
@@ -324,7 +324,8 @@ shore review input-request respond <input-request-id> --outcome approved [--reas
 Behavior:
 
 - `input-request open` requires `--track`, `--title`, and `--reason`. `--mode` defaults to
-  `blocking`; `advisory` requests are durable but do not imply a cooperative client must pause.
+  `operative`; `advisory` requests are durable and visible but do not imply a cooperative client
+  must pause.
 - Request targets mirror observations: review-wide by default, `--file <path>` for a captured file,
   `--file <path> --start-line <n> [--end-line <n>]` for a range, or `--observation
   <observation-id>` for an existing native observation in the same ReviewUnit.

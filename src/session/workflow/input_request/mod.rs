@@ -207,7 +207,7 @@ mod tests {
 
         let options = InputRequestOpenOptions::new(repo.path())
             .with_track("agent:codex")
-            .with_title("blocking-finding")
+            .with_title("operative-finding")
             .with_assertion_mode(AssertionMode::Operative)
             .with_reason_code(InputRequestReasonCode::UnsafeAction);
 

@@ -22,8 +22,8 @@ fact, not who resolves it.
 ## Core Terms
 
 - **Input request:** a durable request for another actor's input.
-- **Blocking request:** a request that should stop a cooperative client before it continues a
-  workflow step such as capturing review state, applying notes, pushing, or mutating state.
+- **Operative request:** a request whose envelope assertion mode is `operative`. Cooperative
+  clients may treat it as binding under their explicit workflow policy.
 - **Advisory request:** a request that should be visible but does not imply that a cooperative
   client must pause.
 - **Response:** the durable answer to an input request, such as approved, rejected, dismissed,
@@ -39,8 +39,9 @@ input_request_responded
 ```
 
 `input_request_opened` records the durable request. The request has a stable `inputRequestId`, a
-target reference, a required track, a current request mode (`blocking` or `advisory`), a short title,
-an optional body, and a structured `reasonCode`.
+target reference, a required track, a public request mode derived from the event envelope's
+`assertionMode` (`operative` or `advisory`), a short title, an optional body, and a structured
+`reasonCode`.
 
 `input_request_responded` records a durable answer. The response has a stable
 `inputRequestResponseId`, targets the input request, and carries an `outcome` such as `approved`,
@@ -75,7 +76,7 @@ The command surface is:
 
 ```bash
 shore review input-request open --track human:kevin --title "Need approval" \
-  --reason manual-decision-required [--mode blocking|advisory]
+  --reason manual-decision-required [--mode operative|advisory]
 shore review input-request list [--status open|responded|ambiguous|all]
 shore review input-request fetch <input-request-id> [--include-body]
 shore review input-request respond <input-request-id> --outcome approved [--reason "approved"]
@@ -95,7 +96,7 @@ Bounded `state.json` exposes only summary counters:
 ```text
 inputRequestCount
 openInputRequestCount
-openBlockingInputRequestCount
+openOperativeInputRequestCount
 ```
 
 The authoritative store is the `.shore/events/` event log plus any body or snapshot artifacts under
