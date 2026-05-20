@@ -1,4 +1,4 @@
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -292,7 +292,17 @@ fn sync_parent_if_durable(parent: &Path, durability: Durability) -> Result<()> {
         return Ok(());
     }
 
-    File::open(parent)
+    sync_parent_directory(parent)
+}
+
+#[cfg(windows)]
+fn sync_parent_directory(_parent: &Path) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn sync_parent_directory(parent: &Path) -> Result<()> {
+    fs::File::open(parent)
         .and_then(|file| file.sync_all())
         .map_err(|error| io_error("sync parent directory", parent, error))
 }
@@ -319,6 +329,36 @@ mod tests {
 
         assert_eq!(std::fs::read(&path).unwrap(), br#"{"ok":true}"#);
         assert!(storage.list_temp_files(root.path()).unwrap().is_empty());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn durable_atomic_write_succeeds_on_windows() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(root.path());
+        let path = root.path().join("nested/state.json");
+
+        storage
+            .write_bytes_atomic(&path, br#"{"ok":true}"#, Durability::Durable)
+            .unwrap();
+
+        assert_eq!(std::fs::read(&path).unwrap(), br#"{"ok":true}"#);
+        assert!(storage.list_temp_files(root.path()).unwrap().is_empty());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn durable_exclusive_create_succeeds_on_windows() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(root.path());
+        let path = root.path().join("events/event.json");
+
+        let outcome = storage
+            .create_file_exclusive(&path, b"payload", Durability::Durable)
+            .unwrap();
+
+        assert_eq!(outcome, CreateFileOutcome::Created);
+        assert_eq!(storage.read_bytes(&path).unwrap(), b"payload");
     }
 
     #[test]
