@@ -2,6 +2,13 @@
 name = "shoreline"
 version = "0.1.0"
 edition = "2024"
+description = "Terminal review tool for understanding tool-assisted changesets"
+repository = "https://github.com/kevinswiber/shore"
+documentation = "https://docs.rs/shoreline"
+readme = "README.md"
+keywords = ["code-review", "review", "terminal", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = [".claude/**", ".codex/**", "AGENTS.md", "CLAUDE.md", "mise.toml"]
 
 [lib]
 name = "shoreline"
