@@ -21,7 +21,7 @@ use self::view::sort_input_request_views;
 pub(crate) use self::view::{InputRequestProjectionOptions, project_input_requests};
 pub use self::view::{InputRequestResponseView, InputRequestStatusFilter, InputRequestView};
 #[cfg(test)]
-use crate::canonical_hash::sha256_bytes_hex;
+use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 #[cfg(test)]
 use crate::model::{
     EventId, InputRequestId, InputRequestResponseId, ReviewUnitId, SessionId, TrackId,
@@ -56,7 +56,7 @@ mod tests {
                 .with_track("human:kevin")
                 .with_title("Need approval")
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired)
-                .with_mode(AssertionMode::Operative)
+                .with_assertion_mode(AssertionMode::Operative)
                 .with_target(InputRequestTargetSelector::review_unit()),
         )
         .unwrap();
@@ -68,7 +68,7 @@ mod tests {
                 .as_str()
                 .starts_with("input-request:sha256:")
         );
-        assert_eq!(result.mode, AssertionMode::Operative);
+        assert_eq!(result.assertion_mode, AssertionMode::Operative);
         assert_eq!(
             result.reason_code,
             InputRequestReasonCode::ManualDecisionRequired
@@ -85,6 +85,100 @@ mod tests {
         assert_eq!(state.input_request_count, 1);
         assert_eq!(state.open_input_request_count, 1);
         assert_eq!(state.open_blocking_input_request_count, 1);
+    }
+
+    #[test]
+    fn open_input_request_defaults_to_operative_envelope_assertion_mode() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        let result = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
+                .with_track("human:kevin")
+                .with_title("Need approval")
+                .with_reason_code(InputRequestReasonCode::ManualDecisionRequired),
+        )
+        .unwrap();
+
+        assert_eq!(result.assertion_mode, AssertionMode::Operative);
+
+        let event = only_input_request_opened_event(repo.path());
+        assert_eq!(event.assertion_mode, AssertionMode::Operative);
+        assert!(event.payload.get("mode").is_none());
+    }
+
+    #[test]
+    fn open_input_request_can_write_advisory_envelope_assertion_mode() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        open_input_request(
+            InputRequestOpenOptions::new(repo.path())
+                .with_track("human:kevin")
+                .with_title("Need approval")
+                .with_reason_code(InputRequestReasonCode::ManualDecisionRequired),
+        )
+        .unwrap();
+
+        let advisory = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
+                .with_track("human:kevin")
+                .with_title("Heads up")
+                .with_reason_code(InputRequestReasonCode::ManualDecisionRequired)
+                .with_assertion_mode(AssertionMode::Advisory),
+        )
+        .unwrap();
+
+        assert_eq!(advisory.assertion_mode, AssertionMode::Advisory);
+
+        let events = input_request_opened_events(repo.path());
+        assert_eq!(events.len(), 2, "{events:?}");
+
+        let default_event = events
+            .iter()
+            .find(|event| event.payload["title"] == "Need approval")
+            .unwrap();
+        assert_eq!(default_event.assertion_mode, AssertionMode::Operative);
+        assert!(default_event.payload.get("mode").is_none());
+
+        let advisory_event = events
+            .iter()
+            .find(|event| event.payload["title"] == "Heads up")
+            .unwrap();
+        assert_eq!(advisory_event.assertion_mode, AssertionMode::Advisory);
+        assert!(advisory_event.payload.get("mode").is_none());
+    }
+
+    #[test]
+    fn open_input_request_id_material_uses_assertion_mode() {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        let result = open_input_request(
+            InputRequestOpenOptions::new(repo.path())
+                .with_track("human:kevin")
+                .with_title("Need approval")
+                .with_reason_code(InputRequestReasonCode::ManualDecisionRequired),
+        )
+        .unwrap();
+        let event = only_input_request_opened_event(repo.path());
+
+        let expected_digest = sha256_json_prefixed(&serde_json::json!({
+            "reviewUnitId": result.review_unit_id.as_str(),
+            "trackId": result.track_id.as_str(),
+            "target": result.target.clone(),
+            "assertionMode": AssertionMode::Operative,
+            "reasonCode": InputRequestReasonCode::ManualDecisionRequired,
+            "title": "Need approval",
+            "bodyContentHash": result.body_content_hash.as_deref(),
+            "writerActorId": event.writer.actor_id.as_str(),
+        }))
+        .unwrap();
+
+        assert_eq!(
+            result.input_request_id,
+            InputRequestId::new(format!("input-request:{expected_digest}"))
+        );
     }
 
     #[test]
@@ -114,7 +208,7 @@ mod tests {
         let options = InputRequestOpenOptions::new(repo.path())
             .with_track("agent:codex")
             .with_title("blocking-finding")
-            .with_mode(AssertionMode::Operative)
+            .with_assertion_mode(AssertionMode::Operative)
             .with_reason_code(InputRequestReasonCode::UnsafeAction);
 
         let first = open_input_request(options.clone()).unwrap();
@@ -150,7 +244,7 @@ mod tests {
             InputRequestOpenOptions::new(repo.path())
                 .with_track("agent:codex")
                 .with_title("to-resolve")
-                .with_mode(AssertionMode::Operative)
+                .with_assertion_mode(AssertionMode::Operative)
                 .with_reason_code(InputRequestReasonCode::UnsafeAction),
         )
         .unwrap();
@@ -560,21 +654,21 @@ mod tests {
         let matching = open_input_request(
             open_request(repo.path(), "Match")
                 .with_track("agent:codex")
-                .with_mode(AssertionMode::Advisory)
+                .with_assertion_mode(AssertionMode::Advisory)
                 .with_target(InputRequestTargetSelector::file("src/lib.rs")),
         )
         .unwrap();
         open_input_request(
             open_request(repo.path(), "Wrong track")
                 .with_track("agent:claude")
-                .with_mode(AssertionMode::Advisory)
+                .with_assertion_mode(AssertionMode::Advisory)
                 .with_target(InputRequestTargetSelector::file("src/lib.rs")),
         )
         .unwrap();
         open_input_request(
             open_request(repo.path(), "Wrong mode")
                 .with_track("agent:codex")
-                .with_mode(AssertionMode::Operative)
+                .with_assertion_mode(AssertionMode::Operative)
                 .with_target(InputRequestTargetSelector::file("src/lib.rs")),
         )
         .unwrap();
@@ -1065,6 +1159,21 @@ mod tests {
             .record_event_once(&event)
             .unwrap();
         event_id
+    }
+
+    fn only_input_request_opened_event(repo: &Path) -> ShoreEvent {
+        let events = input_request_opened_events(repo);
+        assert_eq!(events.len(), 1, "{events:?}");
+        events.into_iter().next().unwrap()
+    }
+
+    fn input_request_opened_events(repo: &Path) -> Vec<ShoreEvent> {
+        EventStore::open(repo.join(".shore"))
+            .list_events()
+            .unwrap()
+            .into_iter()
+            .filter(|event| event.event_type == EventType::InputRequestOpened)
+            .collect::<Vec<_>>()
     }
 
     fn projection_request_event(

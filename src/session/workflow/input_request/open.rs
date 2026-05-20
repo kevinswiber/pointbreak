@@ -27,7 +27,7 @@ pub struct InputRequestOpenOptions {
     title: Option<String>,
     body: Option<String>,
     target: InputRequestTargetSelector,
-    mode: AssertionMode,
+    assertion_mode: AssertionMode,
     reason_code: Option<InputRequestReasonCode>,
     idempotency_key: Option<String>,
 }
@@ -41,7 +41,7 @@ impl InputRequestOpenOptions {
             title: None,
             body: None,
             target: InputRequestTargetSelector::review_unit(),
-            mode: AssertionMode::Operative,
+            assertion_mode: AssertionMode::Operative,
             reason_code: None,
             idempotency_key: None,
         }
@@ -72,8 +72,8 @@ impl InputRequestOpenOptions {
         self
     }
 
-    pub fn with_mode(mut self, mode: AssertionMode) -> Self {
-        self.mode = mode;
+    pub fn with_assertion_mode(mut self, assertion_mode: AssertionMode) -> Self {
+        self.assertion_mode = assertion_mode;
         self
     }
 
@@ -95,7 +95,7 @@ pub struct InputRequestOpenResult {
     pub event_id: EventId,
     pub track_id: TrackId,
     pub target: ReviewTargetRef,
-    pub mode: AssertionMode,
+    pub assertion_mode: AssertionMode,
     pub reason_code: InputRequestReasonCode,
     pub body_content_hash: Option<String>,
     pub events_created: usize,
@@ -137,7 +137,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
         review_unit_id: &resolved.review_unit_id,
         track_id: &track_id,
         target: &target,
-        mode: options.mode,
+        assertion_mode: options.assertion_mode,
         reason_code,
         title: &title,
         body_content_hash: body_content_hash.as_deref(),
@@ -187,7 +187,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
         },
         current_timestamp(),
     )?
-    .with_assertion_mode(options.mode);
+    .with_assertion_mode(options.assertion_mode);
     let event_id = event.event_id.clone();
 
     let mut events_created_by_type = BTreeMap::new();
@@ -209,7 +209,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
         event_id,
         track_id,
         target,
-        mode: options.mode,
+        assertion_mode: options.assertion_mode,
         reason_code,
         body_content_hash,
         events_created,
@@ -223,7 +223,7 @@ struct InputRequestIdMaterial<'a> {
     review_unit_id: &'a ReviewUnitId,
     track_id: &'a TrackId,
     target: &'a ReviewTargetRef,
-    mode: AssertionMode,
+    assertion_mode: AssertionMode,
     reason_code: InputRequestReasonCode,
     title: &'a str,
     body_content_hash: Option<&'a str>,
@@ -235,18 +235,11 @@ fn build_input_request_id(material: InputRequestIdMaterial<'_>) -> Result<InputR
         "reviewUnitId": material.review_unit_id.as_str(),
         "trackId": material.track_id.as_str(),
         "target": material.target,
-        "mode": input_request_mode_label(material.mode),
+        "assertionMode": material.assertion_mode,
         "reasonCode": material.reason_code,
         "title": material.title,
         "bodyContentHash": material.body_content_hash,
         "writerActorId": material.writer_actor_id,
     }))?;
     Ok(InputRequestId::new(format!("input-request:{digest}")))
-}
-
-fn input_request_mode_label(mode: AssertionMode) -> &'static str {
-    match mode {
-        AssertionMode::Operative => "blocking",
-        AssertionMode::Advisory => "advisory",
-    }
 }

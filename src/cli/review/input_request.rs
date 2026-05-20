@@ -332,7 +332,7 @@ fn input_request_open_options(
         .with_track(args.track)
         .with_title(args.title)
         .with_reason_code(args.reason.into())
-        .with_mode(args.mode.into())
+        .with_assertion_mode(args.mode.into())
         .with_target(target);
 
     if let Some(review_unit) = args.review_unit {
@@ -431,7 +431,7 @@ fn input_request_open_document(
             event_id: result.event_id.as_str().to_owned(),
             track_id: result.track_id.as_str().to_owned(),
             target: result.target,
-            mode: result.mode.into(),
+            mode: result.assertion_mode.into(),
             reason_code: result.reason_code,
             body_content_hash: result.body_content_hash,
         },
