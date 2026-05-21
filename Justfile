@@ -1,3 +1,6 @@
+# Bump to upgrade the agentskills.io validator; review the diff at https://github.com/agentskills/agentskills/compare/<old-sha>...<new-sha> before bumping.
+export SKILLS_REF_REV := env_var_or_default("SKILLS_REF_REV", "5d4c1fda3f786fff826c7f56b6cb3341e7f3a911")
+
 # List available recipes.
 default:
     @just --list
@@ -48,6 +51,15 @@ skills-link *args:
 # Remove local symlinks for repo Agent Skills.
 skills-unlink *args:
     ./scripts/link-agent-skills.sh unlink {{ args }}
+
+# Validate repo Agent Skills with the pinned agentskills.io validator.
+skills-validate:
+    for skill in skills/*; do \
+      [ -d "$skill" ] || continue; \
+      [ -f "$skill/SKILL.md" ] || continue; \
+      uvx --from "git+https://github.com/agentskills/agentskills@${SKILLS_REF_REV}#subdirectory=skills-ref" \
+        skills-ref validate "$skill"; \
+    done
 
 # Check commit messages on the current branch.
 commit-check range='origin/main..HEAD':

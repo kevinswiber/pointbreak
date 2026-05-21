@@ -48,10 +48,7 @@ CI validates the canonical skills with the upstream Python `skills-ref` validato
 check locally with:
 
 ```bash
-for skill in skills/shoreline-author skills/shoreline-reviewer skills/shoreline-author-response; do
-  uvx --from 'git+https://github.com/agentskills/agentskills#subdirectory=skills-ref' \
-    skills-ref validate "$skill"
-done
+just skills-validate
 ```
 
 Link the canonical skills into another project's agent-specific skill directories with:

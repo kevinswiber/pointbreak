@@ -19,10 +19,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+      - uses: taiki-e/install-action@just
       - name: Validate Agent Skills
-        run: |
-          uvx --from 'git+https://github.com/agentskills/agentskills#subdirectory=skills-ref' \
-            skills-ref validate skills/shoreline-author
+        run: just skills-validate
 
   test:
     name: test (${{ matrix.os }})
