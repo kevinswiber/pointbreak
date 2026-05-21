@@ -9,6 +9,12 @@ agent says a task is done, before any commit that would move `HEAD` past part of
 human says "done" or "hand off", or when the agent is about to switch to unrelated work. Capture once
 per meaningful change, not after every file edit.
 
+The authoring skill is reactive: it triggers at the end of a work session, so install it in the
+agent environment before that session begins. If the skill is added only afterward, the change may
+already be committed, which leaves only the degraded post-commit path: v0.1.0 `shore review capture`
+reads `HEAD` to the working tree, so a clean post-commit working tree has nothing useful left to
+capture.
+
 ## The Capture Moment
 
 `shore review capture` freezes the current Git worktree diff from `HEAD` to the working tree,
@@ -85,13 +91,16 @@ shore review input-request open \
   --mode advisory \
   --body "The implementation accepts the new form, but I did not update user-facing docs because the prompt did not say whether this behavior should be advertised yet."
 
-shore review unit show --review-unit "$review_unit_id" --track "$track" --include-body --pretty
+shore review observation list --review-unit "$review_unit_id" --track "$track" --pretty
+shore review input-request list --review-unit "$review_unit_id" --track "$track" --status open --pretty
 ```
 
 The commands emit compact JSON by default, so piping capture output through `jq` is only for human
-readability. `shore review unit show` is the readback step: it confirms that the captured snapshot and
-the authoring facts are visible together. The write commands above pass the captured ReviewUnit ID
-explicitly because `shore review observation add` and `shore review input-request open` can infer a
+readability. The readback uses bounded list commands so the author can verify the observations and
+open input requests without replaying the captured snapshot. `shore review unit show` remains the
+full composite JSON view of a ReviewUnit; it includes the complete captured snapshot, can be large
+for real changes, and is meant for tooling or cases where the full snapshot is genuinely needed. The
+write commands above pass the captured ReviewUnit ID explicitly because write commands can infer a
 ReviewUnit only when exactly one current capture exists. If `jq` is not available, copy
 `reviewUnit.id` from `shore review capture` output and use it in place of `$review_unit_id`.
 
@@ -110,7 +119,7 @@ better as observations unless they require a decision.
 After the author stops, a reviewer can read the handoff with:
 
 ```bash
-shore review unit show --review-unit <review-unit-id> --track <track> --include-body --pretty
+shore review observation list --review-unit <review-unit-id> --track <track> --include-body --pretty
 shore review input-request list --review-unit <review-unit-id> --track <track> --status open \
   --include-body --pretty
 ```

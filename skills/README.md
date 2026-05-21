@@ -10,6 +10,9 @@ The recommended install path is:
 npx skills add kevinswiber/shoreline
 ```
 
+Install the skill ahead of the work session where it should run, not after the implementation is
+already finished.
+
 Manual fallback for agents that read the shared Agent Skills directory:
 
 ```bash

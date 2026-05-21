@@ -20,7 +20,7 @@ work, you turn the handoff into self-grading and pollute the review surface the 
 3. Choose one author track for this handoff.
 4. Add observations on that track for what changed, why, tests run, and review risks.
 5. Open input requests on that track only for genuine unanswered decisions.
-6. Read back the handoff with `shore review unit show --review-unit "$review_unit_id" --track "$track"`.
+6. Read back the authored observations and open input requests with bounded list commands.
 7. Stop and tell the user the Shoreline handoff record exists.
 ```
 
@@ -127,23 +127,22 @@ are acting as the reviewer, not while authoring the handoff.
 Verify that the handoff is visible before you stop:
 
 ```bash
-shore review unit show --review-unit "$review_unit_id" --track "$track" --include-body --pretty
-shore review input-request list --review-unit "$review_unit_id" --track "$track" --status open \
-  --include-body --pretty
+shore review observation list --review-unit "$review_unit_id" --track "$track" --pretty
+shore review input-request list --review-unit "$review_unit_id" --track "$track" --status open --pretty
 ```
 
-If Shoreline asks which ReviewUnit to show, list the captured units and pass the selected ID:
-
-```bash
-shore review unit list --pretty
-shore review unit show --review-unit <review-unit-id> --track "$track" --include-body --pretty
-```
+These commands verify the author's writes without replaying the captured snapshot. The
+`shore review unit show --pretty` command emits the full integration-JSON document: it includes the
+complete captured snapshot, is large for any real change, and is meant for tooling or the rare case
+where the full snapshot is genuinely needed. It is not the human readback surface.
 
 Then stand down with a concise message:
 
 ```text
 Created the Shoreline handoff record on `<track>`. Read it with
-`shore review unit show --review-unit <review-unit-id> --track <track> --include-body --pretty`.
+`shore review observation list --review-unit <id> --track <track> --include-body --pretty`
+and
+`shore review input-request list --review-unit <id> --track <track> --status open --include-body --pretty`.
 I did not add an assessment; that is for the reviewer.
 ```
 
