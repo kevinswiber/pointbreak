@@ -93,7 +93,7 @@ function resolveRef(kind, id) {
   closeDiff();
   switch (kind) {
     case "review-unit":
-      navigateToUnit(id);
+      openUnit(id);
       break;
     case "track":
       navigateToTrack(id);
@@ -663,13 +663,8 @@ function renderUnits() {
     card.innerHTML = `
       <h3>${escapeHtml(shortId(u.reviewUnitId))}</h3>
       <div class="kv">${rows.map(([k, v]) => `<span>${escapeHtml(k)}</span><b>${escapeHtml(String(v))}</b>`).join("")}</div>`;
-    card.title = u.reviewUnitId + "\nclick to filter the timeline to this unit";
-    card.addEventListener("click", () => {
-      state.filterUnit = u.reviewUnitId;
-      $("#filter-unit").value = u.reviewUnitId;
-      switchView("timeline");
-      renderTimeline();
-    });
+    card.title = u.reviewUnitId + "\nclick to open the unit page";
+    card.addEventListener("click", () => openUnit(u.reviewUnitId));
     const actions = document.createElement("div");
     actions.className = "actions";
     const diffBtn = document.createElement("button");
@@ -687,9 +682,196 @@ function renderUnits() {
 
 function switchView(view) {
   state.view = view;
-  document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.view === view)));
+  // The single-unit page is a drill-in under Units, so keep the Units tab lit.
+  document.querySelectorAll(".tab").forEach((t) =>
+    t.setAttribute(
+      "aria-selected",
+      String(t.dataset.view === view || (view === "unit" && t.dataset.view === "units")),
+    ),
+  );
   $("#view-timeline").classList.toggle("hidden", view !== "timeline");
   $("#view-units").classList.toggle("hidden", view !== "units");
+  $("#view-unit").classList.toggle("hidden", view !== "unit");
+}
+
+async function openUnit(reviewUnitId) {
+  switchView("unit");
+  $("#unit-page-title").textContent = shortId(reviewUnitId);
+  $("#unit-page").innerHTML = `<p class="up-empty">loading…</p>`;
+  try {
+    const d = await fetchJSON("/api/unit?id=" + encodeURIComponent(reviewUnitId));
+    renderUnitPage(d);
+  } catch (err) {
+    $("#unit-page").innerHTML = `<p class="up-empty">error: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function verdictBadge(ca) {
+  const status = (ca && ca.status) || "unassessed";
+  let value;
+  let cls;
+  if (status === "resolved") {
+    value = ca.assessment;
+    cls = `verdict-${ca.assessment}`;
+  } else if (status === "ambiguous") {
+    value = `ambiguous (${(ca.candidates || []).length} candidates)`;
+    cls = "verdict-ambiguous";
+  } else {
+    value = "unassessed";
+    cls = "verdict-unassessed";
+  }
+  return `<div class="verdict ${cls}"><span class="verdict-status">current assessment</span><span class="verdict-value">${escapeHtml(value)}</span></div>`;
+}
+
+function currentAssessmentSummary(d) {
+  const ca = d.currentAssessment || {};
+  if (ca.status === "resolved" && ca.assessmentId) {
+    const a = (d.assessments || []).find((x) => x.id === ca.assessmentId);
+    if (a && a.summary) return `<div class="verdict-summary">${linkify(a.summary)}</div>`;
+  }
+  if (ca.status === "ambiguous") {
+    return `<div class="verdict-summary">${(ca.candidates || []).length} unreplaced assessments — see Assessments below.</div>`;
+  }
+  return "";
+}
+
+function targetLabel(t) {
+  t = t || {};
+  switch (t.kind) {
+    case "range":
+      return `${escapeHtml(t.filePath)}:${t.startLine}-${t.endLine ?? t.startLine} (${escapeHtml(t.side || "new")})`;
+    case "file":
+      return escapeHtml(t.filePath || "");
+    case "review_unit":
+      return "whole unit";
+    case "observation":
+      return `→ ${linkify(t.observationId)}`;
+    case "input_request":
+      return `→ ${linkify(t.inputRequestId)}`;
+    case "assessment":
+      return `→ ${linkify(t.assessmentId)}`;
+    case "event":
+      return `→ ${linkify(t.eventId)}`;
+    default:
+      return escapeHtml(t.kind || "");
+  }
+}
+
+function factCard(kind, opts) {
+  const tags = (opts.tags || []).filter(Boolean).map((t) => `<span class="badge">${escapeHtml(t)}</span>`).join(" ");
+  const body = opts.body ? `<div class="anno-body">${linkify(opts.body)}</div>` : "";
+  return `<div class="anno anno-${kind}">
+    <div class="anno-head">
+      <span class="anno-kind anno-kind-${kind}">${kind}</span>
+      <span class="anno-track">${escapeHtml(opts.track || "")}</span>
+      <span class="anno-title">${linkify(opts.title || "")}</span>
+      ${opts.status ? `<span class="fact-status ${escapeHtml(opts.status)}">${escapeHtml(opts.status)}</span>` : ""}
+      ${opts.target ? `<span class="anno-loc">${opts.target}</span>` : ""}
+      ${tags}
+    </div>
+    ${body}
+    ${opts.extra || ""}</div>`;
+}
+
+function renderObservationCard(o) {
+  const extra = (o.supersedes || []).length
+    ? `<div class="fact-rel">supersedes ${o.supersedes.map(linkify).join(", ")}</div>`
+    : "";
+  return factCard("observation", {
+    track: o.trackId,
+    title: o.title,
+    status: o.status,
+    target: targetLabel(o.target),
+    tags: o.tags,
+    body: o.body,
+    extra,
+  });
+}
+
+function renderInputRequestCard(ir) {
+  const responses = (ir.responses || [])
+    .map((r) => `<div class="fact-response"><span class="outcome">${escapeHtml(r.outcome)}</span>${r.reason ? `: ${linkify(r.reason)}` : ""}</div>`)
+    .join("");
+  return factCard("input-request", {
+    track: ir.trackId,
+    title: ir.title,
+    status: ir.status,
+    target: targetLabel(ir.target),
+    tags: [ir.mode, ir.reasonCode],
+    body: ir.body,
+    extra: responses ? `<div class="fact-responses">${responses}</div>` : "",
+  });
+}
+
+function renderAssessmentCard(a) {
+  const rel = [];
+  if ((a.replaces || []).length) rel.push(`replaces ${a.replaces.map(linkify).join(", ")}`);
+  if ((a.relatedObservations || []).length) rel.push(`re ${a.relatedObservations.map(linkify).join(", ")}`);
+  if ((a.relatedInputRequests || []).length) rel.push(`re ${a.relatedInputRequests.map(linkify).join(", ")}`);
+  return factCard("assessment", {
+    track: a.trackId,
+    title: a.assessment,
+    status: a.status,
+    target: targetLabel(a.target),
+    body: a.summary,
+    extra: rel.length ? `<div class="fact-rel">${rel.join(" · ")}</div>` : "",
+  });
+}
+
+function renderAdapterNoteCard(n) {
+  return factCard("observation", {
+    track: n.author || "imported",
+    title: n.title,
+    status: n.status,
+    target: n.filePath ? escapeHtml(n.filePath) : "",
+    body: n.body,
+  });
+}
+
+function factSection(title, items, render) {
+  items = items || [];
+  const body = items.length ? items.map(render).join("") : `<p class="up-empty">none</p>`;
+  return `<section><h2>${escapeHtml(title)} (${items.length})</h2>${body}</section>`;
+}
+
+function renderUnitPage(d) {
+  const ru = d.reviewUnit || {};
+  const base = ru.base || {};
+  const target = ru.target || {};
+  const s = d.summary || {};
+  $("#unit-page-title").textContent = `${shortId(ru.id)}${base.commitOid ? " · base " + shortId(base.commitOid) : ""}`;
+
+  const stat = (label, n) => `<span class="up-stat"><b>${n ?? 0}</b> ${label}</span>`;
+  const sections = [];
+
+  sections.push(`<section><h2>ReviewUnit</h2><dl class="up-identity">
+    <dt>id</dt><dd>${linkify(ru.id)}</dd>
+    <dt>base</dt><dd>${base.commitOid ? linkify(base.commitOid) : "—"} ${base.kind ? `<span class="fact-status">${escapeHtml(base.kind)}</span>` : ""}</dd>
+    <dt>target</dt><dd>${target.kind === "git_working_tree" ? "working tree" : escapeHtml(target.kind || "—")}</dd>
+    <dt>snapshot</dt><dd>${linkify(ru.snapshotId)}</dd>
+  </dl></section>`);
+
+  sections.push(`<section><h2>Current assessment</h2>${verdictBadge(d.currentAssessment)}${currentAssessmentSummary(d)}</section>`);
+
+  sections.push(`<section><h2>Summary</h2><div class="up-stats">
+    ${stat("files", s.fileCount)}${stat("rows", s.rowCount)}${stat("observations", s.observationCount)}${stat("input requests", s.inputRequestCount)}${stat("assessments", s.assessmentCount)}${stat("adapter notes", s.adapterNoteCount)}
+  </div>
+  <div style="margin-top:10px">
+    <button class="ghost diff-btn" id="up-diff-btn">view annotated diff</button>
+    <button class="ghost" id="up-timeline-btn" style="margin-left:6px">show in timeline</button>
+  </div></section>`);
+
+  sections.push(factSection("Observations", d.observations, renderObservationCard));
+  sections.push(factSection("Input requests", d.inputRequests, renderInputRequestCard));
+  sections.push(factSection("Assessments", d.assessments, renderAssessmentCard));
+  if ((d.adapterNotes || []).length) sections.push(factSection("Adapter notes", d.adapterNotes, renderAdapterNoteCard));
+
+  $("#unit-page").innerHTML = sections.join("");
+
+  const diffBtn = $("#up-diff-btn");
+  if (diffBtn && ru.snapshotId) diffBtn.addEventListener("click", () => openDiff(ru.snapshotId, shortId(ru.id)));
+  const tlBtn = $("#up-timeline-btn");
+  if (tlBtn) tlBtn.addEventListener("click", () => navigateToUnit(ru.id));
 }
 
 function escapeHtml(s) {
@@ -721,6 +903,7 @@ function wireControls() {
     renderTypeToggles();
     renderTimeline();
   });
+  $("#unit-back").addEventListener("click", () => switchView("units"));
   $("#order-toggle").addEventListener("click", () => {
     state.order = state.order === "desc" ? "asc" : "desc";
     $("#order-toggle").textContent = state.order === "desc" ? "newest first" : "oldest first";

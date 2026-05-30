@@ -72,7 +72,7 @@ pub(super) struct UnitShowArgs {
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct UnitShowBody {
+pub(in crate::cli) struct UnitShowBody {
     event_set_hash: String,
     event_count: usize,
     review_unit: UnitReviewUnitDocument,
@@ -261,7 +261,9 @@ fn review_unit_show_options(args: &UnitShowArgs) -> ReviewUnitShowOptions {
     options
 }
 
-fn unit_show_document(result: ReviewUnitShowResult) -> json::DiagnosticDocument<UnitShowBody> {
+pub(in crate::cli) fn unit_show_document(
+    result: ReviewUnitShowResult,
+) -> json::DiagnosticDocument<UnitShowBody> {
     json::DiagnosticDocument::new(
         "shore.review-unit",
         UnitShowBody {

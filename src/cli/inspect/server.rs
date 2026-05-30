@@ -149,6 +149,10 @@ fn route(repo: &Path, method: &str, path: &str, query: Option<&str>) -> Response
             Some(id) if !id.is_empty() => api_response(api::snapshot_json(repo, &id)),
             _ => Response::json_error("400 Bad Request", "missing ?id=<snapshotId>"),
         },
+        "/api/unit" => match query_param(query, "id") {
+            Some(id) if !id.is_empty() => api_response(api::unit_json(repo, &id)),
+            _ => Response::json_error("400 Bad Request", "missing ?id=<reviewUnitId>"),
+        },
         "/favicon.ico" => Response::new("204 No Content", "image/x-icon", Vec::new()),
         _ => Response::json_error("404 Not Found", "no such route"),
     }
@@ -292,6 +296,11 @@ mod tests {
     #[test]
     fn snapshot_without_id_is_bad_request() {
         assert_eq!(route_for("GET", "/api/snapshot").status, "400 Bad Request");
+    }
+
+    #[test]
+    fn unit_without_id_is_bad_request() {
+        assert_eq!(route_for("GET", "/api/unit").status, "400 Bad Request");
     }
 
     #[test]

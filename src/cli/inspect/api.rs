@@ -9,11 +9,14 @@
 use std::path::Path;
 
 use serde::Serialize;
-use shoreline::model::SnapshotId;
+use shoreline::model::{ReviewUnitId, SnapshotId};
 use shoreline::session::{
     ProjectionDiagnostic, ReviewHistoryEntry, ReviewHistoryOptions, ReviewUnitListEntry,
-    ReviewUnitListOptions, list_review_units, read_snapshot_artifact, review_history,
+    ReviewUnitListOptions, ReviewUnitShowOptions, list_review_units, read_snapshot_artifact,
+    review_history, show_review_unit,
 };
+
+use crate::cli::review::unit::unit_show_document;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -89,6 +92,27 @@ pub(super) fn snapshot_json(repo: &Path, snapshot_id: &str) -> Result<String, St
     let artifact = read_snapshot_artifact(repo, &SnapshotId::new(snapshot_id.to_owned()))
         .map_err(|error| error.to_string())?;
     serde_json::to_string(&artifact).map_err(|error| error.to_string())
+}
+
+/// The full composite projection for one ReviewUnit.
+///
+/// Reuses the exact `shore.review-unit` document the `shore review unit show`
+/// command builds (`unit_show_document`), so the inspector renders the same
+/// authoritative composite — current-assessment status, duplicate-collapsed
+/// facts, supersession, adapter notes, and projection rows — rather than
+/// re-deriving it client-side.
+pub(super) fn unit_json(repo: &Path, review_unit_id: &str) -> Result<String, String> {
+    if review_unit_id.is_empty() {
+        return Err("missing review unit id".to_owned());
+    }
+    let result = show_review_unit(
+        ReviewUnitShowOptions::new(repo)
+            .with_review_unit_id(ReviewUnitId::new(review_unit_id.to_owned()))
+            .with_include_body(true),
+    )
+    .map_err(|error| error.to_string())?;
+    let document = unit_show_document(result);
+    serde_json::to_string(&document).map_err(|error| error.to_string())
 }
 
 /// Cheap freshness probe for client-side auto-refresh polling.
