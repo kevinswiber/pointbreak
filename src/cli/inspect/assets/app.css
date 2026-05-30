@@ -218,3 +218,26 @@ main { flex: 1 1 auto; min-height: 0; display: flex; }
 .drow-removed .sign, .drow-removed .dtext { color: #f3b0b0; }
 .drow-context .dtext { color: var(--fg-dim); }
 .drow-meta { grid-template-columns: 1fr; padding: 4px 12px; color: var(--fg-dim); font-style: italic; }
+.drow-noted { box-shadow: inset 3px 0 0 #6dd28a; }
+
+/* Observation annotations on the diff */
+.anno-summary { font-size: 12px; color: var(--fg-dim); margin-bottom: 10px; }
+.anno-group { margin-bottom: 14px; }
+.dfile-notes { margin-left: auto; font-family: var(--mono); font-size: 11px; color: #6dd28a; }
+.anno {
+  border-left: 3px solid #3a7a52;
+  background: rgba(70, 170, 110, 0.08);
+  margin: 2px 0 6px 52px;
+  padding: 6px 10px;
+  border-radius: 0 6px 6px 0;
+}
+.anno-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 12px; }
+.anno-track { font-family: var(--mono); font-size: 11px; color: #6dd28a; }
+.anno-title { font-weight: 500; }
+.anno-loc { font-family: var(--mono); font-size: 11px; color: var(--fg-dim); }
+.anno-body { font-size: 12px; color: var(--fg); margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
+.anno-flash { animation: anno-flash 1.6s ease-out; }
+@keyframes anno-flash {
+  0% { background: rgba(240, 183, 90, 0.5); }
+  100% { background: rgba(70, 170, 110, 0.08); }
+}

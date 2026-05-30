@@ -20,6 +20,7 @@ const state = {
   filterText: "",
   filterTrack: "",
   filterUnit: "",
+  order: "desc", // "desc" = newest first (default), "asc" = chronological
   selectedEventId: null,
   lastHash: null,
 };
@@ -243,7 +244,10 @@ function matchesFilters(e) {
 function renderTimeline() {
   const list = $("#timeline");
   list.innerHTML = "";
-  const entries = (state.history?.entries || []).filter(matchesFilters);
+  // Server returns entries oldest->newest (occurredAt asc); default display is
+  // newest-first, with a toolbar toggle back to chronological.
+  let entries = (state.history?.entries || []).filter(matchesFilters);
+  if (state.order === "desc") entries = entries.slice().reverse();
   if (!entries.length) {
     const li = document.createElement("li");
     li.className = "event";
@@ -299,14 +303,16 @@ function renderDetail() {
     ["writer", e.writer ? `${e.writer.actorId || ""} ${e.writer.role ? "(" + e.writer.role + ")" : ""}` : "—"],
   ];
   const snapshotId = e.reviewUnitId ? snapshotIdForUnit(e.reviewUnitId) : null;
+  const focusObs = e.eventType === "review_observation_recorded" ? (e.summary || {}).observationId : null;
+  const btnLabel = focusObs ? "show this observation in the diff" : "view snapshot diff";
   el.innerHTML = `
     <h2>${escapeHtml(entryTitle(e))}</h2>
     <dl class="kv">${kv.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(String(v))}</dd>`).join("")}</dl>
-    ${snapshotId ? `<button class="ghost diff-btn" id="detail-diff-btn">view snapshot diff</button>` : ""}
+    ${snapshotId ? `<button class="ghost diff-btn" id="detail-diff-btn">${escapeHtml(btnLabel)}</button>` : ""}
     <pre>${escapeHtml(JSON.stringify(e, null, 2))}</pre>`;
   if (snapshotId) {
     const btn = el.querySelector("#detail-diff-btn");
-    if (btn) btn.addEventListener("click", () => openDiff(snapshotId, shortId(e.reviewUnitId)));
+    if (btn) btn.addEventListener("click", () => openDiff(snapshotId, shortId(e.reviewUnitId), focusObs));
   }
 }
 
@@ -315,14 +321,38 @@ function snapshotIdForUnit(reviewUnitId) {
   return unit ? unit.snapshotId : null;
 }
 
-async function openDiff(snapshotId, label) {
+function observationsForUnit(reviewUnitId) {
+  return (state.history?.entries || [])
+    .filter((e) => e.eventType === "review_observation_recorded" && e.reviewUnitId === reviewUnitId)
+    .map((e) => {
+      const s = e.summary || {};
+      return {
+        id: s.observationId || e.eventId,
+        title: s.title || "(observation)",
+        body: s.body || "",
+        track: e.trackId || "",
+        tags: Array.isArray(s.tags) ? s.tags : [],
+        target: s.target || {},
+      };
+    });
+}
+
+async function openDiff(snapshotId, label, focusObsId) {
   const modal = $("#diff-modal");
   $("#diff-title").textContent = label ? `${label} · snapshot ${shortId(snapshotId)}` : shortId(snapshotId);
   $("#diff-body").innerHTML = `<p class="empty">loading snapshot…</p>`;
   modal.classList.remove("hidden");
   try {
     const artifact = await fetchJSON("/api/snapshot?id=" + encodeURIComponent(snapshotId));
-    $("#diff-body").innerHTML = renderDiff(artifact);
+    const observations = observationsForUnit(artifact.reviewUnitId);
+    $("#diff-body").innerHTML = renderDiff(artifact, observations);
+    if (focusObsId) {
+      const target = $("#diff-body").querySelector(`[data-obs="${focusObsId}"]`);
+      if (target) {
+        target.scrollIntoView({ block: "center" });
+        target.classList.add("anno-flash");
+      }
+    }
   } catch (err) {
     $("#diff-body").innerHTML = `<p class="empty">error: ${escapeHtml(err.message)}</p>`;
   }
@@ -332,32 +362,105 @@ function closeDiff() {
   $("#diff-modal").classList.add("hidden");
 }
 
-function renderDiff(artifact) {
-  const files = (artifact.snapshot && artifact.snapshot.files) || [];
-  if (!files.length) return `<p class="empty">No files captured in this snapshot.</p>`;
-  return files.map(renderDiffFile).join("");
+function lineMatch(observation, row) {
+  const t = observation.target || {};
+  if (t.kind !== "range" || t.startLine == null) return false;
+  const line = t.side === "old" ? row.old_line : row.new_line;
+  return line != null && line >= t.startLine && line <= (t.endLine ?? t.startLine);
 }
 
-function renderDiffFile(f) {
+function renderObsAnnotation(observation, showLocation) {
+  const tags = (observation.tags || []).map((t) => `<span class="badge">${escapeHtml(t)}</span>`).join(" ");
+  const body = observation.body ? `<div class="anno-body">${escapeHtml(observation.body)}</div>` : "";
+  const t = observation.target || {};
+  const loc =
+    showLocation && t.filePath
+      ? `<span class="anno-loc">${escapeHtml(t.filePath)}${t.startLine ? `:${t.startLine}-${t.endLine || t.startLine}` : ""}</span>`
+      : "";
+  return `<div class="anno" data-obs="${escapeHtml(observation.id)}">
+    <div class="anno-head"><span class="anno-track">${escapeHtml(observation.track)}</span><span class="anno-title">${escapeHtml(observation.title)}</span> ${tags} ${loc}</div>${body}</div>`;
+}
+
+function renderDiff(artifact, observations) {
+  observations = observations || [];
+  const files = (artifact.snapshot && artifact.snapshot.files) || [];
+  const filePaths = new Set();
+  for (const f of files) {
+    if (f.new_path) filePaths.add(f.new_path);
+    if (f.old_path) filePaths.add(f.old_path);
+  }
+  const anchored = [];
+  const unanchored = [];
+  for (const o of observations) {
+    const t = o.target || {};
+    if ((t.kind === "range" || t.kind === "file") && t.filePath && filePaths.has(t.filePath)) anchored.push(o);
+    else unanchored.push(o);
+  }
+
+  const count = observations.length;
+  let html = `<div class="anno-summary">${count} observation${count === 1 ? "" : "s"} on this ReviewUnit${
+    unanchored.length ? ` · ${unanchored.length} not anchored to a diff line` : ""
+  }</div>`;
+  if (unanchored.length) {
+    html += `<div class="anno-group">${unanchored.map((o) => renderObsAnnotation(o, true)).join("")}</div>`;
+  }
+  if (!files.length) return html + `<p class="empty">No files captured in this snapshot.</p>`;
+
+  const emitted = new Set();
+  html += files.map((f) => renderDiffFile(f, anchored, emitted)).join("");
+  return html;
+}
+
+function renderDiffFile(f, anchored, emitted) {
   const oldp = f.old_path;
   const newp = f.new_path;
   const path = oldp && newp && oldp !== newp ? `${oldp} → ${newp}` : newp || oldp || "(unknown path)";
+  const fileObs = anchored.filter((o) => {
+    const p = (o.target || {}).filePath;
+    return p === newp || p === oldp;
+  });
+  const rangeObs = fileObs.filter((o) => (o.target || {}).kind === "range");
+  const fileLevelObs = fileObs.filter((o) => (o.target || {}).kind === "file");
+
   let html = `<section class="dfile"><header class="dfile-head">
     <span class="dstatus s-${escapeHtml(f.status)}">${escapeHtml(f.status)}</span>
-    <span class="dpath">${escapeHtml(path)}</span></header>`;
+    <span class="dpath">${escapeHtml(path)}</span>
+    ${fileObs.length ? `<span class="dfile-notes">${fileObs.length} note${fileObs.length === 1 ? "" : "s"}</span>` : ""}</header>`;
+
+  for (const o of fileLevelObs) {
+    html += renderObsAnnotation(o, false);
+    emitted.add(o.id);
+  }
   for (const m of f.metadata_rows || []) {
     html += `<div class="drow drow-meta"><span class="dtext">${escapeHtml(m.text)}</span></div>`;
   }
+
   const hunks = f.hunks || [];
   for (const h of hunks) {
     html += `<div class="dhunk">${escapeHtml(h.header)}</div>`;
     for (const r of h.rows || []) {
+      const matching = rangeObs.filter((o) => lineMatch(o, r));
       const sign = r.kind === "added" ? "+" : r.kind === "removed" ? "-" : " ";
-      html += `<div class="drow drow-${escapeHtml(r.kind)}">
+      html += `<div class="drow drow-${escapeHtml(r.kind)}${matching.length ? " drow-noted" : ""}">
         <span class="ln">${r.old_line ?? ""}</span>
         <span class="ln">${r.new_line ?? ""}</span>
         <span class="sign">${sign}</span>
         <span class="dtext">${escapeHtml(r.text)}</span></div>`;
+      for (const o of matching) {
+        if (!emitted.has(o.id)) {
+          html += renderObsAnnotation(o, false);
+          emitted.add(o.id);
+        }
+      }
+    }
+  }
+
+  // Range observations whose anchor line was not a captured row: surface them
+  // anyway so no review fact is silently dropped from the view.
+  for (const o of rangeObs) {
+    if (!emitted.has(o.id)) {
+      html += renderObsAnnotation(o, true);
+      emitted.add(o.id);
     }
   }
   if (!hunks.length && !(f.metadata_rows || []).length) {
@@ -446,6 +549,11 @@ function wireControls() {
     $("#filter-track").value = "";
     $("#filter-unit").value = "";
     renderTypeToggles();
+    renderTimeline();
+  });
+  $("#order-toggle").addEventListener("click", () => {
+    state.order = state.order === "desc" ? "asc" : "desc";
+    $("#order-toggle").textContent = state.order === "desc" ? "newest first" : "oldest first";
     renderTimeline();
   });
   $("#diff-close").addEventListener("click", closeDiff);
