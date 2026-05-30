@@ -124,7 +124,13 @@ function resolveRef(kind, id) {
 }
 
 function navigateToUnit(id) {
+  // Clear text/track filters so the unit's events actually show — a stale
+  // no-match text or track filter would otherwise leave an empty timeline.
+  state.filterText = "";
+  state.filterTrack = "";
   state.filterUnit = id;
+  $("#filter-text").value = "";
+  $("#filter-track").value = "";
   $("#filter-unit").value = id;
   switchView("timeline");
   renderTimeline();
