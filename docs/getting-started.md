@@ -133,6 +133,8 @@ shore review unit show --pretty --include-body
 
 ## 6. Where To Go Next
 
+- Run `shore inspect --open` to browse this store in a local web UI: an event timeline, per-ReviewUnit
+  pages, and captured diffs annotated with their review facts.
 - [CLI reference](cli-reference.md) lists commands, options, output schemas, and V1 limitations.
 - [Review workflow](review-workflow.md) explains when to use capture, observations, input requests,
   assessments, history, and unit show in a real review.

@@ -39,6 +39,13 @@ shore review assessment add --track human:local --assessment needs-clarification
   --summary "Small change, but one decision is still open."
 ```
 
+Or browse the whole store visually — event timeline, per-ReviewUnit pages, and annotated diffs — in
+a local web UI:
+
+```bash
+shore inspect --open
+```
+
 Shoreline stores local review facts in `.shore/`. Command output JSON is the integration surface;
 raw event files, artifact paths, and `.shore/state.json` are internal storage details unless a
 command explicitly documents them.
@@ -49,6 +56,7 @@ The current executable surfaces are:
 
 - `shore show`
 - `shore dump`
+- `shore inspect`
 - `shore review capture`
 - `shore review observation add/list`
 - `shore review input-request open/list/fetch/respond`

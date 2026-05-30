@@ -70,6 +70,35 @@ Row IDs are opaque strings. They are stable and unique within one built review s
 keys, but callers must not parse them, derive ordering from them, or rely on their prefix/width. Use
 the sibling `ordinal` field for numeric position.
 
+## `shore inspect`
+
+```bash
+shore inspect [--repo <path>] [--host <addr>] [--port <n>] [--open]
+```
+
+`shore inspect` starts a small local web server that visualizes a `.shore` store for tracing event
+timelines and outcomes — the kind of inspection that is awkward against the raw JSON files or
+per-command output.
+
+- `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
+- `--host <addr>` defaults to `127.0.0.1` (loopback). `--port <n>` defaults to `7878`; use
+  `--port 0` to bind an ephemeral port, which is then printed.
+- `--open` launches the inspector in the default browser after the server starts.
+- The server runs until interrupted with Ctrl-C.
+
+The page provides a chronological event timeline (filterable by track, ReviewUnit, and event type,
+newest-first by default), a per-event detail view, a composite per-ReviewUnit page showing the
+current-assessment status plus grouped observations, input requests, and assessments, and the
+captured diff for a ReviewUnit annotated with the review facts anchored to each line. Long IDs render
+as truncated, clickable references that navigate to the resource they name, and the page
+auto-refreshes when the store changes.
+
+The inspector is a read-only, single-store, localhost developer tool. It reads through the same
+validated projections as `shore review history` and `shore review unit show` rather than parsing raw
+storage, and it serves over a synchronous, dependency-free HTTP server with no async runtime. The
+small JSON API the page consumes (`/api/history`, `/api/units`, `/api/unit`, `/api/snapshot`,
+`/api/freshness`) is an internal surface for the bundled page, not a stable contract.
+
 ## `shore review capture`
 
 ```bash
