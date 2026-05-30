@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>shore inspector</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <header id="topbar">
+      <div class="brand">shore<span>inspector</span></div>
+      <nav id="tabs">
+        <button class="tab" data-view="timeline" aria-selected="true">Timeline</button>
+        <button class="tab" data-view="units">Units</button>
+      </nav>
+      <div class="stats">
+        <span id="stat-events" class="stat" title="durable events in the store">— events</span>
+        <span id="stat-units" class="stat" title="captured ReviewUnits">— units</span>
+        <span id="stat-hash" class="stat mono" title="eventSetHash (freshness)">—</span>
+        <span id="refresh" class="stat" title="auto-refresh status">idle</span>
+      </div>
+    </header>
+
+    <div id="diagnostics" class="diagnostics hidden"></div>
+
+    <main>
+      <!-- Timeline view -->
+      <section id="view-timeline" class="view">
+        <div class="toolbar">
+          <input id="filter-text" type="search" placeholder="filter by text (title, id, track…)" />
+          <select id="filter-track"><option value="">all tracks</option></select>
+          <select id="filter-unit"><option value="">all units</option></select>
+          <div id="filter-types" class="type-toggles"></div>
+          <button id="filter-clear" class="ghost">clear</button>
+        </div>
+        <div class="split">
+          <ol id="timeline" class="timeline" aria-label="event timeline"></ol>
+          <aside id="detail" class="detail">
+            <p class="empty">Select an event to inspect its full payload.</p>
+          </aside>
+        </div>
+      </section>
+
+      <!-- Units view -->
+      <section id="view-units" class="view hidden">
+        <div id="units" class="units"></div>
+      </section>
+    </main>
+
+    <div id="error" class="error hidden"></div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
