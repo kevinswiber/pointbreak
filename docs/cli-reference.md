@@ -126,6 +126,54 @@ V1 `.shore/` storage is local and synchronous. It assumes one active Shoreline w
 directory and does not add a daemon, delivery queue, approval flow, async storage, remote storage,
 or note mutation.
 
+When a worktree is linked to a clone-local store, `shore review capture` still writes the capture to
+that worktree's local `.shore/` store. The command includes a
+`clone_local_capture_batch_only` diagnostic that tells callers to run `shore store link` to copy the
+new local facts into the linked clone-local store.
+
+## `shore store`
+
+```bash
+shore store status [--repo <path>] [--pretty]
+shore store link [--repo <path>] [--pretty]
+```
+
+`shore store` commands inspect or connect the current Git worktree to a clone-local store. A
+clone-local store is shared by Git linked worktrees from the same clone; it is not a user-level
+multi-repository store or remote sync service.
+
+`shore store status` resolves the selected store and emits `shore.store-status` JSON.
+
+- `mode` is `local` for the default worktree-local `.shore/` store and `linked` when the worktree
+  has been registered with a clone-local store.
+- `storeRef` is `worktree-local` in local mode and an opaque `store:random:*` ref in linked mode.
+  Linked output also includes opaque `cloneRef` and `repositoryFamilyRef` values.
+- `inventory` reports `eventCount`, `eventBytes`, `artifactCount`, `artifactBytes`, `totalBytes`,
+  optional `untrackedBytes`, `largestArtifacts`, and `reviewUnitSnapshots`. Artifact entries use
+  opaque artifact refs rather than filesystem paths.
+- `sensitivity` reports `policyOutcome` plus redacted findings. Finding references use
+  `file:sha256:*` refs, and command output does not print secret values or source file paths.
+
+`shore store link` registers the current worktree with the clone-local store and imports the
+worktree-local `.shore/` events and artifacts into that store. It emits `shore.store-link` JSON with
+the selected opaque refs and `eventsCreated`, `eventsExisting`, `artifactsCreated`, and
+`artifactsExisting` counters. The import is idempotent for already-present matching facts.
+
+Sensitivity scanning happens before data movement. If the scan returns a blocking outcome,
+`shore store link` exits non-zero and names only the safe finding kinds, such as `known_token`,
+instead of printing the secret text or file path.
+
+Linked capture is batch-only in this release: capture writes local facts first, emits the
+`clone_local_capture_batch_only` diagnostic when the worktree is linked, and `shore store link`
+copies those facts into the clone-local store. `shore review unit list` resolves the linked store,
+so a linked worktree can discover imported ReviewUnits even when it has no local `.shore/events/`.
+Sibling read commands such as observation, input-request, assessment, history, and unit show still
+read the worktree-local store in this release; use a worktree that owns those facts for full
+inspection until those read surfaces are migrated.
+
+Command output is the stable integration surface. Raw clone-local store paths, event files, artifact
+paths, `.git` paths, `.shore` paths, and `state.json` remain internal storage details.
+
 ## `shore review observation`
 
 ```bash
