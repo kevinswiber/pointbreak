@@ -35,10 +35,12 @@ pub use workflow::{
     ReviewHistoryResult, ReviewUnitListEntry, ReviewUnitListOptions, ReviewUnitListResult,
     ReviewUnitProjectionIdentity, ReviewUnitProjectionRow, ReviewUnitProjectionSummary,
     ReviewUnitShowFilters, ReviewUnitShowOptions, ReviewUnitShowResult, SnapshotOrder,
-    capture_worktree_review, fetch_input_request, import_notes, list_input_requests,
-    list_observations, list_review_units, open_input_request, record_assessment,
-    record_observation, reload_session, respond_input_request, review_history, show_assessments,
-    show_review_unit,
+    StoreLinkOptions, StoreLinkResult, StoreStatusArtifactInventory, StoreStatusInventory,
+    StoreStatusOptions, StoreStatusResult, StoreStatusReviewUnitSnapshot, StoreStatusSensitivity,
+    StoreStatusSensitivityFinding, capture_worktree_review, fetch_input_request, import_notes,
+    link_clone_local_store, list_input_requests, list_observations, list_review_units,
+    open_input_request, record_assessment, record_observation, reload_session,
+    respond_input_request, review_history, show_assessments, show_review_unit, store_status,
 };
 #[cfg(test)]
 pub(crate) use workflow::{InputRequestStatus, ReloadOutcome};

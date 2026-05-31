@@ -14,6 +14,7 @@ mod json;
 mod notes;
 mod review;
 mod show;
+mod store;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -39,6 +40,7 @@ enum Command {
     // than the other top-level commands.
     Review(Box<review::ReviewArgs>),
     Show(show::ShowArgs),
+    Store(store::StoreArgs),
 }
 
 pub(crate) fn run_main() -> ExitCode {
@@ -113,6 +115,7 @@ fn run_cli(cli: Cli, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::E
             tracing::debug!(command = "show", "command_start");
             show::run(args, &cli.tracing)
         }
+        Command::Store(args) => store::run(args, stdout),
     }
 }
 

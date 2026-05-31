@@ -5,6 +5,8 @@ mod import;
 mod reload;
 mod review_unit_list;
 mod review_unit_projection;
+mod store_link;
+mod store_status;
 
 pub(in crate::session) mod input_request;
 pub(in crate::session) mod observation;
@@ -45,4 +47,10 @@ pub use review_unit_projection::{
     AdapterNoteView, ReviewUnitProjectionIdentity, ReviewUnitProjectionRow,
     ReviewUnitProjectionSummary, ReviewUnitShowFilters, ReviewUnitShowOptions,
     ReviewUnitShowResult, SnapshotOrder, show_review_unit,
+};
+pub use store_link::{StoreLinkOptions, StoreLinkResult, link_clone_local_store};
+pub use store_status::{
+    StoreStatusArtifactInventory, StoreStatusInventory, StoreStatusOptions, StoreStatusResult,
+    StoreStatusReviewUnitSnapshot, StoreStatusSensitivity, StoreStatusSensitivityFinding,
+    store_status,
 };
