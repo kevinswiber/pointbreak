@@ -6,6 +6,8 @@ fn cli_reference_exists_and_covers_current_commands() {
         "shore show",
         "shore dump",
         "shore review capture",
+        "shore store status",
+        "shore store link",
         "shore review observation add",
         "shore review input-request open",
         "shore review assessment add",
@@ -57,6 +59,47 @@ fn cli_reference_exists_and_covers_current_commands() {
             "--compact",
         ],
     );
+}
+
+#[test]
+fn public_docs_cover_clone_local_store_behavior() {
+    let cli = std::fs::read_to_string("docs/cli-reference.md").expect("read CLI reference");
+    let storage = std::fs::read_to_string("docs/storage-model.md").expect("read storage model");
+
+    assert_markdown_section_contains(
+        &cli,
+        "## `shore store`",
+        &[
+            "shore store status",
+            "shore store link",
+            "shore.store-status",
+            "shore.store-link",
+            "policyOutcome",
+            "file:sha256:",
+            "hard-blocking policy",
+            "clone_local_capture_batch_only",
+            "review unit list",
+        ],
+    );
+
+    for token in [
+        "clone-local store",
+        "batch-only",
+        "sensitivity scan",
+        "hard-blocking policy",
+        "inventory",
+        "opaque store, clone, and repository-family refs",
+    ] {
+        assert!(
+            storage.contains(token),
+            "storage model missing clone-local behavior: {token}"
+        );
+    }
+
+    for forbidden in ["Gumbo", "Plan 0050", "Task 5", "Phase 5"] {
+        assert!(!cli.contains(forbidden));
+        assert!(!storage.contains(forbidden));
+    }
 }
 
 #[test]

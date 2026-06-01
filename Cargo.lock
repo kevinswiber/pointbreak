@@ -891,6 +891,7 @@ dependencies = [
  "clap",
  "crossterm",
  "ctor",
+ "getrandom",
  "ratatui",
  "serde",
  "serde_json",

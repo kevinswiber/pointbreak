@@ -82,6 +82,54 @@ fn review_capture_changes_when_untracked_content_changes() {
 }
 
 #[test]
+fn review_capture_on_linked_store_stays_batch_only_with_guidance() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+
+    let link = shore(["store", "link", "--repo", repo.path().to_str().unwrap()]);
+    assert!(
+        link.status.success(),
+        "link stderr:\n{}",
+        String::from_utf8_lossy(&link.stderr)
+    );
+
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    let capture = shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    assert!(
+        capture.status.success(),
+        "capture stderr:\n{}",
+        String::from_utf8_lossy(&capture.stderr)
+    );
+    let capture_stdout = String::from_utf8(capture.stdout).unwrap();
+    let capture_json = parse_json(capture_stdout.as_bytes());
+
+    let diagnostics = capture_json["diagnostics"].as_array().unwrap();
+    assert!(
+        diagnostics.iter().any(|diagnostic| {
+            diagnostic["code"].as_str() == Some("clone_local_capture_batch_only")
+                && diagnostic["message"]
+                    .as_str()
+                    .is_some_and(|message| message.contains("shore store link"))
+        }),
+        "expected batch-only linked capture guidance in {diagnostics:?}"
+    );
+    assert!(!capture_stdout.contains(".git"));
+    assert!(!capture_stdout.contains(".shore"));
+
+    let status = shore(["store", "status", "--repo", repo.path().to_str().unwrap()]);
+    assert!(
+        status.status.success(),
+        "status stderr:\n{}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let status_json = parse_json(&status.stdout);
+    assert_eq!(status_json["mode"], "linked");
+    assert_eq!(status_json["inventory"]["eventCount"], 0);
+    assert!(repo.path().join(".shore/events").is_dir());
+}
+
+#[test]
 fn capture_preserves_inline_rows_for_normal_added_file() {
     let repo = bounded_added_file_repo();
     let _capture =

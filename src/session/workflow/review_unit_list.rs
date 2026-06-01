@@ -9,7 +9,7 @@ use crate::model::{
 use crate::session::EventStore;
 use crate::session::event::{EventType, ReviewUnitCapturedPayload, ShoreEvent};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
-use crate::session::store_init::ShoreStorePaths;
+use crate::session::store::resolution::resolve_store;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewUnitListOptions {
@@ -49,8 +49,8 @@ pub struct ReviewUnitListResult {
 }
 
 pub fn list_review_units(options: ReviewUnitListOptions) -> Result<ReviewUnitListResult> {
-    let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let events = EventStore::open(paths.shore_dir()).list_events()?;
+    let resolution = resolve_store(&options.repo)?;
+    let events = EventStore::open(resolution.store_dir()).list_events()?;
     list_from_events(&events)
 }
 

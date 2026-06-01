@@ -8,11 +8,14 @@ use crate::model::{
     SnapshotId,
 };
 use crate::session::event::{EventTarget, EventType, ReviewUnitCapturedPayload, ShoreEvent};
+use crate::session::store::resolution::{StoreResolutionMode, resolve_store};
 use crate::session::{
     EventStore, EventWriteOutcome, ProjectionDiagnostic, SessionState, ShoreStorePaths,
     current_timestamp, prepare_shore_writer, writer_from_git_config,
 };
 use crate::storage::{Durability, LocalStorage};
+
+const CLONE_LOCAL_CAPTURE_BATCH_ONLY_CODE: &str = "clone_local_capture_batch_only";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CaptureOptions {
@@ -62,6 +65,7 @@ pub fn capture_worktree_review(options: CaptureOptions) -> Result<CaptureResult>
 
     let paths = ShoreStorePaths::resolve(&options.repo)?;
     let worktree_root = paths.worktree_root();
+    let store_resolution = resolve_store(worktree_root)?;
     let shore_dir = paths.shore_dir();
     let storage = LocalStorage::new(shore_dir);
     prepare_shore_writer(&paths, &storage)?;
@@ -111,6 +115,15 @@ pub fn capture_worktree_review(options: CaptureOptions) -> Result<CaptureResult>
 
     let state = SessionState::from_events(&event_store.list_events()?)?;
     storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
+    let mut diagnostics = state.diagnostics;
+    if store_resolution.mode == StoreResolutionMode::CloneLocal {
+        diagnostics.push(ProjectionDiagnostic {
+            code: CLONE_LOCAL_CAPTURE_BATCH_ONLY_CODE.to_owned(),
+            message:
+                "review capture writes local facts; run shore store link to copy them to the linked clone-local store"
+                    .to_owned(),
+        });
+    }
 
     Ok(CaptureResult {
         session_id,
@@ -124,7 +137,7 @@ pub fn capture_worktree_review(options: CaptureOptions) -> Result<CaptureResult>
         events_created: recorder.events_created,
         events_existing: recorder.events_existing,
         events_created_by_type: recorder.events_created_by_type,
-        diagnostics: state.diagnostics,
+        diagnostics,
     })
 }
 

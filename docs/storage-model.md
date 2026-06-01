@@ -242,6 +242,35 @@ The review stream also surfaces stale and orphan notes as dedicated rows so revi
 cursor on them; the stream emits an additional synthetic file header for orphan notes when at least
 one is present.
 
+## Clone-Local Store Selection
+
+The default durable store remains worktree-local `.shore/`. A Git worktree can also be registered
+with a clone-local store associated with the clone's Git common directory, allowing linked
+worktrees from the same clone to share imported Shoreline facts.
+
+Clone-local stores are selected through a worktree-local registration file. Public commands expose
+the result as command JSON with opaque store, clone, and repository-family refs; callers must not
+depend on raw clone-local store paths, event filenames, artifact paths, `.git` paths, `.shore` paths,
+or `state.json` layout.
+
+The current linked writer contract is batch-only. Review capture and native review write commands
+continue to write the worktree-local `.shore/` store. `shore store link` is the explicit movement
+step: it scans the worktree for sensitivity findings before data movement, reports redacted findings
+in the command document, and then imports local events and artifacts into the clone-local store with
+strict content-hash validation. In this clone-local release, sensitivity findings warn rather than
+abort; hard-blocking policy and explicit override controls are deferred until movement can target a
+wider user-level or remote store.
+
+`shore store status` is the public health and inventory surface for the selected store. It reports
+event and artifact byte counts, total bytes, optional Git untracked bytes, largest artifact refs,
+ReviewUnit snapshot byte accounting, and redacted sensitivity scan findings. Sensitivity references
+are hashed `file:sha256:*` values and do not disclose secret contents or source file paths.
+
+Linked reads are deliberately incremental. `shore review unit list` resolves the selected store so a
+linked worktree can discover imported ReviewUnits from the clone-local store. Other review read
+surfaces still read the worktree-local store in this release, so documentation and automation should
+not assume every review command follows linked-store resolution yet.
+
 Reload is a read-side projection refresh. The durable event log remains immutable; reload re-runs
 the order-independent projection against the current worktree state and lowers anchor-stale
 conditions into the read surface via `reload_diagnostics`. If reload encounters a parse or ingest
@@ -479,6 +508,12 @@ are explicit and tested.
 V1 uses a single-writer workflow contract: one active Shoreline writer per `.shore/` directory at a
 time. Shoreline does not coordinate writers with lockfiles, leases, a daemon, IPC, or filesystem
 notifications yet.
+
+Clone-local linking does not change that direct-write contract. Shared clone-local writes are
+limited to the explicit `shore store link` batch import path, which performs sensitivity scanning
+before movement, reports redacted findings, and imports artifacts before events. Direct shared
+capture remains unsupported until Shoreline has a storage-level serializer for multi-file
+publication.
 
 Event files remain the append-only authority. They are created with exclusive file creation:
 same-key and same-payload retries are idempotent, while same-key and different-payload attempts are
