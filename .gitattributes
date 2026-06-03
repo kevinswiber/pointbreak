@@ -1,0 +1,4 @@
+# Review-document contract snapshots are compared byte-for-byte against command
+# output, which uses LF newlines. Pin them to LF so a CRLF checkout (Windows git
+# autocrlf) does not break the byte-stability test.
+tests/fixtures/review_documents/*.snap text eol=lf

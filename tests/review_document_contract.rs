@@ -115,12 +115,50 @@ fn normalize_git_oid(text: &str, key: &str) -> String {
     })
 }
 
+/// Replace the JSON string value of `"worktreeRoot":"…"` with `<repo>`,
+/// regardless of path shape. This is portable across platforms: on Windows the
+/// captured path is an extended-length `\\?\C:\…` form with escaped backslashes
+/// that a literal path replacement would miss.
+fn normalize_worktree_root(text: &str) -> String {
+    replace_prefixed(
+        text,
+        "\"worktreeRoot\":\"",
+        "\"worktreeRoot\":\"<repo>",
+        |rest| {
+            // Consume the JSON string contents up to (not including) the closing
+            // unescaped quote, honoring backslash escapes.
+            let mut escaped = false;
+            let mut chars = 0usize;
+            for c in rest.chars() {
+                if escaped {
+                    escaped = false;
+                    chars += 1;
+                    continue;
+                }
+                match c {
+                    '\\' => {
+                        escaped = true;
+                        chars += 1;
+                    }
+                    '"' => return Some(chars),
+                    _ => chars += 1,
+                }
+            }
+            None
+        },
+    )
+}
+
 /// Normalize the nondeterministic substrings while preserving every key and the
 /// document's exact serialized field order.
 fn normalize(raw: &str, repo_path: &str) -> String {
-    // Replace the absolute repo path first so it cannot collide with later
-    // substitutions.
-    let text = raw.replace(repo_path, "<repo>");
+    // Strip Windows CRLF so snapshots compare equal regardless of the platform's
+    // git autocrlf checkout behavior.
+    let text = raw.replace("\r\n", "\n");
+    // Replace the absolute repo path first (Unix), then the worktreeRoot value
+    // generically (covers the Windows extended-length path form).
+    let text = text.replace(repo_path, "<repo>");
+    let text = normalize_worktree_root(&text);
     let text = normalize_hashes(&text);
     let text = normalize_timestamps(&text);
     let text = normalize_git_oid(&text, "commitOid");
@@ -147,12 +185,14 @@ fn assert_snapshot(name: &str, normalized: &str) {
         fs::write(&path, normalized).expect("write snapshot");
         return;
     }
-    let expected = fs::read_to_string(&path).unwrap_or_else(|error| {
-        panic!(
-            "missing snapshot {}: {error}. Re-run with BLESS=1 to generate it.",
-            path.display()
-        )
-    });
+    let expected = fs::read_to_string(&path)
+        .unwrap_or_else(|error| {
+            panic!(
+                "missing snapshot {}: {error}. Re-run with BLESS=1 to generate it.",
+                path.display()
+            )
+        })
+        .replace("\r\n", "\n");
     assert_eq!(
         normalized,
         expected,
