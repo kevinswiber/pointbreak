@@ -75,16 +75,31 @@ pub fn read_snapshot_artifact(
     repo: impl AsRef<Path>,
     snapshot_id: &SnapshotId,
 ) -> Result<SnapshotArtifact> {
-    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
-    let shore_dir = paths.shore_dir();
-    let storage = LocalStorage::new(shore_dir);
-    let artifact: SnapshotArtifact =
-        storage.read_json(&snapshot_artifact_path(shore_dir, snapshot_id))?;
+    let bytes = read_snapshot_artifact_bytes(repo, snapshot_id)?;
+    let artifact: SnapshotArtifact = serde_json::from_slice(&bytes)?;
     validate_snapshot_artifact_content_hash(&artifact)?;
     Ok(artifact)
 }
 
-fn validate_snapshot_artifact_content_hash(artifact: &SnapshotArtifact) -> Result<()> {
+pub(crate) fn read_snapshot_artifact_bytes(
+    repo: impl AsRef<Path>,
+    snapshot_id: &SnapshotId,
+) -> Result<Vec<u8>> {
+    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
+    let shore_dir = paths.shore_dir();
+    let path = snapshot_artifact_path(shore_dir, snapshot_id);
+    std::fs::read(&path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            return ShoreError::Message(format!(
+                "missing artifact for snapshot {}; import referenced artifacts before reading",
+                snapshot_id.as_str()
+            ));
+        }
+        ShoreError::Message(format!("read file {}: {error}", path.display()))
+    })
+}
+
+pub(crate) fn validate_snapshot_artifact_content_hash(artifact: &SnapshotArtifact) -> Result<()> {
     let expected = snapshot_artifact_content_hash(artifact)?;
     if artifact.content_hash == expected {
         return Ok(());
@@ -112,7 +127,7 @@ fn snapshot_artifact_content_hash(artifact: &SnapshotArtifact) -> Result<String>
     sha256_json_prefixed(&material)
 }
 
-fn snapshot_artifact_path(shore_dir: &Path, snapshot_id: &SnapshotId) -> PathBuf {
+pub(crate) fn snapshot_artifact_path(shore_dir: &Path, snapshot_id: &SnapshotId) -> PathBuf {
     shore_dir
         .join("artifacts/snapshots")
         .join(format!("{}.json", artifact_file_stem(snapshot_id.as_str())))

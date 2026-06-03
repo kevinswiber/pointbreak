@@ -76,8 +76,38 @@ produce distinct facts.
 
 Ingest validates each envelope (`eventId`/`payloadHash`/schema) and rejects events whose
 `writer.actor_id` is not a well-formed `actor:` id, validating the whole batch's attribution before
-any write. A re-ingest of an already-present event is a no-op; a conflicting payload under the same
-idempotency key is rejected. The projection (`state.json`) is rebuilt once after the batch.
+any write. It validates internal consistency and attribution shape, not authenticity: there are no
+signatures, and Shoreline does not prove the writer actually controlled the named actor.
+That advisory-first boundary is intentional (see
+[ADR-0003](adr/adr-0003-agent-resource-claims-advisory-first.md)). A re-ingest of an
+already-present event is a no-op; a conflicting payload under the same idempotency key is rejected.
+The projection (`state.json`) is rebuilt once after the batch.
+
+### Artifacts — `shoreline::session`
+
+| Item | Purpose |
+| ---- | ------- |
+| `referenced_artifacts` | Enumerate the content-addressed artifacts required by a set of forwarded `ShoreEvent`s. |
+| `ArtifactRef` / `ArtifactKind` | Opaque artifact references. Consumers can branch on kind and fetch by `content_hash()` without depending on store paths. |
+| `export_artifact` | Read and hash-verify one referenced artifact's bytes from a source store. |
+| `import_artifact` + `ImportArtifactOptions` / `ImportArtifactResult` / `ImportArtifactOutcome` | Hash-verify and idempotently write one referenced artifact into a destination store. |
+
+`ingest_events` transfers events only. Events can reference snapshot artifacts and large note-shaped
+body artifacts, and those blobs must be transferred separately before reads that need them. A full
+mirror flow is:
+
+1. read or receive a batch of `ShoreEvent`s;
+2. call `referenced_artifacts(&events)` to learn which artifact hashes are required;
+3. fetch or `export_artifact` those blobs from the source store;
+4. `ingest_events` into the destination store;
+5. `import_artifact` each fetched blob into the destination store.
+
+After events and artifacts are present, `show_review_unit` can load the bound snapshot artifact and
+`fetch_input_request(...with_include_body(true))` / include-body projections can hydrate large
+bodies. The store layout remains private; callers should keep and pass around `ArtifactRef` values
+rather than constructing paths. This byte-level transfer path complements `link_clone_local_store`:
+linked local clones can share one store, while remote or networked consumers can fetch and import
+the required blobs by content hash.
 
 ### Documents — `shoreline::documents`
 

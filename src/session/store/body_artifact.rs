@@ -82,6 +82,87 @@ pub(crate) fn stage_body_artifact(body_bytes: &[u8]) -> Result<BodyArtifactOutco
 }
 
 pub(crate) fn load_body_artifact(shore_dir: &Path, relative_path: &str) -> Result<Option<String>> {
+    validate_body_artifact_read_path(relative_path)?;
+
+    let artifact_bytes = std::fs::read(shore_dir.join(relative_path)).map_err(|err| {
+        if err.kind() == std::io::ErrorKind::NotFound {
+            return ShoreError::Message(format!(
+                "missing artifact {relative_path}; import referenced artifacts before reading"
+            ));
+        }
+        ShoreError::Message(format!(
+            "Failed to read artifact {}: {}",
+            relative_path, err
+        ))
+    })?;
+    let artifact = parse_note_body_artifact(&artifact_bytes)?;
+
+    Ok(Some(artifact.body))
+}
+
+pub(crate) fn note_body_content_hash_from_path(relative_path: &str) -> Result<String> {
+    let stem = validate_note_body_artifact_path(relative_path)?;
+    Ok(format!("sha256:{stem}"))
+}
+
+pub(crate) fn parse_note_body_artifact(bytes: &[u8]) -> Result<NoteBodyEnvelope> {
+    let artifact: NoteBodyEnvelope = serde_json::from_slice(bytes)?;
+    if artifact.schema != "shore.note-body" || artifact.version != 1 {
+        return Err(ShoreError::Message(format!(
+            "Unsupported note body artifact schema/version: {} v{}",
+            artifact.schema, artifact.version
+        )));
+    }
+    Ok(artifact)
+}
+
+pub(crate) fn validate_note_body_artifact_bytes(
+    relative_path: &str,
+    expected_content_hash: &str,
+    bytes: &[u8],
+) -> Result<NoteBodyEnvelope> {
+    let path_content_hash = note_body_content_hash_from_path(relative_path)?;
+    if path_content_hash != expected_content_hash {
+        return Err(ShoreError::Message(format!(
+            "note body artifact locator hash mismatch for {expected_content_hash}"
+        )));
+    }
+
+    let artifact = parse_note_body_artifact(bytes)?;
+    let actual_content_hash = format!("sha256:{}", sha256_bytes_hex(artifact.body.as_bytes()));
+    if actual_content_hash != expected_content_hash {
+        return Err(ShoreError::Message(format!(
+            "note body artifact content hash mismatch for {expected_content_hash}"
+        )));
+    }
+
+    Ok(artifact)
+}
+
+fn validate_note_body_artifact_path(relative_path: &str) -> Result<&str> {
+    if Path::new(relative_path).components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
+        return Err(invalid_artifact_path(relative_path));
+    }
+
+    let Some(stem) = relative_path
+        .strip_prefix("artifacts/notes/")
+        .and_then(|path| path.strip_suffix(".json"))
+    else {
+        return Err(invalid_artifact_path(relative_path));
+    };
+    if stem.len() != 64 || !stem.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(invalid_artifact_path(relative_path));
+    }
+
+    Ok(stem)
+}
+
+fn validate_body_artifact_read_path(relative_path: &str) -> Result<()> {
     if !relative_path.starts_with("artifacts/notes/")
         || Path::new(relative_path).components().any(|component| {
             matches!(
@@ -90,27 +171,14 @@ pub(crate) fn load_body_artifact(shore_dir: &Path, relative_path: &str) -> Resul
             )
         })
     {
-        return Err(ShoreError::Message(format!(
-            "Invalid artifact path: {}",
-            relative_path
-        )));
+        return Err(invalid_artifact_path(relative_path));
     }
 
-    let artifact_bytes = std::fs::read(shore_dir.join(relative_path)).map_err(|err| {
-        ShoreError::Message(format!(
-            "Failed to read artifact {}: {}",
-            relative_path, err
-        ))
-    })?;
-    let artifact: NoteBodyEnvelope = serde_json::from_slice(&artifact_bytes)?;
-    if artifact.schema != "shore.note-body" || artifact.version != 1 {
-        return Err(ShoreError::Message(format!(
-            "Unsupported note body artifact schema/version: {} v{}",
-            artifact.schema, artifact.version
-        )));
-    }
+    Ok(())
+}
 
-    Ok(Some(artifact.body))
+fn invalid_artifact_path(relative_path: &str) -> ShoreError {
+    ShoreError::Message(format!("Invalid artifact path: {relative_path}"))
 }
 
 #[cfg(test)]

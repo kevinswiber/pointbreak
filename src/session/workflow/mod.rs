@@ -1,3 +1,4 @@
+mod artifact_transfer;
 pub(in crate::session) mod assessment;
 mod capture;
 mod history;
@@ -12,6 +13,10 @@ mod store_status;
 pub(in crate::session) mod input_request;
 pub(in crate::session) mod observation;
 
+pub use artifact_transfer::{
+    ArtifactKind, ArtifactRef, ImportArtifactOptions, ImportArtifactOutcome, ImportArtifactResult,
+    export_artifact, import_artifact, referenced_artifacts,
+};
 pub use assessment::{
     AssessmentAddOptions, AssessmentAddResult, AssessmentRecordStatus, AssessmentShowFilters,
     AssessmentShowOptions, AssessmentShowResult, AssessmentTargetSelector, AssessmentView,
