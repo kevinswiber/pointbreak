@@ -182,9 +182,10 @@ This is an interim convention pending a first-class landed-commit record
 for the landing, and do not add or change the assessment.
 
 If more than one ReviewUnit is current, pin the landing to the one that was actually reviewed and
-accepted with `--review-unit`. The sibling captures stay current and the
-`ambiguous_current_review_unit` diagnostic keeps firing — that is expected today, with no way to
-retire a stale capture (kevinswiber/shoreline#106).
+accepted with `--review-unit`, or use `--lineage` when the accepted ReviewUnit is the current head of
+a recorded lineage. Sibling captures stay current, but routine list/history/exact/lineage-scoped
+reads no longer emit an ambient `ambiguous_current_review_unit` diagnostic just because multiple
+captures exist. Shoreline still has no way to retire a stale capture (kevinswiber/shoreline#106).
 
 ## Read back and stand down
 
@@ -229,5 +230,5 @@ did not change, and which input requests you responded to. Leave the assessment 
 - **Recording the landing commit on the reviewer track or as an assessment.** The landed-commit
   fact is an author observation; the reviewer owns the assessment.
 - **Pinning the landing to the wrong unit when captures are ambiguous.** With multiple current
-  ReviewUnits, `--review-unit` the one that was reviewed and accepted; the
-  `ambiguous_current_review_unit` diagnostic will persist (kevinswiber/shoreline#106).
+  ReviewUnits, pass the exact accepted unit with `--review-unit`, or pass `--lineage` only when that
+  lineage's current head is the accepted ReviewUnit.
