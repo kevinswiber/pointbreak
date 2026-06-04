@@ -111,7 +111,7 @@ mod tests {
     };
     use crate::crypto::{EventVerificationStatus, SignerId};
     use crate::model::{ActorId, EventId};
-    use crate::session::event::{EventType, ShoreEvent, SourceRef};
+    use crate::session::event::{AssertionMode, EventType, ShoreEvent, SourceRef};
 
     const FRIENDLY_SIGNER: &str = "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd";
 
@@ -209,6 +209,20 @@ mod tests {
     }
 
     #[test]
+    fn validation_check_recorded_builds_to_be_signed_view() {
+        let signer = SignerId::parse(FRIENDLY_SIGNER).unwrap();
+        let event = all_fixture_event_families()
+            .into_iter()
+            .find(|event| event.event_type == EventType::ValidationCheckRecorded)
+            .expect("validation fixture event included");
+
+        let tbs = EventToBeSigned::from_event(&event, &signer).unwrap();
+
+        assert_eq!(tbs.event_type, "validation_check_recorded");
+        assert_eq!(tbs.assertion_mode, AssertionMode::Advisory);
+    }
+
+    #[test]
     fn pre_authentication_encoding_uses_literal_dsse_format_and_payload_type() {
         let body = br#"{"schema":"shore.event"}"#;
 
@@ -232,6 +246,7 @@ mod tests {
             EventType::ReviewNoteImported,
             EventType::ReviewUnitLineageDeclared,
             EventType::ReviewUnitLineageRoundRecorded,
+            EventType::ValidationCheckRecorded,
             EventType::TaskAttemptCaptured,
             EventType::TaskCheckpointCaptured,
             EventType::TaskObservationRecorded,
