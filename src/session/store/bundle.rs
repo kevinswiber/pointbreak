@@ -493,7 +493,7 @@ fn note_body_artifact_paths_for_event(
         | EventType::ReviewNoteImported
         | EventType::TaskObservationRecorded => optional_payload_path(payload, "bodyArtifactPath"),
         EventType::InputRequestResponded => optional_payload_path(payload, "reasonArtifactPath"),
-        EventType::ReviewAssessmentRecorded => {
+        EventType::ReviewAssessmentRecorded | EventType::ValidationCheckRecorded => {
             optional_payload_path(payload, "summaryArtifactPath")
         }
         _ => Vec::new(),
@@ -712,10 +712,14 @@ mod tests {
     use super::*;
     use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
     use crate::crypto::{EventVerificationStatus, SignerId};
-    use crate::model::{EventId, SessionId, WorkUnitId};
+    use crate::model::{
+        EventId, ReviewUnitId, RevisionId, SessionId, SnapshotId, TrackId, ValidationCheckId,
+        ValidationStatus, ValidationTarget, ValidationTrigger, WorkUnitId,
+    };
     use crate::session::body_artifact::BODY_INLINE_LIMIT;
     use crate::session::event::{
-        AssertionMode, EventSignature, EventTarget, EventType, ShoreEvent, Writer,
+        AssertionMode, EventSignature, EventTarget, EventType, ShoreEvent,
+        ValidationCheckRecordedPayload, Writer,
     };
     use crate::session::{
         CaptureOptions, EventStore, EventVerificationPolicy, ObservationAddOptions, TrustSet,
@@ -820,6 +824,47 @@ mod tests {
         let json = serde_json::to_string(&manifest).unwrap();
         assert!(!json.contains("artifacts/notes"));
         assert!(!json.contains("Large body"));
+    }
+
+    #[test]
+    fn store_bundle_import_preserves_externalized_validation_summary_artifacts() {
+        let source = tempfile::tempdir().unwrap();
+        let source_store_dir = source.path().join(".shore");
+        let summary = "validation summary\n".repeat(BODY_INLINE_LIMIT);
+        let (summary_artifact_path, summary_content_hash, summary_byte_size) =
+            write_note_body_artifact(&source_store_dir, summary.clone());
+        let validation_event = validation_event_with_summary_artifact(
+            &summary_artifact_path,
+            &summary_content_hash,
+            summary_byte_size,
+        );
+        let validation_event_id = validation_event.event_id.as_str().to_owned();
+        write_event_to_store(&source_store_dir, validation_event);
+
+        let manifest = build_export_manifest(&source_store_dir).unwrap();
+
+        assert_eq!(manifest.fidelity_status, ExportFidelityStatus::Full);
+        let artifact_ref = format!("note-body:{summary_content_hash}");
+        let event = manifest
+            .events
+            .iter()
+            .find(|event| event.event_id == validation_event_id)
+            .expect("validation event");
+        assert_eq!(event.artifact_refs, vec![artifact_ref.clone()]);
+        assert!(
+            manifest
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.artifact_ref == artifact_ref)
+        );
+
+        let target = tempfile::tempdir().unwrap();
+        let target_store_dir = target.path().join(".shore");
+        import_store_bundle(&source_store_dir, &target_store_dir).unwrap();
+
+        let imported_bytes = fs::read(target_store_dir.join(&summary_artifact_path)).unwrap();
+        let imported: NoteBodyEnvelope = serde_json::from_slice(&imported_bytes).unwrap();
+        assert_eq!(imported.body, summary);
     }
 
     #[test]
@@ -1057,6 +1102,52 @@ mod tests {
         event
     }
 
+    fn validation_event_with_summary_artifact(
+        summary_artifact_path: &str,
+        summary_content_hash: &str,
+        summary_byte_size: u64,
+    ) -> ShoreEvent {
+        let review_unit_id = ReviewUnitId::new("review-unit:sha256:bundle");
+        let track_id = TrackId::new("agent:codex");
+        let mut target = EventTarget::for_review_unit(
+            SessionId::new("session:default"),
+            review_unit_id.clone(),
+            RevisionId::new("rev:sha256:bundle"),
+            SnapshotId::new("snap:sha256:bundle"),
+        );
+        target.track_id = Some(track_id.clone());
+
+        ShoreEvent::new(
+            EventType::ValidationCheckRecorded,
+            ValidationCheckRecordedPayload::idempotency_key(
+                &review_unit_id,
+                &track_id,
+                "validation:sha256:bundle",
+            ),
+            target,
+            Writer::shore_local_author("test"),
+            ValidationCheckRecordedPayload {
+                validation_check_id: ValidationCheckId::new("validation:sha256:bundle"),
+                target: ValidationTarget::ReviewUnit { review_unit_id },
+                check_name: "cargo nextest run".to_owned(),
+                command: None,
+                status: ValidationStatus::Passed,
+                exit_code: Some(0),
+                trigger: ValidationTrigger::Manual,
+                source_fingerprint: None,
+                summary: None,
+                summary_artifact_path: Some(summary_artifact_path.to_owned()),
+                summary_byte_size: Some(summary_byte_size),
+                summary_content_hash: Some(summary_content_hash.to_owned()),
+                started_at: None,
+                completed_at: None,
+                log_artifact_content_hashes: Vec::new(),
+            },
+            "2026-05-30T00:00:00Z",
+        )
+        .unwrap()
+    }
+
     fn write_event_to_store(store_dir: &Path, event: ShoreEvent) {
         EventStore::open(store_dir)
             .record_event_once(&event)
@@ -1075,6 +1166,22 @@ mod tests {
 
     fn note_body_path_for_hash(hash: String) -> String {
         format!("artifacts/notes/{hash}.json")
+    }
+
+    fn write_note_body_artifact(store_dir: &Path, body: String) -> (String, String, u64) {
+        let byte_size = body.len() as u64;
+        let content_hash = format!("sha256:{}", sha256_bytes_hex(body.as_bytes()));
+        let artifact_path = note_body_path_for_hash(
+            content_hash
+                .strip_prefix("sha256:")
+                .expect("sha256 content hash")
+                .to_owned(),
+        );
+        let bytes = NoteBodyEnvelope::new(body).to_json_bytes().unwrap();
+        LocalStorage::new(store_dir)
+            .write_bytes_atomic(Path::new(&artifact_path), &bytes, Durability::Durable)
+            .expect("write note body artifact");
+        (artifact_path, content_hash, byte_size)
     }
 
     struct TestRepo {
