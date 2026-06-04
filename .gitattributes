@@ -2,3 +2,7 @@
 # output, which uses LF newlines. Pin them to LF so a CRLF checkout (Windows git
 # autocrlf) does not break the byte-stability test.
 tests/fixtures/review_documents/*.snap text eol=lf
+
+# Signature golden-vector byte fixtures are compared byte-for-byte. Keep these
+# stable on Windows checkouts instead of allowing CRLF conversion.
+tests/fixtures/event_signatures/*.bytes text eol=lf
