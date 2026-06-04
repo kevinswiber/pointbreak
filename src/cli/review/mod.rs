@@ -12,6 +12,7 @@ pub(super) mod input_request;
 pub(super) mod lineage;
 pub(super) mod observation;
 pub(super) mod unit;
+pub(super) mod validation;
 
 #[derive(Debug, Args)]
 pub(super) struct ReviewArgs {
@@ -28,6 +29,7 @@ enum ReviewCommand {
     Lineage(lineage::LineageArgs),
     Observation(observation::ObservationArgs),
     Unit(unit::UnitArgs),
+    Validation(validation::ValidationArgs),
 }
 
 pub(super) fn run(
@@ -43,5 +45,6 @@ pub(super) fn run(
         ReviewCommand::Lineage(args) => lineage::run(args, stdout),
         ReviewCommand::Observation(args) => observation::run(args, stdout),
         ReviewCommand::Unit(args) => unit::run(args, stdout),
+        ReviewCommand::Validation(args) => validation::run(args, stdout),
     }
 }

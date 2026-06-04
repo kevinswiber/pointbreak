@@ -1,6 +1,8 @@
 mod support;
 
 use serde_json::Value;
+use shoreline::model::ValidationStatus;
+use shoreline::session::{ValidationAddOptions, record_validation_check};
 use support::git_repo::GitRepo;
 use support::shore;
 
@@ -145,6 +147,42 @@ fn review_history_filters_input_request_events_and_hydrates_text() {
     }));
     assert!(!String::from_utf8_lossy(&output.stdout).contains("artifacts/notes/"));
     assert!(!String::from_utf8_lossy(&output.stdout).contains("\"blocking\""));
+}
+
+#[test]
+fn cli_review_history_filters_validation_check_recorded() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    add_validation_check(&repo);
+    add_observation(&repo, "agent:codex", "Other event");
+
+    let output = shore([
+        "review",
+        "history",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--event-type",
+        "validation-check-recorded",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value = parse_json(&output.stdout);
+    let kinds: Vec<&str> = value["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["summary"]["kind"].as_str().unwrap())
+        .collect();
+    assert!(
+        kinds
+            .iter()
+            .all(|kind| *kind == "validation_check_recorded")
+    );
+    assert_eq!(kinds.len(), 1);
 }
 
 #[test]
@@ -329,6 +367,16 @@ fn add_observation(repo: &GitRepo, track: &str, title: &str) -> Value {
         ])
         .stdout,
     )
+}
+
+fn add_validation_check(repo: &GitRepo) {
+    record_validation_check(
+        ValidationAddOptions::new(repo.path())
+            .with_track("agent:codex")
+            .with_check_name("cargo test")
+            .with_status(ValidationStatus::Passed),
+    )
+    .unwrap();
 }
 
 fn add_observation_with_body(repo: &GitRepo, track: &str, title: &str, body: &str) -> Value {
