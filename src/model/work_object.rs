@@ -20,7 +20,7 @@ pub enum WorkObjectType {
 /// `WorkObjectType` variant: the envelope's `work_object_id` and
 /// `work_object_type` continue to identify the `TaskAttempt`, and the
 /// checkpoint identity lives here. Analogous to how `ReviewTargetRef::Range`
-/// addresses a slice inside a `ReviewUnit`.
+/// addresses a span inside a `ReviewUnit`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",

@@ -73,9 +73,9 @@ semantic round records, forked successors, and cycles.
 
 ## Out Of Scope
 
-This slice has no interdiff or stack DAG in this slice. It also does not add public export, relay or
-network forwarding, visual stack rendering, or a stacked-work graph. Those features can consume
-lineage facts later, but they are not part of the first lineage/head linkage contract.
+This release has no interdiff or stack DAG. It also does not add public export, relay or network
+forwarding, visual stack rendering, or a stacked-work graph. Those features can consume lineage facts
+later, but they are not part of the first lineage/head linkage contract.
 
 ## Consequences
 

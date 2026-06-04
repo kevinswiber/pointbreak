@@ -2,8 +2,8 @@
 
 ## Status
 
-This is architecture guidance for Shoreline's durable review/session state. It describes constraints the
-first `.shore/` persistence slice should preserve, even when the implementation starts small.
+This is architecture guidance for Shoreline's durable review/session state. It describes constraints
+the first `.shore/` persistence release should preserve, even when the implementation starts small.
 
 ## Goal
 
@@ -104,8 +104,8 @@ multi-capture reads. Unscoped current selection still fails clearly when the cal
 current ReviewUnit in a store with multiple captures. The `stale_by_newer_round` diagnostic is a
 thread-level freshness fact for older lineage rounds, not an exact-ReviewUnit read error.
 
-The first lineage slice has no interdiff or stack DAG in this slice. Public export, relay/network
-forwarding, visual stack rendering, and stacked-work graph semantics remain out of scope.
+The first lineage release has no interdiff or stack DAG. Public export, relay/network forwarding,
+visual stack rendering, and stacked-work graph semantics remain out of scope.
 
 When the inspector lists captured ReviewUnits, it shows a derived label for each working-tree
 target — the worktree's name together with the short base commit — instead of a generic
@@ -629,7 +629,7 @@ event_store::event_exists
 This keeps the lower layer useful for manifests, JSON, future binary artifacts, and exact conflict
 checks. Event filename construction should live in `event_store`, not in command handlers.
 
-The first local durable-state slice should stay synchronous and local. Do not introduce async traits
+The first local durable-state stage should stay synchronous and local. Do not introduce async traits
 or a runtime until a remote backend, subscription API, or second storage backend forces that
 decision.
 
@@ -662,7 +662,7 @@ If Shoreline later adds a delivery queue, every retry path must have:
 - a terminal failed state that removes the entry from active rotation
 - target-liveness checks before resume or apply actions
 
-The local durable-state slice should not implement this queue. Local event writes should fail loudly
+The local durable-state stage should not implement this queue. Local event writes should fail loudly
 rather than loop.
 
 ## Migrations And Doctor
@@ -710,5 +710,5 @@ This document does not require:
 - global event sequence allocation
 - committed `.shore/` state
 
-The point is to keep the first storage slice small while making the safe path the easiest path to
+The point is to keep the first storage stage small while making the safe path the easiest path to
 use.

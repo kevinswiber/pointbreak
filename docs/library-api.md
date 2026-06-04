@@ -41,14 +41,14 @@ Shoreline does not introduce async traits or a runtime of its own.
 
 | Item | Purpose |
 | ---- | ------- |
-| `show_review_unit` + `ReviewUnitShowOptions` / `ReviewUnitShowResult` | The ReviewUnit projection (identity, summary, rows, observations, input requests, assessments). |
+| `show_review_unit` + `ReviewUnitShowOptions` / `ReviewUnitShowResult` | The ReviewUnit projection (identity, summary, rows, observations, input requests, assessments, validation checks). |
 | `list_review_units` + `ReviewUnitListOptions` / `ReviewUnitListResult` | Enumerate captured ReviewUnits. |
 | `list_input_requests` + `InputRequestListOptions` / `InputRequestListResult` | List input requests; defaults to open. Filter with `InputRequestStatusFilter`. |
 | `fetch_input_request` + `InputRequestFetchOptions` / `InputRequestFetchResult` | Fetch one input request, optionally hydrating its body. |
-| `list_observations` / `show_assessments` / `review_history` (+ their options/results) | Observations, current assessment, and the review history projection. |
+| `list_observations` / `show_assessments` / `list_validation_checks` / `review_history` (+ their options/results) | Observations, current assessment, validation evidence, and the review history projection. |
 | `store_status` + `StoreStatusOptions` / `StoreStatusResult` | Store inventory and sensitivity diagnostics. |
-| `InputRequestView`, `InputRequestResponseView`, `ObservationView`, `AssessmentView`, `ReviewUnitProjection*` | Public-field result types. |
-| `InputRequestStatus`, `InputRequestStatusFilter`, `ObservationStatus`, `CurrentAssessmentStatus`, `ReloadOutcome` | Status/value enums consumers branch on. |
+| `InputRequestView`, `InputRequestResponseView`, `ObservationView`, `AssessmentView`, `ValidationCheckView`, `ReviewUnitProjection*` | Public-field result types. |
+| `InputRequestStatus`, `InputRequestStatusFilter`, `ObservationStatus`, `ValidationStatus`, `ValidationTrigger`, `CurrentAssessmentStatus`, `ReloadOutcome` | Status/value enums consumers branch on. |
 
 ### Writes — `shoreline::session`
 
@@ -56,7 +56,7 @@ Shoreline does not introduce async traits or a runtime of its own.
 | ---- | ------- |
 | `capture_worktree_review` + `CaptureOptions` | Capture a Git working tree into a ReviewUnit. |
 | `open_input_request` / `respond_input_request` (+ options/results) | Open and operatively respond to input requests. |
-| `record_observation` / `record_assessment` (+ options/results) | Record observations and the review assessment. |
+| `record_observation` / `record_assessment` / `record_validation_check` (+ options/results) | Record observations, the review assessment, and advisory validation evidence. |
 
 **Per-call writer attribution.** Each write-options builder exposes
 `with_actor_id(ActorId)`. Precedence is **explicit override > `SHORE_ACTOR_ID` env var > local Git
@@ -66,13 +66,19 @@ correct actor without mutating the process-global `SHORE_ACTOR_ID` (which is `un
 edition 2024). The chosen actor is part of a fact's content-addressed identity, so distinct actors
 produce distinct facts.
 
+Validation checks target a captured ReviewUnit only. `ValidationAddOptions` resolves either an
+explicit ReviewUnit, a lineage head, or the single current ReviewUnit, then constructs the
+ReviewUnit validation target internally. `ValidationListOptions` filters by ReviewUnit, track, and
+status, and `with_include_body(true)` hydrates validation summaries. Validation evidence is
+advisory; it does not accept, reject, merge, block, or replace a review assessment.
+
 ### Event signatures — `shoreline::session` / `shoreline::crypto`
 
 Per-event Ed25519 signatures are optional. Unsigned events remain valid and continue to omit
 `signer` and `signature`; all event-producing write options (`CaptureOptions`,
-`InputRequestOpenOptions`, `InputRequestRespondOptions`, `ObservationAddOptions`, and
-`AssessmentAddOptions`) expose `sign_with(...)` for callers that want the event signed at write
-time.
+`InputRequestOpenOptions`, `InputRequestRespondOptions`, `ObservationAddOptions`,
+`AssessmentAddOptions`, and `ValidationAddOptions`) expose `sign_with(...)` for callers that want
+the event signed at write time.
 
 | Item | Purpose |
 | ---- | ------- |
@@ -199,8 +205,8 @@ The `shoreline::documents` module produces the documented `shore.review-*` comma
 - Per-command builders: `unit_show_document`, `unit_list_document`, `capture_document`,
   `observation_add_document`, `observation_list_document`, `input_request_open_document`,
   `input_request_list_document`, `input_request_fetch_document`, `input_request_respond_document`,
-  `assessment_add_document`, `assessment_show_document`, `history_document`, and the body/view
-  document types they return.
+  `assessment_add_document`, `assessment_show_document`, `validation_add_document`,
+  `validation_list_document`, `history_document`, and the body/view document types they return.
 
 A consumer that wants exactly the documented JSON contract calls a read/write workflow, passes the
 typed result to the matching builder, and serializes the document with `serde_json`.
@@ -208,8 +214,8 @@ typed result to the matching builder, and serializes the document with `serde_js
 ### Identifiers — `shoreline::model`
 
 The content-addressed id newtypes (`ActorId`, `ReviewUnitId`, `InputRequestId`,
-`InputRequestResponseId`, `ObservationId`, `AssessmentId`, `EventId`, `TrackId`, …) are public and
-serialize transparently as strings.
+`InputRequestResponseId`, `ObservationId`, `AssessmentId`, `ValidationCheckId`, `EventId`,
+`TrackId`, …) are public and serialize transparently as strings.
 
 ## Example: read, attribute a write, and forward an event
 

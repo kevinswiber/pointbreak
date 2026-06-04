@@ -19,7 +19,7 @@ pub(super) struct ValidationArgs {
 
 #[derive(Debug, Subcommand)]
 enum ValidationCommand {
-    Add(ValidationAddArgs),
+    Add(Box<ValidationAddArgs>),
     List(ValidationListArgs),
 }
 
@@ -130,7 +130,7 @@ pub(super) fn run(
             let span = tracing::info_span!("shore.review.validation.add");
             let _entered = span.enter();
             tracing::debug!(command = "review.validation.add", "command_start");
-            review_validation_add(args, stdout)
+            review_validation_add(*args, stdout)
         }
         ValidationCommand::List(args) => {
             let span = tracing::info_span!("shore.review.validation.list");

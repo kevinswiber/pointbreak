@@ -117,7 +117,7 @@ including untracked files.
 - The command registers `.shore/` in the repository-local `.git/info/exclude`
   when it is not already ignored, so it never modifies a tracked `.gitignore` or
   dirties the working tree. This applies to every writer-initializing command
-  (capture, observation, input-request, assessment), not just `capture`.
+  (capture, observation, input-request, assessment, validation), not just `capture`.
 - `.shore/events/` stores immutable local event files.
 - `.shore/state.json` is a rebuildable projection, not the authority.
 - Full captured snapshots are Shoreline-owned immutable artifacts under
@@ -176,9 +176,9 @@ Linked capture is batch-only in this release: capture writes local facts first, 
 `clone_local_capture_batch_only` diagnostic when the worktree is linked, and `shore store link`
 copies those facts into the clone-local store. `shore review unit list` resolves the linked store,
 so a linked worktree can discover imported ReviewUnits even when it has no local `.shore/events/`.
-Sibling read commands such as observation, input-request, assessment, history, and unit show still
-read the worktree-local store in this release; use a worktree that owns those facts for full
-inspection until those read surfaces are migrated.
+Sibling read commands such as observation, input-request, assessment, validation, history, and unit
+show still read the worktree-local store in this release; use a worktree that owns those facts for
+full inspection until those read surfaces are migrated.
 
 Command output is the stable integration surface. Raw clone-local store paths, event files, artifact
 paths, `.git` paths, `.shore` paths, and `state.json` remain internal storage details.
@@ -290,6 +290,38 @@ by default. `assessment show` also accepts `--pretty` and `--compact`.
 State-change outcomes such as deferred, split-out, overridden, and superseded are ordinary review
 observations when needed.
 
+## `shore review validation`
+
+```bash
+shore review validation add --track <track-id> --check-name <name> --status <status> \
+  [--review-unit <review-unit-id> | --lineage <lineage-id>] [validation options]
+shore review validation list [--review-unit <review-unit-id> | --lineage <lineage-id>] \
+  [--track <track-id>] [--status <status>] [--include-body] [--pretty | --compact]
+```
+
+Validation checks record local test, lint, build, or other verification evidence for a captured
+ReviewUnit. They are advisory review context only: they do not accept, reject, merge, block, or
+replace a review assessment.
+
+- `validation add` requires `--track`, `--check-name`, and `--status`.
+- `--review-unit` pins the check to one captured ReviewUnit. `--lineage` targets the current
+  lineage head. Without either, the command defaults to the single captured unit and errors if
+  multiple captured ReviewUnits exist.
+- Validation targets are ReviewUnit-only. There are no file or path target flags.
+- Status values are `passed`, `failed`, `errored`, and `skipped`.
+- `--command`, `--exit-code`, `--source-fingerprint`, `--started-at`, `--completed-at`, and
+  repeatable `--log-content-hash` record evidence metadata without exposing artifact paths.
+- `--trigger` defaults to `manual`; accepted values are `manual`, `push`, and `pull-request`.
+- Summaries may come from `--summary`, `--summary-file`, or `--summary-stdin`.
+- Large summaries reuse Shoreline-owned `shore.note-body` artifacts while command output keeps
+  artifact paths private.
+- `validation list` replays durable events for the ReviewUnit and may filter by ReviewUnit, track,
+  or status. It hydrates summaries only with `--include-body`.
+
+Output documents are compact `shore.review-validation-add` and
+`shore.review-validation-list` JSON by default. `validation list` also accepts `--pretty` and
+`--compact`.
+
 ## `shore review history`
 
 ```bash
@@ -308,7 +340,8 @@ shore review history [--repo <path>] [--review-unit <id>] [--track <track-id>] \
 - Lineage event filters are `review-unit-lineage-declared` and
   `review-unit-lineage-round-recorded`.
 - Body-like text is omitted by default. `--include-body` hydrates observation bodies, input request
-  bodies, input request response reasons, assessment summaries, and imported-note bodies.
+  bodies, input request response reasons, assessment summaries, validation summaries, and
+  imported-note bodies.
 - Duplicate semantic events remain visible as separate entries while shared duplicate diagnostics
   are included in the document.
 
@@ -337,20 +370,20 @@ thread. Change-Id optional enrichment only: it is not required and is not the li
 - When exactly one ReviewUnit has been captured, Shoreline selects it automatically.
 - If multiple ReviewUnits exist, pass `--review-unit <id>` or `--lineage <lineage-id>`.
 - The output includes ReviewUnit identity, event-set freshness metadata, filters, summary counts,
-  current assessment status, native observations, input requests, assessments, imported adapter
-  notes, projection rows, and diagnostics.
+  current assessment status, native observations, input requests, assessments, validation checks,
+  imported adapter notes, projection rows, and diagnostics.
 - Rows are narrative-first, then snapshot-complete.
 - `--track <track-id>` filters narrative facts without changing the selected ReviewUnit,
   event-set freshness metadata, or captured snapshot completeness.
 - Body-like text is omitted by default. `--include-body` hydrates observation bodies, input request
-  bodies and response reasons, assessment summaries, and imported-note bodies.
+  bodies and response reasons, assessment summaries, validation summaries, and imported-note bodies.
 
 Lineage-scoped current selection resolves to `headReviewUnitId`; no implicit newest capture globally
 wins. Unscoped current selection with multiple captured ReviewUnits still errors at the selection
 boundary, but routine list, history, exact ReviewUnit, and lineage-scoped reads should have no
 always-on ambiguous-current warning for routine multi-capture reads. Thread-level lineage reads may
-surface `stale_by_newer_round` for facts attached to older rounds. There is no interdiff or stack DAG
-in this slice.
+surface `stale_by_newer_round` for facts attached to older rounds. This release has no interdiff or
+stack DAG.
 
 Lineage event families stay signable under ADR-0004's generic `EventToBeSigned` contract with the
 Dead Simple Signing Envelope (DSSE) and pre-authentication encoding rules.
@@ -376,8 +409,8 @@ describe the malformed lineage.
 includes `eventSetHash`, `eventCount`, `lineageId`, `headReviewUnitId`, `rounds`, and diagnostics.
 Round entries include `reviewUnitId`, optional `predecessorReviewUnitId`, `roundIndex`, and
 `isHead`. Thread-level diagnostics may include `stale_by_newer_round` when facts target an older
-round than the lineage head. This slice does not render interdiffs, stack graphs, or a stacked-work
-DAG.
+round than the lineage head. This release does not render interdiffs, stack graphs, or a
+stacked-work DAG.
 
 `shore review capture --lineage <lineage-id> [--predecessor <id>]` is a convenience that captures a
 new ReviewUnit and then attaches that captured ReviewUnit to the lineage. Its `shore.review-capture`

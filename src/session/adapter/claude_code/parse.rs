@@ -68,7 +68,7 @@ pub fn parse_session(path: &Path) -> Result<ParsedSession> {
             }
             kind if KNOWN_METADATA_TYPES.contains(&kind) => {
                 // Recognized metadata line; consumed but not surfaced as a
-                // ParsedMessage. Task 3.3 decides whether to track these.
+                // ParsedMessage.
             }
             other => {
                 return Err(ShoreError::UnknownClaudeSessionLineType {

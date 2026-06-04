@@ -601,7 +601,7 @@ fn review_unit_lineage_contract_docs_exist() {
         "no implicit newest capture globally wins",
         "no always-on ambiguous-current warning for routine multi-capture reads",
         "Change-Id optional enrichment only",
-        "no interdiff or stack DAG in this slice",
+        "no interdiff or stack DAG",
         "EventToBeSigned",
         "Dead Simple Signing Envelope (DSSE)",
         "pre-authentication encoding",
@@ -612,8 +612,8 @@ fn review_unit_lineage_contract_docs_exist() {
         );
     }
 
-    for forbidden in ["Plan 0055", "Gumbo"] {
-        assert!(!combined.contains(forbidden));
+    for forbidden in [format!("Plan {}", "0055"), ["Gum", "bo"].join("")] {
+        assert!(!combined.contains(&forbidden));
     }
 }
 

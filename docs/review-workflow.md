@@ -139,8 +139,8 @@ shore review unit list --pretty
 ```
 
 When lineage facts exist, list/read projections can include lineage metadata. That metadata is a
-thread view over immutable captures, not an interdiff renderer; there is no interdiff or stack DAG in
-this slice. Lineage events remain signable through the generic `EventToBeSigned` producer-fact view
+thread view over immutable captures, not an interdiff renderer; this release has no interdiff or
+stack DAG. Lineage events remain signable through the generic `EventToBeSigned` producer-fact view
 and ADR-0004's Dead Simple Signing Envelope (DSSE) pre-authentication encoding.
 
 ### `shore review unit show`

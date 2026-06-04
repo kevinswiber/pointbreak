@@ -69,7 +69,7 @@ impl SessionState {
     }
 
     /// Builds the post-write bounded state from the already-loaded prior
-    /// event slice plus the freshly committed event, without re-reading
+    /// event batch plus the freshly committed event, without re-reading
     /// the event log. Produces the same value as
     /// `SessionState::from_events(&[prior + committed])` for
     /// `EventWriteOutcome::Created`, and the same value as
@@ -77,7 +77,7 @@ impl SessionState {
     /// committed event is already represented in `prior_events`).
     ///
     /// Assumes the V1 single-writer workflow contract: the `prior_events`
-    /// slice was loaded by the same workflow that just called
+    /// batch was loaded by the same workflow that just called
     /// `record_event_once`, and no other writer mutated `.shore/events/`
     /// in between. Under that contract, existing-event outcomes always mean the
     /// matching event is already in `prior_events`.
