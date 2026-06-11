@@ -324,7 +324,7 @@ mod tests {
                 SessionId::new("session:default"),
                 WorkUnitId::new("work:default"),
             ),
-            Writer::shore_local_reviewer("test"),
+            Writer::shore_local("test"),
             payload,
             "2026-05-20T00:00:00Z",
         )
@@ -393,7 +393,7 @@ mod tests {
                 SessionId::new("session:default"),
                 WorkUnitId::new("work:default"),
             ),
-            Writer::shore_local_reviewer("test"),
+            Writer::shore_local("test"),
             payload,
             "2026-05-20T00:00:01Z",
         )

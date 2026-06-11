@@ -30,6 +30,12 @@ pub enum ShoreError {
         migration_hint: String,
     },
 
+    #[error("unsupported event envelope: {detail}; {migration_hint}")]
+    UnsupportedEventEnvelope {
+        detail: String,
+        migration_hint: String,
+    },
+
     #[error("unsupported state schema/version: {schema} v{version}")]
     UnsupportedStateSchemaVersion { schema: String, version: u32 },
 

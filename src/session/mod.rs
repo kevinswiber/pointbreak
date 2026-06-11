@@ -8,8 +8,7 @@ mod workflow;
 
 pub use event::{event_signature_pre_authentication_encoding, event_to_be_signed};
 pub(crate) use identity::{
-    current_timestamp, is_valid_actor_id, reviewer_from_options, writer_from_git_config,
-    writer_from_options,
+    current_timestamp, is_valid_actor_id, writer_from_git_config, writer_from_options,
 };
 pub(crate) use projection::state;
 pub use projection::{

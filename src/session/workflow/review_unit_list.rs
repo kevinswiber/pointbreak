@@ -199,7 +199,7 @@ mod tests {
                 revision_id,
                 snapshot_id,
             ),
-            Writer::shore_local_author("test"),
+            Writer::shore_local("test"),
             payload,
             occurred_at,
         )

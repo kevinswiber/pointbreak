@@ -1077,7 +1077,7 @@ mod tests {
                 SessionId::new("session:default"),
                 WorkUnitId::new("work:default"),
             ),
-            writer: Writer::shore_local_author("test"),
+            writer: Writer::shore_local("test"),
             occurred_at: "2026-05-30T00:00:00Z".to_owned(),
             payload_hash: sha256_json_prefixed(&payload).unwrap(),
             assertion_mode: AssertionMode::Advisory,
@@ -1125,7 +1125,7 @@ mod tests {
                 "validation:sha256:bundle",
             ),
             target,
-            Writer::shore_local_author("test"),
+            Writer::shore_local("test"),
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new("validation:sha256:bundle"),
                 target: ValidationTarget::ReviewUnit { review_unit_id },

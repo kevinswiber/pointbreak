@@ -1278,7 +1278,7 @@ mod tests {
                     input_request_id: requested.input_request_id.clone(),
                 })),
             },
-            Writer::shore_local_reviewer("test"),
+            Writer::shore_local("test"),
             payload,
             current_timestamp(),
         )
@@ -1351,7 +1351,7 @@ mod tests {
                     review_unit_id: review_unit_id.clone(),
                 })),
             },
-            Writer::shore_local_reviewer("test"),
+            Writer::shore_local("test"),
             payload,
             occurred_at.to_owned(),
         )
@@ -1394,7 +1394,7 @@ mod tests {
                     input_request_id: input_request_id.clone(),
                 })),
             },
-            Writer::shore_local_reviewer("test"),
+            Writer::shore_local("test"),
             payload,
             occurred_at.to_owned(),
         )
@@ -1433,7 +1433,7 @@ mod tests {
             status: InputRequestStatus::Open,
             responses: vec![],
             created_at: created_at.to_owned(),
-            writer: Writer::shore_local_reviewer("test"),
+            writer: Writer::shore_local("test"),
         }
     }
 

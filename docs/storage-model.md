@@ -594,6 +594,15 @@ Workflow startup cleanup removes only Shoreline temp files older than the workfl
 Preserving fresh `.shore-write.*.tmp` files avoids clobbering an in-flight write, but it is not a
 lock or lease and does not make long-running multi-process writes a supported coordination model.
 
+## Legacy Writer Role Events
+
+Earlier development versions of Shoreline wrote a `role` field inside each event's writer
+envelope. Current Shoreline does not store a writer role: the review act is derived from
+`eventType`, and the conversation speaker is recorded by adapters as a `sourceSpeaker` payload
+field. Store reads reject stored events whose writer carries `role`. Because Shoreline has not
+released this storage contract, the supported migration is to discard the old local `.shore/`
+directory and recapture the review.
+
 ## Projection Ordering
 
 Event filenames are derived from idempotency-key hashes. Listing event files therefore does not imply

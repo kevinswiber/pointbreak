@@ -23,8 +23,8 @@ use crate::session::observation::{
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
 use crate::session::{
-    EventSigningOptions, EventStore, EventWriteOutcome, current_timestamp, reviewer_from_options,
-    sign_event_if_requested,
+    EventSigningOptions, EventStore, EventWriteOutcome, current_timestamp, sign_event_if_requested,
+    writer_from_options,
 };
 use crate::storage::{Durability, LocalStorage};
 
@@ -189,7 +189,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
         &options.related_input_request_ids,
     )?;
 
-    let writer = reviewer_from_options(worktree_root, options.actor_id.as_ref());
+    let writer = writer_from_options(worktree_root, options.actor_id.as_ref());
     let summary_content_hash = options
         .summary
         .as_ref()

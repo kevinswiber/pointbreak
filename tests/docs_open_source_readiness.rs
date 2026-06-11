@@ -1,4 +1,24 @@
 #[test]
+fn adr_0007_is_landed_and_writer_identity_docs_are_role_free() {
+    let adr = std::fs::read_to_string("docs/adr/adr-0007-writer-act-vocabulary.md")
+        .expect("ADR-0007 is landed in docs/adr/");
+    assert!(adr.contains("**Status:** Accepted"));
+
+    let adr4 =
+        std::fs::read_to_string("docs/adr/adr-0004-event-signatures.md").expect("read ADR-0004");
+    assert!(
+        !adr4.contains("`role`") && !adr4.contains("writer.role"),
+        "ADR-0004's to-be-signed description carries no role field"
+    );
+
+    let library_api = std::fs::read_to_string("docs/library-api.md").expect("read library API");
+    assert!(
+        !library_api.contains("writer role"),
+        "library API signed-fields sentence carries no writer role"
+    );
+}
+
+#[test]
 fn cli_reference_exists_and_covers_current_commands() {
     let cli = std::fs::read_to_string("docs/cli-reference.md").expect("read CLI reference");
 

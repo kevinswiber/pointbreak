@@ -400,7 +400,7 @@ mod tests {
             EventType::ValidationCheckRecorded,
             "validation_check_recorded:one",
             target,
-            Writer::shore_local_author("0.1.0"),
+            Writer::shore_local("0.1.0"),
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new("validation:sha256:one"),
                 target: ValidationTarget::ReviewUnit { review_unit_id },

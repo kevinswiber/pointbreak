@@ -730,7 +730,7 @@ mod tests {
                 revision_id.clone(),
                 snapshot_id.clone(),
             ),
-            Writer::shore_local_author("0.1.0"),
+            Writer::shore_local("0.1.0"),
             ReviewUnitCapturedPayload {
                 review_unit_id,
                 source: ReviewUnitSource::GitWorktree {
@@ -772,7 +772,7 @@ mod tests {
                 SessionId::new("session:default"),
                 lineage_id.clone(),
             ),
-            Writer::shore_local_author("0.1.0"),
+            Writer::shore_local("0.1.0"),
             ReviewUnitLineageDeclaredPayload {
                 lineage_id,
                 basis: ReviewUnitLineageBasisV1::new(
@@ -805,7 +805,7 @@ mod tests {
                 SessionId::new("session:default"),
                 lineage_id.clone(),
             ),
-            Writer::shore_local_author("0.1.0"),
+            Writer::shore_local("0.1.0"),
             ReviewUnitLineageRoundRecordedPayload {
                 lineage_id,
                 round_id: ReviewUnitLineageRoundId::new(format!(
@@ -847,7 +847,7 @@ mod tests {
             supersedes: vec![],
             body_content_hash: None,
             created_at: created_at.to_owned(),
-            writer: Writer::shore_local_reviewer("test"),
+            writer: Writer::shore_local("test"),
         }
     }
 

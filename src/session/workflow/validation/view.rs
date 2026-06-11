@@ -421,7 +421,7 @@ mod tests {
                 event_id
             ),
             target,
-            Writer::shore_local_author("0.1.0"),
+            Writer::shore_local("0.1.0"),
             payload,
             occurred_at,
         )

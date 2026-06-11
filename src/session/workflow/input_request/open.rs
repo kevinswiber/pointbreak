@@ -21,8 +21,8 @@ use crate::session::observation::{
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
 use crate::session::{
-    EventSigningOptions, EventStore, EventWriteOutcome, current_timestamp, reviewer_from_options,
-    sign_event_if_requested,
+    EventSigningOptions, EventStore, EventWriteOutcome, current_timestamp, sign_event_if_requested,
+    writer_from_options,
 };
 use crate::storage::{Durability, LocalStorage};
 
@@ -168,7 +168,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
         .ok_or_else(|| ShoreError::WorkflowInputInvalid {
             reason: "reason code is required".to_owned(),
         })?;
-    let writer = reviewer_from_options(worktree_root, options.actor_id.as_ref());
+    let writer = writer_from_options(worktree_root, options.actor_id.as_ref());
     let body_content_hash = options
         .body
         .as_ref()

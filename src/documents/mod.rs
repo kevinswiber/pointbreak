@@ -386,7 +386,7 @@ mod tests {
             completed_at: Some("2026-05-10T00:01:00Z".to_owned()),
             log_artifact_content_hashes: vec!["sha256:log".to_owned()],
             created_at: "2026-05-10T00:01:01Z".to_owned(),
-            writer: Writer::shore_local_reviewer(env!("CARGO_PKG_VERSION")),
+            writer: Writer::shore_local(env!("CARGO_PKG_VERSION")),
         }
     }
 

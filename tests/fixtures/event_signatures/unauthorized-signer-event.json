@@ -23,7 +23,7 @@
   "schema": "shore.event",
   "signature": {
     "alg": "ed25519",
-    "sig": "nGFU3oettO60Imf/04tizZ9o3lI+A+o8yqMOOrXi9UjZ7X5CcnTqYwCCcnwyyk2wnU982LWELDa7zGNbkXzyDw==",
+    "sig": "h/Bm+d977rWa0gv1yV6+hwV3ilu4Mw+Y2atBChYaSjkxmFUUVveu3ne6mtILye+96o/1Mc6vaoOVTp3r+NmZCA==",
     "sigVersion": 1
   },
   "signer": "did:key:z6MkhFwXNFWosLeugvSf4wcL9t3uuRXueGSFTRgSvHhWj5G2",
@@ -42,7 +42,6 @@
   "version": 1,
   "writer": {
     "actorId": "actor:git-email:alice@example.com",
-    "role": "reviewer",
     "tool": {
       "name": "shore",
       "version": "0.1.0-test"

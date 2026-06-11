@@ -46,5 +46,8 @@ tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "fmt", "json", "registry", "std"] }
 
 [dev-dependencies]
+base64 = "0.22"
 ctor = "0.2"
+ed25519-dalek = "2"
+sha2 = "0.10"
 tempfile = "3"

@@ -40,6 +40,29 @@ fn review_history_emits_v1_json_with_freshness_metadata() {
 }
 
 #[test]
+fn history_entries_serialize_writer_without_role() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+
+    let output = shore(["review", "history", "--repo", repo.path().to_str().unwrap()]);
+    let json = parse_json(&output.stdout);
+
+    let writer = &json["entries"][0]["writer"];
+    assert!(
+        writer.get("role").is_none(),
+        "writer carries no role: {writer}"
+    );
+    assert!(writer["actorId"].is_string());
+    assert!(writer["tool"]["name"].is_string());
+    // The derived act label comes from the event type, surfaced as the
+    // summary's kind tag.
+    assert_eq!(
+        json["entries"][0]["summary"]["kind"],
+        json["entries"][0]["eventType"]
+    );
+}
+
+#[test]
 fn review_history_pretty_prints() {
     let repo = modified_repo();
     shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);

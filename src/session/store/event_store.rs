@@ -79,15 +79,30 @@ impl EventStore {
     pub fn read_event(&self, path: &Path) -> Result<ShoreEvent> {
         let bytes = self.storage.read_bytes(path)?;
         #[derive(serde::Deserialize)]
-        struct EventTypeProbe<'a> {
+        struct EventProbe<'a> {
             #[serde(rename = "eventType", borrow)]
             event_type: &'a str,
+            #[serde(default)]
+            writer: WriterProbe,
         }
-        let probe: EventTypeProbe<'_> = serde_json::from_slice(&bytes)?;
+        // Serde ignores unknown fields, so a stored pre-break envelope would
+        // otherwise load silently with degraded meaning; the probe makes the
+        // hard break loud.
+        #[derive(Default, serde::Deserialize)]
+        struct WriterProbe {
+            role: Option<serde::de::IgnoredAny>,
+        }
+        let probe: EventProbe<'_> = serde_json::from_slice(&bytes)?;
         if let Some(migration_hint) = legacy_event_migration_hint(probe.event_type) {
             return Err(ShoreError::UnsupportedEventType {
                 event_type: probe.event_type.to_owned(),
                 migration_hint: migration_hint.to_owned(),
+            });
+        }
+        if probe.writer.role.is_some() {
+            return Err(ShoreError::UnsupportedEventEnvelope {
+                detail: "stored event writer carries a role field".to_owned(),
+                migration_hint: "legacy writer.role events are no longer supported; see docs/storage-model.md#legacy-writer-role-events".to_owned(),
             });
         }
         let event: ShoreEvent = serde_json::from_slice(&bytes)?;
@@ -344,6 +359,41 @@ mod tests {
     }
 
     #[test]
+    fn stored_events_carrying_writer_role_return_typed_legacy_error() {
+        let (_root, store) = temp_event_store();
+        let event = review_initialized_event();
+        let path = store.event_path_for_idempotency_key(&event.idempotency_key);
+        fs::create_dir_all(store.events_dir()).unwrap();
+
+        // Pre-break envelope shape: the writer object carries a role field.
+        let mut json = serde_json::to_value(event).unwrap();
+        json["writer"]["role"] = serde_json::json!("reviewer");
+        fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
+
+        let err = store
+            .read_event(&path)
+            .expect_err("role-bearing stored event must be rejected");
+
+        assert!(matches!(err, ShoreError::UnsupportedEventEnvelope { .. }));
+        assert!(
+            err.to_string()
+                .contains("docs/storage-model.md#legacy-writer-role-events"),
+            "error carries the public migration anchor; got: {err}"
+        );
+    }
+
+    #[test]
+    fn role_free_stored_events_read_cleanly() {
+        let (_root, store) = temp_event_store();
+        let event = review_initialized_event();
+        let path = store.event_path_for_idempotency_key(&event.idempotency_key);
+        store.record_event_once(&event).unwrap();
+
+        let read = store.read_event(&path).expect("current-shape event reads");
+        assert_eq!(read, event);
+    }
+
+    #[test]
     fn read_event_rejects_payload_hash_mismatch() {
         let (_root, store) = temp_event_store();
         let event = review_initialized_event();
@@ -440,7 +490,7 @@ mod tests {
                 SessionId::new("session:default"),
                 WorkUnitId::new("work:default"),
             ),
-            Writer::shore_local_author("0.1.0"),
+            Writer::shore_local("0.1.0"),
             ReviewInitializedPayload {},
             occurred_at,
         )
@@ -482,7 +532,7 @@ mod tests {
                 track_id: Some(track_id),
                 subject: Some(TargetRef::Review(target_ref.clone())),
             },
-            Writer::shore_local_reviewer("test"),
+            Writer::shore_local("test"),
             ReviewAssessmentRecordedPayload {
                 assessment_id,
                 target: target_ref,

@@ -3,6 +3,8 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 #[allow(dead_code)]
+pub mod event_signature_fixtures;
+#[allow(dead_code)]
 pub mod git_repo;
 #[allow(dead_code)]
 pub mod snapshots;

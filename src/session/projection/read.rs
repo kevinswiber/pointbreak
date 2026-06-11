@@ -354,7 +354,7 @@ mod tests {
                 SessionId::new("session:default"),
                 WorkUnitId::new("work:default"),
             ),
-            Writer::shore_local_author("0.1.0"),
+            Writer::shore_local("0.1.0"),
             ReviewInitializedPayload {},
             "2026-05-10T00:00:00Z",
         )

@@ -138,7 +138,7 @@ mod tests {
             EventType::ReviewUnitLineageDeclared,
             ReviewUnitLineageDeclaredPayload::idempotency_key(&lineage_id),
             EventTarget::for_review_unit_lineage(SessionId::new("session:default"), lineage_id),
-            Writer::shore_local_author("test"),
+            Writer::shore_local("test"),
             declared,
             "2026-06-04T00:00:00Z",
         )

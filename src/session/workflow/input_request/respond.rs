@@ -17,8 +17,8 @@ use crate::session::observation::staged_body;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
 use crate::session::{
-    EventSigningOptions, EventStore, EventWriteOutcome, current_timestamp, reviewer_from_options,
-    sign_event_if_requested,
+    EventSigningOptions, EventStore, EventWriteOutcome, current_timestamp, sign_event_if_requested,
+    writer_from_options,
 };
 use crate::storage::{Durability, LocalStorage};
 
@@ -123,7 +123,7 @@ pub fn respond_input_request(
         .ok_or_else(|| ShoreError::WorkflowInputInvalid {
             reason: "outcome is required".to_owned(),
         })?;
-    let writer = reviewer_from_options(worktree_root, options.actor_id.as_ref());
+    let writer = writer_from_options(worktree_root, options.actor_id.as_ref());
     let reason_content_hash = options
         .reason
         .as_ref()

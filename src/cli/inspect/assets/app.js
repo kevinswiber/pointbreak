@@ -546,7 +546,7 @@ function renderDetail() {
     ["payloadHash", e.payloadHash],
     ["reviewUnit", e.reviewUnitId || "—"],
     ["track", entryTrack(e) || "—"],
-    ["writer", e.writer ? `${e.writer.actorId || ""} ${e.writer.role ? "(" + e.writer.role + ")" : ""}` : "—"],
+    ["writer", e.writer ? (e.writer.actorId || "—") : "—"],
   ];
   const snapshotId = e.reviewUnitId ? snapshotIdForUnit(e.reviewUnitId) : null;
   const s = e.summary || {};

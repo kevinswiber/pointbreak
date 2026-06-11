@@ -76,7 +76,6 @@ contains:
   payloadHash,
   target,
   actorId,
-  role,
   signer,
   occurredAt,
   assertionMode
@@ -84,7 +83,6 @@ contains:
 ```
 
 - `actorId` is `writer.actorId`, the claimed actor identity.
-- `role` is `writer.role`.
 - `signer` is the resolved effective signer and is always a `did:key`.
 - `payloadHash` binds the payload without signing raw payload bytes.
 - `sourceRef` is excluded because it is hop metadata.
@@ -158,7 +156,7 @@ conflict.
 ### Accepted
 
 - Signatures authenticate durable events, not transport connections.
-- The signed to-be-signed view binds event identity, payload hash, target, actor id, role, signer,
+- The signed to-be-signed view binds event identity, payload hash, target, actor id, signer,
   timestamp, and assertion mode.
 - Unsigned events remain valid so existing stores can be read and forwarded during migration.
 - Advisory mode surfaces authenticity information without making trust a default write-side gate.

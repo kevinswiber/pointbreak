@@ -4,7 +4,7 @@ pub use super::signature::{EffectiveSignerError, resolve_effective_signer};
 use crate::canonical_hash::canonical_json_bytes;
 use crate::crypto::SignerId;
 use crate::error::Result;
-use crate::session::event::{AssertionMode, EventTarget, ShoreEvent, WriterRole};
+use crate::session::event::{AssertionMode, EventTarget, ShoreEvent};
 
 /// Dead Simple Signing Envelope (DSSE) payload type for v1 event signature bytes.
 pub const EVENT_TO_BE_SIGNED_V1_PAYLOAD_TYPE: &str = "application/vnd.shore.event-tbs.v1+json";
@@ -24,7 +24,6 @@ pub struct EventToBeSigned<'a> {
     pub payload_hash: &'a str,
     pub target: &'a EventTarget,
     pub actor_id: &'a str,
-    pub role: WriterRole,
     pub signer: SignerId,
     pub occurred_at: &'a str,
     pub assertion_mode: AssertionMode,
@@ -43,7 +42,6 @@ impl<'a> EventToBeSigned<'a> {
             payload_hash: event.payload_hash.as_str(),
             target: &event.target,
             actor_id: event.writer.actor_id.as_str(),
-            role: event.writer.role,
             signer: signer.clone(),
             occurred_at: event.occurred_at.as_str(),
             assertion_mode: event.assertion_mode,
@@ -161,6 +159,7 @@ mod tests {
         assert!(value.get("sourceRef").is_none());
         assert!(value.get("signature").is_none());
         assert!(value.get("sigVersion").is_none());
+        assert!(value.get("role").is_none());
     }
 
     #[test]

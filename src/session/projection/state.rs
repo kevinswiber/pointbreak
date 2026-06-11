@@ -630,7 +630,7 @@ mod tests {
                 SessionId::new("session:claude:abc"),
                 WorkUnitId::new("work:default"),
             ),
-            writer: Writer::shore_local_author("test"),
+            writer: Writer::shore_local("test"),
             occurred_at: "2026-05-18T00:00:00Z".to_owned(),
             payload_hash: "sha256:placeholder".to_owned(),
             assertion_mode: AssertionMode::Advisory,
@@ -964,7 +964,7 @@ mod tests {
                 RevisionId::new(revision_id),
                 SnapshotId::new(snapshot_id),
             ),
-            Writer::shore_local_author("0.1.0"),
+            Writer::shore_local("0.1.0"),
             ReviewUnitCapturedPayload {
                 review_unit_id: ReviewUnitId::new(review_unit_id),
                 source: ReviewUnitSource::GitWorktree {
@@ -997,7 +997,7 @@ mod tests {
                 RevisionId::new("rev:one"),
                 SnapshotId::new("snap:one"),
             ),
-            Writer::shore_local_reviewer("0.1.0"),
+            Writer::shore_local("0.1.0"),
             ReviewObservationRecordedPayload {
                 observation_id: ObservationId::new(observation_id),
                 target: ReviewTargetRef::ReviewUnit {
@@ -1031,7 +1031,7 @@ mod tests {
                 RevisionId::new("rev:one"),
                 SnapshotId::new("snap:one"),
             ),
-            Writer::shore_local_reviewer("0.1.0"),
+            Writer::shore_local("0.1.0"),
             ReviewAssessmentRecordedPayload {
                 assessment_id: AssessmentId::new(assessment_id),
                 target: ReviewTargetRef::ReviewUnit {
@@ -1061,7 +1061,7 @@ mod tests {
                 RevisionId::new("rev:one"),
                 SnapshotId::new("snap:one"),
             ),
-            Writer::shore_local_author("0.1.0"),
+            Writer::shore_local("0.1.0"),
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new(validation_check_id),
                 target: ValidationTarget::ReviewUnit {
@@ -1102,7 +1102,7 @@ mod tests {
             EventType::InputRequestOpened,
             format!("input_request_opened:{source_key}"),
             target,
-            Writer::shore_local_reviewer("0.1.0"),
+            Writer::shore_local("0.1.0"),
             InputRequestOpenedPayload {
                 input_request_id: InputRequestId::new(input_request_id),
                 target: ReviewTargetRef::ReviewUnit {
@@ -1143,7 +1143,7 @@ mod tests {
             EventType::InputRequestResponded,
             format!("input_request_responded:{source_key}"),
             target,
-            Writer::shore_local_reviewer("0.1.0"),
+            Writer::shore_local("0.1.0"),
             InputRequestRespondedPayload {
                 input_request_response_id: InputRequestResponseId::new(input_request_response_id),
                 input_request_id: InputRequestId::new(input_request_id),

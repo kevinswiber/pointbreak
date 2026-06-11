@@ -4,6 +4,17 @@ use super::kind::EventType;
 use super::payload::EventPayload;
 use crate::model::{CheckpointId, ObservationId, WorkObjectId, WorkObjectType};
 
+/// Which conversation participant produced the source message this event was
+/// translated from. A fact about the source conversation, recorded by the
+/// adapter that owns the payload — not a fact about the durable-event writer.
+/// See docs/adr/adr-0007-writer-act-vocabulary.md.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceSpeaker {
+    User,
+    Agent,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskAttemptCapturedPayload {
@@ -17,6 +28,8 @@ pub struct TaskAttemptCapturedPayload {
     /// Carries no semantics beyond `==` equality and is compared as a string.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_snapshot_fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_speaker: Option<SourceSpeaker>,
 }
 
 impl TaskAttemptCapturedPayload {
@@ -57,6 +70,8 @@ pub struct TaskCheckpointCapturedPayload {
     /// semantics beyond `==` equality.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_speaker: Option<SourceSpeaker>,
 }
 
 impl TaskCheckpointCapturedPayload {
@@ -99,6 +114,8 @@ pub struct TaskObservationRecordedPayload {
     pub body_byte_size: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body_content_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_speaker: Option<SourceSpeaker>,
 }
 
 impl TaskObservationRecordedPayload {
@@ -145,6 +162,7 @@ mod tests {
             initial_prompt_hash: "sha256:prompt".to_owned(),
             predecessor: None,
             base_snapshot_fingerprint: None,
+            source_speaker: None,
         }
     }
 
@@ -242,7 +260,7 @@ mod tests {
             EventType::TaskAttemptCaptured,
             idempotency_key,
             target,
-            Writer::shore_local_author("test"),
+            Writer::shore_local("test"),
             sample_payload(),
             "2026-05-18T00:00:00Z",
         )
@@ -266,6 +284,7 @@ mod tests {
             assistant_message_id: "msg_1".to_owned(),
             tool_use_ids: vec!["tu_1".to_owned(), "tu_2".to_owned()],
             checkpoint_fingerprint: None,
+            source_speaker: None,
         }
     }
 
@@ -377,7 +396,7 @@ mod tests {
             EventType::TaskCheckpointCaptured,
             idempotency_key,
             target,
-            Writer::shore_local_author("test"),
+            Writer::shore_local("test"),
             sample_checkpoint_payload(),
             "2026-05-18T00:00:00Z",
         )
@@ -420,6 +439,7 @@ mod tests {
             body_artifact_path: None,
             body_byte_size: None,
             body_content_hash: None,
+            source_speaker: None,
         }
     }
 
@@ -500,6 +520,56 @@ mod tests {
         );
     }
 
+    fn assert_source_speaker_round_trip<P>(payload: &P, expected: &str)
+    where
+        P: Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,
+    {
+        let json = serde_json::to_value(payload).unwrap();
+        assert_eq!(json["sourceSpeaker"], expected);
+        let back: P = serde_json::from_value(json).unwrap();
+        assert_eq!(&back, payload);
+    }
+
+    #[test]
+    fn task_payloads_round_trip_source_speaker() {
+        let attempt = TaskAttemptCapturedPayload {
+            source_speaker: Some(SourceSpeaker::User),
+            ..sample_payload()
+        };
+        assert_source_speaker_round_trip(&attempt, "user");
+
+        let checkpoint = TaskCheckpointCapturedPayload {
+            source_speaker: Some(SourceSpeaker::Agent),
+            ..sample_checkpoint_payload()
+        };
+        assert_source_speaker_round_trip(&checkpoint, "agent");
+
+        let observation = TaskObservationRecordedPayload {
+            source_speaker: Some(SourceSpeaker::Agent),
+            ..sample_observation_payload()
+        };
+        assert_source_speaker_round_trip(&observation, "agent");
+    }
+
+    #[test]
+    fn task_payloads_omit_source_speaker_when_absent() {
+        let payload = TaskCheckpointCapturedPayload {
+            source_speaker: None,
+            ..sample_checkpoint_payload()
+        };
+        let json = serde_json::to_value(&payload).unwrap();
+        assert!(json.get("sourceSpeaker").is_none());
+
+        // Pre-relocation JSON shape (no sourceSpeaker) still deserializes.
+        let legacy = serde_json::json!({
+            "checkpointId": "checkpoint:sha256:cp",
+            "parentTaskAttemptId": "task-attempt:sha256:ta",
+            "assistantMessageId": "msg_1",
+        });
+        let back: TaskCheckpointCapturedPayload = serde_json::from_value(legacy).unwrap();
+        assert_eq!(back.source_speaker, None);
+    }
+
     #[test]
     fn task_observation_recorded_event_builds_through_shore_event_new() {
         let target = EventTarget::for_work_object(
@@ -517,7 +587,7 @@ mod tests {
             EventType::TaskObservationRecorded,
             idempotency_key,
             target,
-            Writer::shore_local_author("test"),
+            Writer::shore_local("test"),
             sample_observation_payload(),
             "2026-05-18T00:00:00Z",
         )

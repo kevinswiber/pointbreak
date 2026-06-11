@@ -103,7 +103,7 @@ mod tests {
             EventType::ReviewInitialized,
             ReviewInitializedPayload::idempotency_key(&session_id, &work_unit_id),
             EventTarget::new(session_id, work_unit_id),
-            Writer::shore_local_author("0.1.0"),
+            Writer::shore_local("0.1.0"),
             ReviewInitializedPayload {},
             "2026-05-13T14:00:00Z",
         )

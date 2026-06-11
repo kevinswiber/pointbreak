@@ -730,7 +730,7 @@ mod tests {
             EventType::ValidationCheckRecorded,
             format!("validation_check_recorded:{validation_check_id}"),
             target,
-            Writer::shore_local_author("0.1.0"),
+            Writer::shore_local("0.1.0"),
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new(validation_check_id),
                 target: ValidationTarget::ReviewUnit {

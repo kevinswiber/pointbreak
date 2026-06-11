@@ -113,7 +113,7 @@ claims and remain different events.
 
 `EventToBeSigned` is not "the whole event minus `signature`." It is the canonical producer-fact
 view described by [ADR-0004](adr/adr-0004-event-signatures.md): schema, version, event type, event
-id, payload hash, target, writer actor id, writer role, effective signer, occurrence timestamp, and
+id, payload hash, target, writer actor id, effective signer, occurrence timestamp, and
 assertion mode. `sourceRef` is unsigned hop metadata; bridges may add or change it without changing
 the producer signature. The protocol media type still contains `event-tbs.v1` for
 "event to be signed" compatibility, but public Rust names spell out `EventToBeSigned`.

@@ -37,8 +37,8 @@ impl CaptureOptions {
         }
     }
 
-    /// Attribute the captured `review_unit_captured` event to an explicit actor
-    /// (author role), overriding the `SHORE_ACTOR_ID` env var and the local Git
+    /// Attribute the captured `review_unit_captured` event to an explicit
+    /// actor, overriding the `SHORE_ACTOR_ID` env var and the local Git
     /// identity. A malformed id is ignored (falls back to env, then Git);
     /// `None` keeps the default resolution. The ReviewUnit id is derived from
     /// snapshot content, so the override changes attribution only, not identity.
@@ -241,7 +241,6 @@ mod tests {
     #[test]
     fn capture_worktree_review_with_actor_id_attributes_override_as_author() {
         use crate::model::ActorId;
-        use crate::session::event::WriterRole;
 
         let repo = modified_repo();
         let result = capture_worktree_review(
@@ -259,7 +258,6 @@ mod tests {
 
         // Attribution changes; the ReviewUnit id is derived from snapshot content, not the writer.
         assert_eq!(event.writer.actor_id.as_str(), "actor:agent:capturer");
-        assert_eq!(event.writer.role, WriterRole::Author);
         assert!(
             result
                 .review_unit_id

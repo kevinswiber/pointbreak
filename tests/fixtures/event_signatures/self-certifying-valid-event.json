@@ -23,7 +23,7 @@
   "schema": "shore.event",
   "signature": {
     "alg": "ed25519",
-    "sig": "iaPQEWAS6BiiIClThnyD/a1u1Ytz6bjfMokKjGTGLGvx0JnBx9AkgCdjHRRTHKjDW5DFrrZuc88CQgbKFYOXCQ==",
+    "sig": "gXgm8rupXzcPNHqrQMKMrH7YyGmpIc3YSM89IevtXQcS1BBZVWqxtRFIvBAIhx959sVwQ7WEII9mjl6X+W1BAA==",
     "sigVersion": 1
   },
   "signer": null,
@@ -42,7 +42,6 @@
   "version": 1,
   "writer": {
     "actorId": "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
-    "role": "reviewer",
     "tool": {
       "name": "shore",
       "version": "0.1.0-test"

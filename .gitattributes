@@ -3,6 +3,9 @@
 # autocrlf) does not break the byte-stability test.
 tests/fixtures/review_documents/*.snap text eol=lf
 
-# Signature golden-vector byte fixtures are compared byte-for-byte. Keep these
-# stable on Windows checkouts instead of allowing CRLF conversion.
+# Signature golden-vector fixtures are compared byte-for-byte: the .bytes files
+# against signing output, and every fixture against the deterministic
+# regeneration builders, which emit LF. Keep them stable on Windows checkouts
+# instead of allowing CRLF conversion.
 tests/fixtures/event_signatures/*.bytes text eol=lf
+tests/fixtures/event_signatures/*.json text eol=lf

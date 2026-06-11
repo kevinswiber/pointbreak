@@ -1,3 +1,14 @@
+//! Golden event-signature vectors.
+//!
+//! The fixture set under `tests/fixtures/event_signatures/` is fully
+//! reproducible from the seeds in `did-key-ed25519.json`. To regenerate after
+//! an intentional contract change:
+//!
+//! ```sh
+//! UPDATE_EVENT_SIGNATURE_FIXTURES=1 cargo nextest run \
+//!     -E 'test(regenerate_event_signature_fixtures)' --run-ignored all
+//! ```
+
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -6,6 +17,10 @@ use shoreline::session::{
     EventVerificationStatus, event_signature_pre_authentication_encoding,
     event_signature_trust_set, event_to_be_signed, verify_event_signature,
 };
+
+mod support;
+
+use support::event_signature_fixtures::build_all_fixtures;
 
 fn fixture_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/event_signatures")
@@ -52,6 +67,14 @@ fn golden_to_be_signed_and_pre_authentication_encoding_bytes_match_fixtures() {
 #[test]
 fn golden_verification_statuses_match_fixtures() {
     assert_status("friendly-valid-event.json", EventVerificationStatus::Valid);
+    assert_status(
+        "source-speaker-valid-event.json",
+        EventVerificationStatus::Valid,
+    );
+    assert_status(
+        "source-speaker-mutated-event.json",
+        EventVerificationStatus::Invalid,
+    );
     assert_status(
         "self-certifying-valid-event.json",
         EventVerificationStatus::Valid,
@@ -104,6 +127,8 @@ fn vector_fixture_inventory_covers_required_case_families() {
         "target-mutated-event.json",
         "timestamp-mutated-event.json",
         "assertion-mode-mutated-event.json",
+        "source-speaker-valid-event.json",
+        "source-speaker-mutated-event.json",
         "unsupported-alg-event.json",
         "unsupported-sig-version-event.json",
         "mutation-cases.json",
@@ -138,6 +163,7 @@ fn vector_fixture_inventory_covers_required_case_families() {
         "target-mutated-event.json",
         "timestamp-mutated-event.json",
         "assertion-mode-mutated-event.json",
+        "source-speaker-mutated-event.json",
         "unauthorized-signer-event.json",
     ] {
         assert!(mutation_names.contains(&required));
@@ -160,6 +186,43 @@ fn vector_fixture_inventory_covers_required_case_families() {
         "non_canonical_public_key",
     ] {
         assert!(negative_names.contains(&required));
+    }
+}
+
+#[test]
+fn regenerated_fixture_bytes_are_deterministic_and_match_checked_in_fixtures() {
+    let first = build_all_fixtures(&fixture_dir());
+    let second = build_all_fixtures(&fixture_dir());
+    assert_eq!(
+        first.file_names(),
+        second.file_names(),
+        "fixture builder is deterministic"
+    );
+
+    for name in first.file_names() {
+        assert_eq!(
+            first.bytes(&name),
+            second.bytes(&name),
+            "fixture builder output for {name} is deterministic"
+        );
+        let on_disk = std::fs::read(fixture_path(&name)).expect("fixture file readable");
+        assert_eq!(
+            first.bytes(&name),
+            &on_disk[..],
+            "checked-in fixture {name} is reproducible from the builders"
+        );
+    }
+}
+
+#[test]
+#[ignore = "regenerates golden fixtures; run with UPDATE_EVENT_SIGNATURE_FIXTURES=1"]
+fn regenerate_event_signature_fixtures() {
+    if std::env::var("UPDATE_EVENT_SIGNATURE_FIXTURES").is_err() {
+        return;
+    }
+    let fixtures = build_all_fixtures(&fixture_dir());
+    for name in fixtures.file_names() {
+        std::fs::write(fixture_path(&name), fixtures.bytes(&name)).expect("write fixture");
     }
 }
 
