@@ -462,7 +462,7 @@ pub(crate) struct AgentInputRequestResponsePolicyView {
     pub envelope: TaskProjectionEventEnvelope,
     pub response_id: InputRequestResponseId,
     pub outcome: InputRequestResponseOutcome,
-    pub writer_role_treated_as_binding: bool,
+    pub identity_treated_as_binding: bool,
     pub fresh_for_target: bool,
     pub operative_reason: Option<String>,
     /// Free-text responder justification carried verbatim from the
@@ -623,12 +623,19 @@ pub(crate) fn agent_resumption_from_events(
             latest_checkpoint_fingerprint.as_deref(),
             response.target_fingerprint.as_deref(),
         );
-        let writer_role_binding = response_writer_role_is_binding(&response.envelope.writer.role);
+        // The seam takes the response's claimed actor and effective signer;
+        // the signer stays unresolved while the predicate is constant — no
+        // binding trust source exists to resolve it against.
+        let identity_binding =
+            response_identity_is_binding(&response.envelope.writer.actor_id, None);
         let outcome_allows = matches!(response.outcome, InputRequestResponseOutcome::Approved);
         let operative = response.envelope.assertion_mode == AssertionMode::Operative;
 
-        let operative_reason = if writer_role_binding && operative && outcome_allows {
-            Some("approved by User writer with envelope-level operative assertion mode".to_owned())
+        let operative_reason = if identity_binding && operative && outcome_allows {
+            Some(
+                "approved by a verified binding identity with envelope-level operative assertion mode"
+                    .to_owned(),
+            )
         } else {
             None
         };
@@ -637,7 +644,7 @@ pub(crate) fn agent_resumption_from_events(
             envelope: response.envelope.clone(),
             response_id: response.response_id.clone(),
             outcome: response.outcome,
-            writer_role_treated_as_binding: writer_role_binding,
+            identity_treated_as_binding: identity_binding,
             fresh_for_target: freshness.is_fresh(),
             operative_reason,
             reason: response.reason.clone(),
@@ -687,7 +694,7 @@ pub(crate) fn agent_resumption_from_events(
             });
         }
 
-        if !(writer_role_binding && operative && outcome_allows) {
+        if !(identity_binding && operative && outcome_allows) {
             let mut diagnostics = Vec::new();
             if !outcome_allows {
                 diagnostics.push(TaskProjectionDiagnostic {
@@ -708,13 +715,11 @@ pub(crate) fn agent_resumption_from_events(
                     event_id: Some(response.envelope.event_id.clone()),
                 });
             }
-            if !writer_role_binding {
+            if !identity_binding {
                 diagnostics.push(TaskProjectionDiagnostic {
-                    code: "agent_resumption_response_writer_role_not_binding".to_owned(),
-                    message: format!(
-                        "response writer role {:?} does not bind; only User binds at this revision",
-                        response.envelope.writer.role
-                    ),
+                    code: "agent_resumption_response_identity_not_binding".to_owned(),
+                    message: "response identity is not verified as binding; no binding trust source is configured at this revision"
+                        .to_owned(),
                     event_id: Some(response.envelope.event_id.clone()),
                 });
             }
@@ -918,8 +923,15 @@ fn freshness_for_task_target(
     }
 }
 
-fn response_writer_role_is_binding(role: &crate::session::event::WriterRole) -> bool {
-    matches!(role, crate::session::event::WriterRole::User)
+/// ADR-0007: binding decisions key on verified identity (claimed actor +
+/// effective signer resolved against a binding trust source), never on a
+/// self-asserted vocabulary or payload field. The concrete trust source is
+/// settled by the federation-gate plan; until it exists, no response binds.
+fn response_identity_is_binding(
+    _claimed_actor: &ActorId,
+    _effective_signer: Option<&crate::crypto::SignerId>,
+) -> bool {
+    false
 }
 
 #[cfg(test)]
@@ -1945,7 +1957,6 @@ mod tests {
         response_id: &InputRequestResponseId,
         outcome: InputRequestResponseOutcome,
         assertion_mode: AssertionMode,
-        writer_role: WriterRole,
         occurred_at: &str,
     ) -> ShoreEvent {
         let target = EventTarget::for_work_object(
@@ -1967,7 +1978,7 @@ mod tests {
             InputRequestRespondedPayload::idempotency_key(input_request_id, response_id.as_str());
         let writer = Writer {
             actor_id: ActorId::new("actor:claude_code:user"),
-            role: writer_role,
+            role: WriterRole::User,
             tool: WriterTool {
                 name: "claude_code".to_owned(),
                 version: String::new(),
@@ -2082,7 +2093,6 @@ mod tests {
             &r1,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:03Z",
         ));
         events.push(user_response_event(
@@ -2090,7 +2100,6 @@ mod tests {
             &r2,
             InputRequestResponseOutcome::Rejected,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:04Z",
         ));
 
@@ -2137,7 +2146,6 @@ mod tests {
             &response_id,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:03Z",
         ));
 
@@ -2223,7 +2231,10 @@ mod tests {
     }
 
     #[test]
-    fn agent_resumption_allows_fresh_operative_user_approval() {
+    fn operative_response_does_not_bind_without_binding_trust_source() {
+        // The previously-binding shape: fresh operative approved response from
+        // the claude_code user actor. With no binding trust source configured,
+        // identity cannot be verified as binding, so resumption is denied.
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
         let session_id = SessionId::new("session:claude:uuid-1");
         let checkpoint = CheckpointId::new("checkpoint:sha256:cp");
@@ -2251,29 +2262,68 @@ mod tests {
             &response_id,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:03Z",
         ));
 
         let projection =
             agent_resumption_from_events(&events, &task_attempt_id, &reader_actor()).unwrap();
 
-        assert!(projection.may_resume);
-        assert_eq!(projection.state, AgentResumptionState::Ready);
-        assert!(projection.treated_as_operative);
+        assert!(!projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Blocked);
         let response_view = projection
             .selected_response
             .as_ref()
             .expect("selected response");
-        assert_eq!(response_view.response_id, response_id);
-        assert_eq!(response_view.outcome, InputRequestResponseOutcome::Approved);
-        assert!(response_view.writer_role_treated_as_binding);
-        assert!(response_view.fresh_for_target);
-        assert!(response_view.operative_reason.is_some());
-        assert_eq!(
-            projection.freshness,
-            Some(FreshnessBasis::CheckpointMatchesLatest)
+        assert!(!response_view.identity_treated_as_binding);
+        assert!(
+            projection
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "agent_resumption_response_identity_not_binding"),
+            "diagnostic explains the unverified identity; got {:?}",
+            projection.diagnostics
         );
+    }
+
+    #[test]
+    fn binding_predicate_ignores_source_speaker_payload_fact() {
+        // A self-asserted sourceSpeaker: user payload fact must never drive
+        // binding; payload facts are writer-asserted, not verified identity.
+        let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
+        let session_id = SessionId::new("session:claude:uuid-1");
+        let input_request_id = InputRequestId::new("input-request:sha256:1");
+        let response_id = InputRequestResponseId::new("input-request-response:sha256:r");
+
+        let mut events = attempt_with_checkpoints(&task_attempt_id, &session_id, &[]);
+        events.push(task_input_request_event_with_target(
+            &task_attempt_id,
+            &session_id,
+            &input_request_id,
+            "source:speaker",
+            "2026-05-18T00:00:02Z",
+            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            "needs approval",
+        ));
+        let mut response = user_response_event(
+            &input_request_id,
+            &response_id,
+            InputRequestResponseOutcome::Approved,
+            AssertionMode::Operative,
+            "2026-05-18T00:00:03Z",
+        );
+        response.payload["sourceSpeaker"] = serde_json::json!("user");
+        events.push(response);
+
+        let projection =
+            agent_resumption_from_events(&events, &task_attempt_id, &reader_actor()).unwrap();
+
+        assert!(!projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Blocked);
+        let response_view = projection
+            .selected_response
+            .as_ref()
+            .expect("selected response");
+        assert!(!response_view.identity_treated_as_binding);
     }
 
     #[test]
@@ -2298,40 +2348,6 @@ mod tests {
             &response_id,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Advisory,
-            WriterRole::User,
-            "2026-05-18T00:00:03Z",
-        ));
-
-        let projection =
-            agent_resumption_from_events(&events, &task_attempt_id, &reader_actor()).unwrap();
-        assert!(!projection.may_resume);
-        assert_eq!(projection.state, AgentResumptionState::Blocked);
-        assert!(!projection.treated_as_operative);
-    }
-
-    #[test]
-    fn agent_resumption_fails_closed_for_agent_written_response() {
-        let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
-        let input_request_id = InputRequestId::new("input-request:sha256:1");
-        let response_id = InputRequestResponseId::new("input-request-response:sha256:r");
-
-        let mut events = attempt_with_checkpoints(&task_attempt_id, &session_id, &[]);
-        events.push(task_input_request_event_with_target(
-            &task_attempt_id,
-            &session_id,
-            &input_request_id,
-            "source:agent",
-            "2026-05-18T00:00:02Z",
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
-            "needs approval",
-        ));
-        events.push(user_response_event(
-            &input_request_id,
-            &response_id,
-            InputRequestResponseOutcome::Approved,
-            AssertionMode::Operative,
-            WriterRole::Agent,
             "2026-05-18T00:00:03Z",
         ));
 
@@ -2365,7 +2381,6 @@ mod tests {
             &r1,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:03Z",
         ));
         events.push(user_response_event(
@@ -2373,7 +2388,6 @@ mod tests {
             &r2,
             InputRequestResponseOutcome::Rejected,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:04Z",
         ));
 
@@ -2425,7 +2439,6 @@ mod tests {
             &response_id,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:03Z",
         ));
 
@@ -2505,7 +2518,6 @@ mod tests {
             &response_id,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:06Z",
             Some("approved by reviewer".to_owned()),
             Some("artifacts/responses/r.txt".to_owned()),
@@ -2687,9 +2699,11 @@ mod tests {
         // Once responded, the input request drops out of the open set.
         assert!(input_requests.open_input_requests.is_empty());
 
-        assert!(resumption.may_resume);
-        assert_eq!(resumption.state, AgentResumptionState::Ready);
-        assert!(resumption.treated_as_operative);
+        // Identity-based binding has no trust source, so resumption is
+        // blocked; envelope/payload preservation above is the pin here.
+        assert!(!resumption.may_resume);
+        assert_eq!(resumption.state, AgentResumptionState::Blocked);
+        assert!(!resumption.treated_as_operative);
         assert_eq!(
             resumption.freshness,
             Some(FreshnessBasis::CheckpointMatchesLatest)
@@ -2718,7 +2732,6 @@ mod tests {
         response_id: &InputRequestResponseId,
         outcome: InputRequestResponseOutcome,
         assertion_mode: AssertionMode,
-        writer_role: WriterRole,
         occurred_at: &str,
         reason: Option<String>,
         reason_artifact_path: Option<String>,
@@ -2744,7 +2757,7 @@ mod tests {
             InputRequestRespondedPayload::idempotency_key(input_request_id, response_id.as_str());
         let writer = Writer {
             actor_id: ActorId::new("actor:claude_code:user"),
-            role: writer_role,
+            role: WriterRole::User,
             tool: WriterTool {
                 name: "claude_code".to_owned(),
                 version: String::new(),
@@ -2787,7 +2800,6 @@ mod tests {
             &response_id,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:03Z",
             Some("inlined justification".to_owned()),
             Some("artifacts/notes/reason.json".to_owned()),
@@ -2838,7 +2850,6 @@ mod tests {
             &response_id,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:03Z",
             Some("inlined justification".to_owned()),
             Some("artifacts/responses/r.txt".to_owned()),
@@ -2891,7 +2902,6 @@ mod tests {
             &response_id,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:03Z",
         );
         let retry = user_response_event(
@@ -2899,7 +2909,6 @@ mod tests {
             &response_id,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:03Z",
         );
         // Confirm the duplicate construction would emit identical events
@@ -2912,9 +2921,15 @@ mod tests {
         let projection =
             agent_resumption_from_events(&events, &task_attempt_id, &reader_actor()).unwrap();
 
-        assert!(projection.may_resume);
-        assert_eq!(projection.state, AgentResumptionState::Ready);
+        // The retry pair collapses to one representative response (not
+        // Ambiguous); identity-based binding then blocks resumption because
+        // no binding trust source is configured.
         assert_ne!(projection.state, AgentResumptionState::Ambiguous);
+        assert_eq!(projection.state, AgentResumptionState::Blocked);
+        assert!(
+            projection.selected_response.is_some(),
+            "collapsed representative response is surfaced"
+        );
     }
 
     #[test]
@@ -2947,7 +2962,6 @@ mod tests {
             &response_id,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:03Z",
         );
         let mut second = user_response_event(
@@ -2955,7 +2969,6 @@ mod tests {
             &response_id,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:04Z",
         );
         first.idempotency_key = "duplicate-a".to_owned();
@@ -2970,9 +2983,10 @@ mod tests {
         let projection =
             agent_resumption_from_events(&events, &task_attempt_id, &reader_actor()).unwrap();
 
-        assert!(projection.may_resume);
-        assert_eq!(projection.state, AgentResumptionState::Ready);
+        // Collapsed to one representative (not Ambiguous); identity-based
+        // binding then blocks resumption — no binding trust source exists.
         assert_ne!(projection.state, AgentResumptionState::Ambiguous);
+        assert_eq!(projection.state, AgentResumptionState::Blocked);
         let view = projection
             .selected_response
             .as_ref()
@@ -3092,7 +3106,6 @@ mod tests {
         response_id: &InputRequestResponseId,
         outcome: InputRequestResponseOutcome,
         assertion_mode: AssertionMode,
-        writer_role: WriterRole,
         occurred_at: &str,
         target_fingerprint: Option<&str>,
     ) -> ShoreEvent {
@@ -3115,7 +3128,7 @@ mod tests {
             InputRequestRespondedPayload::idempotency_key(input_request_id, response_id.as_str());
         let writer = Writer {
             actor_id: ActorId::new("actor:claude_code:user"),
-            role: writer_role,
+            role: WriterRole::User,
             tool: WriterTool {
                 name: "claude_code".to_owned(),
                 version: String::new(),
@@ -3190,7 +3203,6 @@ mod tests {
             &response_id,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:04Z",
             Some(FP_A),
         ));
@@ -3268,7 +3280,6 @@ mod tests {
             &response_id,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:03Z",
             Some(FP_A),
         ));
@@ -3276,9 +3287,10 @@ mod tests {
         let projection =
             agent_resumption_from_events(&events, &task_attempt_id, &reader_actor()).unwrap();
 
-        assert!(projection.may_resume);
-        assert_eq!(projection.state, AgentResumptionState::Ready);
-        assert!(projection.treated_as_operative);
+        // Freshness pin: agreement on the opaque fingerprint is the signal.
+        // Resumption itself stays blocked — identity-based binding has no
+        // trust source — but the response is not classified stale.
+        assert_ne!(projection.state, AgentResumptionState::Stale);
         assert_eq!(
             projection.freshness,
             Some(FreshnessBasis::CheckpointFingerprintMatches),
@@ -3336,14 +3348,13 @@ mod tests {
             Some(FP_A),
         ));
         // Two distinct semantic responses: each carries its own
-        // `target_fingerprint`. Both are by the same User role at Operative
+        // `target_fingerprint`. Both are by the same writer at Operative
         // mode -- the disagreement is on the fingerprint, not the writer.
         events.push(user_response_event_with_fingerprint(
             &input_request_id,
             &r1,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:03Z",
             Some(FP_B),
         ));
@@ -3352,7 +3363,6 @@ mod tests {
             &r2,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:04Z",
             Some(FP_C),
         ));
@@ -3434,7 +3444,6 @@ mod tests {
             &response_id,
             InputRequestResponseOutcome::Approved,
             AssertionMode::Operative,
-            WriterRole::User,
             "2026-05-18T00:00:04Z",
             Some(FP_A),
         ));
@@ -3442,13 +3451,11 @@ mod tests {
         let projection =
             agent_resumption_from_events(&events, &task_attempt_id, &reader_actor()).unwrap();
 
-        assert_eq!(
+        assert_ne!(
             projection.state,
-            AgentResumptionState::Ready,
-            "fingerprint agreement overrides identity-based staleness"
+            AgentResumptionState::Stale,
+            "fingerprint agreement overrides checkpoint-id staleness"
         );
-        assert!(projection.may_resume);
-        assert!(projection.treated_as_operative);
         assert_eq!(
             projection.freshness,
             Some(FreshnessBasis::CheckpointFingerprintMatches),
