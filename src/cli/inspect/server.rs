@@ -272,6 +272,16 @@ mod tests {
     }
 
     #[test]
+    fn app_js_does_not_read_writer_role() {
+        let response = route_for("GET", "/app.js");
+        let body = String::from_utf8(response.body).expect("app.js is utf-8");
+        assert!(
+            !body.contains("writer.role"),
+            "the inspector writer line renders the actor id only; the envelope carries no role"
+        );
+    }
+
+    #[test]
     fn static_assets_carry_expected_content_types() {
         assert_eq!(
             route_for("GET", "/app.css").content_type,
