@@ -2,12 +2,12 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::error::{Result, ShoreError};
-use crate::session::event::ShoreEvent;
+use crate::session::event::{IngestVia, ShoreEvent, stamp_ingest_provenance};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store_init::{ShoreStorePaths, prepare_shore_writer};
 use crate::session::{
     EventStore, EventVerificationPolicy, EventWriteOutcome, IngestEventVerification, TrustSet,
-    is_valid_actor_id, verify_events_for_ingest,
+    current_timestamp, is_valid_actor_id, verify_events_for_ingest,
 };
 use crate::storage::{Durability, LocalStorage};
 
@@ -139,6 +139,12 @@ pub fn ingest_events(options: IngestEventsOptions) -> Result<IngestEventsResult>
         &options.trust_set,
     )?;
 
+    let stamped = stamp_ingest_provenance(
+        &options.events,
+        IngestVia::IngestEvents,
+        &current_timestamp(),
+    );
+
     let event_store = EventStore::open(shore_dir);
     let mut events_created = 0usize;
     let mut events_existing = 0usize;
@@ -146,7 +152,7 @@ pub fn ingest_events(options: IngestEventsOptions) -> Result<IngestEventsResult>
     let mut ingest_diagnostics = Vec::new();
     let mut write_error = None;
 
-    for event in &options.events {
+    for event in &stamped {
         match event_store.record_event_once(event) {
             Ok(EventWriteOutcome::Created) => {
                 events_created += 1;
@@ -207,13 +213,14 @@ mod tests {
     use crate::crypto::{EventSignatureBytes, EventSigner, EventVerificationStatus, SignerId};
     use crate::model::ActorId;
     use crate::session::event::{
-        EventSignature, EventType, InputRequestReasonCode, InputRequestResponseOutcome,
+        EventSignature, EventType, IngestProvenance, IngestVia, InputRequestReasonCode,
+        InputRequestResponseOutcome,
     };
     use crate::session::{
         CaptureOptions, EventVerificationPolicy, InputRequestListOptions, InputRequestOpenOptions,
         InputRequestRespondOptions, InputRequestStatus, InputRequestStatusFilter, TrustSet,
         capture_worktree_review, event_signature_trust_set, list_input_requests,
-        open_input_request, respond_input_request,
+        open_input_request, respond_input_request, verify_event_signature,
     };
 
     struct TestRepo {
@@ -564,12 +571,16 @@ mod tests {
                 && diagnostic.message.contains(second.event_id.as_str())
                 && diagnostic.message.contains(second.idempotency_key.as_str())
         }));
+        let mut stored = EventStore::open(dest.path().join(".shore"))
+            .list_events()
+            .unwrap();
+        assert_eq!(stored.len(), 1);
         assert_eq!(
-            EventStore::open(dest.path().join(".shore"))
-                .list_events()
-                .unwrap(),
-            vec![first]
+            stored[0].ingest.as_ref().unwrap().via,
+            IngestVia::IngestEvents
         );
+        stored[0].ingest = None;
+        assert_eq!(stored, vec![first]);
     }
 
     #[test]
@@ -594,11 +605,125 @@ mod tests {
                 .iter()
                 .all(|diagnostic| diagnostic.code != "divergent_signature_existing_event")
         );
+        let mut stored = EventStore::open(dest.path().join(".shore"))
+            .list_events()
+            .unwrap();
+        assert_eq!(stored.len(), 1);
         assert_eq!(
-            EventStore::open(dest.path().join(".shore"))
-                .list_events()
-                .unwrap(),
-            vec![first]
+            stored[0].ingest.as_ref().unwrap().via,
+            IngestVia::IngestEvents
+        );
+        stored[0].ingest = None;
+        assert_eq!(stored, vec![first]);
+    }
+
+    #[test]
+    fn ingest_stamps_ingest_provenance_on_every_written_event() {
+        let (_origin, events) = origin_events();
+        let dest = dest_repo();
+
+        ingest_events(IngestEventsOptions::new(dest.path(), events.clone())).unwrap();
+
+        let stored = EventStore::open(dest.path().join(".shore"))
+            .list_events()
+            .unwrap();
+        assert_eq!(stored.len(), events.len());
+        for event in &stored {
+            let stamp = event
+                .ingest
+                .as_ref()
+                .expect("every ingested event is stamped");
+            assert_eq!(stamp.via, IngestVia::IngestEvents);
+            assert!(stamp.received_at.starts_with("unix-ms:"));
+        }
+    }
+
+    #[test]
+    fn ingest_overwrites_inbound_ingest_stamp_with_local_stamp() {
+        // A stamp in arriving bytes is some other store's bookkeeping; only the
+        // local importer's stamp means anything here (ADR-0009).
+        let mut event = unsigned_event();
+        event.ingest = Some(IngestProvenance {
+            via: IngestVia::BundleApply,
+            received_at: "unix-ms:1".to_owned(),
+        });
+        let dest = dest_repo();
+
+        import_event(ImportEventOptions::new(dest.path(), event)).unwrap();
+
+        let stored = EventStore::open(dest.path().join(".shore"))
+            .list_events()
+            .unwrap();
+        let stamp = stored[0].ingest.as_ref().unwrap();
+        assert_eq!(stamp.via, IngestVia::IngestEvents);
+        assert_ne!(stamp.received_at, "unix-ms:1");
+    }
+
+    #[test]
+    fn reingest_of_locally_authored_event_leaves_stored_event_unstamped() {
+        // Author locally, then ingest the store's own events back into it:
+        // Existing outcome, first-stored-wins, the stored files stay unstamped —
+        // a locally authored event can never acquire a stamp after the fact.
+        let (origin, events) = origin_events();
+
+        let result =
+            ingest_events(IngestEventsOptions::new(origin.path(), events.clone())).unwrap();
+        assert_eq!(result.events_created, 0);
+        assert_eq!(result.events_existing, events.len());
+
+        let stored = EventStore::open(origin.path().join(".shore"))
+            .list_events()
+            .unwrap();
+        assert!(stored.iter().all(|event| event.ingest.is_none()));
+    }
+
+    #[test]
+    fn reingest_of_ingested_event_keeps_first_stamp() {
+        // Ingest twice into the same destination; the stored stamp does not
+        // change on the second pass — an ingested event can never lose (or
+        // churn) its stamp.
+        let (_origin, events) = origin_events();
+        let dest = dest_repo();
+
+        ingest_events(IngestEventsOptions::new(dest.path(), events.clone())).unwrap();
+        let first_stamps: Vec<_> = EventStore::open(dest.path().join(".shore"))
+            .list_events()
+            .unwrap()
+            .into_iter()
+            .map(|event| event.ingest)
+            .collect();
+        assert!(first_stamps.iter().all(Option::is_some));
+
+        let second = ingest_events(IngestEventsOptions::new(dest.path(), events)).unwrap();
+        assert_eq!(second.events_created, 0);
+
+        let second_stamps: Vec<_> = EventStore::open(dest.path().join(".shore"))
+            .list_events()
+            .unwrap()
+            .into_iter()
+            .map(|event| event.ingest)
+            .collect();
+        assert_eq!(second_stamps, first_stamps);
+    }
+
+    #[test]
+    fn stamped_signed_event_still_verifies_valid_after_ingest() {
+        let (event, signer, actor) = signed_captured_event();
+        let trust = trust_for_actor(&actor, &signer);
+        let dest = dest_repo();
+
+        ingest_events(
+            IngestEventsOptions::new(dest.path(), vec![event]).with_trust_set(trust.clone()),
+        )
+        .unwrap();
+
+        let stored = EventStore::open(dest.path().join(".shore"))
+            .list_events()
+            .unwrap();
+        assert!(stored[0].ingest.is_some());
+        assert_eq!(
+            verify_event_signature(&stored[0], &trust).unwrap(),
+            EventVerificationStatus::Valid
         );
     }
 

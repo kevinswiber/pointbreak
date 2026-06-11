@@ -499,7 +499,10 @@ mod tests {
             EventWriteOutcome::Existing
         );
         let path_two = store_two.event_path_for_idempotency_key(&stamped.idempotency_key);
-        assert_eq!(store_two.read_event(&path_two).unwrap().ingest, stamped.ingest);
+        assert_eq!(
+            store_two.read_event(&path_two).unwrap().ingest,
+            stamped.ingest
+        );
     }
 
     fn temp_event_store() -> (tempfile::TempDir, EventStore) {

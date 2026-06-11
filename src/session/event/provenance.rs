@@ -21,3 +21,23 @@ pub struct IngestProvenance {
     pub via: IngestVia,
     pub received_at: String,
 }
+
+/// Stamps every event with this store's own ingest provenance, overwriting any
+/// inbound stamp: hop metadata from elsewhere is not a fact (ADR-0009).
+pub(crate) fn stamp_ingest_provenance(
+    events: &[super::ShoreEvent],
+    via: IngestVia,
+    received_at: &str,
+) -> Vec<super::ShoreEvent> {
+    events
+        .iter()
+        .cloned()
+        .map(|mut event| {
+            event.ingest = Some(IngestProvenance {
+                via,
+                received_at: received_at.to_owned(),
+            });
+            event
+        })
+        .collect()
+}

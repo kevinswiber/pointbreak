@@ -33,6 +33,7 @@ pub use kind::EventType;
 pub use lineage::{ReviewUnitLineageDeclaredPayload, ReviewUnitLineageRoundRecordedPayload};
 pub use observation::ReviewObservationRecordedPayload;
 pub use payload::EventPayload;
+pub(crate) use provenance::stamp_ingest_provenance;
 pub use provenance::{IngestProvenance, IngestVia};
 pub use review::{
     ImportedNoteTarget, ReviewInitializedPayload, ReviewNoteImportedPayload,
