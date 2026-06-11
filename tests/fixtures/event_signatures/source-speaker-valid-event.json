@@ -1,0 +1,35 @@
+{
+  "assertionMode": "advisory",
+  "eventId": "evt:sha256:6405e57668e137a64ca47144900f021a7667c2f20d0bc01ff144945221d76c66",
+  "eventType": "task_attempt_captured",
+  "idempotencyKey": "task_attempt_captured:task-attempt:sha256:5555555555555555555555555555555555555555555555555555555555555555:task_attempt:event-signature-task-vector",
+  "occurredAt": "2026-06-03T23:59:30Z",
+  "payload": {
+    "claudeSessionUuid": "event-signature-task-vector",
+    "initialPromptHash": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+    "projectPath": "/repo",
+    "sourceSpeaker": "user",
+    "taskAttemptId": "task-attempt:sha256:5555555555555555555555555555555555555555555555555555555555555555"
+  },
+  "payloadHash": "sha256:84d8ddcbb25af5aa741159c3b875831cd981ff9ed70a4186b2b6a2f7f3857237",
+  "schema": "shore.event",
+  "signature": {
+    "alg": "ed25519",
+    "sig": "Tv8x2AS6AaRlEJY2jFkTVyIf2w0XwuAMn22R+FVJrCuTllO6lEQ3LonkhXs7Qgbzqgmdw5pnE9OpOV5KxUCBDQ==",
+    "sigVersion": 1
+  },
+  "signer": "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+  "target": {
+    "sessionId": "session:claude:event-signature-task-vector",
+    "workObjectId": "task-attempt:sha256:5555555555555555555555555555555555555555555555555555555555555555",
+    "workObjectType": "task_attempt"
+  },
+  "version": 1,
+  "writer": {
+    "actorId": "actor:git-email:alice@example.com",
+    "tool": {
+      "name": "shore",
+      "version": "0.1.0-test"
+    }
+  }
+}

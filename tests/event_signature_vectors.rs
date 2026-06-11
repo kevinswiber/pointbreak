@@ -68,6 +68,14 @@ fn golden_to_be_signed_and_pre_authentication_encoding_bytes_match_fixtures() {
 fn golden_verification_statuses_match_fixtures() {
     assert_status("friendly-valid-event.json", EventVerificationStatus::Valid);
     assert_status(
+        "source-speaker-valid-event.json",
+        EventVerificationStatus::Valid,
+    );
+    assert_status(
+        "source-speaker-mutated-event.json",
+        EventVerificationStatus::Invalid,
+    );
+    assert_status(
         "self-certifying-valid-event.json",
         EventVerificationStatus::Valid,
     );
@@ -119,6 +127,8 @@ fn vector_fixture_inventory_covers_required_case_families() {
         "target-mutated-event.json",
         "timestamp-mutated-event.json",
         "assertion-mode-mutated-event.json",
+        "source-speaker-valid-event.json",
+        "source-speaker-mutated-event.json",
         "unsupported-alg-event.json",
         "unsupported-sig-version-event.json",
         "mutation-cases.json",
@@ -153,6 +163,7 @@ fn vector_fixture_inventory_covers_required_case_families() {
         "target-mutated-event.json",
         "timestamp-mutated-event.json",
         "assertion-mode-mutated-event.json",
+        "source-speaker-mutated-event.json",
         "unauthorized-signer-event.json",
     ] {
         assert!(mutation_names.contains(&required));

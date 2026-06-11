@@ -26,6 +26,11 @@
       "mutation": "assertionMode changed after signing"
     },
     {
+      "expected": "invalid",
+      "file": "source-speaker-mutated-event.json",
+      "mutation": "payload sourceSpeaker and payloadHash changed after signing"
+    },
+    {
       "expected": "untrusted_key",
       "file": "unauthorized-signer-event.json",
       "mutation": "signature verifies but signer is not allowed for actor"

@@ -142,6 +142,25 @@ pub fn build_all_fixtures(fixture_dir: &Path) -> FixtureSet {
             "mutation": case.mutation,
         }));
     }
+
+    // Task-domain pair covering the relocated speaker fact: the payload is
+    // hash-bound into the signed view, so flipping sourceSpeaker (with
+    // payloadHash recomputed so structural validation passes) must verify
+    // invalid via the signature over payloadHash.
+    let source_speaker_valid = sign_event(task_event(), &keys.did_key, &keys.seed);
+    set.insert_json("source-speaker-valid-event.json", &source_speaker_valid);
+    let mut source_speaker_mutated = source_speaker_valid.clone();
+    source_speaker_mutated["payload"]["sourceSpeaker"] = json!("agent");
+    source_speaker_mutated["payloadHash"] = json!(sha256_canonical_json_prefixed(
+        &source_speaker_mutated["payload"]
+    ));
+    set.insert_json("source-speaker-mutated-event.json", &source_speaker_mutated);
+    mutation_index.push(json!({
+        "expected": "invalid",
+        "file": "source-speaker-mutated-event.json",
+        "mutation": "payload sourceSpeaker and payloadHash changed after signing",
+    }));
+
     mutation_index.push(json!({
         "expected": "untrusted_key",
         "file": "unauthorized-signer-event.json",
@@ -275,6 +294,53 @@ fn base_event() -> Value {
                     "reviewUnitId": review_unit_id,
                 }
             }
+        },
+        "version": 1,
+        "writer": {
+            "actorId": "actor:git-email:alice@example.com",
+            "tool": {
+                "name": "shore",
+                "version": "0.1.0-test",
+            }
+        },
+    })
+}
+
+/// A signed task-domain envelope whose payload carries the relocated
+/// `sourceSpeaker` fact.
+fn task_event() -> Value {
+    let task_attempt_id = format!("task-attempt:sha256:{}", "5".repeat(64));
+    let claude_session_uuid = "event-signature-task-vector";
+    let payload = json!({
+        "claudeSessionUuid": claude_session_uuid,
+        "initialPromptHash": format!("sha256:{}", "6".repeat(64)),
+        "projectPath": "/repo",
+        "sourceSpeaker": "user",
+        "taskAttemptId": task_attempt_id,
+    });
+    let idempotency_key =
+        format!("task_attempt_captured:{task_attempt_id}:task_attempt:{claude_session_uuid}");
+    let event_id = format!(
+        "evt:sha256:{}",
+        hex(&Sha256::digest(idempotency_key.as_bytes()))
+    );
+    let payload_hash = sha256_canonical_json_prefixed(&payload);
+
+    json!({
+        "assertionMode": "advisory",
+        "eventId": event_id,
+        "eventType": "task_attempt_captured",
+        "idempotencyKey": idempotency_key,
+        "occurredAt": "2026-06-03T23:59:30Z",
+        "payload": payload,
+        "payloadHash": payload_hash,
+        "schema": "shore.event",
+        "signature": null,
+        "signer": null,
+        "target": {
+            "sessionId": format!("session:claude:{claude_session_uuid}"),
+            "workObjectId": task_attempt_id,
+            "workObjectType": "task_attempt",
         },
         "version": 1,
         "writer": {
