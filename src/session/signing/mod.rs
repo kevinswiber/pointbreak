@@ -1,5 +1,7 @@
 mod ingest;
 mod policy;
+#[cfg(test)]
+pub(crate) mod test_support;
 mod trust;
 mod verify;
 mod write;

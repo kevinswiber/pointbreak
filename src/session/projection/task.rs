@@ -2540,36 +2540,15 @@ mod tests {
     /// is not in any trust set, so verification yields `UntrustedKey` against
     /// `TrustSet::default()`.
     fn sign_event_with_seeded_key(event: &mut ShoreEvent) {
-        use ed25519_dalek::{Signer as _, SigningKey};
-
-        use crate::crypto::{EventSignatureBytes, EventSigner, SignerId};
-
-        struct SeededSigner {
-            signer_id: SignerId,
-            signing_key: SigningKey,
-        }
-
-        impl EventSigner for SeededSigner {
-            fn signer_id(&self) -> &SignerId {
-                &self.signer_id
-            }
-
-            fn sign_event_message(&self, message: &[u8]) -> Result<EventSignatureBytes> {
-                let signature = self.signing_key.sign(message);
-                Ok(EventSignatureBytes::from_bytes(&signature.to_bytes()))
-            }
-        }
-
-        let signing_key = SigningKey::from_bytes(&[7u8; 32]);
-        let signer_id = SignerId::from_ed25519_public_key(signing_key.verifying_key().to_bytes());
         crate::session::sign_event_if_requested(
             event,
-            &crate::session::EventSigningOptions::sign_with(SeededSigner {
-                signer_id,
-                signing_key,
-            }),
+            &crate::session::EventSigningOptions::sign_with(seeded_signer()),
         )
         .unwrap();
+    }
+
+    fn seeded_signer() -> crate::session::signing::test_support::DeterministicSigner {
+        crate::session::signing::test_support::DeterministicSigner::from_seed([7u8; 32])
     }
 
     fn identity_not_binding_diagnostic(
@@ -2580,6 +2559,190 @@ mod tests {
             .iter()
             .find(|d| d.code == "agent_resumption_response_identity_not_binding")
             .expect("identity-not-binding diagnostic emitted")
+    }
+
+    /// Trust set authorizing the seeded signer for the fixture response actor.
+    fn authorizing_trust_set() -> TrustSet {
+        crate::session::signing::test_support::trust_for_actor(
+            &ActorId::new("actor:claude_code:user"),
+            &seeded_signer(),
+        )
+    }
+
+    #[test]
+    fn binding_outcome_matrix_status_by_ingest_by_policy() {
+        use EventVerificationStatus::{Invalid, Unsigned, UntrustedKey, Valid};
+        use ResumptionBindingPolicy::{LocalAndVerified, VerifiedOnly};
+        // (status, ingested, policy, binds, blocked reason)
+        let cases: [(
+            EventVerificationStatus,
+            bool,
+            ResumptionBindingPolicy,
+            bool,
+            Option<&str>,
+        ); 16] = [
+            (Valid, false, LocalAndVerified, true, None),
+            (Valid, false, VerifiedOnly, true, None),
+            (Valid, true, LocalAndVerified, true, None),
+            (Valid, true, VerifiedOnly, true, None),
+            (Unsigned, false, LocalAndVerified, true, None),
+            (
+                Unsigned,
+                false,
+                VerifiedOnly,
+                false,
+                Some("policy_excludes_local"),
+            ),
+            (
+                Unsigned,
+                true,
+                LocalAndVerified,
+                false,
+                Some("ingested_unsigned"),
+            ),
+            (
+                Unsigned,
+                true,
+                VerifiedOnly,
+                false,
+                Some("ingested_unsigned"),
+            ),
+            (UntrustedKey, false, LocalAndVerified, true, None),
+            (
+                UntrustedKey,
+                false,
+                VerifiedOnly,
+                false,
+                Some("signer_not_authorized"),
+            ),
+            (
+                UntrustedKey,
+                true,
+                LocalAndVerified,
+                false,
+                Some("signer_not_authorized"),
+            ),
+            (
+                UntrustedKey,
+                true,
+                VerifiedOnly,
+                false,
+                Some("signer_not_authorized"),
+            ),
+            (
+                Invalid,
+                false,
+                LocalAndVerified,
+                false,
+                Some("signature_invalid"),
+            ),
+            (
+                Invalid,
+                false,
+                VerifiedOnly,
+                false,
+                Some("signature_invalid"),
+            ),
+            (
+                Invalid,
+                true,
+                LocalAndVerified,
+                false,
+                Some("signature_invalid"),
+            ),
+            (
+                Invalid,
+                true,
+                VerifiedOnly,
+                false,
+                Some("signature_invalid"),
+            ),
+        ];
+
+        for (status, ingested, policy, binds, reason) in cases {
+            let (mut events, task_attempt_id) = approved_local_response_events();
+            let response = events.last_mut().expect("response event");
+            // Shape the response to produce the cell's verification status
+            // under the cell's trust set, using the production signing
+            // machinery so the fixture cannot drift from the verifier.
+            let trust = match status {
+                Valid => {
+                    sign_event_with_seeded_key(response);
+                    authorizing_trust_set()
+                }
+                UntrustedKey => {
+                    sign_event_with_seeded_key(response);
+                    TrustSet::default()
+                }
+                Unsigned => TrustSet::default(),
+                Invalid => {
+                    sign_event_with_seeded_key(response);
+                    response.payload["tamperedAfterSigning"] = serde_json::json!(true);
+                    response.payload_hash = sha256_json_prefixed(&response.payload).unwrap();
+                    authorizing_trust_set()
+                }
+            };
+            if ingested {
+                response.ingest = Some(IngestProvenance {
+                    via: IngestVia::IngestEvents,
+                    received_at: "unix-ms:1760000000000".to_owned(),
+                });
+            }
+
+            let projection = agent_resumption_from_events(
+                &events,
+                &task_attempt_id,
+                &reader_actor(),
+                &trust,
+                policy,
+            )
+            .unwrap();
+
+            let cell = format!("({status:?}, ingested: {ingested}, {policy:?})");
+            let response_view = projection
+                .selected_response
+                .as_ref()
+                .unwrap_or_else(|| panic!("selected response surfaced for {cell}"));
+            if binds {
+                assert!(projection.may_resume, "may_resume for {cell}");
+                assert_eq!(projection.state, AgentResumptionState::Ready, "{cell}");
+                assert!(response_view.identity_treated_as_binding, "{cell}");
+            } else {
+                assert!(!projection.may_resume, "no resume for {cell}");
+                assert_eq!(projection.state, AgentResumptionState::Blocked, "{cell}");
+                assert!(!response_view.identity_treated_as_binding, "{cell}");
+                let diagnostic = identity_not_binding_diagnostic(&projection);
+                assert_eq!(diagnostic.reason.as_deref(), reason, "{cell}");
+            }
+        }
+    }
+
+    #[test]
+    fn binding_never_reads_claimed_actor_or_verification_policy_preset() {
+        // Two unsigned local responses differing only in writer.actor_id
+        // project identically: the claimed actor is reported, never decided
+        // on. (There is no EventVerificationPolicy input to the projection at
+        // all — pinned by the API shape itself.)
+        let (events, task_attempt_id) = approved_local_response_events();
+        let mut other_actor_events = events.clone();
+        other_actor_events
+            .last_mut()
+            .expect("response event")
+            .writer
+            .actor_id = ActorId::new("actor:agent:someone-else");
+
+        for events in [events, other_actor_events] {
+            let projection = agent_resumption_from_events(
+                &events,
+                &task_attempt_id,
+                &reader_actor(),
+                &TrustSet::default(),
+                ResumptionBindingPolicy::default(),
+            )
+            .unwrap();
+            assert_eq!(projection.state, AgentResumptionState::Ready);
+            assert!(projection.may_resume);
+        }
     }
 
     #[test]

@@ -205,22 +205,22 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
 
-    use ed25519_dalek::{Signer as _, SigningKey};
     use serde_json::json;
 
     use super::*;
     use crate::canonical_hash::sha256_json_prefixed;
-    use crate::crypto::{EventSignatureBytes, EventSigner, EventVerificationStatus, SignerId};
+    use crate::crypto::{EventVerificationStatus, SignerId};
     use crate::model::ActorId;
     use crate::session::event::{
         EventSignature, EventType, IngestProvenance, IngestVia, InputRequestReasonCode,
         InputRequestResponseOutcome,
     };
+    use crate::session::signing::test_support::{DeterministicSigner, trust_for_actor};
     use crate::session::{
         CaptureOptions, EventVerificationPolicy, InputRequestListOptions, InputRequestOpenOptions,
         InputRequestRespondOptions, InputRequestStatus, InputRequestStatusFilter, TrustSet,
-        capture_worktree_review, event_signature_trust_set, list_input_requests,
-        open_input_request, respond_input_request, verify_event_signature,
+        capture_worktree_review, list_input_requests, open_input_request, respond_input_request,
+        verify_event_signature,
     };
 
     struct TestRepo {
@@ -312,49 +312,6 @@ mod tests {
     fn replayed_state(repo: &Path) -> serde_json::Value {
         let events = EventStore::open(repo.join(".shore")).list_events().unwrap();
         serde_json::to_value(SessionState::from_events(&events).unwrap()).unwrap()
-    }
-
-    #[derive(Clone)]
-    struct DeterministicSigner {
-        signer_id: SignerId,
-        signing_key: SigningKey,
-    }
-
-    impl DeterministicSigner {
-        fn fixture() -> Self {
-            let signing_key = SigningKey::from_bytes(&[
-                0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
-                0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b,
-                0x1c, 0x1d, 0x1e, 0x1f,
-            ]);
-            let signer_id =
-                SignerId::from_ed25519_public_key(signing_key.verifying_key().to_bytes());
-
-            Self {
-                signer_id,
-                signing_key,
-            }
-        }
-    }
-
-    impl EventSigner for DeterministicSigner {
-        fn signer_id(&self) -> &SignerId {
-            &self.signer_id
-        }
-
-        fn sign_event_message(&self, message: &[u8]) -> Result<EventSignatureBytes> {
-            let signature = self.signing_key.sign(message);
-            Ok(EventSignatureBytes::from_bytes(&signature.to_bytes()))
-        }
-    }
-
-    fn trust_for_actor(actor: &ActorId, signer: &DeterministicSigner) -> TrustSet {
-        event_signature_trust_set(json!({
-            "allowedSigners": {
-                actor.as_str(): [signer.signer_id().as_str()]
-            }
-        }))
-        .unwrap()
     }
 
     fn signed_captured_event() -> (ShoreEvent, DeterministicSigner, ActorId) {
