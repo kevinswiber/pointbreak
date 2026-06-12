@@ -329,6 +329,14 @@ pub(super) fn lineage_json(repo: &Path, lineage_id: &str) -> Result<String, Stri
 /// Reads the immutable snapshot artifact through the validated read path
 /// (`read_snapshot_artifact` recomputes and checks the content hash), so the
 /// inspector renders exactly the frozen diff that was reviewed.
+///
+/// The wire shape redacts the hash-baked `target.worktreeRoot` after
+/// validation: a linked inspector serves snapshots captured in sibling
+/// worktrees, and their raw absolute paths must not reach other readers. The
+/// stored artifact is untouched, so `contentHashScope: "stored-artifact"`
+/// records that `contentHash` covers the stored bytes (including the redacted
+/// field) — consumers re-validate by fetching the artifact, not by hashing
+/// this wire JSON.
 pub(super) fn snapshot_json(repo: &Path, snapshot_id: &str) -> Result<String, String> {
     if snapshot_id.is_empty() {
         return Err("missing snapshot id".to_owned());
@@ -341,7 +349,21 @@ pub(super) fn snapshot_json(repo: &Path, snapshot_id: &str) -> Result<String, St
             format!("snapshot not found or unreadable: {snapshot_id}")
         },
     )?;
-    serde_json::to_string(&artifact).map_err(|error| error.to_string())
+    let target_display = derive_target_display(&artifact.target, &artifact.base);
+    let mut wire = serde_json::to_value(&artifact).map_err(|error| error.to_string())?;
+    if let Some(target) = wire.get_mut("target").and_then(|value| value.as_object_mut()) {
+        target.remove("worktreeRoot");
+    }
+    let Some(object) = wire.as_object_mut() else {
+        return Err("snapshot wire shape must be an object".to_owned());
+    };
+    object.insert("worktreeRootRedacted".to_owned(), true.into());
+    object.insert("contentHashScope".to_owned(), "stored-artifact".into());
+    object.insert(
+        "targetDisplay".to_owned(),
+        serde_json::to_value(target_display).map_err(|error| error.to_string())?,
+    );
+    serde_json::to_string(&wire).map_err(|error| error.to_string())
 }
 
 /// The full composite projection for one ReviewUnit.
@@ -410,6 +432,100 @@ mod tests {
             commit_oid: oid.to_owned(),
             tree_oid: "tree-oid".to_owned(),
         }
+    }
+
+    fn captured_repo() -> (tempfile::TempDir, String) {
+        let root = tempfile::tempdir().expect("create temp repo");
+        let path = root.path();
+        git(path, &["init"]);
+        git(path, &["config", "user.name", "Shore Tests"]);
+        git(path, &["config", "user.email", "shore-tests@example.com"]);
+        git(path, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(path.join("src.txt"), "base\n").unwrap();
+        git(path, &["add", "--all"]);
+        git(path, &["commit", "-m", "base"]);
+        std::fs::write(path.join("src.txt"), "changed\n").unwrap();
+        let result =
+            shoreline::session::capture_worktree_review(shoreline::session::CaptureOptions::new(
+                path,
+            ))
+            .expect("capture worktree review");
+        (root, result.snapshot_id.as_str().to_owned())
+    }
+
+    fn git(cwd: &Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .unwrap_or_else(|error| panic!("run git {args:?}: {error}"));
+        assert!(
+            output.status.success(),
+            "git {args:?} failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn stored_snapshot_artifact_path(repo: &Path) -> std::path::PathBuf {
+        let snapshots_dir = repo.join(".shore/artifacts/snapshots");
+        let mut entries: Vec<_> = std::fs::read_dir(&snapshots_dir)
+            .expect("snapshot artifacts dir exists")
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        assert_eq!(entries.len(), 1, "exactly one stored snapshot artifact");
+        entries.remove(0)
+    }
+
+    #[test]
+    fn snapshot_json_redacts_worktree_root_on_the_wire() {
+        let (repo, snapshot_id) = captured_repo();
+
+        let wire: serde_json::Value =
+            serde_json::from_str(&snapshot_json(repo.path(), &snapshot_id).unwrap()).unwrap();
+
+        assert!(wire["target"].get("worktreeRoot").is_none());
+        assert_eq!(wire["worktreeRootRedacted"], true);
+        assert_eq!(wire["contentHashScope"], "stored-artifact");
+        assert!(wire["contentHash"].is_string());
+        assert!(wire["targetDisplay"]["label"].is_string());
+    }
+
+    #[test]
+    fn snapshot_json_redaction_happens_after_validation_not_on_disk() {
+        let (repo, snapshot_id) = captured_repo();
+
+        snapshot_json(repo.path(), &snapshot_id).unwrap();
+
+        // The stored artifact is untouched: it still carries the hash-baked
+        // target.worktreeRoot and still hash-validates on read.
+        let artifact = read_snapshot_artifact(
+            repo.path(),
+            &SnapshotId::new(snapshot_id.clone()),
+        )
+        .expect("stored artifact still validates after a wire read");
+        match &artifact.target {
+            ReviewEndpoint::GitWorkingTree { worktree_root } => {
+                assert!(!worktree_root.is_empty());
+            }
+            other => panic!("unexpected target endpoint: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn snapshot_json_rejects_tampered_artifact_before_redaction() {
+        let (repo, snapshot_id) = captured_repo();
+        let artifact_path = stored_snapshot_artifact_path(repo.path());
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&artifact_path).unwrap()).unwrap();
+        json["target"]["worktreeRoot"] = serde_json::json!("/other/repo");
+        std::fs::write(&artifact_path, serde_json::to_vec(&json).unwrap()).unwrap();
+
+        let error = snapshot_json(repo.path(), &snapshot_id)
+            .expect_err("tampered artifact is rejected before wire shaping");
+
+        assert!(error.contains("snapshot not found or unreadable"));
+        assert!(!error.contains("/other/repo"));
     }
 
     #[test]
