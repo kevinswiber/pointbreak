@@ -79,6 +79,10 @@ pub(crate) struct TaskProjectionDiagnostic {
     pub code: String,
     pub message: String,
     pub event_id: Option<EventId>,
+    /// Bounded machine-readable detail for diagnostics whose code carries a
+    /// closed reason vocabulary (ADR-0009's
+    /// `agent_resumption_response_identity_not_binding`); `None` elsewhere.
+    pub reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -188,6 +192,7 @@ pub(crate) fn task_attempt_summary_from_events(
                             checkpoint_id.as_str()
                         ),
                         event_id: Some(envelope.event_id.clone()),
+                        reason: None,
                     });
                     observations_without_checkpoint.push(summary);
                 } else {
@@ -376,6 +381,7 @@ pub(crate) fn open_task_input_requests_from_events(
                 payload.input_request_id.as_str()
             ),
             event_id: Some(envelope.event_id.clone()),
+            reason: None,
         });
 
         let mode = envelope.assertion_mode;
@@ -506,6 +512,11 @@ pub(crate) enum ResumptionBindingPolicy {
     /// Only arm (b) binds: nothing binds without a key — including the
     /// store's own unsigned responses. For stores whose possession does not
     /// imply authorship (shared checkouts, cp -r copies).
+    ///
+    /// Like `agent_resumption_from_events` itself, this preset has no
+    /// production caller yet — the in-module fixture suite is the only
+    /// consumer until a workflow-level resumption read surface lands.
+    #[allow(dead_code)]
     VerifiedOnly,
 }
 
@@ -560,6 +571,7 @@ pub(crate) fn agent_resumption_from_events(
                     task_attempt_id.as_str()
                 ),
                 event_id: None,
+                reason: None,
             }],
         });
     };
@@ -609,6 +621,7 @@ pub(crate) fn agent_resumption_from_events(
                     open.view.input_request_id.as_str()
                 ),
                 event_id: Some(open.view.envelope.event_id.clone()),
+                reason: None,
             }],
         });
     }
@@ -639,6 +652,7 @@ pub(crate) fn agent_resumption_from_events(
                     ambiguous.responses.len()
                 ),
                 event_id: Some(ambiguous.view.envelope.event_id.clone()),
+                reason: None,
             }],
         });
     }
@@ -706,6 +720,7 @@ pub(crate) fn agent_resumption_from_events(
                         record.view.input_request_id.as_str()
                     ),
                     event_id: Some(response.envelope.event_id.clone()),
+                    reason: None,
                 },
                 _ => TaskProjectionDiagnostic {
                     code: "agent_resumption_response_targets_stale_checkpoint".to_owned(),
@@ -714,6 +729,7 @@ pub(crate) fn agent_resumption_from_events(
                         record.view.input_request_id.as_str()
                     ),
                     event_id: Some(response.envelope.event_id.clone()),
+                    reason: None,
                 },
             };
             return Ok(AgentResumptionProjection {
@@ -740,6 +756,7 @@ pub(crate) fn agent_resumption_from_events(
                         response.outcome
                     ),
                     event_id: Some(response.envelope.event_id.clone()),
+                    reason: None,
                 });
             }
             if !operative {
@@ -749,14 +766,17 @@ pub(crate) fn agent_resumption_from_events(
                         "response envelope assertion_mode is not Operative; advisory responses do not bind"
                             .to_owned(),
                     event_id: Some(response.envelope.event_id.clone()),
+                    reason: None,
                 });
             }
             if !identity_binding {
+                let reason =
+                    non_binding_reason(response.verification, response.ingested, binding_policy);
                 diagnostics.push(TaskProjectionDiagnostic {
                     code: "agent_resumption_response_identity_not_binding".to_owned(),
-                    message: "response identity is not verified as binding; no binding trust source is configured at this revision"
-                        .to_owned(),
+                    message: non_binding_message(reason).to_owned(),
                     event_id: Some(response.envelope.event_id.clone()),
+                    reason: Some(reason.to_owned()),
                 });
             }
             return Ok(AgentResumptionProjection {
@@ -987,6 +1007,43 @@ fn response_identity_is_binding(
     policy.permits_local_possession()
         && !ingested
         && verification != EventVerificationStatus::Invalid
+}
+
+/// ADR-0009 diagnostics: bounded reason naming the cheapest fix, first match
+/// wins. Only defined on the non-binding domain: when verification is
+/// `UntrustedKey` and arm (a) is available the response binds and no
+/// diagnostic is emitted at all, so the plain status match is equivalent to
+/// the ADR's "and arm (a) is unavailable" qualification.
+fn non_binding_reason(
+    verification: EventVerificationStatus,
+    ingested: bool,
+    _policy: ResumptionBindingPolicy,
+) -> &'static str {
+    match () {
+        _ if verification == EventVerificationStatus::Invalid => "signature_invalid",
+        _ if verification == EventVerificationStatus::UntrustedKey => "signer_not_authorized",
+        _ if ingested => "ingested_unsigned",
+        _ => "policy_excludes_local",
+    }
+}
+
+/// Ambiguity-honest operator message per bounded reason: each states what the
+/// projection knows, never a guess about who the responder "really" was.
+fn non_binding_message(reason: &str) -> &'static str {
+    match reason {
+        "signature_invalid" => {
+            "response signature is invalid; tampering or corruption — never binds"
+        }
+        "signer_not_authorized" => {
+            "response signature verifies but the allowed-signers trust set does not authorize this signer for the claimed actor"
+        }
+        "ingested_unsigned" => {
+            "response was ingested without a signature; the responder must sign for this response to bind"
+        }
+        _ => {
+            "local unsigned response under verified-only; the store's policy requires a key to bind"
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2477,6 +2534,191 @@ mod tests {
             .as_ref()
             .expect("selected response");
         assert!(!response_view.identity_treated_as_binding);
+    }
+
+    /// Signs a response event in place with a seeded Ed25519 key. The signer
+    /// is not in any trust set, so verification yields `UntrustedKey` against
+    /// `TrustSet::default()`.
+    fn sign_event_with_seeded_key(event: &mut ShoreEvent) {
+        use ed25519_dalek::{Signer as _, SigningKey};
+
+        use crate::crypto::{EventSignatureBytes, EventSigner, SignerId};
+
+        struct SeededSigner {
+            signer_id: SignerId,
+            signing_key: SigningKey,
+        }
+
+        impl EventSigner for SeededSigner {
+            fn signer_id(&self) -> &SignerId {
+                &self.signer_id
+            }
+
+            fn sign_event_message(&self, message: &[u8]) -> Result<EventSignatureBytes> {
+                let signature = self.signing_key.sign(message);
+                Ok(EventSignatureBytes::from_bytes(&signature.to_bytes()))
+            }
+        }
+
+        let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+        let signer_id = SignerId::from_ed25519_public_key(signing_key.verifying_key().to_bytes());
+        crate::session::sign_event_if_requested(
+            event,
+            &crate::session::EventSigningOptions::sign_with(SeededSigner {
+                signer_id,
+                signing_key,
+            }),
+        )
+        .unwrap();
+    }
+
+    fn identity_not_binding_diagnostic(
+        projection: &AgentResumptionProjection,
+    ) -> &TaskProjectionDiagnostic {
+        projection
+            .diagnostics
+            .iter()
+            .find(|d| d.code == "agent_resumption_response_identity_not_binding")
+            .expect("identity-not-binding diagnostic emitted")
+    }
+
+    #[test]
+    fn non_binding_reason_vocabulary_first_match_wins() {
+        use EventVerificationStatus::{Invalid, Unsigned, UntrustedKey};
+        use ResumptionBindingPolicy::{LocalAndVerified, VerifiedOnly};
+        let cases = [
+            // (verification, ingested, policy,       reason)
+            (Invalid, false, LocalAndVerified, "signature_invalid"),
+            (Invalid, true, LocalAndVerified, "signature_invalid"),
+            (Invalid, false, VerifiedOnly, "signature_invalid"),
+            (Invalid, true, VerifiedOnly, "signature_invalid"),
+            (
+                UntrustedKey,
+                true,
+                LocalAndVerified,
+                "signer_not_authorized",
+            ),
+            (UntrustedKey, false, VerifiedOnly, "signer_not_authorized"),
+            (UntrustedKey, true, VerifiedOnly, "signer_not_authorized"),
+            (Unsigned, true, LocalAndVerified, "ingested_unsigned"),
+            (Unsigned, true, VerifiedOnly, "ingested_unsigned"),
+            (Unsigned, false, VerifiedOnly, "policy_excludes_local"),
+        ];
+        for (verification, ingested, policy, expected) in cases {
+            assert_eq!(
+                non_binding_reason(verification, ingested, policy),
+                expected,
+                "({verification:?}, ingested: {ingested}, {policy:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn ingested_unsigned_response_diagnostic_names_ingested_unsigned() {
+        let (mut events, task_attempt_id) = approved_local_response_events();
+        events.last_mut().expect("response event").ingest = Some(IngestProvenance {
+            via: IngestVia::IngestEvents,
+            received_at: "unix-ms:1".to_owned(),
+        });
+
+        let projection = agent_resumption_from_events(
+            &events,
+            &task_attempt_id,
+            &reader_actor(),
+            &TrustSet::default(),
+            ResumptionBindingPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(projection.state, AgentResumptionState::Blocked);
+        let diagnostic = identity_not_binding_diagnostic(&projection);
+        assert_eq!(diagnostic.reason.as_deref(), Some("ingested_unsigned"));
+        // Ambiguity-honest: states what the projection knows (the responder
+        // must sign for this to bind), never a guess about who responded.
+        assert!(
+            diagnostic.message.contains("sign"),
+            "message names the cheapest fix; got {}",
+            diagnostic.message
+        );
+    }
+
+    #[test]
+    fn invalid_signature_diagnostic_names_signature_invalid() {
+        let (mut events, task_attempt_id) = approved_local_response_events();
+        let response = events.last_mut().expect("response event");
+        response.signer = Some(
+            crate::crypto::SignerId::parse(
+                "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+            )
+            .unwrap(),
+        );
+        response.signature = Some(
+            crate::session::event::EventSignature::new_ed25519_v1(
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+            )
+            .unwrap(),
+        );
+
+        let projection = agent_resumption_from_events(
+            &events,
+            &task_attempt_id,
+            &reader_actor(),
+            &TrustSet::default(),
+            ResumptionBindingPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(projection.state, AgentResumptionState::Blocked);
+        let diagnostic = identity_not_binding_diagnostic(&projection);
+        assert_eq!(diagnostic.reason.as_deref(), Some("signature_invalid"));
+        assert!(diagnostic.message.contains("invalid"));
+    }
+
+    #[test]
+    fn unauthorized_signer_diagnostic_names_signer_not_authorized() {
+        // A really-signed but unauthorized response: the signature verifies,
+        // the empty trust set does not authorize the signer, and the ingest
+        // stamp removes arm (a).
+        let (mut events, task_attempt_id) = approved_local_response_events();
+        let response = events.last_mut().expect("response event");
+        sign_event_with_seeded_key(response);
+        response.ingest = Some(IngestProvenance {
+            via: IngestVia::IngestEvents,
+            received_at: "unix-ms:1".to_owned(),
+        });
+
+        let projection = agent_resumption_from_events(
+            &events,
+            &task_attempt_id,
+            &reader_actor(),
+            &TrustSet::default(),
+            ResumptionBindingPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(projection.state, AgentResumptionState::Blocked);
+        let diagnostic = identity_not_binding_diagnostic(&projection);
+        assert_eq!(diagnostic.reason.as_deref(), Some("signer_not_authorized"));
+        assert!(diagnostic.message.contains("authorize"));
+    }
+
+    #[test]
+    fn local_unsigned_under_verified_only_diagnostic_names_policy_excludes_local() {
+        let (events, task_attempt_id) = approved_local_response_events();
+
+        let projection = agent_resumption_from_events(
+            &events,
+            &task_attempt_id,
+            &reader_actor(),
+            &TrustSet::default(),
+            ResumptionBindingPolicy::VerifiedOnly,
+        )
+        .unwrap();
+
+        assert_eq!(projection.state, AgentResumptionState::Blocked);
+        let diagnostic = identity_not_binding_diagnostic(&projection);
+        assert_eq!(diagnostic.reason.as_deref(), Some("policy_excludes_local"));
+        assert!(diagnostic.message.contains("verified-only"));
     }
 
     #[test]
