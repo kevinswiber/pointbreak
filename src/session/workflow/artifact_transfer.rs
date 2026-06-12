@@ -149,7 +149,11 @@ pub fn export_artifact(repo: impl AsRef<Path>, artifact: &ArtifactRef) -> Result
         }
         ArtifactLocator::Body { relative_path } => {
             let read_store = resolve_read_store(repo.as_ref())?;
-            read_body_artifact_bytes(read_store.store_dir(), relative_path, &artifact.content_hash)
+            read_body_artifact_bytes(
+                read_store.store_dir(),
+                relative_path,
+                &artifact.content_hash,
+            )
         }
     }
 }

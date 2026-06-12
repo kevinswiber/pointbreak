@@ -4,7 +4,8 @@ use crate::error::Result;
 use crate::model::{ReviewUnitId, ReviewUnitLineageId};
 use crate::session::EventStore;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
-use crate::session::store_init::ShoreStorePaths;
+use crate::session::store::resolution::resolve_read_store;
+use crate::session::workflow::read_store::divergence_diagnostics;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LineageListOptions {
@@ -37,8 +38,8 @@ pub struct LineageListEntry {
 }
 
 pub fn list_lineages(options: LineageListOptions) -> Result<LineageListResult> {
-    let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let events = EventStore::open(paths.shore_dir()).list_events()?;
+    let read_store = resolve_read_store(&options.repo)?;
+    let events = EventStore::open(read_store.store_dir()).list_events()?;
     let state = SessionState::from_events(&events)?;
     let projection =
         crate::session::projection::lineage::ReviewUnitLineageProjection::from_events(&events)?;
@@ -62,6 +63,6 @@ pub fn list_lineages(options: LineageListOptions) -> Result<LineageListResult> {
         event_count: events.len(),
         lineage_count,
         entries,
-        diagnostics: Vec::new(),
+        diagnostics: divergence_diagnostics(&read_store),
     })
 }

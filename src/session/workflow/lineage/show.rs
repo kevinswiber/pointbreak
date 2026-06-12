@@ -6,7 +6,8 @@ use crate::model::{ReviewUnitId, ReviewUnitLineageId, ReviewUnitLineageRoundId};
 use crate::session::EventStore;
 use crate::session::event::{EventType, ShoreEvent};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
-use crate::session::store_init::ShoreStorePaths;
+use crate::session::store::resolution::resolve_read_store;
+use crate::session::workflow::read_store::divergence_diagnostics;
 
 pub const STALE_BY_NEWER_ROUND_CODE: &str = "stale_by_newer_round";
 
@@ -46,8 +47,8 @@ pub struct LineageRoundView {
 }
 
 pub fn show_lineage(options: LineageShowOptions) -> Result<LineageShowResult> {
-    let paths = ShoreStorePaths::resolve(&options.repo)?;
-    let events = EventStore::open(paths.shore_dir()).list_events()?;
+    let read_store = resolve_read_store(&options.repo)?;
+    let events = EventStore::open(read_store.store_dir()).list_events()?;
     let state = SessionState::from_events(&events)?;
     let projection =
         crate::session::projection::lineage::ReviewUnitLineageProjection::from_events(&events)?;
@@ -60,6 +61,7 @@ pub fn show_lineage(options: LineageShowOptions) -> Result<LineageShowResult> {
 
     let mut diagnostics = lineage.diagnostics.clone();
     append_stale_by_newer_round_diagnostics(&mut diagnostics, &events, lineage);
+    diagnostics.extend(divergence_diagnostics(&read_store));
     let event_set_hash = state
         .event_set_hash
         .expect("SessionState::from_events sets event_set_hash");

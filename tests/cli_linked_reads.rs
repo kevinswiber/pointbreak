@@ -8,8 +8,8 @@ use std::process::Command;
 use serde_json::Value;
 use shoreline::model::SnapshotId;
 use shoreline::session::{
-    ArtifactKind, ArtifactRef, ImportArtifactOptions, export_artifact, import_artifact,
-    read_events, read_snapshot_artifact, referenced_artifacts,
+    ArtifactKind, ArtifactRef, ImportArtifactOptions, LineageListOptions, export_artifact,
+    import_artifact, list_lineages, read_events, read_snapshot_artifact, referenced_artifacts,
 };
 use support::git_repo::GitRepo;
 use support::shore;
@@ -58,11 +58,11 @@ impl LinkedFixture {
             .as_str()
             .expect("capture has snapshot id")
             .to_owned();
-        fixture.seed_snapshot_artifact_content_hash = capture["reviewUnit"]
-            ["snapshotArtifactContentHash"]
-            .as_str()
-            .expect("capture has snapshot artifact content hash")
-            .to_owned();
+        fixture.seed_snapshot_artifact_content_hash =
+            capture["reviewUnit"]["snapshotArtifactContentHash"]
+                .as_str()
+                .expect("capture has snapshot artifact content hash")
+                .to_owned();
         fixture.link(&fixture.seed);
         fixture.link(&fixture.reader);
         fixture
@@ -96,6 +96,20 @@ impl LinkedFixture {
 
     fn linked_store_dir(&self) -> PathBuf {
         self.main.path().join(".git/shoreline")
+    }
+
+    fn lineage_attach(&self, worktree: &Path, lineage_id: &str, review_unit_id: &str) -> Value {
+        run_shore_json(&[
+            "review",
+            "lineage",
+            "attach",
+            "--repo",
+            worktree.to_str().unwrap(),
+            "--lineage",
+            lineage_id,
+            "--review-unit",
+            review_unit_id,
+        ])
     }
 
     fn history_json(&self, worktree: &Path, include_body: bool) -> Value {
@@ -311,7 +325,10 @@ fn linked_history_reads_full_timeline_from_linked_store() {
         .iter()
         .filter_map(|entry| entry["eventType"].as_str())
         .collect();
-    assert!(event_types.contains(&"review_unit_captured"), "{event_types:?}");
+    assert!(
+        event_types.contains(&"review_unit_captured"),
+        "{event_types:?}"
+    );
     assert!(
         event_types.contains(&"review_observation_recorded"),
         "{event_types:?}"
@@ -521,6 +538,78 @@ fn linked_validation_list_resolves_linked_unit() {
 }
 
 #[test]
+fn linked_lineage_list_sees_linked_lineage() {
+    let fixture = LinkedFixture::new();
+    let lineage_id = "review-unit-lineage:random:linked-test";
+    fixture.lineage_attach(&fixture.seed, lineage_id, &fixture.seed_review_unit_id);
+    fixture.link(&fixture.seed);
+
+    let result = list_lineages(LineageListOptions::new(&fixture.reader)).unwrap();
+
+    assert_eq!(result.lineage_count, 1);
+    assert_eq!(result.entries[0].lineage_id.as_str(), lineage_id);
+    assert_eq!(
+        result.entries[0]
+            .head_review_unit_id
+            .as_ref()
+            .map(|id| id.as_str()),
+        Some(fixture.seed_review_unit_id.as_str())
+    );
+}
+
+#[test]
+fn linked_lineage_list_emits_divergence_diagnostic_with_local_only_events() {
+    let fixture = LinkedFixture::new();
+    let lineage_id = "review-unit-lineage:random:diag-test";
+    fixture.lineage_attach(&fixture.seed, lineage_id, &fixture.seed_review_unit_id);
+    fixture.link(&fixture.seed);
+    fs::write(fixture.reader.join("README.md"), "changed in reader\n").unwrap();
+    fixture.capture(&fixture.reader);
+
+    let result = list_lineages(LineageListOptions::new(&fixture.reader)).unwrap();
+
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "clone_local_unsynced_local_events"),
+        "diagnostics: {:?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn linked_lineage_show_resolves_rounds_from_linked_store() {
+    let fixture = LinkedFixture::new();
+    let lineage_id = "review-unit-lineage:random:show-test";
+    fixture.lineage_attach(&fixture.seed, lineage_id, &fixture.seed_review_unit_id);
+    fixture.link(&fixture.seed);
+
+    let json = run_shore_json(&[
+        "review",
+        "lineage",
+        "show",
+        "--repo",
+        fixture.reader.to_str().unwrap(),
+        "--lineage",
+        lineage_id,
+    ]);
+
+    assert_eq!(json["lineageId"], lineage_id);
+    assert_eq!(
+        json["headReviewUnitId"],
+        Value::String(fixture.seed_review_unit_id.clone())
+    );
+    let rounds = json["rounds"].as_array().unwrap();
+    assert_eq!(rounds.len(), 1);
+    assert_eq!(
+        rounds[0]["reviewUnitId"],
+        Value::String(fixture.seed_review_unit_id.clone())
+    );
+    assert_eq!(rounds[0]["isHead"], true);
+}
+
+#[test]
 fn snapshot_artifact_reads_from_linked_store() {
     let fixture = LinkedFixture::new();
     let snapshot_id = SnapshotId::new(fixture.seed_snapshot_id.clone());
@@ -565,12 +654,8 @@ fn import_artifact_still_writes_worktree_local_in_linked_mode() {
     );
     let bytes = fs::read(fixture.seed.join(".shore").join(&artifact_relative_path)).unwrap();
 
-    import_artifact(ImportArtifactOptions::new(
-        &fixture.reader,
-        body_ref,
-        bytes,
-    ))
-    .expect("import into the linked reader succeeds");
+    import_artifact(ImportArtifactOptions::new(&fixture.reader, body_ref, bytes))
+        .expect("import into the linked reader succeeds");
 
     // Writes stay worktree-local until shared-store writes land: the artifact
     // lands in the reader's own .shore, not the linked clone-local store.
