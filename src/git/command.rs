@@ -125,6 +125,47 @@ pub fn git_head_tree_oid(repo: &Path) -> Result<String> {
     git_stdout_string(repo, &output.stdout, "HEAD tree oid")
 }
 
+/// Resolve `rev` to a full commit OID, peeling annotated tags.
+///
+/// Rejects revs that do not exist or do not peel to a commit (blobs, trees)
+/// with an error that names the rev, so CLI flags can surface it verbatim.
+/// Resolution runs in the workflow (not the CLI) so library callers get the
+/// same honest errors. `--end-of-options` keeps a rev that looks like a flag
+/// (user input) from being parsed as an option.
+pub(crate) fn git_rev_parse_commit_oid(repo: &Path, rev: &str) -> Result<String> {
+    git_rev_parse_peeled(repo, rev, "commit", "commit oid")
+}
+
+/// Resolve a commit OID to its tree OID. Callers pass an already-resolved
+/// commit OID (from [`git_rev_parse_commit_oid`]), never a raw user rev.
+pub(crate) fn git_commit_tree_oid(repo: &Path, commit_oid: &str) -> Result<String> {
+    git_rev_parse_peeled(repo, commit_oid, "tree", "commit tree oid")
+}
+
+/// Resolve `rev` peeled to `peel` (e.g. `commit`, `tree`) via
+/// `git rev-parse --verify --end-of-options <rev>^{<peel>}`.
+///
+/// Substitutes an honest, rev-naming error for git's noisy stderr on failure:
+/// one message covers both unknown and non-`peel` objects ("cannot resolve
+/// '<rev>' to a <peel>").
+fn git_rev_parse_peeled(repo: &Path, rev: &str, peel: &str, description: &str) -> Result<String> {
+    let output = run_git(
+        repo,
+        [
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            &format!("{rev}^{{{peel}}}"),
+        ],
+    )
+    .map_err(|_| {
+        ShoreError::Message(format!(
+            "cannot resolve '{rev}' to a {peel} in this repository"
+        ))
+    })?;
+    git_stdout_string(repo, &output.stdout, description)
+}
+
 pub(crate) fn git_worktree_list(repo: &Path) -> Result<Vec<GitWorktree>> {
     let output = run_git(repo, ["worktree", "list", "--porcelain", "-z"])?;
     parse_git_worktree_list_z(&output.stdout)
@@ -304,6 +345,95 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(worktree_paths.contains(&canonicalize(fixture.main.path())));
         assert!(worktree_paths.contains(&canonicalize(&fixture.linked_path)));
+    }
+
+    #[test]
+    fn rev_parse_commit_oid_resolves_branches_relative_revs_and_annotated_tags() {
+        let repo = TwoCommitRepo::new();
+
+        let first_via_helper = git_rev_parse_commit_oid(repo.path(), "HEAD~1").unwrap();
+        let first_expected = rev_parse(repo.path(), "HEAD~1");
+        assert_eq!(first_via_helper, first_expected);
+
+        let first_via_tag = git_rev_parse_commit_oid(repo.path(), "v1").unwrap();
+        assert_eq!(
+            first_via_tag, first_expected,
+            "annotated tag must peel to its commit"
+        );
+
+        // Full-width oid (not abbreviated); width depends on object format.
+        assert_eq!(first_via_helper, rev_parse(repo.path(), "HEAD~1"));
+        assert!(!first_via_helper.is_empty());
+    }
+
+    #[test]
+    fn rev_parse_commit_oid_rejects_unknown_rev_with_honest_error() {
+        let repo = TwoCommitRepo::new();
+
+        let error = git_rev_parse_commit_oid(repo.path(), "no-such-rev").unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains("no-such-rev"), "message: {message}");
+        assert!(message.contains("commit"), "message: {message}");
+    }
+
+    #[test]
+    fn rev_parse_commit_oid_rejects_non_commit_object() {
+        let repo = TwoCommitRepo::new();
+
+        let error = git_rev_parse_commit_oid(repo.path(), "HEAD:file.txt").unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains("HEAD:file.txt"), "message: {message}");
+    }
+
+    #[test]
+    fn commit_tree_oid_resolves_tree_for_commit() {
+        let repo = TwoCommitRepo::new();
+        let head_oid = git_head_oid(repo.path()).unwrap();
+
+        let tree_via_commit = git_commit_tree_oid(repo.path(), &head_oid).unwrap();
+        let tree_via_head = git_head_tree_oid(repo.path()).unwrap();
+
+        assert_eq!(tree_via_commit, tree_via_head);
+        assert_ne!(tree_via_commit, head_oid);
+    }
+
+    fn rev_parse(repo: &Path, rev: &str) -> String {
+        let output = run_git(repo, ["rev-parse", rev]).unwrap();
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    }
+
+    struct TwoCommitRepo {
+        root: TempDir,
+    }
+
+    impl TwoCommitRepo {
+        fn new() -> Self {
+            let root = TempDir::new().expect("create temp git repository directory");
+            let repo = Self { root };
+
+            git(repo.path(), ["init"]);
+            git(repo.path(), ["config", "user.name", "Shore Tests"]);
+            git(
+                repo.path(),
+                ["config", "user.email", "shore-tests@example.com"],
+            );
+            git(repo.path(), ["config", "commit.gpgsign", "false"]);
+
+            fs::write(repo.path().join("file.txt"), "one\n").expect("write first file");
+            git(repo.path(), ["add", "--all"]);
+            git(repo.path(), ["commit", "-m", "first"]);
+            git(repo.path(), ["tag", "-a", "v1", "-m", "v1", "HEAD"]);
+
+            fs::write(repo.path().join("file.txt"), "two\n").expect("write second file");
+            git(repo.path(), ["add", "--all"]);
+            git(repo.path(), ["commit", "-m", "second"]);
+
+            repo
+        }
+
+        fn path(&self) -> &Path {
+            self.root.path()
+        }
     }
 
     #[cfg(unix)]
