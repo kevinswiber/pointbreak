@@ -360,6 +360,99 @@ fn review_unit_show_includes_adapter_notes_without_storage_paths() {
     assert!(!stdout.contains(".shore/events"));
 }
 
+#[test]
+fn unit_show_projects_range_capture_with_bound_snapshot() {
+    let repo = support::committed_repo();
+    let capture = parse_json(
+        &shore([
+            "review",
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--base",
+            "HEAD~1",
+        ])
+        .stdout,
+    );
+    let review_unit_id = capture["reviewUnit"]["id"].as_str().unwrap();
+
+    let output = shore([
+        "review",
+        "unit",
+        "show",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--review-unit",
+        review_unit_id,
+    ]);
+
+    // The command succeeding proves load_bound_snapshot_artifact validated the
+    // bound snapshot against the range identity.
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json = parse_json(&output.stdout);
+    assert_eq!(json["reviewUnit"]["source"]["kind"], "git_commit_range");
+    assert_eq!(json["reviewUnit"]["base"]["kind"], "git_commit");
+    assert_eq!(json["reviewUnit"]["target"]["kind"], "git_commit");
+    assert!(json["summary"]["snapshotRowCount"].as_u64().unwrap() > 0);
+    assert!(
+        stdout.contains("src/lib.rs"),
+        "snapshot rows must include the committed file"
+    );
+}
+
+#[test]
+fn unit_show_disambiguates_worktree_and_range_units() {
+    let repo = support::committed_repo();
+    // A dirty worktree yields a worktree unit; --base yields a range unit.
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    let range = parse_json(
+        &shore([
+            "review",
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--base",
+            "HEAD~1",
+        ])
+        .stdout,
+    );
+
+    let ambiguous = shore([
+        "review",
+        "unit",
+        "show",
+        "--repo",
+        repo.path().to_str().unwrap(),
+    ]);
+    assert!(!ambiguous.status.success());
+    assert!(
+        String::from_utf8_lossy(&ambiguous.stderr).contains("multiple captured review units"),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&ambiguous.stderr)
+    );
+
+    let json = parse_json(
+        &shore([
+            "review",
+            "unit",
+            "show",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--review-unit",
+            range["reviewUnit"]["id"].as_str().unwrap(),
+        ])
+        .stdout,
+    );
+    assert_eq!(json["reviewUnit"]["id"], range["reviewUnit"]["id"]);
+    assert_eq!(json["reviewUnit"]["source"]["kind"], "git_commit_range");
+}
+
 fn modified_repo() -> GitRepo {
     let repo = GitRepo::new();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");

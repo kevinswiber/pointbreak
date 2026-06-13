@@ -95,6 +95,9 @@ struct FreshnessPayload {
 
 /// The literal floor label shown when no worktree basename can be derived.
 const WORKING_TREE_FLOOR: &str = "working tree";
+/// The floor label for a commit target whose OID is empty/unreadable. Distinct
+/// from the worktree floor: a commit target is never a "working tree".
+const GIT_COMMIT_FLOOR: &str = "git commit";
 /// Length of the git-style short commit OID used for head labels (git's default).
 const SHORT_OID_LEN: usize = 7;
 
@@ -107,9 +110,12 @@ const SHORT_OID_LEN: usize = 7;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TargetDisplay {
-    /// `"working_tree"` for a Git working-tree target; otherwise the endpoint kind.
+    /// `"working_tree"` for a Git working-tree target; `"git_commit"` for a
+    /// commit target (e.g. a commit-range capture).
     kind: &'static str,
-    /// Basename of the worktree root, or the `"working tree"` floor when none derives.
+    /// For a working-tree target, the worktree-root basename (or the
+    /// `"working tree"` floor). For a commit target, the short target OID (or
+    /// the `"git commit"` floor).
     label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     head: Option<HeadDisplay>,
@@ -141,7 +147,10 @@ fn derive_target_display(target: &ReviewEndpoint, base: &ReviewEndpoint) -> Targ
         ReviewEndpoint::GitWorkingTree { worktree_root } => {
             ("working_tree", basename_label(worktree_root))
         }
-        ReviewEndpoint::GitCommit { .. } => ("git_commit", WORKING_TREE_FLOOR.to_owned()),
+        ReviewEndpoint::GitCommit { commit_oid, .. } => (
+            "git_commit",
+            short_oid(commit_oid).unwrap_or_else(|| GIT_COMMIT_FLOOR.to_owned()),
+        ),
     };
     TargetDisplay {
         kind,
@@ -562,6 +571,28 @@ mod tests {
     fn empty_commit_oid_yields_no_head() {
         let display = derive_target_display(&working_tree("/repo/wt"), &commit(""));
         assert!(display.head.is_none());
+    }
+
+    #[test]
+    fn commit_target_displays_short_target_oid_label() {
+        let display = derive_target_display(
+            &commit("9fceb02d0ae598e95dc970b74767f19372d61af8"),
+            &commit("abc1234def"),
+        );
+
+        assert_eq!(display.kind, "git_commit");
+        assert_eq!(display.label, "9fceb02");
+        assert_eq!(display.head.unwrap().commit_oid_short, "abc1234");
+        assert!(display.path_private);
+    }
+
+    #[test]
+    fn commit_target_with_empty_oid_floors_to_kind_label() {
+        let display = derive_target_display(&commit(""), &commit("abc1234def"));
+
+        assert_eq!(display.kind, "git_commit");
+        assert_eq!(display.label, "git commit");
+        assert_ne!(display.label, "working tree");
     }
 
     #[test]

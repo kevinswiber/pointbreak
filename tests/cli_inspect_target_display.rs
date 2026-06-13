@@ -94,6 +94,51 @@ fn api_unit_splices_target_display_for_locally_readable_unit() {
     assert_eq!(review_unit["target"]["kind"], "git_working_tree");
 }
 
+/// A commit-range capture (`--base`) has a `git_commit` target, so the inspector
+/// must label it with the short target OID — never the `"working tree"` floor —
+/// and the wire block must stay path-private.
+#[test]
+fn inspector_units_render_commit_target_display_for_range_capture() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    repo.commit_all("change");
+
+    let output = shore([
+        "review",
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--base",
+        "HEAD~1",
+    ]);
+    assert!(
+        output.status.success(),
+        "capture stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let inspector = Inspector::spawn(repo.path());
+    let units = inspector.get_json("/api/units");
+    let entry = &units["entries"][0];
+
+    assert_eq!(entry["targetDisplay"]["kind"], "git_commit");
+    let target_oid = entry["target"]["commitOid"].as_str().unwrap();
+    let base_oid = entry["base"]["commitOid"].as_str().unwrap();
+    assert_eq!(entry["targetDisplay"]["label"], target_oid[..7]);
+    assert_eq!(
+        entry["targetDisplay"]["head"]["commitOidShort"],
+        base_oid[..7]
+    );
+    assert_eq!(entry["targetDisplay"]["pathPrivate"], true);
+    assert_ne!(entry["targetDisplay"]["label"], "working tree");
+    assert!(
+        !units.to_string().contains("worktreeRoot"),
+        "range capture unit list must not expose a worktree path"
+    );
+}
+
 /// Test B: a detached-HEAD capture still derives `label = <basename>` and a short
 /// head OID, with no branch claimed.
 #[test]

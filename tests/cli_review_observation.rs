@@ -596,6 +596,58 @@ fn parse_json(stdout: &[u8]) -> Value {
     serde_json::from_slice(stdout).expect("stdout is valid JSON")
 }
 
+#[test]
+fn observation_add_and_list_work_against_range_captured_unit() {
+    let repo = support::committed_repo();
+    let capture = parse_json(
+        &shore([
+            "review",
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--base",
+            "HEAD~1",
+        ])
+        .stdout,
+    );
+    let review_unit_id = capture["reviewUnit"]["id"].as_str().unwrap();
+
+    let add = parse_json(
+        &shore([
+            "review",
+            "observation",
+            "add",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--review-unit",
+            review_unit_id,
+            "--track",
+            "agent:codex",
+            "--title",
+            "Range observation",
+        ])
+        .stdout,
+    );
+    assert_eq!(add["reviewUnitId"], review_unit_id);
+    assert_eq!(add["eventsCreatedByType"]["review_observation_recorded"], 1);
+
+    let list = parse_json(
+        &shore([
+            "review",
+            "observation",
+            "list",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--review-unit",
+            review_unit_id,
+        ])
+        .stdout,
+    );
+    assert_eq!(list["reviewUnitId"], review_unit_id);
+    assert_eq!(list["observations"].as_array().unwrap().len(), 1);
+    assert_eq!(list["observations"][0]["title"], "Range observation");
+}
+
 fn diagnostic_with_code<'a>(json: &'a Value, code: &str) -> &'a Value {
     json["diagnostics"]
         .as_array()

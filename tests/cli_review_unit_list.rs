@@ -275,6 +275,44 @@ fn review_unit_list_omits_ambient_ambiguous_current_diagnostic_from_linked_store
     );
 }
 
+#[test]
+fn unit_list_renders_commit_range_source_without_paths() {
+    let repo = support::committed_repo();
+    shore([
+        "review",
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--base",
+        "HEAD~1",
+    ]);
+
+    let output = shore([
+        "review",
+        "unit",
+        "list",
+        "--repo",
+        repo.path().to_str().unwrap(),
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json = parse_json(&output.stdout);
+
+    let entry = &json["entries"][0];
+    assert_eq!(entry["source"]["kind"], "git_commit_range");
+    assert_eq!(entry["source"]["mode"], "base_tree_to_target_tree");
+    assert_eq!(entry["base"]["kind"], "git_commit");
+    assert_eq!(entry["target"]["kind"], "git_commit");
+    assert!(
+        !stdout.contains("worktreeRoot"),
+        "range capture unit list must not expose a worktree path"
+    );
+}
+
 fn parse_json(bytes: &[u8]) -> Value {
     serde_json::from_slice(bytes).expect("parse CLI JSON")
 }
