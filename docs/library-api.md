@@ -74,6 +74,16 @@ ReviewUnit validation target internally. `ValidationListOptions` filters by Revi
 status, and `with_include_body(true)` hydrates validation summaries. Validation evidence is
 advisory; it does not accept, reject, merge, block, or replace a review assessment.
 
+**Linked write-validation.** In a worktree registered with a clone-local store, every review write
+workflow above (`record_observation`, `open_input_request`, `respond_input_request`,
+`record_assessment`, `record_validation_check`, and lineage attach) validates and derives against the
+**writer-visible union**: the linked store's events plus the worktree-local events not yet synced.
+This is the write-path counterpart to the store-only read seam — a consumer can record a fact against
+a ReviewUnit, observation, assessment, or input request that lives only in the linked store. The
+write itself stays worktree-local and batch-syncs via `link_clone_local_store`; in linked mode the
+result diagnostics include `clone_local_fact_batch_only`. The unlinked path is unchanged: the union
+reduces to the local event list and no diagnostic is added.
+
 ### Event signatures — `shoreline::session` / `shoreline::crypto`
 
 Per-event Ed25519 signatures are optional. Unsigned events remain valid and continue to omit
@@ -175,9 +185,11 @@ Events copied into a clone-local store by `shore store link` carry that same ing
 (`via: "bundle-apply"`), and binding decisions are a pure function of the events actually read. An
 unsigned input-request response binds via possession only inside the store that locally wrote it:
 when any linked checkout — including the authoring worktree — reads the linked store's stamped
-copy, the response projects as non-binding with reason `ingested_unsigned`. A response signed by a
-verified, authorized signer binds identically from any store. Sign responses that must stay
-binding across linked checkouts.
+copy, the response projects as non-binding with reason `ingested_unsigned`. This holds for a response
+*authored* in a sibling worktree just as it does for one merely read there: the predicate never
+consults which workflow or worktree produced the event, only its stamp and signature. A response
+signed by a verified, authorized signer binds identically from any store. Sign responses that must
+stay binding across linked checkouts.
 
 ### Artifacts — `shoreline::session`
 

@@ -320,13 +320,21 @@ the result as command JSON with opaque store, clone, and repository-family refs;
 depend on raw clone-local store paths, event filenames, artifact paths, `.git` paths, `.shore` paths,
 or `state.json` layout.
 
-The current linked writer contract is batch-only. Review capture and native review write commands
-continue to write the worktree-local `.shore/` store. `shore store link` is the explicit movement
-step: it scans the worktree for sensitivity findings before data movement, reports redacted findings
-in the command document, and then imports local events and artifacts into the clone-local store with
-strict content-hash validation. In this clone-local release, sensitivity findings warn rather than
-abort; hard-blocking policy and explicit override controls are deferred until movement can target a
-wider user-level or remote store.
+The current linked writer contract is batch-only for durability, with linked-aware validation.
+Review capture and native review write commands continue to write the worktree-local `.shore/`
+store. What changed is what those write commands *validate against*: in a linked checkout, recording
+a review fact — an observation, an input request open or response, an assessment, validation
+evidence, or a lineage round — validates against the linked family's review record **plus** any local
+facts you have not yet synced. That writer-visible union lets you attach a fact to a review unit (or
+relate it to an observation, assessment, or request) captured in a sibling worktree. The fact itself
+is still written to your worktree-local `.shore/` store and stays invisible to other checkouts until
+`shore store link` copies it; the write result reports the `clone_local_fact_batch_only` diagnostic
+to signal the pending sync, mirroring `clone_local_capture_batch_only` for capture. `shore store
+link` is the explicit movement step: it scans the worktree for sensitivity findings before data
+movement, reports redacted findings in the command document, and then imports local events and
+artifacts into the clone-local store with strict content-hash validation. In this clone-local
+release, sensitivity findings warn rather than abort; hard-blocking policy and explicit override
+controls are deferred until movement can target a wider user-level or remote store.
 
 `shore store status` is the public health and inventory surface for the selected store. It reports
 event and artifact byte counts, total bytes, optional Git untracked bytes, largest artifact refs,
@@ -342,6 +350,11 @@ note-shaped bodies. Linked reads are store-only: events written locally since th
 yet in the linked store, read surfaces append the `clone_local_unsynced_local_events` diagnostic
 naming the local event count, and `shore store link` copies those facts and clears it. Run
 `shore store link` before removing a worktree whose review record should survive for its siblings.
+
+The read-side `clone_local_unsynced_local_events` diagnostic and the write-side
+`clone_local_fact_batch_only` diagnostic are two views of the same asymmetry: a fact you write in a
+linked checkout lands worktree-local, so it is invisible to every read surface (the write result
+names it at write time, later reads name it on the count) until `shore store link` shares it.
 
 Reload is a read-side projection refresh. The durable event log remains immutable; reload re-runs
 the order-independent projection against the current worktree state and lowers anchor-stale

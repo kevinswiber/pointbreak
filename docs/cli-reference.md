@@ -155,6 +155,16 @@ that worktree's local `.shore/` store. The command includes a
 `clone_local_capture_batch_only` diagnostic that tells callers to run `shore store link` to copy the
 new local facts into the linked clone-local store.
 
+The native review write commands — `shore review observation add`, `shore review input-request open`
+and `respond`, `shore review assessment add`, `shore review validation add`, and `shore review
+lineage attach` — behave the same way in a linked worktree. They validate against the linked family's
+review record plus your unsynced local facts, so you can record a fact against a review unit (or
+related observation, assessment, or request) captured in a sibling worktree, but the fact is written
+to your worktree-local `.shore/` store. In linked mode the result carries the
+`clone_local_fact_batch_only` diagnostic; run `shore store link` to copy the fact into the
+clone-local store so other checkouts can see it. The diagnostic is linked-mode only — unlinked output
+is unchanged.
+
 ## `shore store`
 
 ```bash
