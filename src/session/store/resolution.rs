@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, ShoreError};
 use crate::git::{git_absolute_git_dir, git_common_dir, git_object_format};
+use crate::session::event::ShoreEvent;
 use crate::session::store::event_store::EventStore;
 use crate::session::store::manifest::{
     StoreGitProvenance, StoreManifest, load_or_create_store_manifest, read_store_manifest,
@@ -146,6 +147,65 @@ pub(crate) fn resolve_read_store(repo: impl AsRef<Path>) -> Result<ReadStore> {
     })
 }
 
+/// The write-validation seam: write surfaces resolve their *validation and
+/// derivation reads* here so a fact written in a linked checkout is validated
+/// against everything the writer can see — the linked store ∪ worktree-local
+/// events not yet copied by `store link`. The write itself still resolves
+/// `ShoreStorePaths::resolve` and stays worktree-local per the batch-only
+/// contract (plan 0064).
+///
+/// Three seams, deliberately distinct:
+/// - [`resolve_read_store`] — read surfaces; store-only, unsynced local events
+///   are surfaced by diagnostic and never unioned into the result.
+/// - [`resolve_write_validation_store`] — write-path validation/derivation
+///   reads; the writer-visible **union** (this type).
+/// - [`ShoreStorePaths::resolve`] — the local write landing where events,
+///   artifacts, and `state.json` are written.
+//
+// `dead_code` allow is transient: the seam ships in plan 0064 task 1.1 ahead of
+// its first write-path consumer (task 2.1 migrates `record_observation`). Remove
+// the allow when the first migration wires `resolve_write_validation_store` in.
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub(crate) struct WriteValidationStore {
+    read_store: ReadStore,
+    worktree_shore_dir: PathBuf,
+}
+
+#[allow(dead_code)]
+impl WriteValidationStore {
+    /// The writer-visible union, deduplicated by event id and sorted ascending
+    /// by event id. In WorktreeLocal mode this reduces to the plain local event
+    /// list: `local_only_event_files` is empty there by construction, and the
+    /// resolved store *is* the worktree `.shore`.
+    pub(crate) fn validation_events(&self) -> Result<Vec<ShoreEvent>> {
+        let mut merged = EventStore::open(self.read_store.store_dir()).list_events()?;
+        let local_only = EventStore::open(&self.worktree_shore_dir)
+            .read_events_by_file_names(&self.read_store.local_only_event_files)?;
+        merged.extend(local_only);
+        // `local_only_event_files` is the filename DIFFERENCE, so the linked and
+        // local-only sets are already disjoint; dedup defensively by event id,
+        // then sort so error text and tests are deterministic (projections are
+        // order-independent, so the sort is never load-bearing for correctness).
+        merged.sort_by(|a, b| a.event_id.as_str().cmp(b.event_id.as_str()));
+        merged.dedup_by(|a, b| a.event_id == b.event_id);
+        Ok(merged)
+    }
+}
+
+#[allow(dead_code)] // Transient: first consumer lands in plan 0064 task 2.1.
+pub(crate) fn resolve_write_validation_store(
+    repo: impl AsRef<Path>,
+) -> Result<WriteValidationStore> {
+    let worktree_shore_dir = ShoreStorePaths::resolve(repo.as_ref())?
+        .shore_dir()
+        .to_path_buf();
+    Ok(WriteValidationStore {
+        read_store: resolve_read_store(repo)?,
+        worktree_shore_dir,
+    })
+}
+
 pub(crate) fn resolve_store(repo: impl AsRef<Path>) -> Result<StoreResolution> {
     let paths = ShoreStorePaths::resolve(repo.as_ref())?;
     let Some(registration) = read_store_registration_if_exists(paths.worktree_root())? else {
@@ -262,6 +322,10 @@ mod tests {
 
     use super::*;
     use crate::git::git_common_dir;
+    use crate::model::{SessionId, WorkUnitId};
+    use crate::session::event::{
+        EventTarget, EventType, ReviewInitializedPayload, ShoreEvent, Writer,
+    };
     use crate::session::store::manifest::read_store_manifest;
     use crate::session::store::store_init::ShoreStorePaths;
 
@@ -375,6 +439,105 @@ mod tests {
         fs::create_dir_all(&events_dir).unwrap();
         fs::write(events_dir.join(&name), b"{}").unwrap();
         name
+    }
+
+    #[test]
+    fn write_validation_events_worktree_local_returns_plain_local_events() {
+        let repo = GitRepo::new();
+        let shore = repo.path().join(".shore");
+        let a = record_review_initialized(&shore, "session:a");
+        let b = record_review_initialized(&shore, "session:b");
+
+        let store = resolve_write_validation_store(repo.path()).unwrap();
+        let events = store.validation_events().unwrap();
+
+        let listed = EventStore::open(&shore).list_events().unwrap();
+        assert_eq!(events.len(), listed.len());
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().any(|event| event.event_id == a.event_id));
+        assert!(events.iter().any(|event| event.event_id == b.event_id));
+    }
+
+    #[test]
+    fn write_validation_events_linked_unions_linked_store_and_unsynced_local() {
+        let fixture = LinkedWorktreeFixture::new();
+        register_clone_local_store(&fixture.linked_path).unwrap();
+        let resolution = resolve_store(&fixture.linked_path).unwrap();
+
+        let a = record_review_initialized(resolution.store_dir(), "session:a");
+        let b = record_review_initialized(&fixture.linked_path.join(".shore"), "session:b");
+
+        let store = resolve_write_validation_store(&fixture.linked_path).unwrap();
+        let events = store.validation_events().unwrap();
+
+        assert!(
+            events.iter().any(|event| event.event_id == a.event_id),
+            "linked-store event A is in the writer-visible union"
+        );
+        assert!(
+            events.iter().any(|event| event.event_id == b.event_id),
+            "unsynced local event B is in the writer-visible union"
+        );
+    }
+
+    #[test]
+    fn write_validation_events_linked_after_full_sync_has_no_duplicates() {
+        let fixture = LinkedWorktreeFixture::new();
+        register_clone_local_store(&fixture.linked_path).unwrap();
+        let resolution = resolve_store(&fixture.linked_path).unwrap();
+
+        // Same event in both stores: the post-`store link` state.
+        let a = record_review_initialized(resolution.store_dir(), "session:a");
+        record_review_initialized(&fixture.linked_path.join(".shore"), "session:a");
+
+        let store = resolve_write_validation_store(&fixture.linked_path).unwrap();
+        let events = store.validation_events().unwrap();
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_id, a.event_id);
+    }
+
+    #[test]
+    fn write_validation_events_are_sorted_by_event_id_for_determinism() {
+        let fixture = LinkedWorktreeFixture::new();
+        register_clone_local_store(&fixture.linked_path).unwrap();
+        let resolution = resolve_store(&fixture.linked_path).unwrap();
+
+        record_review_initialized(resolution.store_dir(), "session:a");
+        record_review_initialized(&fixture.linked_path.join(".shore"), "session:b");
+        record_review_initialized(&fixture.linked_path.join(".shore"), "session:c");
+
+        let store = resolve_write_validation_store(&fixture.linked_path).unwrap();
+        let events = store.validation_events().unwrap();
+
+        let ids: Vec<&str> = events.iter().map(|event| event.event_id.as_str()).collect();
+        let mut sorted = ids.clone();
+        sorted.sort_unstable();
+        assert_eq!(
+            ids, sorted,
+            "validation events are sorted ascending by event id"
+        );
+        assert_eq!(events.len(), 3);
+    }
+
+    fn record_review_initialized(shore_dir: &Path, session: &str) -> ShoreEvent {
+        let event = review_initialized_event_for_session(session);
+        EventStore::open(shore_dir)
+            .record_event_once(&event)
+            .unwrap();
+        event
+    }
+
+    fn review_initialized_event_for_session(session: &str) -> ShoreEvent {
+        ShoreEvent::new(
+            EventType::ReviewInitialized,
+            format!("review_initialized:{session}:work:default"),
+            EventTarget::new(SessionId::new(session), WorkUnitId::new("work:default")),
+            Writer::shore_local("0.1.0"),
+            ReviewInitializedPayload {},
+            "2026-05-10T00:00:00Z",
+        )
+        .expect("event builds")
     }
 
     #[test]
