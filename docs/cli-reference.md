@@ -102,6 +102,14 @@ small JSON API the page consumes (`/api/history`, `/api/units`, `/api/unit`, `/a
 `/api/lineage`, `/api/snapshot`, `/api/freshness`) is an internal surface for the bundled page, not
 a stable contract.
 
+In a linked worktree the inspector serves the clone-local store, so it can render snapshots
+captured in sibling worktrees. The snapshot payload therefore omits the captured worktree path:
+`target.worktreeRoot` is removed from the response after content-hash validation, with
+`worktreeRootRedacted: true`, `contentHashScope: "stored-artifact"`, and a path-private
+`targetDisplay` block marking the redaction. The stored snapshot artifact and its content hash are
+unchanged, so re-validating the hash means fetching the artifact, not hashing the response JSON.
+`shore review unit list` JSON still carries `target.worktreeRoot`, unchanged.
+
 ## `shore review capture`
 
 ```bash
@@ -174,11 +182,15 @@ file path.
 
 Linked capture is batch-only in this release: capture writes local facts first, emits the
 `clone_local_capture_batch_only` diagnostic when the worktree is linked, and `shore store link`
-copies those facts into the clone-local store. `shore review unit list` resolves the linked store,
-so a linked worktree can discover imported ReviewUnits even when it has no local `.shore/events/`.
-Sibling read commands such as observation, input-request, assessment, validation, history, and unit
-show still read the worktree-local store in this release; use a worktree that owns those facts for
-full inspection until those read surfaces are migrated.
+copies those facts into the clone-local store. Every review read command resolves the linked store:
+`unit list` and `unit show`, `history`, the observation, input-request, and validation lists,
+`assessment show`, and `lineage show` read the clone-local store from any linked worktree,
+including hydrated bodies and the captured snapshot, so their `eventCount` and `eventSetHash`
+reflect the linked store. Linked reads are store-only — local facts not yet copied by
+`shore store link` do not appear in results; read commands report them with the
+`clone_local_unsynced_local_events` diagnostic, and `shore store link` copies them and clears it.
+Run `shore store link` before removing a worktree whose review record should survive for its
+siblings.
 
 Command output is the stable integration surface. Raw clone-local store paths, event files, artifact
 paths, `.git` paths, `.shore` paths, and `state.json` remain internal storage details.

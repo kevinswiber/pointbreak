@@ -169,6 +169,14 @@ with ingest provenance — `ingest: { via, receivedAt }`, with `via` naming the 
 to-be-signed view, so stamping never invalidates a signature, and re-ingest keeps the first
 stored stamp state ([ADR-0009](adr/adr-0009-resumption-binding-trust-source.md)).
 
+Events copied into a clone-local store by `shore store link` carry that same ingest provenance
+(`via: "bundle-apply"`), and binding decisions are a pure function of the events actually read. An
+unsigned input-request response binds via possession only inside the store that locally wrote it:
+when any linked checkout — including the authoring worktree — reads the linked store's stamped
+copy, the response projects as non-binding with reason `ingested_unsigned`. A response signed by a
+verified, authorized signer binds identically from any store. Sign responses that must stay
+binding across linked checkouts.
+
 ### Artifacts — `shoreline::session`
 
 | Item | Purpose |

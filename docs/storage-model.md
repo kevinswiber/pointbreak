@@ -333,10 +333,15 @@ event and artifact byte counts, total bytes, optional Git untracked bytes, large
 ReviewUnit snapshot byte accounting, and redacted sensitivity scan findings. Sensitivity references
 are hashed `file:sha256:*` values and do not disclose secret contents or source file paths.
 
-Linked reads are deliberately incremental. `shore review unit list` resolves the selected store so a
-linked worktree can discover imported ReviewUnits from the clone-local store. Other review read
-surfaces still read the worktree-local store in this release, so documentation and automation should
-not assume every review command follows linked-store resolution yet.
+Linked reads resolve the selected store on every review read surface. `shore review unit list` and
+`unit show`, `shore review history`, the observation, input-request, and validation lists,
+`shore review assessment show`, `shore review lineage list` and `show`, and the inspector API all
+read the clone-local store when the worktree is registered, including snapshot artifacts and large
+note-shaped bodies. Linked reads are store-only: events written locally since the last
+`shore store link` are not unioned into results. When the worktree holds local events that are not
+yet in the linked store, read surfaces append the `clone_local_unsynced_local_events` diagnostic
+naming the local event count, and `shore store link` copies those facts and clears it. Run
+`shore store link` before removing a worktree whose review record should survive for its siblings.
 
 Reload is a read-side projection refresh. The durable event log remains immutable; reload re-runs
 the order-independent projection against the current worktree state and lowers anchor-stale
