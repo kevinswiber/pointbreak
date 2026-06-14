@@ -658,6 +658,15 @@ field. Store reads reject stored events whose writer carries `role`. Because Sho
 released this storage contract, the supported migration is to discard the old local `.shore/`
 directory and recapture the review.
 
+## Legacy Writer Tool Events
+
+Earlier development versions of Shoreline wrote a `tool` object inside each event's writer
+envelope. Current Shoreline names the producing software under `producer` (`{name, version}`);
+the word "tool" is reserved for the model-API/MCP sense and is no longer an envelope field. Store
+reads reject stored events whose writer carries `tool`. Because Shoreline has not released this
+storage contract, the supported migration is to discard the old local `.shore/` directory and
+recapture the review.
+
 ## Projection Ordering
 
 Event filenames are derived from idempotency-key hashes. Listing event files therefore does not imply
