@@ -93,6 +93,32 @@ fn cli_history_resolves_principal_from_checked_in_delegates_file() {
 }
 
 #[test]
+fn cli_resolves_principal_when_repo_points_at_a_subdirectory() {
+    // Read commands accept a path inside the repository; `.shoreline/delegates`
+    // lives at the worktree root, so discovery must resolve the root rather than
+    // join the raw `--repo` argument.
+    let repo = repo_with_agent_observation();
+    write_delegates(&repo, RESOLVING_DELEGATES);
+    let subdir = repo.path().join("src");
+    assert!(subdir.is_dir(), "the fixture writes src/lib.rs");
+
+    let output = shore(["review", "history", "--repo", subdir.to_str().unwrap()]);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+
+    let entry = agent_history_entry(&json);
+    assert_eq!(
+        entry["principal"]["actorId"], "actor:git-email:kevin@swiber.dev",
+        "principal resolves even when --repo is a subdirectory"
+    );
+    assert_eq!(entry["principal"]["status"], "resolved");
+}
+
+#[test]
 fn cli_warns_and_proceeds_on_malformed_delegates_file() {
     let repo = repo_with_agent_observation();
     write_delegates(&repo, "{ not valid json");
