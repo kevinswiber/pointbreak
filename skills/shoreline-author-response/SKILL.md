@@ -43,7 +43,14 @@ shore review unit list --pretty
 review_unit_id="<review-unit-id>"
 reviewer_track="<reviewer-track>"
 author_track="<author-track>"
+agent_name="<agent-name>"
+export SHORE_ACTOR_ID="actor:agent:${agent_name}"
 ```
+
+Set `agent_name` to the **same canonical spelling** the original author run used (`claude-code`,
+never also `claude`): the actor id is inherited per-agent, not per-run, so this response pass writes
+under the same durable identity that authored the change. It carries no run id; `/` inside the agent
+segment is reserved.
 
 Read the reviewer's durable review facts:
 

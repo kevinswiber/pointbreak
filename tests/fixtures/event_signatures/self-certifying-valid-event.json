@@ -42,7 +42,7 @@
   "version": 1,
   "writer": {
     "actorId": "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
-    "tool": {
+    "producer": {
       "name": "shore",
       "version": "0.1.0-test"
     }

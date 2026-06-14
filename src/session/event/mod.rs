@@ -51,7 +51,7 @@ pub use tbs::{
     event_signature_pre_authentication_encoding, event_to_be_signed, pre_authentication_encoding,
 };
 pub use validation::ValidationCheckRecordedPayload;
-pub use writer::{Writer, WriterTool};
+pub use writer::{Writer, WriterProducer};
 
 const EVENT_SCHEMA: &str = "shore.event";
 const EVENT_VERSION: u32 = 1;
@@ -264,12 +264,12 @@ mod tests {
     }
 
     #[test]
-    fn writer_shore_local_stamps_shore_tool() {
+    fn writer_shore_local_stamps_shore_producer() {
         let writer = Writer::shore_local("0.0.1");
 
         assert_eq!(writer.actor_id.as_str(), "actor:local");
-        assert_eq!(writer.tool.name, "shore");
-        assert_eq!(writer.tool.version, "0.0.1");
+        assert_eq!(writer.producer.name, "shore");
+        assert_eq!(writer.producer.version, "0.0.1");
     }
 
     #[test]
@@ -859,8 +859,8 @@ mod tests {
         let keys: Vec<&str> = source_ref.keys().map(String::as_str).collect();
         assert_eq!(keys, vec!["sourceId", "sourceSystem"]);
 
-        // Writer.tool keeps its identity at the envelope level.
-        assert_eq!(json["writer"]["tool"]["name"], "shore");
+        // Writer.producer keeps its identity at the envelope level.
+        assert_eq!(json["writer"]["producer"]["name"], "shore");
     }
 
     #[test]

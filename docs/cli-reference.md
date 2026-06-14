@@ -22,6 +22,28 @@ Tracing writes to stderr by default. When stdout is piped into JSON tools, prefe
 When `--log-file <path>` points inside the repository, Shoreline treats that path as command-helper
 plumbing for the current command and excludes it from the reviewed snapshot and fingerprint.
 
+## Actor Identity and Delegation
+
+Every write records a writer `actorId`. By default it derives from the local Git identity
+(`actor:git-email:<email>`, then `actor:git-name:<name>`, then `actor:local`). Set
+`SHORE_ACTOR_ID` to write under an explicit identity — agents use `actor:agent:<agent-name>`:
+
+```bash
+export SHORE_ACTOR_ID="actor:agent:claude-code"
+```
+
+`SHORE_ACTOR_ID` outranks the Git identity on every CLI write path, including paths without a
+per-call override; a malformed value is ignored and falls through rather than corrupting
+provenance.
+
+Review read commands (`history`, the `observation` / `input-request` / `assessment` / `validation`
+list and show commands, `unit show`, and the inspector) discover a checked-in delegation map at
+`<repo>/.shoreline/delegates` and resolve the human principal an agent wrote on behalf of,
+rendering it beside the writer as `claude-code (for kevin@swiber.dev)`. Discovery is presence-based
+— absent file, no change. A malformed `.shoreline/delegates` prints a single warning to stderr and
+the read proceeds with no resolution (advisory, never blocking). The file format is documented in
+[storage-model.md](./storage-model.md).
+
 ## `shore show`
 
 ```bash
@@ -230,7 +252,7 @@ Observations are append-only review notes for a captured ReviewUnit.
 - `--review-unit` pins the observation to one captured ReviewUnit. `--lineage` targets the current
   lineage head. Without either, the command defaults to the single captured unit and errors if
   multiple captured ReviewUnits exist.
-- Tracks are review lanes, not actor or tool provenance.
+- Tracks are review lanes, not actor or producer provenance.
 - Without `--file`, the observation targets the whole ReviewUnit.
 - With `--file <path>`, it targets a captured file.
 - With `--file <path> --start-line <n> [--end-line <n>]`, it targets a range on `--side <old|new>`

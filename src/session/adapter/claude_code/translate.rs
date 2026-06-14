@@ -9,7 +9,7 @@
 use super::parse::{AssistantMessage, ParsedMessage, ParsedSession, ToolUse, UserMessage};
 use crate::canonical_hash::sha256_bytes_hex;
 use crate::model::{ActorId, CheckpointId, SessionId, TargetRef, TaskTargetRef, WorkObjectId};
-use crate::session::event::{AssertionMode, SourceRef, SourceSpeaker, Writer, WriterTool};
+use crate::session::event::{AssertionMode, SourceRef, SourceSpeaker, Writer, WriterProducer};
 
 const SOURCE_SYSTEM_CLAUDE_CODE: &str = "claude_code";
 
@@ -242,7 +242,7 @@ fn content_carries_hook_output(content: &str) -> bool {
 fn writer_user() -> Writer {
     Writer {
         actor_id: ActorId::new("actor:claude_code:user"),
-        tool: WriterTool {
+        producer: WriterProducer {
             name: "claude_code".to_owned(),
             version: String::new(),
         },
@@ -252,7 +252,7 @@ fn writer_user() -> Writer {
 fn writer_agent() -> Writer {
     Writer {
         actor_id: ActorId::new("actor:claude_code:assistant"),
-        tool: WriterTool {
+        producer: WriterProducer {
             name: "claude_code".to_owned(),
             version: String::new(),
         },

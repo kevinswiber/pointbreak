@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use crate::model::{ReviewUnitId, TrackId};
 use crate::session::event::EventType;
-use crate::session::{EventVerificationPolicy, TrustSet};
+use crate::session::{DelegationMap, EventVerificationPolicy, TrustSet};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewHistoryOptions {
@@ -15,6 +15,7 @@ pub struct ReviewHistoryOptions {
     pub(super) include_body: bool,
     pub(super) verification_policy: Option<EventVerificationPolicy>,
     pub(super) trust_set: TrustSet,
+    pub(super) delegation_map: Option<DelegationMap>,
 }
 
 impl ReviewHistoryOptions {
@@ -27,6 +28,7 @@ impl ReviewHistoryOptions {
             include_body: false,
             verification_policy: None,
             trust_set: TrustSet::default(),
+            delegation_map: None,
         }
     }
 
@@ -59,6 +61,15 @@ impl ReviewHistoryOptions {
         self.trust_set = trust_set;
         self
     }
+
+    /// Supply the reader-side delegation map. Beside `with_trust_set`: config the
+    /// reader provides, never store content. With it set, agent-scheme writers'
+    /// entries carry a resolved principal object; without it they degrade to the
+    /// mirror posture (`status: none`).
+    pub fn with_delegation_map(mut self, delegation_map: DelegationMap) -> Self {
+        self.delegation_map = Some(delegation_map);
+        self
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -81,6 +92,7 @@ pub(super) struct ResolvedHistoryFilters {
     pub(super) include_body: bool,
     pub(super) verification_policy: Option<EventVerificationPolicy>,
     pub(super) trust_set: TrustSet,
+    pub(super) delegation_map: Option<DelegationMap>,
 }
 
 impl From<ResolvedHistoryFilters> for ReviewHistoryFilters {

@@ -41,7 +41,29 @@ exists. Keep the part after `agent:` lowercase, hyphenated, and around 15 charac
 
 Tracks are review lanes, not actor identity. The unique tag keeps the lane legible when more than one
 agent run writes to the same `.shore/` store. Shoreline command output also records local Git and
-tool provenance, but the track is the durable lane that names which agent run is writing.
+producer provenance, but the track is the durable lane that names which agent run is writing.
+
+## Agent actor identity
+
+A track is a lane; your **actor id** is your durable identity across sessions and runs. Agents
+write under an `actor:agent:<agent-name>` id, set once per run with the environment variable:
+
+```bash
+export SHORE_ACTOR_ID="actor:agent:${agent_name}"
+```
+
+`SHORE_ACTOR_ID` outranks the local Git identity for every CLI write path, with safe fall-through:
+a malformed value is ignored rather than trusted, so it can never silently corrupt provenance. The
+actor id carries **no run id** — run entropy stays in the track. Use **one canonical spelling** for
+your agent name and always the same one (`claude-code`, never also `claude`): two spellings split
+one agent's history across two identities. Keep it lowercase and hyphenated; `/` inside the agent
+segment is reserved.
+
+Who an agent acts on behalf of is resolved at read time from the checked-in `.shoreline/delegates`
+map, documented in [storage-model.md](./storage-model.md) and decided in
+[ADR-0010](./adr/adr-0010-actor-identity-and-delegation.md). Identity is reported, never the basis
+of a binding decision. Agent events written before adopting an `actor:agent:` id carry the human's
+git-email id and stay exactly that — the `agent:*` track name is a heuristic, never re-attribution.
 
 Observations explain what changed and why. They should call out the design choices, risk areas,
 follow-up edges, and files or line ranges a reviewer should inspect first. A useful observation is

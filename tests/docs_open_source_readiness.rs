@@ -239,6 +239,60 @@ fn release_docs_are_current_after_v0_1_publish() {
     assert!(releasing.contains("Apache-2.0"));
 }
 
+#[test]
+fn adr_0010_is_landed_and_accepted() {
+    let adr = std::fs::read_to_string("docs/adr/adr-0010-actor-identity-and-delegation.md")
+        .expect("read ADR-0010");
+    assert!(adr.contains("**Status:** Accepted"));
+    // No private research/planning pointers in public docs.
+    assert!(!adr.contains("implementation plan"));
+    assert!(!adr.contains("research 0009"));
+    // The hard prerequisite link resolves.
+    assert!(
+        std::path::Path::new("docs/adr/adr-0009-resumption-binding-trust-source.md").exists(),
+        "ADR-0009 (composition target) must be landed"
+    );
+}
+
+#[test]
+fn docs_cover_actor_identity_and_delegation() {
+    let storage = std::fs::read_to_string("docs/storage-model.md").expect("read storage model");
+    assert!(
+        storage.contains("## Legacy Writer Tool Events"),
+        "storage-model documents the writer.tool hard break"
+    );
+    assert!(
+        storage.contains(".shoreline/delegates"),
+        "storage-model documents the delegates file"
+    );
+    assert!(
+        !storage.contains("actor/tool provenance"),
+        "storage-model uses producer vocabulary, not tool"
+    );
+    assert!(
+        !storage.contains("WriterTool"),
+        "no residual WriterTool in storage-model"
+    );
+
+    let agent_authoring =
+        std::fs::read_to_string("docs/agent-authoring.md").expect("read agent authoring");
+    assert!(
+        agent_authoring.contains("actor:agent:") && agent_authoring.contains("SHORE_ACTOR_ID"),
+        "agent-authoring documents the agent actor-id scheme"
+    );
+
+    let library_api = std::fs::read_to_string("docs/library-api.md").expect("read library API");
+    for token in ["DelegationMap", "with_delegation_map", "PrincipalPolicy"] {
+        assert!(library_api.contains(token), "library-api documents {token}");
+    }
+
+    let cli = std::fs::read_to_string("docs/cli-reference.md").expect("read CLI reference");
+    assert!(
+        cli.contains("SHORE_ACTOR_ID") && cli.contains(".shoreline/delegates"),
+        "cli-reference documents agent identity and delegates discovery"
+    );
+}
+
 fn assert_markdown_section_contains(markdown: &str, heading: &str, required: &[&str]) {
     let start = markdown
         .find(heading)

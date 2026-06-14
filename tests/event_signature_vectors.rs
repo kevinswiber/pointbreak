@@ -207,6 +207,82 @@ fn vector_fixture_inventory_covers_required_case_families() {
     }
 }
 
+/// ADR-0010 consequence check: the `writer.tool` → `writer.producer` rename is
+/// envelope spelling only. The signed view excludes the producer fact, so the
+/// golden TBS/PAE bytes are byte-identical to the pre-rename fixtures, every
+/// `sigVersion` stays 1, and no envelope fixture carries a `tool` key.
+#[test]
+fn producer_rename_left_signed_material_untouched() {
+    use sha2::{Digest, Sha256};
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    // Digests captured from `main` before the rename. Regeneration must
+    // reproduce these bytes exactly; a change here is a stop-the-line signal
+    // that the rename touched the signed material.
+    const CANONICAL_TBS_SHA256: &str =
+        "b02f9ae88fd021e13bbd6d9f08030f23803df71e58f7e2f80e9b4aa0c939d5e4";
+    const PAE_SHA256: &str = "47babae6a0fc54a1781338847143099568ec077b4abfd397ed0b2d1b3ee03af0";
+
+    let canonical_tbs =
+        std::fs::read(fixture_path("canonical-tbs-v1.bytes")).expect("read canonical tbs bytes");
+    let pae = std::fs::read(fixture_path("pae-v1.bytes")).expect("read pae bytes");
+    assert_eq!(
+        sha256_hex(&canonical_tbs),
+        CANONICAL_TBS_SHA256,
+        "canonical-tbs-v1.bytes must be byte-identical to main"
+    );
+    assert_eq!(
+        sha256_hex(&pae),
+        PAE_SHA256,
+        "pae-v1.bytes must be byte-identical to main"
+    );
+
+    let mut envelope_fixtures = std::fs::read_dir(fixture_dir())
+        .expect("read fixture dir")
+        .map(|entry| entry.expect("dir entry").file_name())
+        .filter_map(|name| name.to_str().map(str::to_owned))
+        .filter(|name| name.ends_with("-event.json"))
+        .collect::<Vec<_>>();
+    envelope_fixtures.sort();
+    assert!(
+        !envelope_fixtures.is_empty(),
+        "expected envelope fixtures to walk"
+    );
+
+    for name in envelope_fixtures {
+        let raw = std::fs::read_to_string(fixture_path(&name)).expect("read envelope fixture");
+        assert!(
+            !raw.contains("\"tool\""),
+            "envelope fixture {name} must carry no tool key after the producer rename"
+        );
+        let event: Value = serde_json::from_str(&raw).expect("envelope fixture is valid json");
+        let writer = event["writer"]
+            .as_object()
+            .unwrap_or_else(|| panic!("{name} has a writer object"));
+        assert!(
+            writer.get("tool").is_none() && writer.contains_key("producer"),
+            "writer in {name} carries producer and no tool key"
+        );
+        // `unsupported-sig-version-event.json` deliberately carries an
+        // unsupported sigVersion as a negative vector; every other signed
+        // fixture must keep sigVersion 1 through the rename.
+        if name != "unsupported-sig-version-event.json"
+            && let Some(signature) = event.get("signature").and_then(Value::as_object)
+        {
+            assert_eq!(
+                signature["sigVersion"], 1,
+                "every signed envelope in {name} keeps sigVersion 1"
+            );
+        }
+    }
+}
+
 #[test]
 fn regenerated_fixture_bytes_are_deterministic_and_match_checked_in_fixtures() {
     let first = build_all_fixtures(&fixture_dir());

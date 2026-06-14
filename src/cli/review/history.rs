@@ -79,6 +79,9 @@ fn history_options(args: &HistoryArgs) -> ReviewHistoryOptions {
     for event_type in args.event_types.iter().copied() {
         options = options.with_event_type(event_type.into());
     }
+    if let Some(map) = super::common::discover_delegation_map(&args.repo) {
+        options = options.with_delegation_map(map);
+    }
     options
 }
 

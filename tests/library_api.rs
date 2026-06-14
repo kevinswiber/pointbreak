@@ -315,7 +315,7 @@ fn in_process_consumer_reads_attributes_documents_and_forwards() {
     );
 
     // Reproduce the documented `shore.review-input-request-list` JSON in process (#118).
-    let document = shoreline::documents::input_request_list_document(listed);
+    let document = shoreline::documents::input_request_list_document(listed, None);
     let json: Value = serde_json::to_value(&document).unwrap();
     assert_eq!(json["schema"], "shore.review-input-request-list");
     assert_eq!(json["version"], 1);

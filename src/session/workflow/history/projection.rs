@@ -14,7 +14,7 @@ use crate::session::event::{
     decode_input_request_opened_payload,
 };
 use crate::session::state::SessionState;
-use crate::session::verify_event_signature;
+use crate::session::{principal_view_for, verify_event_signature};
 
 pub(super) fn history_from_events(
     events: &[ShoreEvent],
@@ -239,6 +239,11 @@ pub(super) fn history_entry_from_event(
             .verification_policy
             .map(|_| verify_event_signature(event, &filters.trust_set))
             .transpose()?,
+        principal: principal_view_for(
+            &event.writer.actor_id,
+            filters.delegation_map.as_ref(),
+            &event.occurred_at,
+        ),
         summary,
     })
 }

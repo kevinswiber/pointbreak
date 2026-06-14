@@ -6,11 +6,11 @@ use crate::model::{
     ReviewUnitLineageRoundId, ReviewUnitSource, RevisionId, SessionId, SnapshotId, TrackId,
     ValidationCheckId, ValidationStatus, ValidationTarget, ValidationTrigger,
 };
-use crate::session::EventVerificationStatus;
 use crate::session::event::{
     AssertionMode, EventType, ImportedNoteTarget, InputRequestReasonCode,
     InputRequestResponseOutcome, ReviewAssessment, SidecarSource, Writer,
 };
+use crate::session::{EventVerificationStatus, PrincipalView};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -33,6 +33,8 @@ pub struct ReviewHistoryEntry {
     pub writer: Writer,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verification_status: Option<EventVerificationStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub principal: Option<PrincipalView>,
     pub summary: ReviewHistorySummary,
 }
 

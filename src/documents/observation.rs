@@ -1,7 +1,7 @@
 // Document builders for `shore review-observation add` and `list`.
 use crate::documents::{DiagnosticDocument, EventWriteDocument, ObservationViewDocument};
 use crate::model::ReviewTargetRef;
-use crate::session::{ObservationAddResult, ObservationListResult};
+use crate::session::{DelegationMap, ObservationAddResult, ObservationListResult};
 
 /// Documented body for `shore.review-observation-add`.
 #[derive(serde::Serialize)]
@@ -57,9 +57,12 @@ pub fn observation_add_document(
     )
 }
 
-/// Build the `shore.review-observation-list` document from a list result.
+/// Build the `shore.review-observation-list` document from a list result. The
+/// optional delegation map enriches agent-written items with a resolved
+/// principal object (reader-supplied config, never store content).
 pub fn observation_list_document(
     result: ObservationListResult,
+    delegation_map: Option<&DelegationMap>,
 ) -> DiagnosticDocument<ObservationListBody> {
     DiagnosticDocument::new(
         "shore.review-observation-list",
@@ -77,7 +80,9 @@ pub fn observation_list_document(
             observations: result
                 .observations
                 .into_iter()
-                .map(ObservationViewDocument::from)
+                .map(|view| {
+                    ObservationViewDocument::from(view).with_resolved_principal(delegation_map)
+                })
                 .collect(),
         },
         result.diagnostics,

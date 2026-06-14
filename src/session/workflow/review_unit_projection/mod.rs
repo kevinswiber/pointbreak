@@ -21,6 +21,7 @@ mod snapshot;
 
 pub use self::adapter_notes::AdapterNoteView;
 use self::adapter_notes::project_adapter_notes;
+use self::identity::principal_diagnostics;
 pub use self::identity::{
     ReviewUnitProjectionIdentity, ReviewUnitProjectionSummary, ReviewUnitShowFilters,
     ReviewUnitShowOptions, ReviewUnitShowResult,
@@ -120,6 +121,31 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         .expect("SessionState::from_events sets event_set_hash");
     let mut diagnostics = state.diagnostics;
     diagnostics.extend(divergence_diagnostics(&read_store));
+
+    if let Some(map) = options.delegation_map.as_ref() {
+        let members = observations
+            .iter()
+            .map(|view| (&view.writer.actor_id, view.created_at.as_str()))
+            .chain(input_requests.iter().flat_map(|request| {
+                std::iter::once((&request.writer.actor_id, request.created_at.as_str())).chain(
+                    request
+                        .responses
+                        .iter()
+                        .map(|response| (&response.writer.actor_id, response.created_at.as_str())),
+                )
+            }))
+            .chain(
+                assessments
+                    .iter()
+                    .map(|view| (&view.writer.actor_id, view.created_at.as_str())),
+            )
+            .chain(
+                validation_checks
+                    .iter()
+                    .map(|view| (&view.writer.actor_id, view.created_at.as_str())),
+            );
+        diagnostics.extend(principal_diagnostics(members, map));
+    }
 
     Ok(ReviewUnitShowResult {
         event_set_hash,
@@ -246,6 +272,101 @@ mod tests {
             row.kind == ReviewUnitProjectionRowKind::ValidationEvidence
                 || row.related_validation_check_ids.is_empty()
         }));
+    }
+
+    fn capture_with_agent_observation() -> (TestRepo, ReviewUnitId) {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_review_unit_id(capture.review_unit_id.clone())
+                .with_track("agent:claude-code")
+                .with_actor_id(crate::model::ActorId::new("actor:agent:claude-code"))
+                .with_title("Agent observation"),
+        )
+        .unwrap();
+        (repo, capture.review_unit_id)
+    }
+
+    #[test]
+    fn unit_show_emits_diagnostic_for_unresolvable_agent_principal() {
+        let (repo, review_unit_id) = capture_with_agent_observation();
+        // A map that does not know this agent → no_delegation_record.
+        let map = crate::session::delegation_map_from_value(serde_json::json!({
+            "delegates": {}
+        }))
+        .unwrap();
+
+        let result = show_review_unit(
+            ReviewUnitShowOptions::new(repo.path())
+                .with_review_unit_id(review_unit_id)
+                .with_delegation_map(map),
+        )
+        .unwrap();
+
+        let diagnostic = result
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == "principal_unresolvable")
+            .expect("an unresolvable agent principal emits a diagnostic");
+        assert!(diagnostic.message.contains("actor:agent:claude-code"));
+        assert!(diagnostic.message.contains("no_delegation_record"));
+    }
+
+    #[test]
+    fn unit_show_emits_diagnostic_for_ambiguous_principal() {
+        let (repo, review_unit_id) = capture_with_agent_observation();
+        // Two overlapping open windows with distinct principals → ambiguous.
+        let map = crate::session::delegation_map_from_value(serde_json::json!({
+            "delegates": {
+                "actor:agent:claude-code": [
+                    { "principal": "actor:git-email:kevin@swiber.dev",
+                      "validFrom": "2020-01-01T00:00:00Z", "validUntil": null },
+                    { "principal": "actor:git-email:alice@example.com",
+                      "validFrom": "2020-01-01T00:00:00Z", "validUntil": null }
+                ]
+            }
+        }))
+        .unwrap();
+
+        let result = show_review_unit(
+            ReviewUnitShowOptions::new(repo.path())
+                .with_review_unit_id(review_unit_id)
+                .with_delegation_map(map),
+        )
+        .unwrap();
+
+        let diagnostic = result
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == "principal_ambiguous")
+            .expect("an ambiguous agent principal emits a diagnostic");
+        assert!(
+            diagnostic
+                .message
+                .contains("actor:git-email:kevin@swiber.dev")
+        );
+        assert!(
+            diagnostic
+                .message
+                .contains("actor:git-email:alice@example.com")
+        );
+    }
+
+    #[test]
+    fn unit_show_without_map_emits_no_principal_diagnostics() {
+        let (repo, review_unit_id) = capture_with_agent_observation();
+        let result = show_review_unit(
+            ReviewUnitShowOptions::new(repo.path()).with_review_unit_id(review_unit_id),
+        )
+        .unwrap();
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.code.starts_with("principal_")),
+            "no map supplied → no principal diagnostics"
+        );
     }
 
     #[test]

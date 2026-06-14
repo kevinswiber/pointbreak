@@ -119,5 +119,8 @@ fn review_unit_show_options(args: &UnitShowArgs) -> ReviewUnitShowOptions {
     if let Some(track) = &args.track {
         options = options.with_track(track.clone());
     }
+    if let Some(map) = super::common::discover_delegation_map(&args.repo) {
+        options = options.with_delegation_map(map);
+    }
     options
 }

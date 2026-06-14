@@ -86,7 +86,13 @@ the event envelope.
 agent_name="<agent-name>"
 run_id="<id>"
 track="agent:${agent_name}-${run_id}"
+export SHORE_ACTOR_ID="actor:agent:${agent_name}"
 ```
+
+The actor id is your durable identity across sessions and runs — it carries no run id. Use **one
+canonical spelling** for your agent name and always the same one (`claude-code`, never also
+`claude`): two spellings split one agent's history across two identities. Keep it lowercase and
+hyphenated, like the track rule; `/` inside the agent segment is reserved.
 
 ## Record observations
 

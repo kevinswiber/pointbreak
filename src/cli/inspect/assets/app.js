@@ -233,6 +233,17 @@ function fmtDateTime(occurredAt) {
 function entryTrack(e) {
   return e.trackId || (e.writer && e.writer.actorId) || "";
 }
+// The human label derived client-side from the structured principal object
+// (ADR-0010 structured-first rule). Null unless the agent's principal resolved;
+// ambiguous/none entries fall back to the raw actor id at the call site. The
+// lane fallback in entryTrack deliberately never reads e.principal — lanes need
+// stable strings.
+function principalLabel(e) {
+  if (!e.principal || e.principal.status !== "resolved" || !e.principal.actorId) return null;
+  const agent = (e.writer && e.writer.actorId ? e.writer.actorId : "").replace(/^actor:agent:/, "");
+  const principal = e.principal.actorId.replace(/^actor:git-(email|name):/, "");
+  return `${agent} (for ${principal})`;
+}
 function entryTitle(e) {
   const s = e.summary || {};
   if (s.title) return s.title;
@@ -546,7 +557,7 @@ function renderDetail() {
     ["payloadHash", e.payloadHash],
     ["reviewUnit", e.reviewUnitId || "—"],
     ["track", entryTrack(e) || "—"],
-    ["writer", e.writer ? (e.writer.actorId || "—") : "—"],
+    ["writer", principalLabel(e) || (e.writer ? (e.writer.actorId || "—") : "—")],
   ];
   const snapshotId = e.reviewUnitId ? snapshotIdForUnit(e.reviewUnitId) : null;
   const s = e.summary || {};

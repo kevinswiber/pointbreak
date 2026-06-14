@@ -1,7 +1,7 @@
 // Document builders for `shore review validation add` and `list`.
 use crate::documents::{DiagnosticDocument, EventWriteDocument, ValidationCheckViewDocument};
 use crate::model::{ValidationStatus, ValidationTarget};
-use crate::session::{ValidationAddResult, ValidationListResult};
+use crate::session::{DelegationMap, ValidationAddResult, ValidationListResult};
 
 /// Documented advisory body for `shore.review-validation-add`.
 ///
@@ -64,6 +64,7 @@ pub fn validation_add_document(
 /// Build the `shore.review-validation-list` document from a list result.
 pub fn validation_list_document(
     result: ValidationListResult,
+    delegation_map: Option<&DelegationMap>,
 ) -> DiagnosticDocument<ValidationListBody> {
     DiagnosticDocument::new(
         "shore.review-validation-list",
@@ -80,7 +81,9 @@ pub fn validation_list_document(
             validation_checks: result
                 .validation_checks
                 .into_iter()
-                .map(ValidationCheckViewDocument::from)
+                .map(|view| {
+                    ValidationCheckViewDocument::from(view).with_resolved_principal(delegation_map)
+                })
                 .collect(),
         },
         result.diagnostics,

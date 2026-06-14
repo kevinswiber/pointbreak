@@ -282,6 +282,41 @@ mod tests {
     }
 
     #[test]
+    fn app_js_renders_principal_label_from_structured_object() {
+        let response = route_for("GET", "/app.js");
+        let body = String::from_utf8(response.body).expect("app.js is utf-8");
+
+        // Structured consumption: app.js reads the principal object and builds
+        // the "(for …)" label client-side rather than a server-formatted string.
+        assert!(
+            body.contains("e.principal"),
+            "app.js consumes the structured principal object"
+        );
+        assert!(
+            body.contains("principalLabel"),
+            "app.js derives the label client-side"
+        );
+        assert!(
+            body.contains("(for "),
+            "the label renders as \"<agent> (for <principal>)\""
+        );
+
+        // The trackless-lane fallback stays raw — entryTrack never reads
+        // e.principal (lanes need stable strings).
+        let entry_track_body = body
+            .split("function entryTrack(e) {")
+            .nth(1)
+            .expect("entryTrack defined")
+            .split('}')
+            .next()
+            .expect("entryTrack body");
+        assert!(
+            !entry_track_body.contains("principal"),
+            "the lane fallback must keep the raw actor id, not the resolved principal"
+        );
+    }
+
+    #[test]
     fn static_assets_carry_expected_content_types() {
         assert_eq!(
             route_for("GET", "/app.css").content_type,

@@ -85,12 +85,18 @@ impl EventStore {
             #[serde(default)]
             writer: WriterProbe,
         }
-        // Serde ignores unknown fields, so a stored pre-break envelope would
-        // otherwise load silently with degraded meaning; the probe makes the
-        // hard break loud.
+        // Two hard breaks, two probe shapes. `role` (ADR-0007): serde ignores
+        // unknown fields, so a stored pre-break envelope would otherwise load
+        // silently with degraded meaning; the probe makes the break loud.
+        // `tool` (ADR-0010): the rename to `producer` makes the break naturally
+        // loud (the required field is missing), but only as an opaque serde
+        // error; the probe upgrades it to the typed migration error naming the
+        // replacement field. The probe runs before full decode, so the typed
+        // error wins.
         #[derive(Default, serde::Deserialize)]
         struct WriterProbe {
             role: Option<serde::de::IgnoredAny>,
+            tool: Option<serde::de::IgnoredAny>,
         }
         let probe: EventProbe<'_> = serde_json::from_slice(&bytes)?;
         if let Some(migration_hint) = legacy_event_migration_hint(probe.event_type) {
@@ -103,6 +109,12 @@ impl EventStore {
             return Err(ShoreError::UnsupportedEventEnvelope {
                 detail: "stored event writer carries a role field".to_owned(),
                 migration_hint: "legacy writer.role events are no longer supported; see docs/storage-model.md#legacy-writer-role-events".to_owned(),
+            });
+        }
+        if probe.writer.tool.is_some() {
+            return Err(ShoreError::UnsupportedEventEnvelope {
+                detail: "stored event writer carries a tool field".to_owned(),
+                migration_hint: "legacy writer.tool events are no longer supported; the field is writer.producer; see docs/storage-model.md#legacy-writer-tool-events".to_owned(),
             });
         }
         let event: ShoreEvent = serde_json::from_slice(&bytes)?;
@@ -416,6 +428,58 @@ mod tests {
         store.record_event_once(&event).unwrap();
 
         let read = store.read_event(&path).expect("current-shape event reads");
+        assert_eq!(read, event);
+    }
+
+    #[test]
+    fn read_event_rejects_stored_legacy_writer_tool_envelope() {
+        let (_root, store) = temp_event_store();
+        let event = review_initialized_event();
+        let path = store.event_path_for_idempotency_key(&event.idempotency_key);
+        fs::create_dir_all(store.events_dir()).unwrap();
+
+        // Pre-rename envelope shape: the writer object carries `tool` and no
+        // `producer` key.
+        let mut json = serde_json::to_value(event).unwrap();
+        let writer = json["writer"].as_object_mut().unwrap();
+        writer.remove("producer");
+        writer.insert(
+            "tool".to_owned(),
+            serde_json::json!({ "name": "shore", "version": "0.1.0" }),
+        );
+        fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
+
+        let err = store
+            .read_event(&path)
+            .expect_err("tool-bearing stored event must be rejected");
+
+        assert!(
+            matches!(err, ShoreError::UnsupportedEventEnvelope { .. }),
+            "expected the typed migration error, got: {err:?}"
+        );
+        assert!(
+            err.to_string()
+                .contains("docs/storage-model.md#legacy-writer-tool-events"),
+            "error carries the public migration anchor; got: {err}"
+        );
+        assert!(
+            err.to_string().contains("writer.producer"),
+            "error names the replacement field; got: {err}"
+        );
+    }
+
+    #[test]
+    fn read_event_accepts_producer_keyed_envelope() {
+        let (_root, store) = temp_event_store();
+        let event = review_initialized_event();
+        let path = store.event_path_for_idempotency_key(&event.idempotency_key);
+        store.record_event_once(&event).unwrap();
+
+        // A current producer-keyed event reads cleanly; the tool probe must not
+        // be over-eager.
+        let read = store
+            .read_event(&path)
+            .expect("producer-keyed event reads cleanly");
         assert_eq!(read, event);
     }
 

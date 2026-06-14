@@ -242,8 +242,10 @@ fn review_input_request_list(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
+    let repo = args.repo.clone();
     let result = list_input_requests(input_request_list_options(args));
-    let document = input_request_list_document(result?);
+    let delegation_map = super::common::discover_delegation_map(&repo);
+    let document = input_request_list_document(result?, delegation_map.as_ref());
     json::write_json(stdout, &document, pretty)
 }
 
@@ -252,11 +254,12 @@ fn review_input_request_fetch(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
+    let delegation_map = super::common::discover_delegation_map(&args.repo);
     let result = fetch_input_request(
         InputRequestFetchOptions::new(&args.repo, InputRequestId::new(args.input_request_id))
             .with_include_body(args.include_body),
     );
-    let document = input_request_fetch_document(result?);
+    let document = input_request_fetch_document(result?, delegation_map.as_ref());
     json::write_json(stdout, &document, pretty)
 }
 

@@ -2,14 +2,15 @@ use std::path::{Path, PathBuf};
 
 use super::{AdapterNoteView, ReviewUnitProjectionRow};
 use crate::model::{
-    DiffSnapshot, ReviewEndpoint, ReviewUnitId, ReviewUnitLineageId, ReviewUnitSource, RevisionId,
-    SessionId, SnapshotId, TrackId,
+    ActorId, DiffSnapshot, ReviewEndpoint, ReviewUnitId, ReviewUnitLineageId, ReviewUnitSource,
+    RevisionId, SessionId, SnapshotId, TrackId,
 };
 use crate::session::assessment::{AssessmentView, CurrentAssessmentView};
 use crate::session::input_request::InputRequestView;
 use crate::session::observation::ObservationView;
 use crate::session::state::ProjectionDiagnostic;
 use crate::session::workflow::ValidationCheckView;
+use crate::session::{DelegationMap, PrincipalResolution, principal_resolution_for_writer};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewUnitShowOptions {
@@ -18,6 +19,7 @@ pub struct ReviewUnitShowOptions {
     pub(super) lineage_id: Option<ReviewUnitLineageId>,
     pub(super) track: Option<String>,
     pub(super) include_body: bool,
+    pub(super) delegation_map: Option<DelegationMap>,
 }
 
 impl ReviewUnitShowOptions {
@@ -28,6 +30,7 @@ impl ReviewUnitShowOptions {
             lineage_id: None,
             track: None,
             include_body: false,
+            delegation_map: None,
         }
     }
 
@@ -50,6 +53,54 @@ impl ReviewUnitShowOptions {
         self.include_body = include_body;
         self
     }
+
+    /// Supply the reader-side delegation map. With it set, `show` emits
+    /// `principal_unresolvable` / `principal_ambiguous` diagnostics for
+    /// agent-written events whose principal does not resolve; without it, no
+    /// principal diagnostics are emitted (the zero-setup floor stays silent).
+    pub fn with_delegation_map(mut self, delegation_map: DelegationMap) -> Self {
+        self.delegation_map = Some(delegation_map);
+        self
+    }
+}
+
+/// Build `principal_unresolvable` / `principal_ambiguous` diagnostics for the
+/// agent-written members of a unit. Non-agent writers are skipped (they are
+/// their own principal); resolved agents are silent. Surface, never block
+/// (ADR-0003).
+pub(super) fn principal_diagnostics<'a>(
+    members: impl Iterator<Item = (&'a ActorId, &'a str)>,
+    map: &DelegationMap,
+) -> Vec<ProjectionDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for (writer_actor, occurred_at) in members {
+        let agent = writer_actor.as_str();
+        match principal_resolution_for_writer(writer_actor, map, occurred_at) {
+            Some(PrincipalResolution::None(reason)) => diagnostics.push(ProjectionDiagnostic {
+                code: "principal_unresolvable".to_owned(),
+                message: format!(
+                    "agent {agent} has no resolvable principal at {occurred_at} ({})",
+                    reason.as_str()
+                ),
+            }),
+            Some(PrincipalResolution::Ambiguous(principals)) => {
+                let candidates = principals
+                    .iter()
+                    .map(ActorId::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                diagnostics.push(ProjectionDiagnostic {
+                    code: "principal_ambiguous".to_owned(),
+                    message: format!(
+                        "agent {agent} resolves to multiple principals at {occurred_at}: {candidates}"
+                    ),
+                });
+            }
+            // Resolved agents and non-agent writers are silent.
+            Some(PrincipalResolution::Resolved(_)) | None => {}
+        }
+    }
+    diagnostics
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

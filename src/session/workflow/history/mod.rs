@@ -28,6 +28,7 @@ pub fn review_history(options: ReviewHistoryOptions) -> Result<ReviewHistoryResu
         include_body: options.include_body,
         verification_policy: options.verification_policy,
         trust_set: options.trust_set,
+        delegation_map: options.delegation_map,
     };
     let events = EventStore::open(read_store.store_dir()).list_events()?;
     let mut result = history_from_events(&events, filters, Some(read_store.store_dir()))?;
@@ -43,7 +44,7 @@ mod tests {
     use super::summary::ReviewHistorySummary;
     use super::*;
     use crate::model::{
-        AssessmentId, EventId, InputRequestId, InputRequestResponseId, ObservationId,
+        ActorId, AssessmentId, EventId, InputRequestId, InputRequestResponseId, ObservationId,
         ReviewEndpoint, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId,
         Side, SnapshotId, TargetRef, TrackId, ValidationCheckId, ValidationStatus,
         ValidationTarget, ValidationTrigger, WorkUnitId, WorktreeCaptureMode,
@@ -385,6 +386,119 @@ mod tests {
             result.entries[0].event_type,
             EventType::ReviewObservationRecorded
         );
+    }
+
+    fn claude_code_delegates(
+        valid_from: &str,
+        valid_until: serde_json::Value,
+    ) -> crate::session::DelegationMap {
+        crate::session::delegation_map_from_value(serde_json::json!({
+            "delegates": {
+                "actor:agent:claude-code": [{
+                    "principal": "actor:git-email:kevin@swiber.dev",
+                    "validFrom": valid_from,
+                    "validUntil": valid_until
+                }]
+            }
+        }))
+        .unwrap()
+    }
+
+    fn agent_written_observation() -> ShoreEvent {
+        let mut event =
+            observation_event("review-unit:sha256:one", "agent:claude-code", "Agent obs");
+        event.writer.actor_id = ActorId::new("actor:agent:claude-code");
+        event
+    }
+
+    #[test]
+    fn history_entries_carry_resolved_principal_for_agent_writers_when_map_supplied() {
+        let agent_event = agent_written_observation();
+        // A human (git-email) writer for contrast.
+        let mut human_event =
+            observation_event("review-unit:sha256:one", "agent:codex", "Human obs");
+        human_event.writer.actor_id = ActorId::new("actor:git-email:kevin@swiber.dev");
+
+        let filters = ResolvedHistoryFilters {
+            delegation_map: Some(claude_code_delegates(
+                "2026-05-01T00:00:00Z",
+                serde_json::Value::Null,
+            )),
+            ..ResolvedHistoryFilters::default()
+        };
+        let result = history_from_events(&[agent_event, human_event], filters, None).unwrap();
+
+        let agent_entry = result
+            .entries
+            .iter()
+            .find(|entry| entry.writer.actor_id.as_str() == "actor:agent:claude-code")
+            .unwrap();
+        let agent_json = serde_json::to_value(agent_entry).unwrap();
+        assert_eq!(
+            agent_json["principal"]["actorId"],
+            "actor:git-email:kevin@swiber.dev"
+        );
+        assert_eq!(agent_json["principal"]["status"], "resolved");
+        assert_eq!(agent_json["principal"]["source"], "delegates");
+
+        let human_entry = result
+            .entries
+            .iter()
+            .find(|entry| entry.writer.actor_id.as_str() == "actor:git-email:kevin@swiber.dev")
+            .unwrap();
+        assert!(
+            serde_json::to_value(human_entry)
+                .unwrap()
+                .get("principal")
+                .is_none(),
+            "human (git-email) writers are their own principal — no principal object"
+        );
+    }
+
+    #[test]
+    fn history_without_map_emits_none_principal_for_agent_writers() {
+        let result = history_from_events(
+            &[agent_written_observation()],
+            ResolvedHistoryFilters::default(),
+            None,
+        )
+        .unwrap();
+        let json = serde_json::to_value(&result.entries[0]).unwrap();
+        assert_eq!(
+            json["principal"],
+            serde_json::json!({ "status": "none", "source": "none" })
+        );
+    }
+
+    #[test]
+    fn history_principal_is_occurred_at_scoped() {
+        // observation_event's occurredAt is 2026-05-13T10:00:01Z.
+        let closed = ResolvedHistoryFilters {
+            delegation_map: Some(claude_code_delegates(
+                "2026-01-01T00:00:00Z",
+                serde_json::json!("2026-02-01T00:00:00Z"),
+            )),
+            ..ResolvedHistoryFilters::default()
+        };
+        let closed_result =
+            history_from_events(&[agent_written_observation()], closed, None).unwrap();
+        let closed_json = serde_json::to_value(&closed_result.entries[0]).unwrap();
+        assert_eq!(
+            closed_json["principal"]["status"], "none",
+            "a window that closed before the event resolves none"
+        );
+
+        let covering = ResolvedHistoryFilters {
+            delegation_map: Some(claude_code_delegates(
+                "2026-05-01T00:00:00Z",
+                serde_json::Value::Null,
+            )),
+            ..ResolvedHistoryFilters::default()
+        };
+        let covering_result =
+            history_from_events(&[agent_written_observation()], covering, None).unwrap();
+        let covering_json = serde_json::to_value(&covering_result.entries[0]).unwrap();
+        assert_eq!(covering_json["principal"]["status"], "resolved");
     }
 
     #[test]

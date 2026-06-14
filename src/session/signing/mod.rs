@@ -9,7 +9,8 @@ mod write;
 pub use ingest::IngestEventVerification;
 pub(crate) use ingest::verify_events_for_ingest;
 pub use policy::{
-    ArtifactAvailability, EventVerificationPolicy, EventVerificationView, verification_view,
+    ArtifactAvailability, EventVerificationPolicy, EventVerificationView, PrincipalPolicy,
+    principal_sufficient, verification_view,
 };
 pub use trust::{TrustSet, event_signature_trust_set};
 pub use verify::verify_event_signature;

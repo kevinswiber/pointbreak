@@ -8,13 +8,13 @@ use crate::model::{
 use crate::session::event::{
     AssertionMode, EventTarget, EventType, InputRequestOpenedPayload, InputRequestReasonCode,
     InputRequestRespondedPayload, InputRequestResponseOutcome, ShoreEvent, SourceRef,
-    TaskAttemptCapturedPayload, TaskCheckpointCapturedPayload, Writer, WriterTool,
+    TaskAttemptCapturedPayload, TaskCheckpointCapturedPayload, Writer, WriterProducer,
 };
 
 pub(crate) fn writer_user() -> Writer {
     Writer {
         actor_id: ActorId::new("actor:claude_code:user"),
-        tool: WriterTool {
+        producer: WriterProducer {
             name: "claude_code".to_owned(),
             version: String::new(),
         },

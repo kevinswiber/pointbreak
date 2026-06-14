@@ -23,6 +23,25 @@ where
         .expect("run shore binary")
 }
 
+/// Run `shore` with extra environment variables — e.g. `SHORE_ACTOR_ID` to
+/// attribute a write to a specific actor.
+#[allow(dead_code)]
+pub fn shore_env<I, S>(args: I, env: &[(&str, &str)]) -> Output
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let mut command = Command::new(env!("CARGO_BIN_EXE_shore"));
+    command
+        .args(args)
+        .env_remove("SHORE_LOG")
+        .env_remove("RUST_LOG");
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    command.output().expect("run shore binary")
+}
+
 #[allow(dead_code)]
 pub fn dump_repo() -> git_repo::GitRepo {
     let repo = git_repo::GitRepo::new();

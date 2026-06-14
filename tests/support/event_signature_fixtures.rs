@@ -298,7 +298,7 @@ fn base_event() -> Value {
         "version": 1,
         "writer": {
             "actorId": "actor:git-email:alice@example.com",
-            "tool": {
+            "producer": {
                 "name": "shore",
                 "version": "0.1.0-test",
             }
@@ -345,7 +345,7 @@ fn task_event() -> Value {
         "version": 1,
         "writer": {
             "actorId": "actor:git-email:alice@example.com",
-            "tool": {
+            "producer": {
                 "name": "shore",
                 "version": "0.1.0-test",
             }

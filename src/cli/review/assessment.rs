@@ -184,8 +184,14 @@ fn review_assessment_show(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
+    let repo = args.repo.clone();
     let result = show_assessments(assessment_show_options(args));
-    let document = assessment_show_document("shore.review-assessment-show", result?);
+    let delegation_map = super::common::discover_delegation_map(&repo);
+    let document = assessment_show_document(
+        "shore.review-assessment-show",
+        result?,
+        delegation_map.as_ref(),
+    );
     json::write_json(stdout, &document, pretty)
 }
 

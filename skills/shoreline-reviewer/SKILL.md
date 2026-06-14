@@ -88,11 +88,20 @@ Choose one reviewer track for the whole review and reuse it for every reviewer w
 the branch's distinctive segment as a fallback, and use a short random tag if neither exists. Keep
 the part after `agent:` lowercase, hyphenated, and around 15 characters or fewer.
 
+Tracks are review lanes, not actor identity: the unique tag keeps lanes legible, while the actor id
+below records writer provenance in the event envelope.
+
 ```bash
 agent_name="<agent-name>"
 run_id="<id>"
 reviewer_track="agent:${agent_name}-${run_id}"
+export SHORE_ACTOR_ID="actor:agent:${agent_name}"
 ```
+
+The actor id is your durable identity across sessions and runs — it carries no run id. Use **one
+canonical spelling** for your agent name and always the same one (`claude-code`, never also
+`claude`): two spellings split one agent's history across two identities. Keep it lowercase and
+hyphenated, like the track rule; `/` inside the agent segment is reserved.
 
 ## Review independently
 

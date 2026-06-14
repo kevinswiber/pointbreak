@@ -3,7 +3,7 @@ use std::process::Command;
 
 use crate::crypto::SignerId;
 use crate::model::ActorId;
-use crate::session::event::{Writer, WriterTool};
+use crate::session::event::{Writer, WriterProducer};
 
 /// Environment variable that pins the writing actor to an explicit, fully
 /// qualified `actor:<scheme>:<id>` identity, taking precedence over the local
@@ -27,7 +27,7 @@ pub(crate) fn writer_from_git_config(repo: &Path) -> Writer {
 pub(crate) fn writer_from_options(repo: &Path, explicit: Option<&ActorId>) -> Writer {
     Writer {
         actor_id: actor_id_for_repo(explicit.map(ActorId::as_str), repo),
-        tool: shore_tool(),
+        producer: shore_producer(),
     }
 }
 
@@ -67,8 +67,36 @@ pub(crate) fn is_valid_actor_id(value: &str) -> bool {
     }
 }
 
-fn shore_tool() -> WriterTool {
-    WriterTool {
+/// Validity for a delegation *principal* actor id. Unlike `is_valid_actor_id`
+/// — which gates an env/override value and forbids whitespace — a principal is a
+/// human writer id that the system itself mints with internal spaces (for
+/// example `actor:git-name:Kevin Swiber`, derived from `git config user.name`).
+/// So this allows internal whitespace but still forbids control characters,
+/// requires the `actor:` scheme with a non-empty remainder, or accepts a
+/// syntactically valid Ed25519 `did:key`.
+pub(crate) fn is_valid_principal_actor_id(value: &str) -> bool {
+    value.len() <= 256 && {
+        value
+            .strip_prefix("actor:")
+            .is_some_and(|rest| !rest.trim().is_empty() && rest.chars().all(|c| !c.is_control()))
+            || SignerId::parse(value).is_ok()
+    }
+}
+
+/// True when `value` is an `actor:agent:<name>` identity with a non-empty agent
+/// segment. The agent scheme names acting software whose durable writes resolve
+/// to a human principal through the delegation map; non-agent actors (git
+/// identities, `did:key`s) are their own principal and carry no delegation
+/// record. This is a scheme test only — it does not validate the rest of the id
+/// (`is_valid_actor_id` does that).
+pub(crate) fn is_agent_actor_id(value: &str) -> bool {
+    value
+        .strip_prefix("actor:agent:")
+        .is_some_and(|rest| !rest.is_empty())
+}
+
+fn shore_producer() -> WriterProducer {
+    WriterProducer {
         name: "shore".to_owned(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
     }
@@ -104,7 +132,7 @@ mod tests {
     use std::process::Command;
 
     #[test]
-    fn writer_from_git_config_uses_git_identity_and_shore_tool() {
+    fn writer_from_git_config_uses_git_identity_and_shore_producer() {
         let repo = tempfile::tempdir().unwrap();
         Command::new("git")
             .args(["init"])
@@ -123,7 +151,7 @@ mod tests {
             writer.actor_id.as_str(),
             "actor:git-email:author@example.com"
         );
-        assert_eq!(writer.tool.name, "shore");
+        assert_eq!(writer.producer.name, "shore");
     }
 
     #[test]
@@ -259,6 +287,21 @@ mod tests {
         let repo = git_repo_with_email("host@example.com");
         let actor = super::resolve_actor_id(None, None, repo.path());
         assert_eq!(actor.as_str(), "actor:git-email:host@example.com");
+    }
+
+    #[test]
+    fn is_agent_actor_id_matches_agent_scheme_only() {
+        assert!(super::is_agent_actor_id("actor:agent:claude-code"));
+        assert!(!super::is_agent_actor_id(
+            "actor:git-email:kevin@swiber.dev"
+        ));
+        assert!(!super::is_agent_actor_id(
+            "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd"
+        ));
+        // A longer scheme that merely starts with "agent" is not agent-scheme.
+        assert!(!super::is_agent_actor_id("actor:agentx:foo"));
+        // The agent segment must be non-empty.
+        assert!(!super::is_agent_actor_id("actor:agent:"));
     }
 
     #[test]

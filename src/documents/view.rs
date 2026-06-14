@@ -4,8 +4,20 @@ use crate::session::event::{
     AssertionMode, InputRequestReasonCode, InputRequestResponseOutcome, ReviewAssessment, Writer,
 };
 use crate::session::{
-    AssessmentView, CurrentAssessmentStatus, InputRequestView, ObservationView, ValidationCheckView,
+    AssessmentView, CurrentAssessmentStatus, DelegationMap, InputRequestView, ObservationView,
+    PrincipalView, ValidationCheckView, principal_view_for,
 };
+
+/// Resolve the principal object for a document built from `writer` at
+/// `created_at`. `None` for non-agent writers; the mirror posture (`status:
+/// none`) for agent writers with no map. Shared by every leaf view document.
+fn resolve_document_principal(
+    writer: &Writer,
+    created_at: &str,
+    map: Option<&DelegationMap>,
+) -> Option<PrincipalView> {
+    principal_view_for(&writer.actor_id, map, created_at)
+}
 
 /// Documented per-item shape for one observation.
 #[derive(serde::Serialize)]
@@ -27,6 +39,8 @@ pub struct ObservationViewDocument {
     body_content_hash: Option<String>,
     created_at: String,
     writer: Writer,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    principal: Option<PrincipalView>,
 }
 
 /// Documented per-item shape for one input request and its responses.
@@ -48,6 +62,8 @@ pub struct InputRequestViewDocument {
     responses: Vec<InputRequestResponseViewDocument>,
     created_at: String,
     writer: Writer,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    principal: Option<PrincipalView>,
 }
 
 /// Documented per-item shape for one input-request response.
@@ -63,6 +79,8 @@ pub struct InputRequestResponseViewDocument {
     reason_content_hash: Option<String>,
     created_at: String,
     writer: Writer,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    principal: Option<PrincipalView>,
 }
 
 /// Documented snake_case assertion mode for input requests, shared by the
@@ -106,6 +124,8 @@ pub struct AssessmentViewDocument {
     related_input_requests: Vec<String>,
     created_at: String,
     writer: Writer,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    principal: Option<PrincipalView>,
 }
 
 /// Documented per-item shape for one advisory validation check.
@@ -139,6 +159,8 @@ pub struct ValidationCheckViewDocument {
     log_artifact_content_hashes: Vec<String>,
     created_at: String,
     writer: Writer,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    principal: Option<PrincipalView>,
 }
 
 impl From<ObservationView> for ObservationViewDocument {
@@ -161,6 +183,7 @@ impl From<ObservationView> for ObservationViewDocument {
             body_content_hash: view.body_content_hash,
             created_at: view.created_at,
             writer: view.writer,
+            principal: None,
         }
     }
 }
@@ -185,6 +208,7 @@ impl From<InputRequestView> for InputRequestViewDocument {
                 .collect(),
             created_at: view.created_at,
             writer: view.writer,
+            principal: None,
         }
     }
 }
@@ -208,6 +232,7 @@ impl From<crate::session::InputRequestResponseView> for InputRequestResponseView
             reason_content_hash: view.reason_content_hash,
             created_at: view.created_at,
             writer: view.writer,
+            principal: None,
         }
     }
 }
@@ -272,6 +297,7 @@ impl From<AssessmentView> for AssessmentViewDocument {
                 .collect(),
             created_at: view.created_at,
             writer: view.writer,
+            principal: None,
         }
     }
 }
@@ -296,7 +322,66 @@ impl From<ValidationCheckView> for ValidationCheckViewDocument {
             log_artifact_content_hashes: view.log_artifact_content_hashes,
             created_at: view.created_at,
             writer: view.writer,
+            principal: None,
         }
+    }
+}
+
+impl ObservationViewDocument {
+    /// Attach the resolved principal object using this document's own writer and
+    /// `createdAt`. Used by the leaf list/show builders; the unit document and
+    /// add paths keep the plain `From` (no principal).
+    pub fn with_resolved_principal(mut self, map: Option<&DelegationMap>) -> Self {
+        self.principal = resolve_document_principal(&self.writer, &self.created_at, map);
+        self
+    }
+}
+
+impl InputRequestViewDocument {
+    /// Attach the principal to the request and to each of its responses (every
+    /// response is a separate writer at its own `createdAt`).
+    pub fn with_resolved_principal(mut self, map: Option<&DelegationMap>) -> Self {
+        self.principal = resolve_document_principal(&self.writer, &self.created_at, map);
+        self.responses = self
+            .responses
+            .into_iter()
+            .map(|response| response.with_resolved_principal(map))
+            .collect();
+        self
+    }
+}
+
+impl InputRequestResponseViewDocument {
+    pub fn with_resolved_principal(mut self, map: Option<&DelegationMap>) -> Self {
+        self.principal = resolve_document_principal(&self.writer, &self.created_at, map);
+        self
+    }
+}
+
+impl AssessmentViewDocument {
+    pub fn with_resolved_principal(mut self, map: Option<&DelegationMap>) -> Self {
+        self.principal = resolve_document_principal(&self.writer, &self.created_at, map);
+        self
+    }
+}
+
+impl CurrentAssessmentDocument {
+    /// Enrich the ambiguous-case candidate assessments with their principals.
+    /// The resolved/unassessed cases carry no candidate documents.
+    pub fn with_resolved_principal(mut self, map: Option<&DelegationMap>) -> Self {
+        self.candidates = self
+            .candidates
+            .into_iter()
+            .map(|candidate| candidate.with_resolved_principal(map))
+            .collect();
+        self
+    }
+}
+
+impl ValidationCheckViewDocument {
+    pub fn with_resolved_principal(mut self, map: Option<&DelegationMap>) -> Self {
+        self.principal = resolve_document_principal(&self.writer, &self.created_at, map);
+        self
     }
 }
 

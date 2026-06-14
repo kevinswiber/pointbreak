@@ -157,6 +157,26 @@ and payload hash but a different signer or signature, Shoreline reports the
 differences with the same payload hash remain an idempotent existing event. Signatures authenticate
 the producer facts; they do not choose an automatic conflict winner.
 
+### Actor identity and delegation — `shoreline::session`
+
+Verification answers "is this event authentic?"; delegation answers the orthogonal question "whose
+responsibility is this agent's write?". The two are independent — an unsigned local agent event can
+resolve a principal, and signing never gates a write.
+
+| Symbol | Purpose |
+| --- | --- |
+| `DelegationMap` / `delegation_map_from_value` / `DelegationMap::from_delegates_file` | Parse a checked-in `.shoreline/delegates` map (top-level `delegates` key, unknown keys ignored), reader-supplied like `TrustSet`. |
+| `DelegationMap::resolve` / `PrincipalResolution` / `UnresolvedReason` | Resolve an agent actor's principal at an event `occurredAt` over half-open validity windows: `Resolved` / `None(reason)` / `Ambiguous`. |
+| `PrincipalView` / `PrincipalStatus` / `PrincipalSource` | The serialized principal object `{actorId, status, source}` that rides beside `writer` in projections; `principal_view_for` builds it (only for `actor:agent:*` writers), `principal_display_label` renders `claude-code (for kevin@swiber.dev)`. |
+| `with_delegation_map` | Thread a `DelegationMap` into a read — on `ReviewHistoryOptions` and `ReviewUnitShowOptions`, and as a parameter to the leaf document builders — beside `with_trust_set`. |
+| `PrincipalPolicy` / `principal_sufficient` | Reader-side principal-sufficiency policy (`none` default / `prefer` / `require-resolvable-principal`), composed conjunctively beneath ADR-0009's resumption binding predicate — narrowing only. |
+
+Every event's envelope carries `writer.producer` (`{name, version}`), the producing software that
+wrote the event. (Pre-release stores that used a `writer.tool` object are rejected on read with a
+typed migration error; see [storage-model.md](./storage-model.md).) The delegation map and principal
+policy are reader-supplied config the agent does not control, so consuming them never trusts a
+self-asserted field. See [ADR-0010](./adr/adr-0010-actor-identity-and-delegation.md).
+
 ### Event ingest — `shoreline::session`
 
 | Item | Purpose |

@@ -147,8 +147,10 @@ fn review_observation_list(
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
+    let repo = args.repo.clone();
     let result = list_observations(observation_list_options(args));
-    let document = observation_list_document(result?);
+    let delegation_map = super::common::discover_delegation_map(&repo);
+    let document = observation_list_document(result?, delegation_map.as_ref());
     json::write_json(stdout, &document, pretty)
 }
 

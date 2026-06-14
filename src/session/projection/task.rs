@@ -18,7 +18,10 @@ use crate::session::event::{
     TaskAttemptCapturedPayload, TaskCheckpointCapturedPayload, TaskObservationRecordedPayload,
     Writer, decode_input_request_opened_payload,
 };
-use crate::session::{TrustSet, verify_event_signature};
+use crate::session::{
+    DelegationMap, PrincipalPolicy, PrincipalResolution, TrustSet, is_agent_actor_id,
+    principal_resolution_for_writer, principal_sufficient, verify_event_signature,
+};
 
 /// Envelope-level fields preserved on every projected event, so the projection
 /// does not silently lose envelope identity / authorship / source provenance.
@@ -550,6 +553,33 @@ pub(crate) fn agent_resumption_from_events(
     trust_set: &TrustSet,
     binding_policy: ResumptionBindingPolicy,
 ) -> Result<AgentResumptionProjection> {
+    // Default principal policy (`None`) is provably outcome-neutral, so the
+    // ADR-0009 entry point is this thin wrapper.
+    agent_resumption_with_principal_policy(
+        events,
+        task_attempt_id,
+        reader_actor_id,
+        trust_set,
+        binding_policy,
+        None,
+        PrincipalPolicy::None,
+    )
+}
+
+/// ADR-0010: the resumption projection composed with principal sufficiency.
+/// `binding' := binding(ADR-0009) AND principal_sufficient(ADR-0010)` —
+/// narrowing only. The delegation map and principal policy are reader-supplied
+/// config the agent does not control; the ADR-0009 arms remain the trust basis.
+#[allow(dead_code)]
+pub(crate) fn agent_resumption_with_principal_policy(
+    events: &[ShoreEvent],
+    task_attempt_id: &WorkObjectId,
+    reader_actor_id: &ActorId,
+    trust_set: &TrustSet,
+    binding_policy: ResumptionBindingPolicy,
+    delegation_map: Option<&DelegationMap>,
+    principal_policy: PrincipalPolicy,
+) -> Result<AgentResumptionProjection> {
     let attempt_summary =
         task_attempt_summary_from_events(events, task_attempt_id, reader_actor_id)?;
 
@@ -664,6 +694,10 @@ pub(crate) fn agent_resumption_from_events(
         AgentInputRequestResponsePolicyView,
         FreshnessBasis,
     )> = None;
+    // ADR-0010: under `prefer`, an unresolved/ambiguous agent principal is an
+    // advisory diagnostic with no operative effect; collected here and attached
+    // to the projection on the satisfied (Ready) path.
+    let mut principal_advisories: Vec<TaskProjectionDiagnostic> = Vec::new();
     for record in operative_input_request_records {
         let response = record
             .responses
@@ -678,10 +712,33 @@ pub(crate) fn agent_resumption_from_events(
         );
         let identity_binding =
             response_identity_is_binding(response.verification, response.ingested, binding_policy);
+        // ADR-0010: binding' = binding AND principal_sufficient. Narrowing only.
+        let principal_ok = principal_sufficient(
+            &response.envelope.writer.actor_id,
+            &response.envelope.occurred_at,
+            delegation_map,
+            principal_policy,
+        );
+        let binding = identity_binding && principal_ok;
+        // `prefer` surfaces the same reason as advisory only.
+        if principal_policy == PrincipalPolicy::Prefer
+            && let Some(reason) = principal_block_reason(
+                &response.envelope.writer.actor_id,
+                &response.envelope.occurred_at,
+                delegation_map,
+            )
+        {
+            principal_advisories.push(TaskProjectionDiagnostic {
+                code: "agent_resumption_response_principal_advisory".to_owned(),
+                message: principal_block_message(reason).to_owned(),
+                event_id: Some(response.envelope.event_id.clone()),
+                reason: Some(reason.to_owned()),
+            });
+        }
         let outcome_allows = matches!(response.outcome, InputRequestResponseOutcome::Approved);
         let operative = response.envelope.assertion_mode == AssertionMode::Operative;
 
-        let operative_reason = if identity_binding && operative && outcome_allows {
+        let operative_reason = if binding && operative && outcome_allows {
             Some(
                 "approved by a verified binding identity with envelope-level operative assertion mode"
                     .to_owned(),
@@ -746,7 +803,7 @@ pub(crate) fn agent_resumption_from_events(
             });
         }
 
-        if !(identity_binding && operative && outcome_allows) {
+        if !(binding && operative && outcome_allows) {
             let mut diagnostics = Vec::new();
             if !outcome_allows {
                 diagnostics.push(TaskProjectionDiagnostic {
@@ -775,6 +832,22 @@ pub(crate) fn agent_resumption_from_events(
                 diagnostics.push(TaskProjectionDiagnostic {
                     code: "agent_resumption_response_identity_not_binding".to_owned(),
                     message: non_binding_message(reason).to_owned(),
+                    event_id: Some(response.envelope.event_id.clone()),
+                    reason: Some(reason.to_owned()),
+                });
+            } else if !principal_ok {
+                // ADR-0010, first-match-wins: ADR-0009's identity reason keeps
+                // priority, so the principal reason is emitted only when the
+                // identity itself was binding.
+                let reason = principal_block_reason(
+                    &response.envelope.writer.actor_id,
+                    &response.envelope.occurred_at,
+                    delegation_map,
+                )
+                .unwrap_or("principal_unresolvable");
+                diagnostics.push(TaskProjectionDiagnostic {
+                    code: "agent_resumption_response_principal_not_sufficient".to_owned(),
+                    message: principal_block_message(reason).to_owned(),
                     event_id: Some(response.envelope.event_id.clone()),
                     reason: Some(reason.to_owned()),
                 });
@@ -827,8 +900,40 @@ pub(crate) fn agent_resumption_from_events(
         selected_response,
         treated_as_operative,
         freshness,
-        diagnostics: Vec::new(),
+        diagnostics: principal_advisories,
     })
+}
+
+/// The bounded principal block reason for a response writer at `occurred_at`:
+/// `principal_unresolvable` / `principal_ambiguous`, or `None` when the writer is
+/// its own principal or resolves cleanly. Mirrors `principal_sufficient`'s
+/// require-arm but yields the diagnostic reason.
+fn principal_block_reason(
+    writer_actor: &ActorId,
+    occurred_at: &str,
+    delegation_map: Option<&DelegationMap>,
+) -> Option<&'static str> {
+    let Some(map) = delegation_map else {
+        // No map: a human is its own principal; an agent is unresolvable.
+        return is_agent_actor_id(writer_actor.as_str()).then_some("principal_unresolvable");
+    };
+    match principal_resolution_for_writer(writer_actor, map, occurred_at) {
+        // Non-agent writer (its own principal) or a clean resolution: no block.
+        None | Some(PrincipalResolution::Resolved(_)) => None,
+        Some(PrincipalResolution::None(_)) => Some("principal_unresolvable"),
+        Some(PrincipalResolution::Ambiguous(_)) => Some("principal_ambiguous"),
+    }
+}
+
+fn principal_block_message(reason: &str) -> &'static str {
+    match reason {
+        "principal_ambiguous" => {
+            "the responder's agent identity resolves to more than one principal; the delegation map must disambiguate before this response binds"
+        }
+        _ => {
+            "the responder's agent identity does not resolve to a responsible principal at the response time; require-resolvable-principal will not let it bind"
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1056,7 +1161,7 @@ mod tests {
     use crate::session::event::{
         AssertionMode, EventTarget, EventType, IngestProvenance, IngestVia, ShoreEvent, SourceRef,
         TaskAttemptCapturedPayload, TaskCheckpointCapturedPayload, TaskObservationRecordedPayload,
-        Writer, WriterTool,
+        Writer, WriterProducer,
     };
     use crate::session::event_signature_trust_set;
     use crate::session::projection::test_support::{
@@ -2560,6 +2665,188 @@ mod tests {
         }
     }
 
+    // ADR-0010 principal-sufficiency composition tests.
+
+    fn agent_response_events() -> (Vec<ShoreEvent>, WorkObjectId) {
+        let (mut events, task_attempt_id) = approved_local_response_events();
+        events.last_mut().expect("response event").writer.actor_id =
+            ActorId::new("actor:agent:claude-code");
+        (events, task_attempt_id)
+    }
+
+    fn delegates_for(records: serde_json::Value) -> DelegationMap {
+        crate::session::delegation_map_from_value(serde_json::json!({
+            "delegates": { "actor:agent:claude-code": records }
+        }))
+        .unwrap()
+    }
+
+    fn resolving_delegates() -> DelegationMap {
+        // The response occurredAt is 2026-05-18T00:00:03Z.
+        delegates_for(serde_json::json!([
+            { "principal": "actor:git-email:kevin@swiber.dev",
+              "validFrom": "2026-05-01T00:00:00Z", "validUntil": null }
+        ]))
+    }
+
+    fn resumption_with_principal(
+        events: &[ShoreEvent],
+        task_attempt_id: &WorkObjectId,
+        map: Option<&DelegationMap>,
+        principal_policy: PrincipalPolicy,
+    ) -> AgentResumptionProjection {
+        agent_resumption_with_principal_policy(
+            events,
+            task_attempt_id,
+            &reader_actor(),
+            &TrustSet::default(),
+            ResumptionBindingPolicy::default(),
+            map,
+            principal_policy,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn default_principal_policy_changes_no_binding_outcome() {
+        let (events, task_attempt_id) = agent_response_events();
+        let projection =
+            resumption_with_principal(&events, &task_attempt_id, None, PrincipalPolicy::None);
+        assert!(projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Ready);
+    }
+
+    #[test]
+    fn require_resolvable_principal_blocks_unresolved_agent_response() {
+        let (events, task_attempt_id) = agent_response_events();
+        let projection = resumption_with_principal(
+            &events,
+            &task_attempt_id,
+            None,
+            PrincipalPolicy::RequireResolvablePrincipal,
+        );
+        assert!(!projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Blocked);
+        // The ADR-0009 identity itself was binding (arm a); only the principal
+        // refinement blocks.
+        assert!(
+            projection
+                .selected_response
+                .as_ref()
+                .expect("selected response")
+                .identity_treated_as_binding
+        );
+        assert!(
+            projection
+                .diagnostics
+                .iter()
+                .any(|d| d.reason.as_deref() == Some("principal_unresolvable")),
+            "diagnostics: {:?}",
+            projection.diagnostics
+        );
+    }
+
+    #[test]
+    fn require_resolvable_principal_binds_resolved_local_agent_response() {
+        let (events, task_attempt_id) = agent_response_events();
+        let map = resolving_delegates();
+        let projection = resumption_with_principal(
+            &events,
+            &task_attempt_id,
+            Some(&map),
+            PrincipalPolicy::RequireResolvablePrincipal,
+        );
+        assert!(
+            projection.may_resume,
+            "diagnostics: {:?}",
+            projection.diagnostics
+        );
+        assert_eq!(projection.state, AgentResumptionState::Ready);
+    }
+
+    #[test]
+    fn human_responses_are_unaffected_by_require_policy() {
+        // The default response writer is a non-agent actor — its own principal.
+        let (events, task_attempt_id) = approved_local_response_events();
+        let projection = resumption_with_principal(
+            &events,
+            &task_attempt_id,
+            None,
+            PrincipalPolicy::RequireResolvablePrincipal,
+        );
+        assert!(projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Ready);
+    }
+
+    #[test]
+    fn principal_policy_never_widens_the_binding_predicate() {
+        // Ingested unsigned: ADR-0009 refuses (arm (a) needs local possession).
+        let (mut events, task_attempt_id) = agent_response_events();
+        events.last_mut().expect("response event").ingest = Some(IngestProvenance {
+            via: IngestVia::IngestEvents,
+            received_at: "unix-ms:1760000000000".to_owned(),
+        });
+        let map = resolving_delegates();
+        for policy in [
+            PrincipalPolicy::None,
+            PrincipalPolicy::Prefer,
+            PrincipalPolicy::RequireResolvablePrincipal,
+        ] {
+            let projection =
+                resumption_with_principal(&events, &task_attempt_id, Some(&map), policy);
+            assert!(
+                !projection.may_resume,
+                "{policy:?} must never widen the binding predicate"
+            );
+        }
+    }
+
+    #[test]
+    fn prefer_surfaces_diagnostics_without_operative_effect() {
+        let (events, task_attempt_id) = agent_response_events();
+        let projection =
+            resumption_with_principal(&events, &task_attempt_id, None, PrincipalPolicy::Prefer);
+        // Operative outcome identical to None.
+        assert!(projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Ready);
+        // Plus an advisory principal diagnostic.
+        assert!(
+            projection
+                .diagnostics
+                .iter()
+                .any(|d| d.reason.as_deref() == Some("principal_unresolvable")),
+            "diagnostics: {:?}",
+            projection.diagnostics
+        );
+    }
+
+    #[test]
+    fn ambiguous_principal_blocks_under_require_with_named_reason() {
+        let (events, task_attempt_id) = agent_response_events();
+        let map = delegates_for(serde_json::json!([
+            { "principal": "actor:git-email:kevin@swiber.dev",
+              "validFrom": "2026-05-01T00:00:00Z", "validUntil": null },
+            { "principal": "actor:git-email:alice@example.com",
+              "validFrom": "2026-05-01T00:00:00Z", "validUntil": null }
+        ]));
+        let projection = resumption_with_principal(
+            &events,
+            &task_attempt_id,
+            Some(&map),
+            PrincipalPolicy::RequireResolvablePrincipal,
+        );
+        assert!(!projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Blocked);
+        assert!(
+            projection
+                .diagnostics
+                .iter()
+                .any(|d| d.reason.as_deref() == Some("principal_ambiguous")),
+            "diagnostics: {:?}",
+            projection.diagnostics
+        );
+    }
+
     #[test]
     fn non_binding_reason_vocabulary_first_match_wins() {
         use EventVerificationStatus::{Invalid, Unsigned, UntrustedKey};
@@ -3342,7 +3629,7 @@ mod tests {
             InputRequestRespondedPayload::idempotency_key(input_request_id, response_id.as_str());
         let writer = Writer {
             actor_id: ActorId::new("actor:claude_code:user"),
-            tool: WriterTool {
+            producer: WriterProducer {
                 name: "claude_code".to_owned(),
                 version: String::new(),
             },
@@ -3735,7 +4022,7 @@ mod tests {
             InputRequestRespondedPayload::idempotency_key(input_request_id, response_id.as_str());
         let writer = Writer {
             actor_id: ActorId::new("actor:claude_code:user"),
-            tool: WriterTool {
+            producer: WriterProducer {
                 name: "claude_code".to_owned(),
                 version: String::new(),
             },

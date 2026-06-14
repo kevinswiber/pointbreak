@@ -4,7 +4,9 @@ use crate::documents::{
 };
 use crate::model::ReviewTargetRef;
 use crate::session::event::ReviewAssessment;
-use crate::session::{AssessmentAddResult, AssessmentShowFilters, AssessmentShowResult};
+use crate::session::{
+    AssessmentAddResult, AssessmentShowFilters, AssessmentShowResult, DelegationMap,
+};
 
 /// Documented body for `shore.review-assessment-add`.
 #[derive(serde::Serialize)]
@@ -66,17 +68,21 @@ pub fn assessment_add_document(
 pub fn assessment_show_document(
     schema: &'static str,
     result: AssessmentShowResult,
+    delegation_map: Option<&DelegationMap>,
 ) -> DiagnosticDocument<AssessmentShowBody> {
     DiagnosticDocument::new(
         schema,
         AssessmentShowBody {
             review_unit_id: result.review_unit_id.as_str().to_owned(),
             filters: AssessmentShowFiltersDocument::from(result.filters),
-            current: CurrentAssessmentDocument::from(result.current),
+            current: CurrentAssessmentDocument::from(result.current)
+                .with_resolved_principal(delegation_map),
             assessments: result
                 .assessments
                 .into_iter()
-                .map(AssessmentViewDocument::from)
+                .map(|view| {
+                    AssessmentViewDocument::from(view).with_resolved_principal(delegation_map)
+                })
                 .collect(),
         },
         result.diagnostics,

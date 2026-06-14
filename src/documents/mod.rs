@@ -297,6 +297,69 @@ mod tests {
     }
 
     #[test]
+    fn view_document_principal_is_options_gated_and_agent_scoped() {
+        use crate::documents::ValidationCheckViewDocument;
+        use crate::model::ActorId;
+        use crate::session::delegation_map_from_value;
+
+        let map = delegation_map_from_value(serde_json::json!({
+            "delegates": {
+                "actor:agent:claude-code": [{
+                    "principal": "actor:git-email:kevin@swiber.dev",
+                    "validFrom": "2026-05-01T00:00:00Z",
+                    "validUntil": null
+                }]
+            }
+        }))
+        .unwrap();
+
+        let agent_view = || {
+            let mut view = validation_view();
+            view.writer.actor_id = ActorId::new("actor:agent:claude-code");
+            view
+        };
+
+        // Agent writer + map → resolved principal object beside writer.
+        let resolved =
+            ValidationCheckViewDocument::from(agent_view()).with_resolved_principal(Some(&map));
+        let value = serde_json::to_value(&resolved).unwrap();
+        assert_eq!(
+            value["principal"]["actorId"],
+            "actor:git-email:kevin@swiber.dev"
+        );
+        assert_eq!(value["principal"]["status"], "resolved");
+        assert_eq!(value["principal"]["source"], "delegates");
+
+        // Agent writer + no map → mirror posture.
+        let no_map = ValidationCheckViewDocument::from(agent_view()).with_resolved_principal(None);
+        assert_eq!(
+            serde_json::to_value(&no_map).unwrap()["principal"],
+            serde_json::json!({ "status": "none", "source": "none" })
+        );
+
+        // Human writer + map → no principal object (its own principal).
+        let human = ValidationCheckViewDocument::from(validation_view())
+            .with_resolved_principal(Some(&map));
+        assert!(
+            serde_json::to_value(&human)
+                .unwrap()
+                .get("principal")
+                .is_none(),
+            "human writers carry no principal object"
+        );
+
+        // Plain `From` (the unit-document / add path) carries no principal.
+        let plain = ValidationCheckViewDocument::from(validation_view());
+        assert!(
+            serde_json::to_value(&plain)
+                .unwrap()
+                .get("principal")
+                .is_none(),
+            "the From path attaches no principal — unit docs stay principal-free"
+        );
+    }
+
+    #[test]
     fn validation_view_document_has_expected_wire_keys() {
         use crate::documents::ValidationCheckViewDocument;
 

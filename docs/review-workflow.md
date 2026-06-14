@@ -432,10 +432,12 @@ with all ledger facts, use `shore review unit show`.
 Every observation, input request, and assessment belongs to a required
 `--track`. Tracks are **review lanes**, such as `agent:codex` or
 `human:kevin`. They are not actor identity. Writer provenance — who actually
-ran the command, with which tool — is recorded separately in the event
-envelope from local Git config and the Shoreline tool identity. Pick track names
-that group facts the way you want to read them back, then let provenance
-take care of itself.
+ran the command — is recorded separately in the event envelope: the writer
+`actorId` (from local Git config, or an explicit `actor:agent:<name>` set via
+`SHORE_ACTOR_ID`) and the `producer` that wrote the event. The human a resolved
+agent acts on behalf of comes from the checked-in `.shoreline/delegates` map at
+read time. Pick track names that group facts the way you want to read them back,
+then let provenance take care of itself.
 
 ### Bodies
 

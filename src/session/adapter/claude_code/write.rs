@@ -214,13 +214,13 @@ mod tests {
     };
     use crate::session::EventStore;
     use crate::session::event::{
-        AssertionMode, EventType, ShoreEvent, SourceRef, SourceSpeaker, Writer, WriterTool,
+        AssertionMode, EventType, ShoreEvent, SourceRef, SourceSpeaker, Writer, WriterProducer,
     };
 
     fn writer_user_for_test() -> Writer {
         Writer {
             actor_id: ActorId::new("actor:claude_code:user"),
-            tool: WriterTool {
+            producer: WriterProducer {
                 name: "claude_code".to_owned(),
                 version: String::new(),
             },

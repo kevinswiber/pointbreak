@@ -53,7 +53,7 @@ fn history_entries_serialize_writer_without_role() {
         "writer carries no role: {writer}"
     );
     assert!(writer["actorId"].is_string());
-    assert!(writer["tool"]["name"].is_string());
+    assert!(writer["producer"]["name"].is_string());
     // The derived act label comes from the event type, surfaced as the
     // summary's kind tag.
     assert_eq!(

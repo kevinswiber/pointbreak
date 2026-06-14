@@ -108,7 +108,7 @@ impl CaptureOptions {
     /// Excludes an explicit command-helper path from the captured snapshot.
     ///
     /// This is intentionally narrow CLI plumbing for files such as `--log-file`.
-    /// Other untracked agent/tool files remain part of the ReviewUnit unless the
+    /// Other untracked agent/producer files remain part of the ReviewUnit unless the
     /// caller chooses to exclude them.
     pub fn with_excluded_helper_path(mut self, path: impl AsRef<Path>) -> Self {
         self.excluded_helper_paths.push(path.as_ref().to_path_buf());

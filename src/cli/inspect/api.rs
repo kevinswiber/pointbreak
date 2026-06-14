@@ -264,8 +264,11 @@ impl From<shoreline::session::LineageRoundView> for LineageRoundEntryDocument {
 
 /// Full chronological event timeline with hydrated bodies.
 pub(super) fn history_json(repo: &Path) -> Result<String, String> {
-    let result = review_history(ReviewHistoryOptions::new(repo).with_include_body(true))
-        .map_err(|error| error.to_string())?;
+    let mut options = ReviewHistoryOptions::new(repo).with_include_body(true);
+    if let Some(map) = crate::cli::review::common::discover_delegation_map(repo) {
+        options = options.with_delegation_map(map);
+    }
+    let result = review_history(options).map_err(|error| error.to_string())?;
     let history_count = result.history_count();
     let payload = HistoryPayload {
         schema: "shore.inspect-history",
@@ -389,12 +392,13 @@ pub(super) fn unit_json(repo: &Path, review_unit_id: &str) -> Result<String, Str
     if review_unit_id.is_empty() {
         return Err("missing review unit id".to_owned());
     }
-    let result = show_review_unit(
-        ReviewUnitShowOptions::new(repo)
-            .with_review_unit_id(ReviewUnitId::new(review_unit_id.to_owned()))
-            .with_include_body(true),
-    )
-    .map_err(|error| {
+    let mut show_options = ReviewUnitShowOptions::new(repo)
+        .with_review_unit_id(ReviewUnitId::new(review_unit_id.to_owned()))
+        .with_include_body(true);
+    if let Some(map) = crate::cli::review::common::discover_delegation_map(repo) {
+        show_options = show_options.with_delegation_map(map);
+    }
+    let result = show_review_unit(show_options).map_err(|error| {
         tracing::debug!(error = %error, review_unit = review_unit_id, "inspect_unit_read_failed");
         format!("review unit not found or unreadable: {review_unit_id}")
     })?;

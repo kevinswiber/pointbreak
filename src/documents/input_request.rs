@@ -6,7 +6,7 @@ use crate::documents::{
 use crate::model::ReviewTargetRef;
 use crate::session::event::{InputRequestReasonCode, InputRequestResponseOutcome};
 use crate::session::{
-    InputRequestFetchResult, InputRequestListResult, InputRequestOpenResult,
+    DelegationMap, InputRequestFetchResult, InputRequestListResult, InputRequestOpenResult,
     InputRequestRespondResult,
 };
 
@@ -92,6 +92,7 @@ pub fn input_request_open_document(
 /// Build the `shore.review-input-request-list` document from a list result.
 pub fn input_request_list_document(
     result: InputRequestListResult,
+    delegation_map: Option<&DelegationMap>,
 ) -> DiagnosticDocument<InputRequestListBody> {
     DiagnosticDocument::new(
         "shore.review-input-request-list",
@@ -113,7 +114,9 @@ pub fn input_request_list_document(
             input_requests: result
                 .input_requests
                 .into_iter()
-                .map(InputRequestViewDocument::from)
+                .map(|view| {
+                    InputRequestViewDocument::from(view).with_resolved_principal(delegation_map)
+                })
                 .collect(),
         },
         result.diagnostics,
@@ -123,11 +126,13 @@ pub fn input_request_list_document(
 /// Build the `shore.review-input-request-fetch` document from a fetch result.
 pub fn input_request_fetch_document(
     result: InputRequestFetchResult,
+    delegation_map: Option<&DelegationMap>,
 ) -> DiagnosticDocument<InputRequestFetchBody> {
     DiagnosticDocument::new(
         "shore.review-input-request-fetch",
         InputRequestFetchBody {
-            input_request: InputRequestViewDocument::from(result.input_request),
+            input_request: InputRequestViewDocument::from(result.input_request)
+                .with_resolved_principal(delegation_map),
         },
         result.diagnostics,
     )

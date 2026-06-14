@@ -139,7 +139,7 @@ Native observations follow the ReviewUnit ledger model:
 - immutable `review_observation_recorded` events in `events/` carry durable observation facts
 - each observation targets a ReviewUnit plus an optional file or line range in that captured
   snapshot
-- each observation belongs to a required track; tracks are review lanes, while actor/tool provenance
+- each observation belongs to a required track; tracks are review lanes, while actor/producer provenance
   remains in the event writer envelope
 - bounded `state.json` may summarize observation state, such as `observationCount`, but it does not
   embed observation history or body content
@@ -168,7 +168,7 @@ Native input requests follow the same ReviewUnit ledger model:
 - immutable `input_request_responded` events in `events/` carry durable response facts
 - each request targets a ReviewUnit, captured file or range, or native observation in that same
   ReviewUnit
-- each request belongs to a required track; actor/tool provenance remains in the event writer
+- each request belongs to a required track; actor/producer provenance remains in the event writer
   envelope
 - bounded `state.json` summarizes input request state with `inputRequestCount`,
   `openInputRequestCount`, and `openOperativeInputRequestCount`, but it does not embed request
@@ -202,7 +202,7 @@ Native assessments follow the same ReviewUnit ledger model:
 - immutable `review_assessment_recorded` events in `events/` carry durable assessment facts
 - each assessment targets a ReviewUnit, captured file or range, native observation, native input
   request, or native assessment in that same ReviewUnit
-- each assessment belongs to a required track; actor/tool provenance remains in the event writer
+- each assessment belongs to a required track; actor/producer provenance remains in the event writer
   envelope
 - bounded `state.json` summarizes assessment state with `assessmentCount`, but it does not embed
   assessment history, summaries, relationship graphs, or current-assessment candidates
@@ -240,7 +240,7 @@ Validation evidence follows the same ReviewUnit ledger model:
   checks
 - each validation check targets one exact captured ReviewUnit through opaque, content-addressed
   ReviewUnit identity
-- each validation check belongs to a required track; actor/tool provenance remains in the event
+- each validation check belongs to a required track; actor/producer provenance remains in the event
   writer envelope
 - bounded `state.json` summarizes validation evidence with `validationCheckCount`, but it does not
   embed validation history, summary content, logs, or reports
@@ -657,6 +657,80 @@ envelope. Current Shoreline does not store a writer role: the review act is deri
 field. Store reads reject stored events whose writer carries `role`. Because Shoreline has not
 released this storage contract, the supported migration is to discard the old local `.shore/`
 directory and recapture the review.
+
+## Legacy Writer Tool Events
+
+Earlier development versions of Shoreline wrote a `tool` object inside each event's writer
+envelope. Current Shoreline names the producing software under `producer` (`{name, version}`); per
+the [ADR-0010](./adr/adr-0010-actor-identity-and-delegation.md) vocabulary rule, "agent" names
+acting software, "producer" names software that writes events, and the word "tool" is reserved for
+the model-API/MCP sense and is no longer an envelope field. The rename rides the pre-adoption
+hard-break policy ([ADR-0007](./adr/adr-0007-writer-act-vocabulary.md)): the golden to-be-signed
+bytes, the embedded signatures, and `sigVersion: 1` are all untouched.
+
+Store reads reject stored events whose writer carries `tool` with a typed
+`UnsupportedEventEnvelope` error naming the replacement field (`writer.producer`) and this anchor,
+rather than an opaque missing-field error. Because Shoreline has not released this storage
+contract, the supported migration is to discard the old local `.shore/` directory and recapture
+the review.
+
+## Actor Identity and Delegation
+
+Every event's writer carries an `actorId`. Human writers derive theirs from Git identity
+(`actor:git-email:<email>` or `actor:git-name:<name>`); agents write under their own
+`actor:agent:<agent-name>` id, set with `SHORE_ACTOR_ID` (see
+[agent-authoring.md](./agent-authoring.md)). The actor id is reported in projections but is never
+the basis of a binding decision — a writer cannot make a claim trustworthy by asserting it
+([ADR-0007](./adr/adr-0007-writer-act-vocabulary.md)).
+
+Who an agent acts *on behalf of* is answered by a checked-in delegation map at
+`.shoreline/delegates` — a sibling of `.shoreline/allowed-signers`, deliberately separate so that
+key rotation never touches delegation. It is human-committed JSON:
+
+```json
+{
+  "delegates": {
+    "actor:agent:claude-code": [
+      {
+        "principal": "actor:git-email:kevin@swiber.dev",
+        "validFrom": "2026-06-10T00:00:00Z",
+        "validUntil": null,
+        "comment": "claude-code, enrolled by Kevin"
+      }
+    ]
+  }
+}
+```
+
+- The top-level key is `delegates`; unknown top-level keys are ignored for forward compatibility.
+- Each key is an `actor:agent:<name>` id mapping to an array of windowed records.
+- `principal` must be a valid **non-agent** actor id in v1 (delegation chains have depth 0).
+- `validFrom` is required and `validUntil` is null or an RFC 3339 UTC instant (`Z` offset only,
+  e.g. `2026-06-10T00:00:00Z`); the window is half-open `[validFrom, validUntil)`.
+- `comment` is free text for diff readers and is never authority.
+
+Resolution is projection-time, replay-stable, and git-free: it selects the record whose window
+contains the event's `occurredAt`. **Revocation closes a window** (`validUntil` set) — events
+inside the closed window keep resolving, so history stays stable — while **deleting a record is
+disavowal**: events that previously resolved deliberately resolve to nothing. `git log -p
+.shoreline/delegates` is the audit trail; the file's history, not a mechanism, records who was
+enrolled when.
+
+Resolution config is reader-supplied, exactly like the allowed-signers trust set. A consumer
+without the map — a mirror, an exported bundle — degrades to `principal: none`, never a wrong
+answer. The CLI discovers `.shoreline/delegates` at the worktree root; a malformed file warns once
+to stderr and proceeds with no map (advisory, never blocking). Overlapping windows with distinct
+principals resolve as `ambiguous` and are surfaced, never auto-picked.
+
+In this release, delegation entries are created by editing `.shoreline/delegates` directly (or by
+an agent proposing a working-tree edit); the human's review-and-commit is the authorization. A
+`shore keys`-staged enrollment flow is a separate, later key-custody plan; this release documents
+no unshipped commands.
+
+Pre-cutover honesty: agent events written before the `actor:agent:` cutover carry the human's
+git-email id and remain exactly what they claimed at write time. The `agent:*` *track* name is a
+heuristic ("written on an agent track"), never re-attribution; recapture is the hard-break escape
+hatch.
 
 ## Projection Ordering
 
