@@ -113,9 +113,12 @@ event type, newest-first by default), a per-event detail view, a composite per-R
 the current-assessment status plus grouped observations, input requests, assessments, and lineage/head
 badges, a ReviewUnit lineage list/detail view showing heads, threaded rounds, diagnostics, and stale
 older-round facts, and the captured diff for a ReviewUnit annotated with the review facts anchored to
-each line. Long IDs render as truncated,
-clickable references that navigate to the resource they name, and the page auto-refreshes when the
-store changes.
+each line. Validation checks recorded with `shore review validation add` appear throughout — as a
+labeled timeline event type, a "Validation checks" section on the ReviewUnit page (with the check
+name, status, trigger, and exit code), and on lineage round cards — shown for context only; they do
+not affect the current assessment and carry no merge or acceptance authority. Long IDs render as
+truncated, clickable references that navigate to the resource they name, and the page auto-refreshes
+when the store changes or a freshness diagnostic appears or clears.
 
 The inspector is a read-only, single-store, localhost developer tool. It reads through the same
 validated projections as `shore review history` and `shore review unit show` rather than parsing raw
