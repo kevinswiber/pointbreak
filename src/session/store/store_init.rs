@@ -57,6 +57,10 @@ pub(crate) fn sweep_stale_temp_files(storage: &LocalStorage, shore_dir: &Path) -
 pub(crate) fn prepare_shore_writer(paths: &ShoreStorePaths, storage: &LocalStorage) -> Result<()> {
     sweep_stale_temp_files(storage, paths.shore_dir())?;
     ensure_store_dirs(paths.shore_dir())?;
+    // Record the private override's own exclude entry before the store exclude,
+    // so it is captured explicitly even when a broader store exclude pattern is
+    // present (and would otherwise mask the more specific probe).
+    ensure_local_delegates_excluded(paths.worktree_root())?;
     ensure_shore_storage_excluded(paths.worktree_root())
 }
 
@@ -77,7 +81,28 @@ pub fn ensure_shore_storage_excluded(worktree_root: &Path) -> Result<()> {
     if git_path_is_ignored(worktree_root, ".shore/state.json")? {
         return Ok(());
     }
+    append_info_exclude_line(worktree_root, ".shore/")
+}
 
+/// Keeps the private delegates override out of Git status without touching any
+/// tracked file. Mirrors [`ensure_shore_storage_excluded`]: if the path is
+/// already ignored by any standard source this is a no-op; otherwise it appends
+/// the entry to the repository-local `.git/info/exclude`.
+///
+/// Only the `.local.json` override is excluded — the committed
+/// `.shore/delegates.json` and `.shore/allowed-signers.json` are deliberately
+/// tracked and never excluded.
+pub(crate) fn ensure_local_delegates_excluded(worktree_root: &Path) -> Result<()> {
+    if git_path_is_ignored(worktree_root, ".shore/delegates.local.json")? {
+        return Ok(());
+    }
+    append_info_exclude_line(worktree_root, ".shore/delegates.local.json")
+}
+
+/// Append `line` (newline-terminated) to the repository-local
+/// `.git/info/exclude`, creating the file and its parent if needed. Callers
+/// guard against duplicate entries before calling.
+fn append_info_exclude_line(worktree_root: &Path, line: &str) -> Result<()> {
     let exclude_path = git_info_exclude_path(worktree_root)?;
     if let Some(parent) = exclude_path.parent() {
         fs::create_dir_all(parent)
@@ -96,7 +121,8 @@ pub fn ensure_shore_storage_excluded(worktree_root: &Path) -> Result<()> {
     if !updated.is_empty() && !updated.ends_with('\n') {
         updated.push('\n');
     }
-    updated.push_str(".shore/\n");
+    updated.push_str(line);
+    updated.push('\n');
 
     fs::write(&exclude_path, updated)
         .map_err(|error| io_error("write git exclude file", &exclude_path, error))
@@ -187,6 +213,38 @@ mod tests {
             exclude.lines().any(|line| line.trim() == ".shore/"),
             "local exclude should list .shore/, got:\n{exclude}"
         );
+    }
+
+    #[test]
+    fn prepare_shore_writer_excludes_local_delegates_override() {
+        let repo = git_repo();
+        let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
+        let storage = LocalStorage::new(paths.shore_dir());
+
+        prepare_shore_writer(&paths, &storage).unwrap();
+
+        let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
+        assert!(
+            exclude
+                .lines()
+                .any(|line| line.trim() == ".shore/delegates.local.json"),
+            "local delegates override must be git-excluded, got:\n{exclude}"
+        );
+        // Still no tracked .gitignore (same posture as the store exclusion).
+        assert!(!repo.path().join(".gitignore").exists());
+    }
+
+    #[test]
+    fn ensure_local_delegates_excluded_is_idempotent() {
+        let repo = git_repo();
+        ensure_local_delegates_excluded(repo.path()).unwrap();
+        ensure_local_delegates_excluded(repo.path()).unwrap();
+        let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
+        let hits = exclude
+            .lines()
+            .filter(|l| l.trim() == ".shore/delegates.local.json")
+            .count();
+        assert_eq!(hits, 1, "the entry is written at most once");
     }
 
     #[test]
