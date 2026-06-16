@@ -24,6 +24,16 @@ impl TrustSet {
         event_signature_trust_set(serde_json::from_slice(&bytes)?)
     }
 
+    /// True when `signer` is an authorized signer for **any** actor in the
+    /// allow-list. Actor-agnostic membership for surfaces that ask only "is this
+    /// key enrolled?" (e.g. `keys list`); unlike `authorizes`, it carries no
+    /// self-signing shortcut.
+    pub fn contains_signer(&self, signer: &SignerId) -> bool {
+        self.allowed_signers
+            .values()
+            .any(|signers| signers.contains(signer))
+    }
+
     pub fn authorizes(&self, actor: &ActorId, signer: &SignerId, _occurred_at: &str) -> bool {
         if SignerId::parse(actor.as_str())
             .map(|actor_signer| actor_signer == *signer)
@@ -66,5 +76,27 @@ pub fn event_signature_trust_set(value: Value) -> Result<TrustSet> {
 fn invalid_trust_set(reason: impl Into<String>) -> ShoreError {
     ShoreError::WorkflowInputInvalid {
         reason: format!("invalid event signature trust set: {}", reason.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::event_signature_trust_set;
+    use crate::crypto::SignerId;
+
+    const ENROLLED: &str = "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd";
+    const ABSENT: &str = "did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH";
+
+    #[test]
+    fn contains_signer_is_actor_agnostic_membership() {
+        let trust = event_signature_trust_set(json!({
+            "allowedSigners": { "actor:git-email:alice@example.com": [ENROLLED] }
+        }))
+        .unwrap();
+
+        assert!(trust.contains_signer(&SignerId::parse(ENROLLED).unwrap()));
+        assert!(!trust.contains_signer(&SignerId::parse(ABSENT).unwrap()));
     }
 }

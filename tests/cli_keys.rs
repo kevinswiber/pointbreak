@@ -76,3 +76,75 @@ fn keys_init_rejects_path_unsafe_name_without_escaping_the_keystore() {
     // Nothing was written outside the keystore root.
     assert!(!home.path().parent().unwrap().join("id_ed25519").exists());
 }
+
+#[test]
+fn keys_list_reports_generated_keys_and_marks_default() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let _ = shore_env(["keys", "init", "--name", "default"], &env);
+    let _ = shore_env(["keys", "init", "--name", "work"], &env);
+
+    let repo = support::git_repo::GitRepo::new();
+    let out = shore_env(
+        ["keys", "list", "--repo", repo.path().to_str().unwrap()],
+        &env,
+    );
+    assert!(
+        out.status.success(),
+        "list stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let json: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["schema"], "shore.keys-list");
+    let keys = json["keys"].as_array().expect("keys array");
+    assert_eq!(keys.len(), 2);
+
+    let default = keys.iter().find(|k| k["name"] == "default").unwrap();
+    assert_eq!(default["default"], true);
+    assert_eq!(default["enrolled"], false); // no allowed-signers file
+    let work = keys.iter().find(|k| k["name"] == "work").unwrap();
+    assert_eq!(work["default"], false);
+}
+
+#[test]
+fn keys_list_marks_enrolled_only_when_did_key_is_in_allowed_signers() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let init = shore_env(["keys", "init", "--name", "default"], &env);
+    let init_json: Value = serde_json::from_slice(&init.stdout).unwrap();
+    let did_key = init_json["didKey"].as_str().unwrap().to_owned();
+
+    let repo = support::git_repo::GitRepo::new();
+    // Enroll the default key's did:key under some actor, custom JSON (NOT OpenSSH format).
+    let allowed =
+        format!(r#"{{"allowedSigners":{{"actor:git-email:dev@example.com":["{did_key}"]}}}}"#);
+    repo.write(".shore/allowed-signers.json", &allowed);
+
+    let out = shore_env(
+        ["keys", "list", "--repo", repo.path().to_str().unwrap()],
+        &env,
+    );
+    let json: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let default = json["keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|k| k["name"] == "default")
+        .unwrap();
+    assert_eq!(default["enrolled"], true);
+}
+
+#[test]
+fn keys_list_empty_keystore_is_empty_list_exit_zero() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let repo = support::git_repo::GitRepo::new();
+    let out = shore_env(
+        ["keys", "list", "--repo", repo.path().to_str().unwrap()],
+        &env,
+    );
+    assert!(out.status.success());
+    let json: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["schema"], "shore.keys-list");
+    assert_eq!(json["keys"].as_array().unwrap().len(), 0);
+}

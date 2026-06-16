@@ -40,6 +40,23 @@ impl KeyHandle {
     }
 }
 
+/// A keystore key's public identity for listing: its name and derived `did:key`.
+/// `pub` (with `pub` accessors) so the binary CLI consumes it via `shoreline::keys`.
+#[derive(Clone, Debug)]
+pub struct KeyInfo {
+    name: String,
+    signer_id: SignerId,
+}
+
+impl KeyInfo {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn signer_id(&self) -> &SignerId {
+        &self.signer_id
+    }
+}
+
 /// On-disk private-key document. Internal, forward-compatible: `version` reserves
 /// room to migrate; the raw Ed25519 seed is base64-standard encoded.
 #[derive(Serialize, Deserialize)]
@@ -161,6 +178,56 @@ pub fn load_signer(name: &str) -> Result<FileEd25519Signer> {
 pub fn load_signer_in(dir: &Path, name: &str) -> Result<FileEd25519Signer> {
     let seed = read_key_seed(&dir.join(name))?;
     Ok(FileEd25519Signer::from_seed(seed))
+}
+
+/// Enumerate the keys in the user-level keystore, each with its derived
+/// `did:key`. `pub`: the binary CLI consumes it via `shoreline::keys::list_keys`.
+pub fn list_keys() -> Result<Vec<KeyInfo>> {
+    list_keys_in(&keys_dir()?)
+}
+
+/// Root-injecting enumerator: list the keys under `dir`, skipping `.pub`
+/// sidecars and non-files. `pub` so unit tests inject a `tempdir` root. A missing
+/// directory is an empty keystore, not an error.
+pub fn list_keys_in(dir: &Path) -> Result<Vec<KeyInfo>> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(ShoreError::Message(format!(
+                "read keystore {}: {error}",
+                dir.display()
+            )));
+        }
+    };
+
+    let mut keys = Vec::new();
+    for entry in entries {
+        let entry =
+            entry.map_err(|error| ShoreError::Message(format!("read keystore entry: {error}")))?;
+        if !entry
+            .file_type()
+            .map(|kind| kind.is_file())
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let file_name = entry.file_name();
+        let name = file_name.to_string_lossy();
+        if name.ends_with(".pub") {
+            continue; // public sidecar, not a private key
+        }
+        let seed = read_key_seed(&entry.path())?;
+        let signer_id = SignerId::from_ed25519_public_key(
+            SigningKey::from_bytes(&seed).verifying_key().to_bytes(),
+        );
+        keys.push(KeyInfo {
+            name: name.into_owned(),
+            signer_id,
+        });
+    }
+    keys.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(keys)
 }
 
 /// Read the raw 32-byte Ed25519 seed from a keystore private-key file. Shared by
@@ -294,6 +361,29 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let result = load_signer_in(root.path(), "nope");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn list_keys_enumerates_keys_skipping_sidecars_sorted() {
+        let root = tempfile::tempdir().unwrap();
+        let work = generate_key_in(root.path(), &name("work")).unwrap();
+        let default = generate_key_in(root.path(), &name("default")).unwrap();
+
+        let listed = list_keys_in(root.path()).unwrap();
+        let names: Vec<&str> = listed.iter().map(KeyInfo::name).collect();
+        assert_eq!(names, ["default", "work"], "sorted, no .pub sidecars");
+
+        let default_entry = listed.iter().find(|k| k.name() == "default").unwrap();
+        assert_eq!(default_entry.signer_id(), default.signer_id());
+        let work_entry = listed.iter().find(|k| k.name() == "work").unwrap();
+        assert_eq!(work_entry.signer_id(), work.signer_id());
+    }
+
+    #[test]
+    fn list_keys_in_missing_dir_is_empty() {
+        let root = tempfile::tempdir().unwrap();
+        let missing = root.path().join("absent");
+        assert!(list_keys_in(&missing).unwrap().is_empty());
     }
 
     #[test]
