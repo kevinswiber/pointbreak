@@ -120,7 +120,7 @@ mod tests {
     fn checked_in_allowed_signers_file_authorizes_friendly_actor() {
         let trust = TrustSet::from_allowed_signers_file(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/fixtures/event_signatures/.shoreline/allowed-signers"),
+                .join("tests/fixtures/event_signatures/.shore/allowed-signers.json"),
         )
         .unwrap();
         let signer = SignerId::parse(FRIENDLY_SIGNER).unwrap();
