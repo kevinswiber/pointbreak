@@ -11,12 +11,12 @@ pub use event::{
 };
 pub use identity::{
     DelegationMap, DelegationRecord, PrincipalResolution, PrincipalSource, PrincipalStatus,
-    PrincipalView, UnresolvedReason, delegation_map_from_value, principal_display_label,
-    principal_resolution_for_writer, principal_view_for,
+    PrincipalView, UnresolvedReason, delegation_map_from_value, is_agent_actor_id,
+    principal_display_label, principal_resolution_for_writer, principal_view_for,
+    resolve_writer_actor_id,
 };
 pub(crate) use identity::{
-    current_timestamp, is_agent_actor_id, is_valid_actor_id, writer_from_git_config,
-    writer_from_options,
+    current_timestamp, is_valid_actor_id, writer_from_git_config, writer_from_options,
 };
 pub(crate) use projection::state;
 pub use projection::{

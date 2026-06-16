@@ -13,6 +13,5 @@ pub use principal::{
     PrincipalSource, PrincipalStatus, PrincipalView, principal_display_label,
     principal_resolution_for_writer, principal_view_for,
 };
-pub(crate) use writer::{
-    is_agent_actor_id, is_valid_actor_id, writer_from_git_config, writer_from_options,
-};
+pub use writer::{is_agent_actor_id, resolve_writer_actor_id};
+pub(crate) use writer::{is_valid_actor_id, writer_from_git_config, writer_from_options};

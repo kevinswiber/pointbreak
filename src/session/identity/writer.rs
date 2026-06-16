@@ -31,6 +31,18 @@ pub(crate) fn writer_from_options(repo: &Path, explicit: Option<&ActorId>) -> Wr
     }
 }
 
+/// Resolve the writing actor for `repo`, honoring an optional explicit override,
+/// then `SHORE_ACTOR_ID`, then the local Git identity.
+///
+/// This is the **public** actor-resolution helper the binary CLI calls (the
+/// `pub(crate)` `writer_from_options` is unreachable from the binary crate). The
+/// CLI uses it to resolve the actor a write will be attributed to — so the signer
+/// it picks (and the self-certifying did:key omission) stays consistent with what
+/// the library attributes — and to detect agent context for auto-keygen.
+pub fn resolve_writer_actor_id(repo: &Path, explicit: Option<&ActorId>) -> ActorId {
+    actor_id_for_repo(explicit.map(ActorId::as_str), repo)
+}
+
 /// Resolve the writing actor for `repo`, reading `SHORE_ACTOR_ID` as the
 /// process-level default beneath an optional explicit override.
 fn actor_id_for_repo(explicit: Option<&str>, repo: &Path) -> ActorId {
@@ -89,7 +101,7 @@ pub(crate) fn is_valid_principal_actor_id(value: &str) -> bool {
 /// identities, `did:key`s) are their own principal and carry no delegation
 /// record. This is a scheme test only — it does not validate the rest of the id
 /// (`is_valid_actor_id` does that).
-pub(crate) fn is_agent_actor_id(value: &str) -> bool {
+pub fn is_agent_actor_id(value: &str) -> bool {
     value
         .strip_prefix("actor:agent:")
         .is_some_and(|rest| !rest.is_empty())
