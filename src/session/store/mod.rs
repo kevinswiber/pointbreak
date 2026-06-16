@@ -1,5 +1,6 @@
 pub(in crate::session) mod body_artifact;
 pub(in crate::session) mod bundle;
+mod event_migrate;
 mod event_store;
 pub(in crate::session) mod fingerprint;
 pub(in crate::session) mod inventory;
@@ -9,6 +10,7 @@ pub(in crate::session) mod sensitivity;
 pub(in crate::session) mod snapshot_artifact;
 pub(in crate::session) mod store_init;
 
+pub(crate) use event_migrate::{EventMigrateOutcome, migrate_event_file};
 pub(crate) use event_store::{EventStore, EventWriteOutcome};
 #[cfg(test)]
 pub use fingerprint::compute_review_unit_fingerprint;
