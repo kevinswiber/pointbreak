@@ -34,6 +34,22 @@ impl TrustSet {
             .any(|signers| signers.contains(signer))
     }
 
+    /// Borrow the actor → signers map (read-only). Used by the enrollment writer
+    /// to serialize the set back to the on-disk JSON shape and to compute the
+    /// added/already-present diff via explicit membership.
+    pub(crate) fn allowed_signers(&self) -> &BTreeMap<ActorId, BTreeSet<SignerId>> {
+        &self.allowed_signers
+    }
+
+    /// Insert `signer` under `actor`, returning whether the pair was newly added.
+    /// Re-inserting an existing pair is a no-op (returns `false`).
+    pub(crate) fn insert_signer(&mut self, actor: ActorId, signer: SignerId) -> bool {
+        self.allowed_signers
+            .entry(actor)
+            .or_default()
+            .insert(signer)
+    }
+
     pub fn authorizes(&self, actor: &ActorId, signer: &SignerId, _occurred_at: &str) -> bool {
         if SignerId::parse(actor.as_str())
             .map(|actor_signer| actor_signer == *signer)

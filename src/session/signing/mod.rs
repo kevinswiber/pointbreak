@@ -1,3 +1,4 @@
+mod enroll;
 mod ingest;
 mod policy;
 #[cfg(test)]
@@ -6,6 +7,9 @@ mod trust;
 mod verify;
 mod write;
 
+pub use enroll::{
+    ALLOWED_SIGNERS_REL_PATH, EnrollmentDiff, enroll_signer, stage_enrollment, trust_set_to_value,
+};
 pub use ingest::IngestEventVerification;
 pub(crate) use ingest::verify_events_for_ingest;
 pub use policy::{
