@@ -130,6 +130,18 @@ impl DelegationMap {
         self.delegates.is_empty()
     }
 
+    /// Layer `local` over `self` (the committed map), git-config style: for each
+    /// agent present in `local`, its records **fully replace** `self`'s records
+    /// for that agent (including replacement with an empty array, which disavows
+    /// the agent locally); agents absent from `local` keep `self`'s records
+    /// unchanged. Either map may be empty.
+    pub fn with_local_override(mut self, local: DelegationMap) -> DelegationMap {
+        for (agent, records) in local.delegates {
+            self.delegates.insert(agent, records);
+        }
+        self
+    }
+
     /// The windowed records for `actor`, in file order. Empty when the actor has
     /// no delegation record.
     pub(crate) fn records_for(&self, actor: &ActorId) -> &[DelegationRecord] {
@@ -591,5 +603,91 @@ mod tests {
         }))
         .expect_err("records for an agent must be an array");
         assert!(err.to_string().contains("actor:agent:claude-code"));
+    }
+
+    #[test]
+    fn local_records_fully_replace_committed_for_same_agent() {
+        // committed: AGENT -> KEVIN
+        let committed = map_with(serde_json::json!([
+            { "principal": KEVIN, "validFrom": "2026-06-10T00:00:00Z", "validUntil": null }
+        ]));
+        // local: AGENT -> ALICE  (same agent key, different principal)
+        let local = map_with(serde_json::json!([
+            { "principal": ALICE, "validFrom": "2026-06-10T00:00:00Z", "validUntil": null }
+        ]));
+
+        let merged = committed.with_local_override(local);
+
+        // Local fully replaces committed for AGENT.
+        assert_eq!(
+            merged.resolve(&actor(AGENT), "2026-06-12T00:00:00Z"),
+            PrincipalResolution::Resolved(actor(ALICE))
+        );
+    }
+
+    #[test]
+    fn agent_absent_from_local_inherits_committed() {
+        let committed = delegation_map_from_value(serde_json::json!({
+            "delegates": {
+                "actor:agent:claude-code": [
+                    { "principal": KEVIN, "validFrom": "2026-06-10T00:00:00Z", "validUntil": null }],
+                "actor:agent:other": [
+                    { "principal": ALICE, "validFrom": "2026-06-10T00:00:00Z", "validUntil": null }]
+            }
+        }))
+        .unwrap();
+        // local only overrides claude-code.
+        let local = map_with(serde_json::json!([
+            { "principal": ALICE, "validFrom": "2026-06-10T00:00:00Z", "validUntil": null }
+        ]));
+
+        let merged = committed.with_local_override(local);
+
+        // other inherits committed (KEVIN -> ALICE swap only for claude-code).
+        assert_eq!(
+            merged.resolve(&actor("actor:agent:other"), "2026-06-12T00:00:00Z"),
+            PrincipalResolution::Resolved(actor(ALICE))
+        );
+        assert_eq!(
+            merged.resolve(&actor(AGENT), "2026-06-12T00:00:00Z"),
+            PrincipalResolution::Resolved(actor(ALICE))
+        );
+    }
+
+    #[test]
+    fn either_map_alone_round_trips_through_merge() {
+        let committed = map_with(serde_json::json!([
+            { "principal": KEVIN, "validFrom": "2026-06-10T00:00:00Z", "validUntil": null }
+        ]));
+        assert_eq!(
+            committed
+                .clone()
+                .with_local_override(DelegationMap::default()),
+            committed
+        );
+        assert_eq!(
+            DelegationMap::default().with_local_override(committed.clone()),
+            committed
+        );
+    }
+
+    #[test]
+    fn local_empty_record_array_disavows_the_agent() {
+        // git-config "set to empty" — a local AGENT -> [] FULLY replaces committed,
+        // so AGENT resolves NoDelegationRecord (deliberate disavowal via override).
+        let committed = map_with(serde_json::json!([
+            { "principal": KEVIN, "validFrom": "2026-06-10T00:00:00Z", "validUntil": null }
+        ]));
+        let local = delegation_map_from_value(serde_json::json!({
+            "delegates": { "actor:agent:claude-code": [] }
+        }))
+        .unwrap();
+
+        let merged = committed.with_local_override(local);
+
+        assert_eq!(
+            merged.resolve(&actor(AGENT), "2026-06-12T00:00:00Z"),
+            PrincipalResolution::None(UnresolvedReason::NoDelegationRecord)
+        );
     }
 }
