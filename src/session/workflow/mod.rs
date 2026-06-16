@@ -10,6 +10,7 @@ mod reload;
 mod review_unit_list;
 mod review_unit_projection;
 mod store_link;
+mod store_migrate;
 mod store_status;
 mod validation;
 mod write_store;
@@ -65,6 +66,7 @@ pub use review_unit_projection::{
     ReviewUnitShowResult, SnapshotOrder, show_review_unit,
 };
 pub use store_link::{StoreLinkOptions, StoreLinkResult, link_clone_local_store};
+pub use store_migrate::{MigrateStoreOptions, StoreMigrateResult, migrate_store};
 pub use store_status::{
     StoreStatusArtifactInventory, StoreStatusInventory, StoreStatusOptions, StoreStatusResult,
     StoreStatusReviewUnitSnapshot, StoreStatusSensitivity, StoreStatusSensitivityFinding,

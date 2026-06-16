@@ -17,5 +17,7 @@ pub use fingerprint::compute_review_unit_fingerprint;
 pub(crate) use fingerprint::worktree_fingerprint_for_files;
 pub use fingerprint::{ReviewUnitFingerprint, capture_worktree_fingerprint};
 pub use snapshot_artifact::{SnapshotArtifact, read_snapshot_artifact};
-pub(crate) use store_init::{ShoreStorePaths, prepare_shore_writer, sweep_stale_temp_files};
+pub(crate) use store_init::{
+    ShoreStorePaths, ensure_local_delegates_excluded, prepare_shore_writer, sweep_stale_temp_files,
+};
 pub use store_init::{ensure_shore_storage_excluded, store_dir_for_repo};
