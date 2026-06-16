@@ -368,3 +368,97 @@ fn keys_enroll_explicit_actor_flag_overrides_resolution() {
     let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(doc["actorId"], "actor:agent:explicit-override");
 }
+
+#[test]
+fn keys_enroll_from_subdirectory_writes_to_worktree_root() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let home_str = home.path().to_str().unwrap();
+    let _ = shore_env(
+        ["keys", "init", "--name", "default"],
+        &[("SHORE_HOME", home_str)],
+    );
+
+    let repo = support::git_repo::GitRepo::new();
+    let subdir = repo.path().join("nested/dir");
+    std::fs::create_dir_all(&subdir).unwrap();
+
+    let out = shore_env(
+        ["keys", "enroll", "--repo", subdir.to_str().unwrap()],
+        &[
+            ("SHORE_HOME", home_str),
+            ("SHORE_ACTOR_ID", "actor:agent:claude-code"),
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "enroll stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // Enrollment must land at the worktree root, where trust discovery reads it —
+    // not under the subdirectory the command was pointed at.
+    assert!(
+        repo.path().join(".shore/allowed-signers.json").exists(),
+        "enrolled at the worktree root"
+    );
+    assert!(
+        !subdir.join(".shore/allowed-signers.json").exists(),
+        "not written under the subdirectory (would be invisible to discovery)"
+    );
+
+    // keys list from the subdir now sees the key as enrolled (single discovery path).
+    let init = shore_env(
+        ["keys", "show", "default", "--did"],
+        &[("SHORE_HOME", home_str)],
+    );
+    let did = serde_json::from_slice::<Value>(&init.stdout).unwrap()["didKey"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let list = shore_env(
+        ["keys", "list", "--repo", subdir.to_str().unwrap()],
+        &[("SHORE_HOME", home_str)],
+    );
+    let listed: Value = serde_json::from_slice(&list.stdout).unwrap();
+    let default = listed["keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|k| k["didKey"] == did)
+        .unwrap();
+    assert_eq!(
+        default["enrolled"], true,
+        "enrollment is visible from the subdir"
+    );
+}
+
+#[test]
+fn keys_show_rejects_path_traversal_name_even_when_target_exists() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let home_str = home.path().to_str().unwrap();
+    // Plant a valid key file as a sibling of keys/, reachable only via traversal.
+    let init = shore_env(
+        ["keys", "init", "--name", "planted"],
+        &[("SHORE_HOME", home_str)],
+    );
+    assert!(init.status.success());
+    std::fs::copy(
+        home.path().join("keys/planted"),
+        home.path().join("outside-key"),
+    )
+    .unwrap();
+
+    let out = shore_env(
+        ["keys", "show", "../outside-key", "--did"],
+        &[("SHORE_HOME", home_str)],
+    );
+    assert!(
+        !out.status.success(),
+        "a path-traversal key name must be rejected even when the target file exists"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "clean error, not a panic: {stderr}"
+    );
+}

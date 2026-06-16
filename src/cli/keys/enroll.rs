@@ -56,8 +56,13 @@ pub(super) fn run(
     let actor = resolve_actor(&args);
 
     // Possession-style: stage the working-tree edit only. The human's commit is
-    // the authorization; this never invokes git.
-    let path = args.repo.join(ALLOWED_SIGNERS_REL_PATH);
+    // the authorization; this never invokes git. Resolve the worktree root first
+    // (the same way trust discovery does) so enrollment from a subdirectory lands
+    // at the root `.shore/allowed-signers.json` the reader looks for — not an
+    // invisible `<subdir>/.shore/allowed-signers.json`.
+    let worktree_root =
+        shoreline::git::git_worktree_root(&args.repo).unwrap_or_else(|_| args.repo.clone());
+    let path = worktree_root.join(ALLOWED_SIGNERS_REL_PATH);
     let EnrollmentDiff { added } = stage_enrollment(&path, &actor, signer_id)?;
 
     let body = EnrollBody {

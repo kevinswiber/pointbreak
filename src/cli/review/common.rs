@@ -4,7 +4,7 @@ use std::path::Path;
 use clap::ValueEnum;
 use shoreline::keys::{
     FileEd25519Signer, KeyHandle, KeyName, generate_key, generate_key_in, load_signer,
-    load_signer_in,
+    load_signer_from_path, load_signer_in,
 };
 use shoreline::model::{ActorId, Side};
 use shoreline::session::{DelegationMap, TrustSet, is_agent_actor_id, resolve_writer_actor_id};
@@ -227,23 +227,12 @@ fn load_configured_signer(
 ) -> std::result::Result<FileEd25519Signer, String> {
     let path = Path::new(candidate);
     // A candidate that contains a path separator, or exists as a file on disk,
-    // loads by path; otherwise it is a keystore key name.
+    // loads by explicit path; otherwise it is a keystore key name (validated by the
+    // keystore loader so a bare name can never traverse outside the key home).
     let by_path =
         candidate.contains('/') || candidate.contains(std::path::MAIN_SEPARATOR) || path.is_file();
     let loaded = if by_path {
-        // Reuse the keystore loader by splitting the path into directory + file.
-        let dir = path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."));
-        match path.file_name().and_then(|name| name.to_str()) {
-            Some(file) => load_signer_in(dir, file),
-            None => {
-                return Err(format!(
-                    "{SIGNING_KEY_UNREADABLE}: signing key {candidate:?} is not a key file path"
-                ));
-            }
-        }
+        load_signer_from_path(path)
     } else {
         match keys_root {
             Some(root) => load_signer_in(root, candidate),

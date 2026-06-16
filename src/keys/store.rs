@@ -175,8 +175,21 @@ pub fn load_signer(name: &str) -> Result<FileEd25519Signer> {
 
 /// Root-injecting loader: the resolver CLI tests pass a `tempdir` root so they
 /// never mutate `SHORE_HOME`. `pub` for the same reason `generate_key_in` is.
+///
+/// `name` is validated via [`KeyName::parse`] before it becomes a filename, so a
+/// keystore-name lookup can never traverse outside `dir` (e.g. `../outside-key`).
+/// Load an explicit key file by path with [`load_signer_from_path`] instead.
 pub fn load_signer_in(dir: &Path, name: &str) -> Result<FileEd25519Signer> {
-    let seed = read_key_seed(&dir.join(name))?;
+    let name = KeyName::parse(name)?;
+    let seed = read_key_seed(&dir.join(name.as_str()))?;
+    Ok(FileEd25519Signer::from_seed(seed))
+}
+
+/// Load a signer from an explicit key-file path (the `--sign-key <path>` form).
+/// Unlike `load_signer_in`, the caller supplies the full path deliberately, so no
+/// keystore-name validation applies. `pub`: the binary CLI consumes it.
+pub fn load_signer_from_path(path: &Path) -> Result<FileEd25519Signer> {
+    let seed = read_key_seed(path)?;
     Ok(FileEd25519Signer::from_seed(seed))
 }
 
@@ -361,6 +374,21 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let result = load_signer_in(root.path(), "nope");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn load_signer_in_rejects_path_traversal_name() {
+        let root = tempfile::tempdir().unwrap();
+        let keys = root.path().join("keys");
+        std::fs::create_dir_all(&keys).unwrap();
+        // Plant a valid key as a sibling of keys/, reachable only via traversal.
+        generate_key_in(&keys, &name("planted")).unwrap();
+        std::fs::copy(keys.join("planted"), root.path().join("outside")).unwrap();
+
+        // A traversal name from keys/ would reach ../outside; it must be rejected,
+        // not silently load a key file outside the keystore directory.
+        assert!(load_signer_in(&keys, "../outside").is_err());
+        assert!(load_signer_in(&keys, "a/b").is_err());
     }
 
     #[test]
