@@ -52,6 +52,13 @@ never also `claude`): the actor id is inherited per-agent, not per-run, so this 
 under the same durable identity that authored the change. It carries no run id; `/` inside the agent
 segment is reserved.
 
+Because the author-response pass writes under the same `actor:agent:*` id as the author, it reuses
+the same auto-generated key and enrollment — **signing is automatic** here too: your first write
+under this id generates a passphrase-less per-machine key (or reuses the author run's) and signs the
+event, printing a one-line notice with your `did:key` and `shore keys enroll` so a human can add you
+to the committed allow-list. Signing never blocks a write — if no key can be made the write still
+succeeds, unsigned. Set `SHORE_SIGNING=off` to disable signing.
+
 Read the reviewer's durable review facts:
 
 ```bash

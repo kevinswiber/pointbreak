@@ -103,6 +103,13 @@ canonical spelling** for your agent name and always the same one (`claude-code`,
 `claude`): two spellings split one agent's history across two identities. Keep it lowercase and
 hyphenated, like the track rule; `/` inside the agent segment is reserved.
 
+**Signing is automatic.** On your first write under this `actor:agent:*` id, Shoreline generates a
+passphrase-less per-machine key and signs the event; it prints a one-line notice with your `did:key`
+and `shore keys enroll` so a human can add you to the committed allow-list. Your signed response is
+the event that closes the binding loop — once enrolled, it verifies and binds. Signing never blocks
+a write — if no key can be made the write still succeeds, unsigned. Set `SHORE_SIGNING=off` to
+disable signing.
+
 ## Review independently
 
 Before recording a finding, read the repository's applicable agent instructions and inspect the
