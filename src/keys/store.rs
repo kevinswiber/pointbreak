@@ -197,6 +197,10 @@ fn write_key_document(path: &Path, document: &KeyFile, private: bool) -> Result<
         use std::os::unix::fs::OpenOptionsExt as _;
         options.mode(0o600); // private from creation, not chmod-after
     }
+    // On platforms without Unix mode bits, `private` has no on-disk effect (the
+    // directory ACL governs); the no-clobber create policy above still applies.
+    #[cfg(not(unix))]
+    let _ = private;
     let mut file = options.open(path).map_err(|error| {
         ShoreError::Message(format!(
             "create key file {} (refusing to overwrite an existing key): {error}",
