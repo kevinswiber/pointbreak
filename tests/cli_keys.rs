@@ -311,6 +311,109 @@ fn keys_enroll_works_for_an_agent_backed_reference() {
 }
 
 #[test]
+fn keys_list_reports_file_custody_for_a_seed_key() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let _ = shore_env(["keys", "init", "--name", "default"], &env);
+
+    let repo = support::git_repo::GitRepo::new();
+    let out = shore_env(
+        ["keys", "list", "--repo", repo.path().to_str().unwrap()],
+        &env,
+    );
+    assert!(
+        out.status.success(),
+        "list stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let json: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let key = json["keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|k| k["name"] == "default")
+        .unwrap();
+    assert_eq!(key["custody"], "file");
+    // A file key has no agentLoaded field (the question is meaningless for it).
+    assert!(key.get("agentLoaded").is_none() || key["agentLoaded"].is_null());
+}
+
+#[test]
+fn keys_list_reports_agent_custody_and_enrollment_for_an_adopted_key() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let adopt = shore_env(
+        ["keys", "use-ssh", &format!("key::{SSH_ED25519_PUBKEY}")],
+        &env,
+    );
+    let did_key = serde_json::from_slice::<Value>(&adopt.stdout).unwrap()["didKey"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    // Enroll the adopted key's did:key (custom JSON allow-list, NOT OpenSSH format).
+    let repo = support::git_repo::GitRepo::new();
+    let allowed =
+        format!(r#"{{"allowedSigners":{{"actor:git-email:dev@example.com":["{did_key}"]}}}}"#);
+    repo.write(".shore/allowed-signers.json", &allowed);
+
+    let out = shore_env(
+        ["keys", "list", "--repo", repo.path().to_str().unwrap()],
+        &env,
+    );
+    let json: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let key = json["keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|k| k["name"] == "default")
+        .unwrap();
+    assert_eq!(key["custody"], "agent");
+    assert_eq!(key["enrolled"], true);
+}
+
+#[test]
+fn keys_list_succeeds_and_agent_loaded_is_unknown_when_no_agent() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let env = [
+        ("SHORE_HOME", home.path().to_str().unwrap()),
+        // A dead socket path: connect fails. The probe must NOT gate the listing.
+        ("SSH_AUTH_SOCK", "/nonexistent/shore-no-agent.sock"),
+    ];
+    let _ = shore_env(
+        ["keys", "use-ssh", &format!("key::{SSH_ED25519_PUBKEY}")],
+        &env,
+    );
+
+    let repo = support::git_repo::GitRepo::new();
+    let out = shore_env(
+        ["keys", "list", "--repo", repo.path().to_str().unwrap()],
+        &env,
+    );
+
+    // The whole point: an unreachable agent does NOT fail the read command.
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "list never gates on the agent probe"
+    );
+    let json: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let key = json["keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|k| k["name"] == "default")
+        .unwrap();
+    assert_eq!(key["custody"], "agent");
+    // Unknown is represented as an omitted (or null) field, never an error.
+    assert!(
+        key.get("agentLoaded").is_none() || key["agentLoaded"].is_null(),
+        "no agent -> agentLoaded unknown, never an error: {key:#}"
+    );
+}
+
+#[test]
 fn keys_enroll_re_enroll_reports_already_present_and_is_a_noop() {
     let home = tempfile::tempdir().expect("create keystore home");
     let home_str = home.path().to_str().unwrap();
