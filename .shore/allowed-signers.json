@@ -1,0 +1,13 @@
+{
+  "allowedSigners": {
+    "actor:agent:claude-code": [
+      "did:key:z6Mkw1ZedzSEgiA4M8F9sPP6E5xLXu46ZUF98jqxqt79SLHt"
+    ],
+    "actor:agent:codex": [
+      "did:key:z6MkoeNARTDRFfVHsmat1xPFnhJwujs5TsAKWZsbC2RJm39A"
+    ],
+    "actor:git-email:kswiber@gmail.com": [
+      "did:key:z6MkshZv7RxxHVeQgUj28dtnZYMc34oXGSeDCRxCRsi7QcMW"
+    ]
+  }
+}
