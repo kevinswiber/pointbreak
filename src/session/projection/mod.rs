@@ -1,3 +1,4 @@
+pub(crate) mod cosignature;
 pub(crate) mod freshness;
 pub(crate) mod lineage;
 mod read;

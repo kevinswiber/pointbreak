@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 
+use super::cosignature::{CosignatureSet, cosignatures_for_event};
 use crate::crypto::EventVerificationStatus;
 use crate::error::Result;
 use crate::model::{
@@ -20,7 +21,7 @@ use crate::session::event::{
 };
 use crate::session::{
     DelegationMap, PrincipalPolicy, PrincipalResolution, TrustSet, is_agent_actor_id,
-    principal_resolution_for_writer, principal_sufficient, verify_event_signature,
+    principal_resolution_for_writer, principal_sufficient,
 };
 
 /// Envelope-level fields preserved on every projected event, so the projection
@@ -529,17 +530,38 @@ impl ResumptionBindingPolicy {
     }
 }
 
-/// The per-response binding evidence: verification status (arm b) and
-/// ingest-stamp presence (arm a). Computed where the full `ShoreEvent` is in
-/// hand; the predicate never reads a self-asserted field.
+/// The per-response binding evidence (ADR-0009 amendment): the co-signature SET
+/// (each member tagged with status), the inline attestation's own status (read
+/// ALONE by arm (a)), and the ingest-stamp presence (arm a). Computed where the
+/// full event log is in hand; the predicate never reads a self-asserted field.
+struct ResponseBindingEvidence {
+    cosignatures: CosignatureSet,
+    inline_status: EventVerificationStatus,
+    ingested: bool,
+}
+
 fn response_binding_evidence(
+    events: &[ShoreEvent],
     event: &ShoreEvent,
     trust_set: &TrustSet,
-) -> Result<(EventVerificationStatus, bool)> {
-    Ok((
-        verify_event_signature(event, trust_set)?,
-        event.ingest.is_some(),
-    ))
+) -> Result<ResponseBindingEvidence> {
+    let cosignatures = cosignatures_for_event(events, event.event_id.as_str(), trust_set)?;
+    // The inline attestation's status, read alone by arm (a). For a well-formed
+    // signed event this is the Inline member's status; a signed-but-malformed event
+    // has no resolvable inline member, so it reads `Invalid` (defeating arm (a),
+    // exactly as `verify_event_signature` would); an unsigned event reads `Unsigned`.
+    let inline_status = cosignatures.inline_status().unwrap_or({
+        if event.signature.is_some() {
+            EventVerificationStatus::Invalid
+        } else {
+            EventVerificationStatus::Unsigned
+        }
+    });
+    Ok(ResponseBindingEvidence {
+        cosignatures,
+        inline_status,
+        ingested: event.ingest.is_some(),
+    })
 }
 
 /// Read-side projection that answers: may this agent resume the named
@@ -710,8 +732,12 @@ pub(crate) fn agent_resumption_with_principal_policy(
             latest_checkpoint_fingerprint.as_deref(),
             response.target_fingerprint.as_deref(),
         );
-        let identity_binding =
-            response_identity_is_binding(response.verification, response.ingested, binding_policy);
+        let identity_binding = response_identity_is_binding(
+            &response.cosignatures,
+            response.inline_status,
+            response.ingested,
+            binding_policy,
+        );
         // ADR-0010: binding' = binding AND principal_sufficient. Narrowing only.
         let principal_ok = principal_sufficient(
             &response.envelope.writer.actor_id,
@@ -827,8 +853,12 @@ pub(crate) fn agent_resumption_with_principal_policy(
                 });
             }
             if !identity_binding {
-                let reason =
-                    non_binding_reason(response.verification, response.ingested, binding_policy);
+                let reason = non_binding_reason(
+                    &response.cosignatures,
+                    response.inline_status,
+                    response.ingested,
+                    binding_policy,
+                );
                 diagnostics.push(TaskProjectionDiagnostic {
                     code: "agent_resumption_response_identity_not_binding".to_owned(),
                     message: non_binding_message(reason).to_owned(),
@@ -952,9 +982,10 @@ struct TaskInputRequestResponseRecord {
     reason_byte_size: Option<u64>,
     reason_content_hash: Option<String>,
     target_fingerprint: Option<String>,
-    /// Binding evidence (ADR-0009), computed at collection where the full
-    /// `ShoreEvent` is in hand; consumed by the two-arm predicate.
-    verification: EventVerificationStatus,
+    /// Binding evidence (ADR-0009 amendment), computed at collection where the full
+    /// event log is in hand; consumed by the two-arm predicate over the set.
+    cosignatures: CosignatureSet,
+    inline_status: EventVerificationStatus,
     ingested: bool,
 }
 
@@ -1011,7 +1042,7 @@ fn collect_task_input_request_records(
                     serde_json::from_value(event.payload.clone())?;
                 let input_request_id = payload.input_request_id.clone();
                 let response_id = payload.input_request_response_id.clone();
-                let (verification, ingested) = response_binding_evidence(event, trust_set)?;
+                let evidence = response_binding_evidence(events, event, trust_set)?;
                 let record = TaskInputRequestResponseRecord {
                     envelope: TaskProjectionEventEnvelope::from_event(event),
                     response_id: response_id.clone(),
@@ -1021,8 +1052,9 @@ fn collect_task_input_request_records(
                     reason_byte_size: payload.reason_byte_size,
                     reason_content_hash: payload.reason_content_hash,
                     target_fingerprint: payload.target_fingerprint,
-                    verification,
-                    ingested,
+                    cosignatures: evidence.cosignatures,
+                    inline_status: evidence.inline_status,
+                    ingested: evidence.ingested,
                 };
                 response_representatives
                     .entry(response_id)
@@ -1092,42 +1124,55 @@ fn freshness_for_task_target(
     }
 }
 
-/// ADR-0009: binding(event, policy) — true iff either arm holds. Neither arm
-/// reads a field the writer asserted; the claimed actorId is reported in the
-/// projection but is never the basis of the decision (ADR-0007 invariant).
-/// Verification `Valid` already folds in allowed-signers authorization
-/// (ADR-0004); binding consults no `EventVerificationPolicy` preset.
+/// ADR-0009 amendment: binding(event, policy) over the co-signature SET. Arm (b')
+/// is any-of a `valid` member; arm (a) reads ONLY the inline attestation's status.
+/// Neither arm reads a self-asserted field; ADR-0004 `valid` already folds in
+/// allowed-signers authorization for the claimed actorId, so any-of is
+/// intrinsically actor-scoped — no "responder's own signature present" rule.
+/// Threshold-of-N bound co-signers (`require-k-cosigners`) is a deferred policy
+/// tier, not built here; v1 is any-of.
 fn response_identity_is_binding(
-    verification: EventVerificationStatus,
+    cosignatures: &CosignatureSet,
+    inline_status: EventVerificationStatus,
     ingested: bool,
     policy: ResumptionBindingPolicy,
 ) -> bool {
-    // Arm (b): verified signer.
-    if verification == EventVerificationStatus::Valid {
+    // Arm (b'): any verified co-signer. This folds the old single-signer arm (b)
+    // in as the one-member-set special case (a single-signed event whose inline
+    // member is `Valid` still binds — the inline member IS a member of the set).
+    if cosignatures.has_valid_member() {
         return true;
     }
-    // Arm (a): local possession. An invalid signature is affirmative
-    // evidence of tampering and defeats this arm; Unsigned and any status
-    // better are accepted.
+    // Arm (a): local possession. Reads ONLY the inline attestation's status — a
+    // detached member can never defeat this arm (closed twice: an invalid detached
+    // attestation is rejected before storage, and arm (a) ignores detached members
+    // entirely). An invalid inline signature is affirmative evidence of tampering
+    // and defeats the arm; Unsigned and any better status are accepted.
     policy.permits_local_possession()
         && !ingested
-        && verification != EventVerificationStatus::Invalid
+        && inline_status != EventVerificationStatus::Invalid
 }
 
-/// ADR-0009 diagnostics: bounded reason naming the cheapest fix, first match
-/// wins. Only defined on the non-binding domain: when verification is
-/// `UntrustedKey` and arm (a) is available the response binds and no
-/// diagnostic is emitted at all, so the plain status match is equivalent to
-/// the ADR's "and arm (a) is unavailable" qualification.
+/// ADR-0009 amendment diagnostics: bounded reason naming the cheapest fix, first
+/// match wins, generalized over the set with the SAME four codes. Only defined on
+/// the non-binding domain (called under `if !identity_binding`).
 fn non_binding_reason(
-    verification: EventVerificationStatus,
+    cosignatures: &CosignatureSet,
+    inline_status: EventVerificationStatus,
     ingested: bool,
     _policy: ResumptionBindingPolicy,
 ) -> &'static str {
     match () {
-        _ if verification == EventVerificationStatus::Invalid => "signature_invalid",
-        _ if verification == EventVerificationStatus::UntrustedKey => "signer_not_authorized",
+        // The INLINE attestation is invalid — tampering/corruption, defeats arm (a).
+        // Detached members can never produce this: an invalid detached attestation is
+        // rejected before storage and is never a member.
+        _ if inline_status == EventVerificationStatus::Invalid => "signature_invalid",
+        // No `valid` member, but >=1 member verifies cryptographically as
+        // `untrusted_key` (not authorized for the claimed actor).
+        _ if cosignatures.has_untrusted_member() => "signer_not_authorized",
+        // Ingest provenance and no bound signer in the set.
         _ if ingested => "ingested_unsigned",
+        // A local event with no `valid` member under `verified-only`.
         _ => "policy_excludes_local",
     }
 }
@@ -1164,10 +1209,39 @@ mod tests {
         Writer, WriterProducer,
     };
     use crate::session::event_signature_trust_set;
+    use crate::session::projection::cosignature::{CosignatureMember, CosignatureSource};
     use crate::session::projection::test_support::{
         checkpoint_event, reader_actor, task_attempt_event, task_input_request_event_with_target,
         user_response_event, writer_user,
     };
+
+    /// The pre-amendment single-signer model expressed as a one-member set: an
+    /// inline member at `status` (or an empty set when unsigned), `inline_status`
+    /// equal to `status`. Lets the migrated truth-table tests drive the set-based
+    /// predicate while asserting the one-member-set special case is unchanged.
+    fn single_signer_evidence(
+        status: EventVerificationStatus,
+    ) -> (CosignatureSet, EventVerificationStatus) {
+        let members = if status == EventVerificationStatus::Unsigned {
+            Vec::new()
+        } else {
+            vec![CosignatureMember {
+                attesting_signer: crate::crypto::SignerId::parse(
+                    "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+                )
+                .unwrap(),
+                status,
+                source: CosignatureSource::Inline,
+            }]
+        };
+        (
+            CosignatureSet {
+                target_event_id: "evt:sha256:fixture".to_owned(),
+                members,
+            },
+            status,
+        )
+    }
 
     fn observation_event(
         task_attempt_id: &WorkObjectId,
@@ -2870,8 +2944,9 @@ mod tests {
             (Unsigned, false, VerifiedOnly, "policy_excludes_local"),
         ];
         for (verification, ingested, policy, expected) in cases {
+            let (set, inline_status) = single_signer_evidence(verification);
             assert_eq!(
-                non_binding_reason(verification, ingested, policy),
+                non_binding_reason(&set, inline_status, ingested, policy),
                 expected,
                 "({verification:?}, ingested: {ingested}, {policy:?})"
             );
@@ -3010,12 +3085,107 @@ mod tests {
             (Invalid, true, VerifiedOnly, false),
         ];
         for (verification, ingested, policy, expected) in cases {
+            // The pre-amendment single-signer model is the one-member-set special
+            // case: one inline member at `verification`, inline_status == verification.
+            let (set, inline_status) = single_signer_evidence(verification);
             assert_eq!(
-                response_identity_is_binding(verification, ingested, policy),
+                response_identity_is_binding(&set, inline_status, ingested, policy),
                 expected,
                 "({verification:?}, ingested: {ingested}, {policy:?})"
             );
         }
+    }
+
+    fn cosignature_set(
+        members: Vec<(EventVerificationStatus, CosignatureSource)>,
+    ) -> CosignatureSet {
+        CosignatureSet {
+            target_event_id: "evt:sha256:fixture".to_owned(),
+            members: members
+                .into_iter()
+                .enumerate()
+                .map(|(index, (status, source))| CosignatureMember {
+                    attesting_signer: crate::crypto::SignerId::from_ed25519_public_key(
+                        [index as u8 + 1; 32],
+                    ),
+                    status,
+                    source,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn ingested_divergent_inline_binds_when_set_has_one_authorized_attestation() {
+        use EventVerificationStatus::{UntrustedKey, Valid};
+        // The federated win: an ingested response whose inline signature diverged
+        // (untrusted here) still binds because the set holds one Valid co-signature.
+        let set = cosignature_set(vec![
+            (UntrustedKey, CosignatureSource::Inline),
+            (
+                Valid,
+                CosignatureSource::Detached {
+                    carrier_event_id: "evt:sha256:carrier".to_owned(),
+                },
+            ),
+        ]);
+
+        assert!(response_identity_is_binding(
+            &set,
+            UntrustedKey,
+            true,
+            ResumptionBindingPolicy::VerifiedOnly,
+        ));
+    }
+
+    #[test]
+    fn invalid_detached_member_cannot_unbind_a_locally_possessed_event() {
+        use EventVerificationStatus::{Invalid, Unsigned};
+        // Arm (a) reads ONLY the inline status. A detached `Invalid` member
+        // (constructed here to bypass the pre-store gate) cannot defeat local
+        // possession of an event whose inline slot is not invalid.
+        let set = cosignature_set(vec![(
+            Invalid,
+            CosignatureSource::Detached {
+                carrier_event_id: "evt:sha256:carrier".to_owned(),
+            },
+        )]);
+
+        assert!(response_identity_is_binding(
+            &set,
+            Unsigned,
+            false,
+            ResumptionBindingPolicy::LocalAndVerified,
+        ));
+    }
+
+    #[test]
+    fn untrusted_only_set_reports_signer_not_authorized() {
+        use EventVerificationStatus::UntrustedKey;
+        // A set whose only verifying member is untrusted, with arm (a) unavailable
+        // (ingested) → not binding, reason signer_not_authorized.
+        let set = cosignature_set(vec![(
+            UntrustedKey,
+            CosignatureSource::Detached {
+                carrier_event_id: "evt:sha256:carrier".to_owned(),
+            },
+        )]);
+
+        assert!(!response_identity_is_binding(
+            &set,
+            EventVerificationStatus::Unsigned,
+            true,
+            ResumptionBindingPolicy::LocalAndVerified,
+        ));
+        assert_eq!(
+            non_binding_reason(
+                &set,
+                EventVerificationStatus::Unsigned,
+                true,
+                ResumptionBindingPolicy::LocalAndVerified,
+            ),
+            "signer_not_authorized",
+        );
     }
 
     #[test]
@@ -3112,24 +3282,32 @@ mod tests {
             "2026-05-18T00:00:03Z",
         );
 
-        // Unsigned local event -> (Unsigned, ingested: false)
-        assert_eq!(
-            response_binding_evidence(&unsigned, &TrustSet::default()).unwrap(),
-            (EventVerificationStatus::Unsigned, false)
-        );
+        // Unsigned local event -> (inline Unsigned, ingested: false)
+        let evidence = response_binding_evidence(
+            std::slice::from_ref(&unsigned),
+            &unsigned,
+            &TrustSet::default(),
+        )
+        .unwrap();
+        assert_eq!(evidence.inline_status, EventVerificationStatus::Unsigned);
+        assert!(!evidence.ingested);
 
-        // Unsigned event with an ingest stamp -> (Unsigned, ingested: true)
+        // Unsigned event with an ingest stamp -> (inline Unsigned, ingested: true)
         let mut stamped = unsigned.clone();
         stamped.ingest = Some(IngestProvenance {
             via: IngestVia::IngestEvents,
             received_at: "unix-ms:1".to_owned(),
         });
-        assert_eq!(
-            response_binding_evidence(&stamped, &TrustSet::default()).unwrap(),
-            (EventVerificationStatus::Unsigned, true)
-        );
+        let evidence = response_binding_evidence(
+            std::slice::from_ref(&stamped),
+            &stamped,
+            &TrustSet::default(),
+        )
+        .unwrap();
+        assert_eq!(evidence.inline_status, EventVerificationStatus::Unsigned);
+        assert!(evidence.ingested);
 
-        // Signed fixture event + authorizing trust set -> Valid.
+        // Signed fixture event + authorizing trust set -> inline Valid.
         let signed: ShoreEvent = serde_json::from_str(include_str!(
             "../../../tests/fixtures/event_signatures/friendly-valid-event.json"
         ))
@@ -3142,28 +3320,28 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            response_binding_evidence(&signed, &fixture_trust)
+            response_binding_evidence(std::slice::from_ref(&signed), &signed, &fixture_trust)
                 .unwrap()
-                .0,
+                .inline_status,
             EventVerificationStatus::Valid
         );
 
-        // Signed event + empty trust set (non-did:key actor) -> UntrustedKey.
+        // Signed event + empty trust set (non-did:key actor) -> inline UntrustedKey.
         assert_eq!(
-            response_binding_evidence(&signed, &TrustSet::default())
+            response_binding_evidence(std::slice::from_ref(&signed), &signed, &TrustSet::default())
                 .unwrap()
-                .0,
+                .inline_status,
             EventVerificationStatus::UntrustedKey
         );
 
-        // Tampered signed event -> Invalid.
+        // Tampered signed event -> inline Invalid.
         let mut tampered = signed.clone();
         tampered.payload["tamperedAfterSigning"] = serde_json::json!(true);
         tampered.payload_hash = sha256_json_prefixed(&tampered.payload).unwrap();
         assert_eq!(
-            response_binding_evidence(&tampered, &fixture_trust)
+            response_binding_evidence(std::slice::from_ref(&tampered), &tampered, &fixture_trust)
                 .unwrap()
-                .0,
+                .inline_status,
             EventVerificationStatus::Invalid
         );
     }
