@@ -462,3 +462,162 @@ fn keys_show_rejects_path_traversal_name_even_when_target_exists() {
         "clean error, not a panic: {stderr}"
     );
 }
+
+// A real `ssh-keygen -t ed25519`-produced public key (the same key Task 1.1's
+// parser pins) so the did:key is stable across the parser and this command.
+const SSH_ED25519_PUBKEY: &str =
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID7lnwK7O5CFXew1hBuUnXz1+zK2pQtYEtxsbRMiOyvP dev@example";
+// A real `ssh-keygen -t rsa` public key — used to prove the non-ed25519 rejection.
+const SSH_RSA_PUBKEY: &str = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDIruRAxOrjtLtG0Rl4Ez7e0JmAuFFda/QvUwLWt6JucZlgRRfnJDfneTAzDzxQGpB+ok1ff8DovRHozcdn9nXO4bXZgx/8zb0bTqhm0y7Zn2qulvZ8lEBiUuJNRiBjy9pEcPxYYBuMP0dphQzPzSmNVeJvDO00cSvmEgeAdSUPAzIexM9ME3HTSXvt9CsV1QMCo8x/GwnEeJZHCkb2wWEs1oxv9EPrqp2y+dkAB+LFDcoeNMdHBeLzQh3w9pm2WaQsn9KGc6gK4edCeFn7ymcZ8GgNkmAJka4XxRcD+Fg7+3+r98ABtfSdvLuv/ddAQzZjruMP5Z0444anG3qsOtKf test@host";
+
+#[test]
+fn keys_use_ssh_from_pubkey_path_writes_reference_and_emits_did_key() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let pubdir = tempfile::tempdir().expect("create pubkey dir");
+    let pubfile = pubdir.path().join("id_ed25519.pub");
+    std::fs::write(&pubfile, SSH_ED25519_PUBKEY).unwrap();
+
+    let out = shore_env(
+        ["keys", "use-ssh", pubfile.to_str().unwrap()],
+        &[("SHORE_HOME", home.path().to_str().unwrap())],
+    );
+    assert!(
+        out.status.success(),
+        "use-ssh stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let json: Value = serde_json::from_slice(&out.stdout).expect("stdout is json");
+    assert_eq!(json["schema"], "shore.keys-use-ssh");
+    assert_eq!(json["name"], "default"); // default --name
+    assert!(
+        json["didKey"].as_str().unwrap().starts_with("did:key:z6Mk"),
+        "did:key present: {json:#}"
+    );
+    let path = json["path"].as_str().expect("path field");
+    assert!(
+        std::path::Path::new(path).exists(),
+        "reference file exists at {path}"
+    );
+}
+
+#[test]
+fn keys_use_ssh_accepts_a_key_literal() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let literal = format!("key::{SSH_ED25519_PUBKEY}");
+    let out = shore_env(
+        ["keys", "use-ssh", &literal],
+        &[("SHORE_HOME", home.path().to_str().unwrap())],
+    );
+    assert!(
+        out.status.success(),
+        "use-ssh stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let json: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["schema"], "shore.keys-use-ssh");
+    assert!(json["didKey"].as_str().unwrap().starts_with("did:key:z6Mk"));
+}
+
+#[test]
+fn keys_use_ssh_path_and_literal_derive_the_same_did_key() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let pubdir = tempfile::tempdir().expect("create pubkey dir");
+    let pubfile = pubdir.path().join("id_ed25519.pub");
+    std::fs::write(&pubfile, SSH_ED25519_PUBKEY).unwrap();
+
+    let from_path = shore_env(
+        [
+            "keys",
+            "use-ssh",
+            "--name",
+            "viapath",
+            pubfile.to_str().unwrap(),
+        ],
+        &[("SHORE_HOME", home.path().to_str().unwrap())],
+    );
+    let literal = format!("key::{SSH_ED25519_PUBKEY}");
+    let from_literal = shore_env(
+        ["keys", "use-ssh", "--name", "vialiteral", &literal],
+        &[("SHORE_HOME", home.path().to_str().unwrap())],
+    );
+    let a: Value = serde_json::from_slice(&from_path.stdout).unwrap();
+    let b: Value = serde_json::from_slice(&from_literal.stdout).unwrap();
+    assert_eq!(
+        a["didKey"], b["didKey"],
+        "same key, same did:key whichever input form"
+    );
+}
+
+#[test]
+fn keys_use_ssh_writes_a_did_key_sidecar() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let literal = format!("key::{SSH_ED25519_PUBKEY}");
+    let out = shore_env(
+        ["keys", "use-ssh", &literal],
+        &[("SHORE_HOME", home.path().to_str().unwrap())],
+    );
+    let json: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let did_key = json["didKey"].as_str().unwrap();
+    let reference = std::path::Path::new(json["path"].as_str().unwrap());
+    let sidecar = reference.with_file_name("default.pub");
+    let recorded = std::fs::read_to_string(&sidecar).unwrap();
+    assert_eq!(recorded.trim(), did_key, ".pub sidecar records the did:key");
+}
+
+#[test]
+fn keys_use_ssh_rejects_a_non_ed25519_key_with_a_clear_error() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let literal = format!("key::{SSH_RSA_PUBKEY}");
+    let out = shore_env(
+        ["keys", "use-ssh", &literal],
+        &[("SHORE_HOME", home.path().to_str().unwrap())],
+    );
+    assert!(!out.status.success(), "an ssh-rsa key must be rejected");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "clean error, not a panic: {stderr}"
+    );
+    assert!(!stderr.is_empty(), "an error message is printed");
+    assert!(!home.path().join("keys/default").exists());
+}
+
+#[test]
+fn keys_use_ssh_collision_refuses_to_overwrite() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let literal = format!("key::{SSH_ED25519_PUBKEY}");
+    let first = shore_env(["keys", "use-ssh", &literal], &env);
+    assert!(first.status.success());
+
+    let second = shore_env(["keys", "use-ssh", &literal], &env);
+    assert!(
+        !second.status.success(),
+        "a --name collision must refuse to overwrite"
+    );
+    let stderr = String::from_utf8_lossy(&second.stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "clean error, not a panic: {stderr}"
+    );
+}
+
+#[test]
+fn keys_use_ssh_rejects_a_path_unsafe_name() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let literal = format!("key::{SSH_ED25519_PUBKEY}");
+    let out = shore_env(
+        ["keys", "use-ssh", "--name", "../../id_ed25519", &literal],
+        &[("SHORE_HOME", home.path().to_str().unwrap())],
+    );
+    assert!(
+        !out.status.success(),
+        "a path-unsafe key name must be rejected"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "clean error, not a panic: {stderr}"
+    );
+}
