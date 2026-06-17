@@ -9,6 +9,7 @@ pub use ssh::{
     preflight_ssh_agent_signer,
 };
 pub use store::{
-    KeyHandle, KeyInfo, KeyName, generate_key, generate_key_in, list_keys, list_keys_in,
-    load_signer, load_signer_from_path, load_signer_in,
+    KeyCustody, KeyHandle, KeyInfo, KeyMaterial, KeyName, generate_key, generate_key_in, list_keys,
+    list_keys_in, load_key_material, load_key_material_in, load_signer, load_signer_from_path,
+    load_signer_in, write_agent_reference, write_agent_reference_in,
 };

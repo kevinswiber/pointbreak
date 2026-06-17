@@ -40,12 +40,14 @@ impl KeyHandle {
     }
 }
 
-/// A keystore key's public identity for listing: its name and derived `did:key`.
-/// `pub` (with `pub` accessors) so the binary CLI consumes it via `shoreline::keys`.
+/// A keystore key's public identity for listing: its name, derived `did:key`, and
+/// custody. `pub` (with `pub` accessors) so the binary CLI consumes it via
+/// `shoreline::keys`.
 #[derive(Clone, Debug)]
 pub struct KeyInfo {
     name: String,
     signer_id: SignerId,
+    custody: KeyCustody,
 }
 
 impl KeyInfo {
@@ -55,16 +57,49 @@ impl KeyInfo {
     pub fn signer_id(&self) -> &SignerId {
         &self.signer_id
     }
+    pub fn custody(&self) -> KeyCustody {
+        self.custody
+    }
 }
 
-/// On-disk private-key document. Internal, forward-compatible: `version` reserves
-/// room to migrate; the raw Ed25519 seed is base64-standard encoded.
+/// Whether a keystore key holds its private seed on disk (`File`) or delegates
+/// custody to ssh-agent and stores only the public key (`Agent`). `pub` so the
+/// binary CLI's `keys list` reports it via `shoreline::keys`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyCustody {
+    File,
+    Agent,
+}
+
+/// The custody-tagged material recovered from a keystore key: either the raw seed
+/// (→ a local `FileEd25519Signer`) or the public key of an agent-backed reference
+/// (→ an `SshAgentSigner` built at resolve time). `pub`: the binary CLI's resolve
+/// layer consumes it via `shoreline::keys`.
+#[derive(Clone, Debug)]
+pub enum KeyMaterial {
+    Seed([u8; 32]),
+    AgentBacked { public_key: [u8; 32] },
+}
+
+/// On-disk key document. Internal, forward-compatible (`version` reserves room to
+/// migrate). Two custodies share this shape (additive — a pre-existing seed file
+/// is unchanged on disk):
+///   - file custody:  `{version, alg, seed}` (a base64 raw Ed25519 seed)
+///   - agent custody: `{version, alg, custody:"agent", publicKey}` (a base64 raw
+///     32-byte public key; the private key lives in ssh-agent, never on disk)
 #[derive(Serialize, Deserialize)]
 struct KeyFile {
     version: u32,
     alg: String,
-    seed: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seed: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    custody: Option<String>,
+    #[serde(rename = "publicKey", skip_serializing_if = "Option::is_none")]
+    public_key: Option<String>,
 }
+
+const KEY_CUSTODY_AGENT: &str = "agent";
 
 /// A validated, path-safe keystore key name. A key name becomes a filename under
 /// `keys_dir()`, so it MUST NOT contain path separators, `..`, a leading dot, or
@@ -137,19 +172,28 @@ pub fn generate_key_in(dir: &Path, name: &KeyName) -> Result<KeyHandle> {
 }
 
 fn write_key_file(path: &Path, seed: &[u8; 32]) -> Result<()> {
-    use std::io::Write as _;
-
     let document = KeyFile {
         version: KEY_FILE_VERSION,
         alg: KEY_FILE_ALG.to_owned(),
-        seed: BASE64_STANDARD.encode(seed),
+        seed: Some(BASE64_STANDARD.encode(seed)),
+        custody: None,
+        public_key: None,
     };
-    let bytes = serde_json::to_vec(&document)?;
+    write_key_document(path, &document, /* private = */ true)
+}
+
+/// Write a key document with the atomic no-clobber `create_new` policy. `private`
+/// applies `0600` (Unix) at creation for seed files; an agent reference holds only
+/// the public key (not secret), so it is written world-readable like the `.pub`
+/// sidecar — refuse-to-clobber still applies, the mode does not.
+fn write_key_document(path: &Path, document: &KeyFile, private: bool) -> Result<()> {
+    use std::io::Write as _;
+    let bytes = serde_json::to_vec(document)?;
 
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true); // create_new => fails if the path exists (atomic no-clobber)
     #[cfg(unix)]
-    {
+    if private {
         use std::os::unix::fs::OpenOptionsExt as _;
         options.mode(0o600); // private from creation, not chmod-after
     }
@@ -163,6 +207,47 @@ fn write_key_file(path: &Path, seed: &[u8; 32]) -> Result<()> {
         ShoreError::Message(format!("write key file {}: {error}", path.display()))
     })?;
     Ok(())
+}
+
+/// Persist an agent-backed reference: a custody-tagged key file carrying only the
+/// public key (no seed), plus the `<name>.pub` did:key sidecar. The `did:key`
+/// derives from `public_key` with no agent and no private key, so the reference is
+/// enroll/list/show-able offline. Refuse-to-clobber via `create_new`.
+/// `pub`: `shore keys use-ssh` consumes it via `shoreline::keys`.
+pub fn write_agent_reference(name: &str, public_key: [u8; 32]) -> Result<KeyHandle> {
+    write_agent_reference_in(&keys_dir()?, &KeyName::parse(name)?, public_key)
+}
+
+/// Root-injecting variant: write the reference under `dir`. `pub` so unit tests
+/// inject a `tempdir` root and never set `SHORE_HOME`, like `generate_key_in`.
+pub fn write_agent_reference_in(
+    dir: &Path,
+    name: &KeyName,
+    public_key: [u8; 32],
+) -> Result<KeyHandle> {
+    let private_key_path = dir.join(name.as_str());
+    let public_key_path = dir.join(format!("{}.pub", name.as_str()));
+    let signer_id = SignerId::from_ed25519_public_key(public_key);
+
+    let document = KeyFile {
+        version: KEY_FILE_VERSION,
+        alg: KEY_FILE_ALG.to_owned(),
+        seed: None,
+        custody: Some(KEY_CUSTODY_AGENT.to_owned()),
+        public_key: Some(BASE64_STANDARD.encode(public_key)),
+    };
+    // A reference holds only the public key (not secret), so `0600` is deliberately
+    // skipped; refuse-to-clobber via `create_new` still applies.
+    write_key_document(&private_key_path, &document, /* private = */ false)?;
+    std::fs::write(&public_key_path, format!("{}\n", signer_id.as_str()))
+        .map_err(|error| ShoreError::Message(format!("write public sidecar: {error}")))?;
+
+    Ok(KeyHandle {
+        name: name.as_str().to_owned(),
+        signer_id,
+        private_key_path,
+        public_key_path,
+    })
 }
 
 /// Load a named keystore key as a production signer: read its file from
@@ -230,38 +315,98 @@ pub fn list_keys_in(dir: &Path) -> Result<Vec<KeyInfo>> {
         if name.ends_with(".pub") {
             continue; // public sidecar, not a private key
         }
-        let seed = read_key_seed(&entry.path())?;
-        let signer_id = SignerId::from_ed25519_public_key(
-            SigningKey::from_bytes(&seed).verifying_key().to_bytes(),
-        );
+        let (signer_id, custody) = match read_key_material(&entry.path())? {
+            KeyMaterial::Seed(seed) => (
+                SignerId::from_ed25519_public_key(
+                    SigningKey::from_bytes(&seed).verifying_key().to_bytes(),
+                ),
+                KeyCustody::File,
+            ),
+            KeyMaterial::AgentBacked { public_key } => (
+                SignerId::from_ed25519_public_key(public_key),
+                KeyCustody::Agent,
+            ),
+        };
         keys.push(KeyInfo {
             name: name.into_owned(),
             signer_id,
+            custody,
         });
     }
     keys.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(keys)
 }
 
+/// Load a named key's custody-tagged material. A `seed` file loads as `Seed`; an
+/// agent reference loads as `AgentBacked`. `pub`: the binary CLI's resolve layer
+/// consumes it via `shoreline::keys`.
+pub fn load_key_material(name: &str) -> Result<KeyMaterial> {
+    load_key_material_in(&keys_dir()?, name)
+}
+
+/// Root-injecting variant for hermetic tests (like `load_signer_in`). `name` is
+/// validated via `KeyName::parse` before it becomes a filename (no traversal).
+pub fn load_key_material_in(dir: &Path, name: &str) -> Result<KeyMaterial> {
+    let name = KeyName::parse(name)?;
+    read_key_material(&dir.join(name.as_str()))
+}
+
 /// Read the raw 32-byte Ed25519 seed from a keystore private-key file. Shared by
-/// keygen tests here and by the loader in the sibling signer module.
+/// keygen tests here and by the loader in the sibling signer module. A non-seed
+/// (agent-backed) reference has no private seed, so this is an error for it.
 pub(crate) fn read_key_seed(path: &Path) -> Result<[u8; 32]> {
-    let bytes = std::fs::read(path).map_err(|error| {
-        ShoreError::Message(format!("read key file {}: {error}", path.display()))
-    })?;
-    let document: KeyFile = serde_json::from_slice(&bytes)?;
+    match read_key_material(path)? {
+        KeyMaterial::Seed(seed) => Ok(seed),
+        KeyMaterial::AgentBacked { .. } => Err(ShoreError::Message(format!(
+            "key file {} is an agent-backed reference with no private seed",
+            path.display()
+        ))),
+    }
+}
+
+/// Parse a key file into its custody-tagged material. Seed present ⇒ `Seed`;
+/// `custody:"agent"` + `publicKey` (no seed) ⇒ `AgentBacked`. A malformed file
+/// (neither shape) is a typed error.
+fn read_key_material(path: &Path) -> Result<KeyMaterial> {
+    let document = read_key_file(path)?;
     if document.alg != KEY_FILE_ALG {
         return Err(ShoreError::Message(format!(
             "unsupported key algorithm {:?}",
             document.alg
         )));
     }
-    let seed = BASE64_STANDARD
-        .decode(document.seed.as_bytes())
-        .map_err(|error| ShoreError::Message(format!("decode key seed: {error}")))?;
-    seed.as_slice()
+    if let Some(seed) = document.seed.as_deref() {
+        return Ok(KeyMaterial::Seed(decode_32(seed, "key seed")?));
+    }
+    if document.custody.as_deref() == Some(KEY_CUSTODY_AGENT) {
+        let public = document.public_key.as_deref().ok_or_else(|| {
+            ShoreError::Message("agent-backed reference is missing publicKey".to_owned())
+        })?;
+        return Ok(KeyMaterial::AgentBacked {
+            public_key: decode_32(public, "public key")?,
+        });
+    }
+    Err(ShoreError::Message(format!(
+        "key file {} has neither a seed nor an agent-backed publicKey",
+        path.display()
+    )))
+}
+
+fn read_key_file(path: &Path) -> Result<KeyFile> {
+    let bytes = std::fs::read(path).map_err(|error| {
+        ShoreError::Message(format!("read key file {}: {error}", path.display()))
+    })?;
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+fn decode_32(b64: &str, what: &str) -> Result<[u8; 32]> {
+    let bytes = BASE64_STANDARD
+        .decode(b64.as_bytes())
+        .map_err(|error| ShoreError::Message(format!("decode {what}: {error}")))?;
+    bytes
+        .as_slice()
         .try_into()
-        .map_err(|_| ShoreError::Message("key seed is not 32 bytes".to_owned()))
+        .map_err(|_| ShoreError::Message(format!("{what} is not 32 bytes")))
 }
 
 #[cfg(test)]
@@ -432,5 +577,112 @@ mod tests {
         for good in ["default", "agent-claude-code", "ci_key.1", "me"] {
             assert!(KeyName::parse(good).is_ok(), "{good:?} must be accepted");
         }
+    }
+
+    // A real public key derived from a fixed seed so the did:key is a valid
+    // z6Mk… string; the test only needs determinism, not a live agent key.
+    fn sample_public_key() -> [u8; 32] {
+        let seed = [7_u8; 32];
+        ed25519_dalek::SigningKey::from_bytes(&seed)
+            .verifying_key()
+            .to_bytes()
+    }
+
+    #[test]
+    fn agent_reference_round_trips_public_key_to_signer_id() {
+        let root = tempfile::tempdir().unwrap();
+        let public = sample_public_key();
+        let expected = crate::crypto::SignerId::from_ed25519_public_key(public);
+
+        // Write the agent-backed reference (no seed on disk).
+        let handle = write_agent_reference_in(root.path(), &name("default"), public).unwrap();
+        assert_eq!(
+            handle.signer_id(),
+            &expected,
+            "did:key derives from the public key, no agent"
+        );
+
+        // Load it back: custody is AgentBacked carrying the same public key.
+        match load_key_material_in(root.path(), "default").unwrap() {
+            KeyMaterial::AgentBacked { public_key } => {
+                assert_eq!(public_key, public);
+                let rederived = crate::crypto::SignerId::from_ed25519_public_key(public_key);
+                assert_eq!(
+                    rederived, expected,
+                    "did:key offline from stored public material"
+                );
+            }
+            other => panic!("expected AgentBacked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn agent_reference_writes_a_did_key_sidecar() {
+        let root = tempfile::tempdir().unwrap();
+        let handle =
+            write_agent_reference_in(root.path(), &name("default"), sample_public_key()).unwrap();
+        let recorded = std::fs::read_to_string(handle.public_key_path()).unwrap();
+        assert_eq!(recorded.trim(), handle.signer_id().as_str());
+    }
+
+    #[test]
+    fn agent_reference_has_no_seed_on_disk() {
+        let root = tempfile::tempdir().unwrap();
+        write_agent_reference_in(root.path(), &name("default"), sample_public_key()).unwrap();
+        let raw = std::fs::read_to_string(root.path().join("default")).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(value["custody"], "agent");
+        assert!(value.get("publicKey").is_some(), "publicKey present");
+        assert!(
+            value.get("seed").is_none(),
+            "no private seed in an agent reference"
+        );
+    }
+
+    #[test]
+    fn existing_seed_key_file_still_loads_as_seed_custody() {
+        // An existing {version, alg, seed} file is unchanged — it loads as Seed.
+        let root = tempfile::tempdir().unwrap();
+        let generated = generate_key_in(root.path(), &name("default")).unwrap();
+
+        match load_key_material_in(root.path(), "default").unwrap() {
+            KeyMaterial::Seed(seed) => {
+                let rederived = crate::crypto::SignerId::from_ed25519_public_key(
+                    ed25519_dalek::SigningKey::from_bytes(&seed)
+                        .verifying_key()
+                        .to_bytes(),
+                );
+                assert_eq!(
+                    &rederived,
+                    generated.signer_id(),
+                    "seed re-derives the file key's did:key"
+                );
+            }
+            other => panic!("a seed file must load as Seed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn list_keys_reports_custody_for_file_and_agent_keys() {
+        let root = tempfile::tempdir().unwrap();
+        generate_key_in(root.path(), &name("filekey")).unwrap();
+        write_agent_reference_in(root.path(), &name("agentkey"), sample_public_key()).unwrap();
+
+        let listed = list_keys_in(root.path()).unwrap();
+        let file = listed.iter().find(|k| k.name() == "filekey").unwrap();
+        let agent = listed.iter().find(|k| k.name() == "agentkey").unwrap();
+        assert_eq!(file.custody(), KeyCustody::File);
+        assert_eq!(agent.custody(), KeyCustody::Agent);
+    }
+
+    #[test]
+    fn agent_reference_refuses_to_clobber_a_colliding_name() {
+        let root = tempfile::tempdir().unwrap();
+        write_agent_reference_in(root.path(), &name("default"), sample_public_key()).unwrap();
+
+        // create_new => an existing name is an atomic OS-level failure, same as file keys.
+        let err = write_agent_reference_in(root.path(), &name("default"), sample_public_key())
+            .unwrap_err();
+        assert!(err.to_string().contains("refusing to overwrite"));
     }
 }
