@@ -226,7 +226,7 @@ pub(crate) fn assemble_and_record_cosignature(
     let carrier = ShoreEvent::new(
         EventType::EventSignatureRecorded,
         idempotency_key,
-        EventTarget::for_event_signature(target.target.session_id.clone(), target.event_id.clone()),
+        EventTarget::for_event_signature(target.target.session_id.clone()),
         writer,
         payload.clone(),
         occurred_at,

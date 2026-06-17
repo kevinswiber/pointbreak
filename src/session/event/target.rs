@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    EventId, ReviewTargetRef, ReviewUnitId, ReviewUnitLineageId, RevisionId, SessionId, SnapshotId,
+    ReviewTargetRef, ReviewUnitId, ReviewUnitLineageId, RevisionId, SessionId, SnapshotId,
     TargetRef, TrackId, WorkObjectId, WorkObjectType, WorkUnitId,
 };
 
@@ -95,7 +95,7 @@ impl EventTarget {
     /// (`target_event_id` + `target_event_record_hash`), so the envelope target
     /// carries only `session_id` — keeping the carrier filed into the same
     /// session store as its target without duplicating the binding key.
-    pub fn for_event_signature(session_id: SessionId, _target_event_id: EventId) -> Self {
+    pub fn for_event_signature(session_id: SessionId) -> Self {
         Self {
             session_id,
             work_unit_id: None,
@@ -135,10 +135,7 @@ mod tests {
 
     #[test]
     fn event_target_for_event_signature_populates_session_and_round_trips() {
-        let target = EventTarget::for_event_signature(
-            SessionId::new("session:fixture"),
-            EventId::new("evt:sha256:target"),
-        );
+        let target = EventTarget::for_event_signature(SessionId::new("session:fixture"));
 
         assert_eq!(target.session_id, SessionId::new("session:fixture"));
 

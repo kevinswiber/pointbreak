@@ -58,10 +58,7 @@ fn carrier_event(idempotency_key: &str, payload: EventSignatureRecordedPayload) 
     ShoreEvent::new(
         EventType::EventSignatureRecorded,
         idempotency_key,
-        EventTarget::for_event_signature(
-            SessionId::new("session:fixture"),
-            EventId::new("evt:sha256:target"),
-        ),
+        EventTarget::for_event_signature(SessionId::new("session:fixture")),
         Writer::shore_local("test"),
         payload,
         "2026-06-04T00:00:00Z",

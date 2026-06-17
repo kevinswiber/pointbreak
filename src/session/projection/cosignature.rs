@@ -241,7 +241,6 @@ mod tests {
             key,
             crate::session::event::EventTarget::for_event_signature(
                 target.target.session_id.clone(),
-                target.event_id.clone(),
             ),
             crate::session::event::Writer::shore_local("test"),
             payload,
