@@ -3,8 +3,7 @@ use std::io::Write;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use clap::Args;
-use shoreline::crypto::EventSigner as _;
-use shoreline::keys::load_signer;
+use shoreline::keys::load_signer_id;
 
 use crate::cli::json;
 
@@ -37,8 +36,10 @@ pub(super) fn run(
     args: ShowArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let signer = load_signer(&args.name)?;
-    let signer_id = signer.signer_id();
+    // Resolve the did:key from public material so an agent-backed reference (no
+    // private seed on disk) shows offline, like `list`/`enroll`. The `--pubkey`
+    // bytes derive from the same did:key.
+    let signer_id = load_signer_id(&args.name)?;
 
     // Default to the did:key when neither field flag is set.
     let want_did = args.did || !args.pubkey;

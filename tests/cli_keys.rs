@@ -215,6 +215,56 @@ fn keys_show_pubkey_is_consistent_with_the_did_key() {
 }
 
 #[test]
+fn keys_show_works_for_an_agent_backed_reference() {
+    // An agent-backed reference has no seed; `show` must derive the did:key (and
+    // public key) from the stored public material, like `list`/`enroll` do.
+    let home = tempfile::tempdir().expect("create keystore home");
+    let env = [("SHORE_HOME", home.path().to_str().unwrap())];
+    let adopt = shore_env(
+        [
+            "keys",
+            "use-ssh",
+            &format!("key::{SSH_ED25519_PUBKEY}"),
+            "--name",
+            "ssh-test",
+        ],
+        &env,
+    );
+    assert!(
+        adopt.status.success(),
+        "adopt stderr:\n{}",
+        String::from_utf8_lossy(&adopt.stderr)
+    );
+    let did = serde_json::from_slice::<Value>(&adopt.stdout).unwrap()["didKey"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let did_out = shore_env(["keys", "show", "ssh-test", "--did"], &env);
+    assert!(
+        did_out.status.success(),
+        "keys show --did must work for an agent-backed key:\n{}",
+        String::from_utf8_lossy(&did_out.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&did_out.stdout).unwrap()["didKey"],
+        did
+    );
+
+    let pub_out = shore_env(["keys", "show", "ssh-test", "--pubkey"], &env);
+    assert!(
+        pub_out.status.success(),
+        "keys show --pubkey must work for an agent-backed key:\n{}",
+        String::from_utf8_lossy(&pub_out.stderr)
+    );
+    let pub_json: Value = serde_json::from_slice(&pub_out.stdout).unwrap();
+    assert!(
+        pub_json["publicKey"].as_str().is_some(),
+        "publicKey present: {pub_json:#}"
+    );
+}
+
+#[test]
 fn keys_show_missing_name_is_a_clean_error_not_a_panic() {
     let home = tempfile::tempdir().expect("create keystore home");
     let env = [("SHORE_HOME", home.path().to_str().unwrap())];
