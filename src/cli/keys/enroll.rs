@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use clap::Args;
 use serde::Serialize;
-use shoreline::crypto::{EventSigner as _, SignerId};
-use shoreline::keys::load_signer;
+use shoreline::crypto::SignerId;
+use shoreline::keys::load_signer_id;
 use shoreline::model::ActorId;
 use shoreline::session::{
     ALLOWED_SIGNERS_REL_PATH, EnrollmentDiff, resolve_writer_actor_id, stage_enrollment,
@@ -46,10 +46,10 @@ pub(super) fn run(
     args: EnrollArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Resolve the key's did:key. `load_signer` loads the named key as a production
-    // signer; its `signer_id()` is the did:key.
-    let signer = load_signer(&args.name)?;
-    let signer_id: &SignerId = signer.signer_id();
+    // Resolve the key's did:key from public material, so an agent-backed reference
+    // (which has no private key on disk) enrolls offline — no agent, no seed. A seed
+    // key resolves to the same did:key its loaded signer would.
+    let signer_id: SignerId = load_signer_id(&args.name)?;
 
     // Resolve the actor: explicit `--actor` wins, else the standard writer
     // resolution (`SHORE_ACTOR_ID` then Git identity).
@@ -63,7 +63,7 @@ pub(super) fn run(
     let worktree_root =
         shoreline::git::git_worktree_root(&args.repo).unwrap_or_else(|_| args.repo.clone());
     let path = worktree_root.join(ALLOWED_SIGNERS_REL_PATH);
-    let EnrollmentDiff { added } = stage_enrollment(&path, &actor, signer_id)?;
+    let EnrollmentDiff { added } = stage_enrollment(&path, &actor, &signer_id)?;
 
     let body = EnrollBody {
         actor_id: actor.as_str().to_owned(),

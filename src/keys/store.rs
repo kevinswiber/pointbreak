@@ -351,6 +351,26 @@ pub fn load_key_material_in(dir: &Path, name: &str) -> Result<KeyMaterial> {
     read_key_material(&dir.join(name.as_str()))
 }
 
+/// Resolve a named key's `did:key` (`SignerId`) **without** needing its private
+/// key. A file key's id derives from its seed; an agent-backed reference's id
+/// derives from its stored public key — no agent, no seed. `pub`: the binary CLI's
+/// `enroll` consumes it so an agent-backed key enrolls offline. (Distinct from
+/// [`load_signer`], which must reconstruct a usable signer and so reads the seed.)
+pub fn load_signer_id(name: &str) -> Result<SignerId> {
+    load_signer_id_in(&keys_dir()?, name)
+}
+
+/// Root-injecting variant for hermetic tests (like `load_signer_in`). `name` is
+/// validated via `KeyName::parse` inside `load_key_material_in` (no traversal).
+pub fn load_signer_id_in(dir: &Path, name: &str) -> Result<SignerId> {
+    Ok(match load_key_material_in(dir, name)? {
+        KeyMaterial::Seed(seed) => SignerId::from_ed25519_public_key(
+            SigningKey::from_bytes(&seed).verifying_key().to_bytes(),
+        ),
+        KeyMaterial::AgentBacked { public_key } => SignerId::from_ed25519_public_key(public_key),
+    })
+}
+
 /// Read the raw 32-byte Ed25519 seed from a keystore private-key file. Shared by
 /// keygen tests here and by the loader in the sibling signer module. A non-seed
 /// (agent-backed) reference has no private seed, so this is an error for it.
@@ -673,6 +693,37 @@ mod tests {
         let agent = listed.iter().find(|k| k.name() == "agentkey").unwrap();
         assert_eq!(file.custody(), KeyCustody::File);
         assert_eq!(agent.custody(), KeyCustody::Agent);
+    }
+
+    #[test]
+    fn load_signer_id_for_a_file_key_matches_load_signer() {
+        let root = tempfile::tempdir().unwrap();
+        let generated = generate_key_in(root.path(), &name("default")).unwrap();
+        // The did:key resolved without a signer equals the seed-loaded signer's id.
+        let id = load_signer_id_in(root.path(), "default").unwrap();
+        assert_eq!(&id, generated.signer_id());
+    }
+
+    #[test]
+    fn load_signer_id_for_an_agent_reference_derives_did_key_with_no_seed() {
+        // An agent-backed reference has NO seed; its did:key derives from the stored
+        // public key with no agent and no private key.
+        let root = tempfile::tempdir().unwrap();
+        let public = sample_public_key();
+        let handle = write_agent_reference_in(root.path(), &name("default"), public).unwrap();
+
+        // load_signer would fail here (there is no seed to read); load_signer_id must not.
+        assert!(
+            load_signer_in(root.path(), "default").is_err(),
+            "no seed to load a signer from"
+        );
+        let id = load_signer_id_in(root.path(), "default").unwrap();
+        assert_eq!(
+            &id,
+            handle.signer_id(),
+            "did:key offline from public material"
+        );
+        assert_eq!(id, crate::crypto::SignerId::from_ed25519_public_key(public));
     }
 
     #[test]

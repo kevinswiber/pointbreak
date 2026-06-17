@@ -11,5 +11,6 @@ pub use ssh::{
 pub use store::{
     KeyCustody, KeyHandle, KeyInfo, KeyMaterial, KeyName, generate_key, generate_key_in, list_keys,
     list_keys_in, load_key_material, load_key_material_in, load_signer, load_signer_from_path,
-    load_signer_in, write_agent_reference, write_agent_reference_in,
+    load_signer_id, load_signer_id_in, load_signer_in, write_agent_reference,
+    write_agent_reference_in,
 };

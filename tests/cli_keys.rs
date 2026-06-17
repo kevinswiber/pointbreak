@@ -267,6 +267,50 @@ fn keys_enroll_stages_working_tree_file_and_reports_actor_and_did() {
 }
 
 #[test]
+fn keys_enroll_works_for_an_agent_backed_reference() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let home_str = home.path().to_str().unwrap();
+    // Adopt an agent-backed `default` reference: no agent running, no private key.
+    let adopt = shore_env(
+        ["keys", "use-ssh", &format!("key::{SSH_ED25519_PUBKEY}")],
+        &[("SHORE_HOME", home_str)],
+    );
+    assert!(
+        adopt.status.success(),
+        "adopt stderr:\n{}",
+        String::from_utf8_lossy(&adopt.stderr)
+    );
+    let did = serde_json::from_slice::<Value>(&adopt.stdout).unwrap()["didKey"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let repo = support::git_repo::GitRepo::new();
+    let out = shore_env(
+        ["keys", "enroll", "--repo", repo.path().to_str().unwrap()],
+        &[
+            ("SHORE_HOME", home_str),
+            ("SHORE_ACTOR_ID", "actor:git-email:dev@example.com"),
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "enroll an agent-backed key offline:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(doc["schema"], "shore.keys-enroll");
+    assert_eq!(doc["signerId"], did, "enrolled the offline-derived did:key");
+    assert_eq!(doc["added"], true);
+
+    let path = repo.path().join(".shore/allowed-signers.json");
+    let trust = shoreline::session::TrustSet::from_allowed_signers_file(&path).unwrap();
+    let actor = shoreline::model::ActorId::new("actor:git-email:dev@example.com");
+    let signer = shoreline::crypto::SignerId::parse(&did).unwrap();
+    assert!(trust.authorizes(&actor, &signer, "2026-06-16T00:00:00Z"));
+}
+
+#[test]
 fn keys_enroll_re_enroll_reports_already_present_and_is_a_noop() {
     let home = tempfile::tempdir().expect("create keystore home");
     let home_str = home.path().to_str().unwrap();
