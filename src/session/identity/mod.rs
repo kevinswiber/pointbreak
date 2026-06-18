@@ -1,9 +1,11 @@
+mod actor_attributes;
 mod clock;
 mod delegates;
 mod instant;
 mod principal;
 mod writer;
 
+pub use actor_attributes::{ActorAttributes, ActorAttributesMap, actor_attributes_from_value};
 pub(crate) use clock::current_timestamp;
 pub use delegates::{
     DelegationMap, DelegationRecord, PrincipalResolution, UnresolvedReason,

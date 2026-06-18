@@ -10,10 +10,10 @@ pub use event::{
     IngestProvenance, IngestVia, event_signature_pre_authentication_encoding, event_to_be_signed,
 };
 pub use identity::{
-    DelegationMap, DelegationRecord, PrincipalResolution, PrincipalSource, PrincipalStatus,
-    PrincipalView, UnresolvedReason, delegation_map_from_value, is_agent_actor_id,
-    principal_display_label, principal_resolution_for_writer, principal_view_for,
-    resolve_writer_actor_id,
+    ActorAttributes, ActorAttributesMap, DelegationMap, DelegationRecord, PrincipalResolution,
+    PrincipalSource, PrincipalStatus, PrincipalView, UnresolvedReason, actor_attributes_from_value,
+    delegation_map_from_value, is_agent_actor_id, principal_display_label,
+    principal_resolution_for_writer, principal_view_for, resolve_writer_actor_id,
 };
 pub(crate) use identity::{
     current_timestamp, is_valid_actor_id, writer_from_git_config, writer_from_options,

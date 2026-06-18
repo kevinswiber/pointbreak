@@ -10,7 +10,7 @@ use shoreline::keys::{
 };
 use shoreline::model::{ActorId, Side};
 use shoreline::session::{
-    AssessmentAddOptions, BestEffortSkipSink, CaptureOptions, DelegationMap,
+    ActorAttributesMap, AssessmentAddOptions, BestEffortSkipSink, CaptureOptions, DelegationMap,
     InputRequestOpenOptions, InputRequestRespondOptions, ObservationAddOptions, TrustSet,
     ValidationAddOptions, is_agent_actor_id, resolve_writer_actor_id,
 };
@@ -58,6 +58,51 @@ fn load_optional_delegates(path: &Path) -> Option<DelegationMap> {
         return None;
     }
     match DelegationMap::from_delegates_file(path) {
+        Ok(map) => Some(map),
+        Err(error) => {
+            eprintln!("warning: ignoring {}: {error}", path.display());
+            None
+        }
+    }
+}
+
+/// Discover the layered actor-attributes map under `<worktree-root>/.shore/`.
+///
+/// Mirrors [`discover_delegation_map`]: the committed `.shore/actor-attributes.json` and a
+/// locally-excluded `.shore/actor-attributes.local.json` override compose git-config style (a local
+/// entry for an actor fully replaces the committed entry). Returns `None` when neither file exists; a
+/// malformed file is advisory (one-line stderr warning, treated as absent). This is reader-supplied
+/// config, never store content, and is advisory/reader-relative (ADR-0012).
+//
+// Unwired in this pass: the classification's 3-value bucket needs only the trust set; the production
+// consumer (surfacing endorser kind/roles + relationship alongside the classification) is the
+// policy plane. Mirrors the `agent_resumption_from_events` landed-but-unwired posture.
+#[allow(dead_code)]
+pub(crate) fn discover_actor_attributes(repo: &Path) -> Option<ActorAttributesMap> {
+    let worktree_root =
+        shoreline::git::git_worktree_root(repo).unwrap_or_else(|_| repo.to_path_buf());
+    let committed =
+        load_optional_actor_attributes(&worktree_root.join(".shore/actor-attributes.json"));
+    let local =
+        load_optional_actor_attributes(&worktree_root.join(".shore/actor-attributes.local.json"));
+    match (committed, local) {
+        (None, None) => None,
+        (committed, local) => Some(
+            committed
+                .unwrap_or_default()
+                .with_local_override(local.unwrap_or_default()),
+        ),
+    }
+}
+
+/// Load an actor-attributes file if present; a malformed file is advisory — warn once to stderr and
+/// treat it as absent (per-file, so a bad local never poisons the committed default).
+#[allow(dead_code)]
+fn load_optional_actor_attributes(path: &Path) -> Option<ActorAttributesMap> {
+    if !path.exists() {
+        return None;
+    }
+    match ActorAttributesMap::from_attributes_file(path) {
         Ok(map) => Some(map),
         Err(error) => {
             eprintln!("warning: ignoring {}: {error}", path.display());
@@ -736,6 +781,56 @@ mod tests {
         assert!(matches!(
             map.resolve(&ActorId::new("actor:agent:claude-code"), "2026-06-12T00:00:00Z"),
             PrincipalResolution::Resolved(p) if p.as_str() == "actor:git-email:kevin@swiber.dev"));
+    }
+
+    const ATTRS: &str = r#"{"schema":"shore.actor-attributes.v1","actors":{
+      "actor:git-email:kevin@swiber.dev":{"kind":"human","roles":["reviewer"]}}}"#;
+    const ATTRS_LOCAL: &str = r#"{"schema":"shore.actor-attributes.v1","actors":{
+      "actor:git-email:kevin@swiber.dev":{"kind":"agent","roles":[]}}}"#;
+
+    #[test]
+    fn discovers_committed_actor_attributes() {
+        let repo = git_repo();
+        write(&repo, ".shore/actor-attributes.json", ATTRS);
+        let map = super::discover_actor_attributes(repo.path()).expect("committed map discovered");
+        assert_eq!(
+            map.resolve(&ActorId::new("actor:git-email:kevin@swiber.dev"))
+                .kind(),
+            Some("human")
+        );
+    }
+
+    #[test]
+    fn actor_attributes_local_override_layers_over_committed() {
+        let repo = git_repo();
+        write(&repo, ".shore/actor-attributes.json", ATTRS);
+        write(&repo, ".shore/actor-attributes.local.json", ATTRS_LOCAL);
+        let map = super::discover_actor_attributes(repo.path()).expect("layered map");
+        assert_eq!(
+            map.resolve(&ActorId::new("actor:git-email:kevin@swiber.dev"))
+                .kind(),
+            Some("agent")
+        );
+    }
+
+    #[test]
+    fn actor_attributes_neither_file_returns_none() {
+        let repo = git_repo();
+        assert!(super::discover_actor_attributes(repo.path()).is_none());
+    }
+
+    #[test]
+    fn malformed_actor_attributes_local_is_advisory_and_falls_back_to_committed() {
+        let repo = git_repo();
+        write(&repo, ".shore/actor-attributes.json", ATTRS);
+        write(&repo, ".shore/actor-attributes.local.json", "{ not json");
+        let map =
+            super::discover_actor_attributes(repo.path()).expect("committed survives bad local");
+        assert_eq!(
+            map.resolve(&ActorId::new("actor:git-email:kevin@swiber.dev"))
+                .kind(),
+            Some("human")
+        );
     }
 
     fn git_repo() -> tempfile::TempDir {

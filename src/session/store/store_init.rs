@@ -138,6 +138,7 @@ pub(crate) fn prepare_shore_writer(paths: &ShoreStorePaths, storage: &LocalStora
     // so it is captured explicitly even when a broader store exclude pattern is
     // present (and would otherwise mask the more specific probe).
     ensure_local_delegates_excluded(paths.worktree_root())?;
+    ensure_local_actor_attributes_excluded(paths.worktree_root())?;
     ensure_shore_storage_excluded(paths.worktree_root())
 }
 
@@ -177,6 +178,17 @@ pub(crate) fn ensure_local_delegates_excluded(worktree_root: &Path) -> Result<()
         return Ok(());
     }
     append_info_exclude_line(worktree_root, ".shore/delegates.local.json")
+}
+
+/// Keeps the private actor-attributes override out of Git status. Mirrors
+/// [`ensure_local_delegates_excluded`]: a no-op if already ignored, else appends
+/// to the repository-local `.git/info/exclude`. Only the `.local.json` override
+/// is excluded — the committed `.shore/actor-attributes.json` is tracked.
+pub(crate) fn ensure_local_actor_attributes_excluded(worktree_root: &Path) -> Result<()> {
+    if git_path_is_ignored(worktree_root, ".shore/actor-attributes.local.json")? {
+        return Ok(());
+    }
+    append_info_exclude_line(worktree_root, ".shore/actor-attributes.local.json")
 }
 
 /// Append `line` (newline-terminated) to the repository-local
@@ -326,6 +338,42 @@ mod tests {
         let hits = exclude
             .lines()
             .filter(|l| l.trim() == ".shore/delegates.local.json")
+            .count();
+        assert_eq!(hits, 1, "the entry is written at most once");
+    }
+
+    #[test]
+    fn prepare_shore_writer_excludes_local_actor_attributes_override() {
+        let repo = git_repo();
+        let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
+        let storage = LocalStorage::new(paths.store_dir());
+
+        prepare_shore_writer(&paths, &storage).unwrap();
+
+        let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
+        assert!(
+            exclude
+                .lines()
+                .any(|line| line.trim() == ".shore/actor-attributes.local.json"),
+            "local actor-attributes override must be git-excluded, got:\n{exclude}"
+        );
+        // Committed config is never excluded.
+        assert!(
+            !exclude
+                .lines()
+                .any(|line| line.trim() == ".shore/actor-attributes.json")
+        );
+    }
+
+    #[test]
+    fn ensure_local_actor_attributes_excluded_is_idempotent() {
+        let repo = git_repo();
+        ensure_local_actor_attributes_excluded(repo.path()).unwrap();
+        ensure_local_actor_attributes_excluded(repo.path()).unwrap();
+        let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
+        let hits = exclude
+            .lines()
+            .filter(|l| l.trim() == ".shore/actor-attributes.local.json")
             .count();
         assert_eq!(hits, 1, "the entry is written at most once");
     }
