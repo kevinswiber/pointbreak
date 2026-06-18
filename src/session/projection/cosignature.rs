@@ -133,6 +133,164 @@ impl CosignatureSet {
     }
 }
 
+/// Detached `event_signature` carriers grouped by their `target_event_id`, each
+/// payload parsed once at build. Build ONCE per multi-target document (INV-5); look
+/// up the bucket for a target in O(1). The classifier reads only `&TrustSet` (INV-2).
+pub(crate) struct CosignatureIndex<'a> {
+    carriers_by_target: BTreeMap<String, Vec<DetachedCarrier<'a>>>,
+}
+
+/// One detached `event_signature` carrier with its payload parsed once at build.
+struct DetachedCarrier<'a> {
+    event: &'a ShoreEvent,
+    payload: EventSignatureRecordedPayload,
+}
+
+impl<'a> CosignatureIndex<'a> {
+    /// Index every detached `event_signature` carrier by its `target_event_id` in a
+    /// single pass over the log, parsing each carrier payload exactly once.
+    pub(crate) fn build(events: &'a [ShoreEvent]) -> Result<Self> {
+        let mut carriers_by_target: BTreeMap<String, Vec<DetachedCarrier<'a>>> = BTreeMap::new();
+        for event in events
+            .iter()
+            .filter(|event| event.event_type == EventType::EventSignatureRecorded)
+        {
+            let payload: EventSignatureRecordedPayload =
+                serde_json::from_value(event.payload.clone())?;
+            carriers_by_target
+                .entry(payload.target_event_id.as_str().to_owned())
+                .or_default()
+                .push(DetachedCarrier { event, payload });
+        }
+        Ok(Self { carriers_by_target })
+    }
+
+    /// The co-signature set for `target`: its inline member (#1, if any) unioned with
+    /// only the carriers bucketed under its event id. Equivalent to
+    /// `cosignatures_for_event` for the same target.
+    pub(crate) fn cosignatures_for_target(
+        &self,
+        target: &ShoreEvent,
+        trust: &TrustSet,
+    ) -> Result<CosignatureSet> {
+        let target_record_hash = target.event_record_hash()?;
+        let (inline_key, inline) = inline_member(target, &target_record_hash, trust)?;
+        let empty = Vec::new();
+        let carriers = self
+            .carriers_by_target
+            .get(target.event_id.as_str())
+            .unwrap_or(&empty);
+        let detached = detached_members(carriers, target, inline_key.as_deref(), trust)?;
+
+        let mut members = Vec::with_capacity(inline.is_some() as usize + detached.len());
+        if let Some(member) = inline {
+            members.push(member);
+        }
+        members.extend(detached.into_values());
+        Ok(CosignatureSet {
+            target_event_id: target.event_id.as_str().to_owned(),
+            members,
+        })
+    }
+}
+
+/// Build the inline member (#1) for `target`, returning its full-triple dedup key
+/// alongside it. `None` when the target carries no inline signature or its signer
+/// cannot be resolved. The inline member is the only member that may be `Invalid`.
+fn inline_member(
+    target: &ShoreEvent,
+    target_record_hash: &str,
+    trust: &TrustSet,
+) -> Result<(Option<String>, Option<CosignatureMember>)> {
+    let Some(signature) = &target.signature else {
+        return Ok((None, None));
+    };
+    let status = verify_event_signature(target, trust)?;
+    let Some(attesting_signer) = resolve_effective_signer(target)
+        .ok()
+        .or_else(|| target.signer.clone())
+    else {
+        return Ok((None, None));
+    };
+    // The dedup key is the full attestation triple, so a detached carrier
+    // transcribing the same inline signature is the SAME member, not a second one
+    // (the inline signer/signature IS co-signature #1).
+    let key = EventSignatureRecordedPayload::idempotency_key(
+        target_record_hash,
+        &attesting_signer,
+        signature.sig.as_str(),
+    );
+    let classification = classify_cosignature_member(
+        &CosignatureSource::Inline,
+        status,
+        &attesting_signer,
+        &target.writer.actor_id,
+        trust,
+    );
+    Ok((
+        Some(key),
+        Some(CosignatureMember {
+            attesting_signer,
+            status,
+            source: CosignatureSource::Inline,
+            classification,
+        }),
+    ))
+}
+
+/// Build the detached members for `target` from its bucketed carriers, deduped by
+/// the full triple (the carrier's own `idempotencyKey`). Keying on a `BTreeMap`
+/// makes the union commutative/associative/idempotent and the output
+/// order-independent. A carrier equal to the inline triple is already member #1.
+fn detached_members(
+    carriers: &[DetachedCarrier<'_>],
+    target: &ShoreEvent,
+    inline_key: Option<&str>,
+    trust: &TrustSet,
+) -> Result<BTreeMap<String, CosignatureMember>> {
+    let mut detached: BTreeMap<String, CosignatureMember> = BTreeMap::new();
+    for carrier in carriers {
+        let event = carrier.event;
+        let payload = &carrier.payload;
+        // An `invalid` detached attestation is reader-independent noise and is never
+        // a stored member (defense-in-depth on a log that bypassed the gate); a
+        // `BindingMismatch` names a different record. Keep only `Valid`/`UntrustedKey`.
+        let status = match verify_cosignature(payload, target, trust)? {
+            CosignatureVerification::Attested(status @ EventVerificationStatus::Valid)
+            | CosignatureVerification::Attested(status @ EventVerificationStatus::UntrustedKey) => {
+                status
+            }
+            CosignatureVerification::Attested(_) | CosignatureVerification::BindingMismatch => {
+                continue;
+            }
+        };
+        // The carrier's idempotencyKey is the full-triple key. If it equals the
+        // inline member's triple, it is the same attestation — already member #1.
+        if inline_key == Some(event.idempotency_key.as_str()) {
+            continue;
+        }
+        let source = CosignatureSource::Detached {
+            carrier_event_id: event.event_id.as_str().to_owned(),
+        };
+        let classification = classify_cosignature_member(
+            &source,
+            status,
+            &payload.attesting_signer,
+            &target.writer.actor_id,
+            trust,
+        );
+        detached
+            .entry(event.idempotency_key.clone())
+            .or_insert_with(|| CosignatureMember {
+                attesting_signer: payload.attesting_signer.clone(),
+                status,
+                source,
+                classification,
+            });
+    }
+    Ok(detached)
+}
+
 /// Compute `cosignatures(event)` for the target with `target_event_id`, over the
 /// supplied event log and trust set. The result is independent of the order
 /// `events` is presented in, and a duplicate attestation never double-counts.
@@ -153,105 +311,7 @@ pub(crate) fn cosignatures_for_event(
             members: Vec::new(),
         });
     };
-
-    let target_record_hash = target.event_record_hash()?;
-
-    // Member #1: the inline attestation, kept at whatever status (it is the only
-    // member that may be `Invalid`). Its dedup key is the full attestation triple,
-    // so a detached carrier transcribing the same inline signature is the SAME
-    // member, not a second one (the inline signer/signature IS co-signature #1).
-    let mut inline_member: Option<(String, CosignatureMember)> = None;
-    if let Some(signature) = &target.signature {
-        let status = verify_event_signature(target, trust)?;
-        if let Some(attesting_signer) = resolve_effective_signer(target)
-            .ok()
-            .or_else(|| target.signer.clone())
-        {
-            let key = EventSignatureRecordedPayload::idempotency_key(
-                &target_record_hash,
-                &attesting_signer,
-                signature.sig.as_str(),
-            );
-            let classification = classify_cosignature_member(
-                &CosignatureSource::Inline,
-                status,
-                &attesting_signer,
-                &target.writer.actor_id,
-                trust,
-            );
-            inline_member = Some((
-                key,
-                CosignatureMember {
-                    attesting_signer,
-                    status,
-                    source: CosignatureSource::Inline,
-                    classification,
-                },
-            ));
-        }
-    }
-    let inline_key = inline_member.as_ref().map(|(key, _)| key.clone());
-
-    // Detached members, deduped by the full triple (the carrier's own
-    // idempotencyKey, which derives from the triple). Keying on a `BTreeMap` makes
-    // the union structurally commutative/associative/idempotent and the output
-    // order-independent.
-    let mut detached: BTreeMap<String, CosignatureMember> = BTreeMap::new();
-    for event in events
-        .iter()
-        .filter(|event| event.event_type == EventType::EventSignatureRecorded)
-    {
-        let payload: EventSignatureRecordedPayload = serde_json::from_value(event.payload.clone())?;
-        if payload.target_event_id.as_str() != target_event_id {
-            continue;
-        }
-        // An `invalid` detached attestation is reader-independent noise and is never
-        // a stored member (defense-in-depth on a log that bypassed the gate); a
-        // `BindingMismatch` names a different record. Keep only `Valid`/`UntrustedKey`.
-        let status = match verify_cosignature(&payload, target, trust)? {
-            CosignatureVerification::Attested(status @ EventVerificationStatus::Valid)
-            | CosignatureVerification::Attested(status @ EventVerificationStatus::UntrustedKey) => {
-                status
-            }
-            CosignatureVerification::Attested(_) | CosignatureVerification::BindingMismatch => {
-                continue;
-            }
-        };
-        // The carrier's idempotencyKey is the full-triple key. If it equals the
-        // inline member's triple, it is the same attestation — already member #1.
-        if inline_key.as_deref() == Some(event.idempotency_key.as_str()) {
-            continue;
-        }
-        let source = CosignatureSource::Detached {
-            carrier_event_id: event.event_id.as_str().to_owned(),
-        };
-        let classification = classify_cosignature_member(
-            &source,
-            status,
-            &payload.attesting_signer,
-            &target.writer.actor_id,
-            trust,
-        );
-        detached
-            .entry(event.idempotency_key.clone())
-            .or_insert_with(|| CosignatureMember {
-                attesting_signer: payload.attesting_signer,
-                status,
-                source,
-                classification,
-            });
-    }
-
-    let mut members = Vec::with_capacity(inline_member.is_some() as usize + detached.len());
-    if let Some((_, member)) = inline_member {
-        members.push(member);
-    }
-    members.extend(detached.into_values());
-
-    Ok(CosignatureSet {
-        target_event_id: target_event_id.to_owned(),
-        members,
-    })
+    CosignatureIndex::build(events)?.cosignatures_for_target(target, trust)
 }
 
 /// ADR-0013 classifier (read-side; derived). Reads `status` as the already-computed
@@ -375,6 +435,39 @@ mod tests {
             }
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn index_matches_single_shot_for_every_target() {
+        // A log with a co-signed target (inline authoring + a detached endorsement),
+        // plus the carrier event (which resolves to an empty set as a target). The
+        // grouped index must agree with the per-call single shot for every target.
+        let signer_a = DeterministicSigner::from_seed(SIGNER_A_SEED);
+        let signer_b = DeterministicSigner::from_seed(SIGNER_B_SEED);
+        let target = inline_signed(&signer_a);
+        let carrier = detached_carrier(&target, &signer_b);
+        let endorser = crate::model::ActorId::new("actor:git-email:kevin@swiber.dev");
+        let trust = crate::session::event_signature_trust_set(serde_json::json!({
+            "allowedSigners": {
+                target.writer.actor_id.as_str(): [signer_a.signer_id().as_str()],
+                endorser.as_str(): [signer_b.signer_id().as_str()]
+            }
+        }))
+        .unwrap();
+        let events = vec![target, carrier];
+
+        let index = CosignatureIndex::build(&events).unwrap();
+        for target in &events {
+            let via_index = index.cosignatures_for_target(target, &trust).unwrap();
+            let via_single =
+                cosignatures_for_event(&events, target.event_id.as_str(), &trust).unwrap();
+            assert_eq!(
+                via_index,
+                via_single,
+                "index path must equal single-shot for {}",
+                target.event_id.as_str()
+            );
+        }
     }
 
     #[test]
