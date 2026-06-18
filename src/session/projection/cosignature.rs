@@ -21,6 +21,7 @@ use std::collections::BTreeMap;
 
 use crate::crypto::{EventVerificationStatus, SignerId};
 use crate::error::Result;
+use crate::model::ActorId;
 use crate::session::event::{
     EventSignatureRecordedPayload, EventType, ShoreEvent, resolve_effective_signer,
 };
@@ -38,6 +39,37 @@ pub(crate) enum CosignatureSource {
     Detached { carrier_event_id: String },
 }
 
+/// ADR-0013 read-side classification of a co-signature member. Derived at projection
+/// from stored bytes + the reader's committed trust set; never stored, never binding.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(dead_code)] // payload (endorser/reason) is read by the deferred policy consumer.
+pub(crate) enum CosignatureClassification {
+    /// Inline member (#1, any status), or a detached member whose signer is authorized
+    /// for the event's own actor. `reason` is set only for the laundering-guard overlap.
+    Authoring { reason: Option<AuthoringReason> },
+    /// A detached member that verifies and reverse-resolves to exactly one known actor
+    /// distinct from the event's actor. Carries the resolved endorser for downstream reads.
+    EndorsementTrusted { endorser: ActorId },
+    /// A detached member that verifies but cannot be placed as a single distinct known actor.
+    EndorsementUntrusted { reason: EndorsementUntrustedReason },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AuthoringReason {
+    /// A detached signer authorized for the event's actor that ALSO maps to a distinct
+    /// actor — authoring has precedence; deliberately not an endorsement. (authoring_not_endorsement)
+    AuthoringNotEndorsement,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum EndorsementUntrustedReason {
+    /// Resolves to no known actor (not enrolled, not the resolved principal) —
+    /// including a bare, unenrolled did:key. (unknown_endorser)
+    UnknownEndorser,
+    /// Resolves to more than one explicitly enrolled actor. (ambiguous_endorser)
+    AmbiguousEndorser,
+}
+
 /// One member of an event's co-signature set, tagged with its reader-relative status.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CosignatureMember {
@@ -47,6 +79,10 @@ pub(crate) struct CosignatureMember {
     /// inline member may also be `Invalid`/`Unsigned`.
     pub status: EventVerificationStatus,
     pub source: CosignatureSource,
+    /// ADR-0013 read-side classification (derived; never stored). Read by
+    /// `has_trusted_endorsement` and the deferred policy consumer.
+    #[allow(dead_code)]
+    pub classification: CosignatureClassification,
 }
 
 /// The projected co-signature set for one target event. A G-Set: order-independent,
@@ -73,6 +109,20 @@ impl CosignatureSet {
         self.members
             .iter()
             .any(|member| member.status == EventVerificationStatus::Valid)
+    }
+
+    /// True when any member classifies `endorsement-trusted` (ADR-0013): an actor vouched
+    /// for this change in its own identity. This is the stewardship/policy plane's reader —
+    /// it is **non-binding** and feeds NO binding decision (binding reads `has_valid_member`
+    /// only). Optionally narrowed by relationship/attributes downstream.
+    #[allow(dead_code)]
+    pub(crate) fn has_trusted_endorsement(&self) -> bool {
+        self.members.iter().any(|member| {
+            matches!(
+                member.classification,
+                CosignatureClassification::EndorsementTrusted { .. }
+            )
+        })
     }
 
     /// True when any member verifies cryptographically but is `UntrustedKey`.
@@ -122,12 +172,20 @@ pub(crate) fn cosignatures_for_event(
                 &attesting_signer,
                 signature.sig.as_str(),
             );
+            let classification = classify_cosignature_member(
+                &CosignatureSource::Inline,
+                status,
+                &attesting_signer,
+                &target.writer.actor_id,
+                trust,
+            );
             inline_member = Some((
                 key,
                 CosignatureMember {
                     attesting_signer,
                     status,
                     source: CosignatureSource::Inline,
+                    classification,
                 },
             ));
         }
@@ -164,14 +222,23 @@ pub(crate) fn cosignatures_for_event(
         if inline_key.as_deref() == Some(event.idempotency_key.as_str()) {
             continue;
         }
+        let source = CosignatureSource::Detached {
+            carrier_event_id: event.event_id.as_str().to_owned(),
+        };
+        let classification = classify_cosignature_member(
+            &source,
+            status,
+            &payload.attesting_signer,
+            &target.writer.actor_id,
+            trust,
+        );
         detached
             .entry(event.idempotency_key.clone())
             .or_insert_with(|| CosignatureMember {
                 attesting_signer: payload.attesting_signer,
                 status,
-                source: CosignatureSource::Detached {
-                    carrier_event_id: event.event_id.as_str().to_owned(),
-                },
+                source,
+                classification,
             });
     }
 
@@ -185,6 +252,54 @@ pub(crate) fn cosignatures_for_event(
         target_event_id: target_event_id.to_owned(),
         members,
     })
+}
+
+/// ADR-0013 classifier (read-side; derived). Reads `status` as the already-computed
+/// scope-#1 result (`Valid` ⟺ signer authorized for `target_actor`). Reverse resolution
+/// uses EXPLICIT allowed-signers only (INV-3). Pure: no I/O, no `occurredAt`.
+pub(crate) fn classify_cosignature_member(
+    source: &CosignatureSource,
+    status: EventVerificationStatus,
+    attesting_signer: &SignerId,
+    target_actor: &ActorId,
+    trust: &TrustSet,
+) -> CosignatureClassification {
+    // (1) Inline #1 is the event's own author attestation — authoring at any status.
+    if matches!(source, CosignatureSource::Inline) {
+        return CosignatureClassification::Authoring { reason: None };
+    }
+    match status {
+        // (2) Detached + Valid: authoring authority for the target's actor.
+        EventVerificationStatus::Valid => {
+            let launders = trust
+                .reverse_resolve(attesting_signer)
+                .into_iter()
+                .any(|actor| actor != *target_actor);
+            CosignatureClassification::Authoring {
+                reason: launders.then_some(AuthoringReason::AuthoringNotEndorsement),
+            }
+        }
+        // (3) Detached + UntrustedKey: endorsement candidate.
+        EventVerificationStatus::UntrustedKey => {
+            let actors = trust.reverse_resolve(attesting_signer);
+            match actors.len() {
+                1 => CosignatureClassification::EndorsementTrusted {
+                    endorser: actors.into_iter().next().expect("len checked"),
+                },
+                0 => CosignatureClassification::EndorsementUntrusted {
+                    reason: EndorsementUntrustedReason::UnknownEndorser,
+                },
+                _ => CosignatureClassification::EndorsementUntrusted {
+                    reason: EndorsementUntrustedReason::AmbiguousEndorser,
+                },
+            }
+        }
+        // (4) A detached member is only ever Valid/UntrustedKey (the verify-before-store
+        // gate drops Invalid; Unsigned cannot be a detached carrier). Defensive only.
+        EventVerificationStatus::Invalid | EventVerificationStatus::Unsigned => {
+            CosignatureClassification::Authoring { reason: None }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -425,6 +540,263 @@ mod tests {
             .find(|member| matches!(member.source, CosignatureSource::Detached { .. }))
             .unwrap();
         assert_eq!(detached.status, EventVerificationStatus::UntrustedKey);
+    }
+
+    fn signer(seed: u8) -> SignerId {
+        crate::crypto::SignerId::from_ed25519_public_key([seed; 32])
+    }
+
+    #[test]
+    fn projected_inline_member_is_authoring_classification() {
+        let signer_a = DeterministicSigner::from_seed(SIGNER_A_SEED);
+        let target = inline_signed(&signer_a);
+        let trust = trust_for_actor(&target.writer.actor_id.clone(), &signer_a);
+        let set = cosignatures_for_event(
+            std::slice::from_ref(&target),
+            target.event_id.as_str(),
+            &trust,
+        )
+        .unwrap();
+        let inline = set
+            .members
+            .iter()
+            .find(|m| m.source == CosignatureSource::Inline)
+            .unwrap();
+        assert!(matches!(
+            inline.classification,
+            CosignatureClassification::Authoring { reason: None }
+        ));
+    }
+
+    #[test]
+    fn projected_endorsement_member_is_endorsement_trusted() {
+        // Target authored by signer_a (actor A). signer_b is enrolled ONLY under a distinct
+        // endorser actor, so its detached member is UntrustedKey for A → endorsement-trusted.
+        let signer_a = DeterministicSigner::from_seed(SIGNER_A_SEED);
+        let signer_b = DeterministicSigner::from_seed(SIGNER_B_SEED);
+        let target = inline_signed(&signer_a);
+        let carrier = detached_carrier(&target, &signer_b);
+        let endorser = crate::model::ActorId::new("actor:git-email:kevin@swiber.dev");
+        let trust = crate::session::event_signature_trust_set(serde_json::json!({
+            "allowedSigners": {
+                target.writer.actor_id.as_str(): [signer_a.signer_id().as_str()],
+                endorser.as_str(): [signer_b.signer_id().as_str()]
+            }
+        }))
+        .unwrap();
+        let set =
+            cosignatures_for_event(&[target.clone(), carrier], target.event_id.as_str(), &trust)
+                .unwrap();
+        let detached = set
+            .members
+            .iter()
+            .find(|m| matches!(m.source, CosignatureSource::Detached { .. }))
+            .unwrap();
+        assert_eq!(detached.status, EventVerificationStatus::UntrustedKey);
+        assert!(matches!(
+            &detached.classification,
+            CosignatureClassification::EndorsementTrusted { endorser: e } if *e == endorser
+        ));
+    }
+
+    #[test]
+    fn inline_member_is_always_authoring() {
+        let trust = TrustSet::default();
+        let target = ActorId::new("actor:agent:claude-code");
+        let c = classify_cosignature_member(
+            &CosignatureSource::Inline,
+            EventVerificationStatus::UntrustedKey, // even a non-Valid inline is failed AUTHORING.
+            &signer(1),
+            &target,
+            &trust,
+        );
+        assert!(matches!(
+            c,
+            CosignatureClassification::Authoring { reason: None }
+        ));
+    }
+
+    #[test]
+    fn detached_valid_is_authoring() {
+        let target = ActorId::new("actor:agent:claude-code");
+        let trust = crate::session::event_signature_trust_set(serde_json::json!({
+            "allowedSigners": { target.as_str(): [signer(2).as_str()] }
+        }))
+        .unwrap();
+        let c = classify_cosignature_member(
+            &CosignatureSource::Detached {
+                carrier_event_id: "evt:sha256:x".into(),
+            },
+            EventVerificationStatus::Valid,
+            &signer(2),
+            &target,
+            &trust,
+        );
+        assert!(matches!(
+            c,
+            CosignatureClassification::Authoring { reason: None }
+        ));
+    }
+
+    #[test]
+    fn detached_valid_signer_mapping_to_a_distinct_actor_is_authoring_not_endorsement() {
+        let target = ActorId::new("actor:agent:claude-code");
+        // Same key enrolled under BOTH the target actor and a distinct actor → laundering guard.
+        let trust = crate::session::event_signature_trust_set(serde_json::json!({
+            "allowedSigners": {
+                target.as_str(): [signer(3).as_str()],
+                "actor:git-email:kevin@swiber.dev": [signer(3).as_str()]
+            }
+        }))
+        .unwrap();
+        let c = classify_cosignature_member(
+            &CosignatureSource::Detached {
+                carrier_event_id: "evt:sha256:x".into(),
+            },
+            EventVerificationStatus::Valid,
+            &signer(3),
+            &target,
+            &trust,
+        );
+        assert!(matches!(
+            c,
+            CosignatureClassification::Authoring {
+                reason: Some(AuthoringReason::AuthoringNotEndorsement)
+            }
+        ));
+    }
+
+    #[test]
+    fn detached_untrusted_resolving_to_one_distinct_actor_is_endorsement_trusted() {
+        let target = ActorId::new("actor:agent:claude-code");
+        let endorser = ActorId::new("actor:git-email:kevin@swiber.dev");
+        // signer enrolled ONLY under the endorser (not the target) → UntrustedKey for target.
+        let trust = crate::session::event_signature_trust_set(serde_json::json!({
+            "allowedSigners": { endorser.as_str(): [signer(4).as_str()] }
+        }))
+        .unwrap();
+        let c = classify_cosignature_member(
+            &CosignatureSource::Detached {
+                carrier_event_id: "evt:sha256:x".into(),
+            },
+            EventVerificationStatus::UntrustedKey,
+            &signer(4),
+            &target,
+            &trust,
+        );
+        assert!(matches!(
+            c,
+            CosignatureClassification::EndorsementTrusted { endorser: e } if e == endorser
+        ));
+    }
+
+    #[test]
+    fn detached_untrusted_unenrolled_signer_is_unknown_endorser() {
+        let target = ActorId::new("actor:agent:claude-code");
+        let trust = TrustSet::default(); // bare, unenrolled did:key style → zero actors (INV-3).
+        let c = classify_cosignature_member(
+            &CosignatureSource::Detached {
+                carrier_event_id: "evt:sha256:x".into(),
+            },
+            EventVerificationStatus::UntrustedKey,
+            &signer(5),
+            &target,
+            &trust,
+        );
+        assert!(matches!(
+            c,
+            CosignatureClassification::EndorsementUntrusted {
+                reason: EndorsementUntrustedReason::UnknownEndorser
+            }
+        ));
+    }
+
+    #[test]
+    fn detached_untrusted_resolving_to_many_actors_is_ambiguous_endorser() {
+        let target = ActorId::new("actor:agent:claude-code");
+        let trust = crate::session::event_signature_trust_set(serde_json::json!({
+            "allowedSigners": {
+                "actor:git-email:kevin@swiber.dev": [signer(6).as_str()],
+                "actor:git-email:alice@example.com": [signer(6).as_str()]
+            }
+        }))
+        .unwrap();
+        let c = classify_cosignature_member(
+            &CosignatureSource::Detached {
+                carrier_event_id: "evt:sha256:x".into(),
+            },
+            EventVerificationStatus::UntrustedKey,
+            &signer(6),
+            &target,
+            &trust,
+        );
+        assert!(matches!(
+            c,
+            CosignatureClassification::EndorsementUntrusted {
+                reason: EndorsementUntrustedReason::AmbiguousEndorser
+            }
+        ));
+    }
+
+    #[test]
+    fn has_trusted_endorsement_true_only_with_an_endorsement_trusted_member() {
+        let signer_a = DeterministicSigner::from_seed(SIGNER_A_SEED);
+        let signer_b = DeterministicSigner::from_seed(SIGNER_B_SEED);
+        let target = inline_signed(&signer_a);
+        let carrier = detached_carrier(&target, &signer_b);
+        let endorser = crate::model::ActorId::new("actor:git-email:kevin@swiber.dev");
+        let trust = crate::session::event_signature_trust_set(serde_json::json!({
+            "allowedSigners": {
+                target.writer.actor_id.as_str(): [signer_a.signer_id().as_str()],
+                endorser.as_str(): [signer_b.signer_id().as_str()]
+            }
+        }))
+        .unwrap();
+        let set =
+            cosignatures_for_event(&[target.clone(), carrier], target.event_id.as_str(), &trust)
+                .unwrap();
+
+        assert!(
+            set.has_trusted_endorsement(),
+            "an own-identity endorser is a trusted endorsement"
+        );
+        // Binding is unaffected: the endorsement member is UntrustedKey, so it never binds.
+        assert!(
+            !set.has_valid_member() || set.inline_status() == Some(EventVerificationStatus::Valid)
+        );
+    }
+
+    #[test]
+    fn has_trusted_endorsement_false_for_authoring_only_set() {
+        // Only the inline author attestation (authoring) — no endorsement.
+        let signer_a = DeterministicSigner::from_seed(SIGNER_A_SEED);
+        let target = inline_signed(&signer_a);
+        let trust = trust_for_actor(&target.writer.actor_id.clone(), &signer_a);
+        let set = cosignatures_for_event(
+            std::slice::from_ref(&target),
+            target.event_id.as_str(),
+            &trust,
+        )
+        .unwrap();
+        assert!(!set.has_trusted_endorsement());
+        assert!(
+            set.has_valid_member(),
+            "the inline author attestation still binds (unchanged)"
+        );
+    }
+
+    #[test]
+    fn has_trusted_endorsement_false_for_unknown_endorser() {
+        // signer_b enrolled under NO actor → its detached member is unknown_endorser, not trusted.
+        let signer_a = DeterministicSigner::from_seed(SIGNER_A_SEED);
+        let signer_b = DeterministicSigner::from_seed(SIGNER_B_SEED);
+        let target = inline_signed(&signer_a);
+        let carrier = detached_carrier(&target, &signer_b);
+        let trust = trust_for_actor(&target.writer.actor_id.clone(), &signer_a);
+        let set =
+            cosignatures_for_event(&[target.clone(), carrier], target.event_id.as_str(), &trust)
+                .unwrap();
+        assert!(!set.has_trusted_endorsement());
     }
 
     #[test]

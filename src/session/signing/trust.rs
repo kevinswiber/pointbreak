@@ -50,6 +50,20 @@ impl TrustSet {
             .insert(signer)
     }
 
+    /// The actors that **explicitly** enroll `signer` in their allowed-signers entry:
+    /// `{X : signer ∈ allowed-signers[X]}`. Unlike [`authorizes`], this carries **no**
+    /// self-cert shortcut and never manufactures a self actor from a bare `did:key` — a
+    /// signer with no explicit mapping resolves to zero actors. This is the
+    /// endorsement-classification reverse resolver (ADR-0013); endorsement trust is never
+    /// inferred from key syntax.
+    pub(crate) fn reverse_resolve(&self, signer: &SignerId) -> BTreeSet<ActorId> {
+        self.allowed_signers
+            .iter()
+            .filter(|(_, signers)| signers.contains(signer))
+            .map(|(actor, _)| actor.clone())
+            .collect()
+    }
+
     pub fn authorizes(&self, actor: &ActorId, signer: &SignerId, _occurred_at: &str) -> bool {
         if SignerId::parse(actor.as_str())
             .map(|actor_signer| actor_signer == *signer)
@@ -99,11 +113,15 @@ fn invalid_trust_set(reason: impl Into<String>) -> ShoreError {
 mod tests {
     use serde_json::json;
 
-    use super::event_signature_trust_set;
+    use super::{TrustSet, event_signature_trust_set};
     use crate::crypto::SignerId;
+    use crate::model::ActorId;
 
     const ENROLLED: &str = "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd";
     const ABSENT: &str = "did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH";
+
+    const KEY_A: &str = "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd";
+    const KEY_B: &str = "did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH";
 
     #[test]
     fn contains_signer_is_actor_agnostic_membership() {
@@ -114,5 +132,50 @@ mod tests {
 
         assert!(trust.contains_signer(&SignerId::parse(ENROLLED).unwrap()));
         assert!(!trust.contains_signer(&SignerId::parse(ABSENT).unwrap()));
+    }
+
+    #[test]
+    fn reverse_resolve_returns_each_enrolling_actor() {
+        let trust = event_signature_trust_set(json!({
+            "allowedSigners": {
+                "actor:git-email:alice@example.com": [KEY_A],
+                "actor:agent:bot": [KEY_A, KEY_B]
+            }
+        }))
+        .unwrap();
+        let actors = trust.reverse_resolve(&SignerId::parse(KEY_A).unwrap());
+        let got: Vec<String> = actors.iter().map(|a| a.as_str().to_owned()).collect();
+        assert_eq!(
+            got,
+            vec![
+                "actor:agent:bot".to_string(),
+                "actor:git-email:alice@example.com".to_string()
+            ]
+        );
+        // BTreeSet => sorted, deduped.
+    }
+
+    #[test]
+    fn reverse_resolve_unenrolled_signer_is_empty() {
+        let trust = event_signature_trust_set(json!({
+            "allowedSigners": { "actor:git-email:alice@example.com": [KEY_A] }
+        }))
+        .unwrap();
+        assert!(
+            trust
+                .reverse_resolve(&SignerId::parse(KEY_B).unwrap())
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn reverse_resolve_never_self_certs_a_bare_did_key() {
+        // A did:key actor whose signer == the actor id is authorized via the self-cert
+        // shortcut in `authorizes`, but reverse_resolve must NOT manufacture that self actor
+        // (it reads allowed-signers ONLY). An empty allow-list yields zero actors. (INV-3)
+        let trust = TrustSet::default();
+        let signer = SignerId::parse(KEY_A).unwrap();
+        assert!(trust.authorizes(&ActorId::new(KEY_A), &signer, "2026-06-18T00:00:00Z"));
+        assert!(trust.reverse_resolve(&signer).is_empty());
     }
 }

@@ -1225,13 +1225,24 @@ mod tests {
         let members = if status == EventVerificationStatus::Unsigned {
             Vec::new()
         } else {
+            let attesting_signer = crate::crypto::SignerId::parse(
+                "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+            )
+            .unwrap();
+            let source = CosignatureSource::Inline;
+            let classification =
+                crate::session::projection::cosignature::classify_cosignature_member(
+                    &source,
+                    status,
+                    &attesting_signer,
+                    &ActorId::new("actor:agent:fixture"),
+                    &TrustSet::default(),
+                );
             vec![CosignatureMember {
-                attesting_signer: crate::crypto::SignerId::parse(
-                    "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
-                )
-                .unwrap(),
+                attesting_signer,
                 status,
-                source: CosignatureSource::Inline,
+                source,
+                classification,
             }]
         };
         (
@@ -3104,12 +3115,23 @@ mod tests {
             members: members
                 .into_iter()
                 .enumerate()
-                .map(|(index, (status, source))| CosignatureMember {
-                    attesting_signer: crate::crypto::SignerId::from_ed25519_public_key(
-                        [index as u8 + 1; 32],
-                    ),
-                    status,
-                    source,
+                .map(|(index, (status, source))| {
+                    let attesting_signer =
+                        crate::crypto::SignerId::from_ed25519_public_key([index as u8 + 1; 32]);
+                    let classification =
+                        crate::session::projection::cosignature::classify_cosignature_member(
+                            &source,
+                            status,
+                            &attesting_signer,
+                            &ActorId::new("actor:agent:fixture"),
+                            &TrustSet::default(),
+                        );
+                    CosignatureMember {
+                        attesting_signer,
+                        status,
+                        source,
+                        classification,
+                    }
                 })
                 .collect(),
         }
