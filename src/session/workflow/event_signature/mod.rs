@@ -350,6 +350,73 @@ mod tests {
     }
 
     #[test]
+    fn enrolled_actor_endorsement_classifies_endorsement_trusted_end_to_end() {
+        use crate::crypto::TestEd25519Signer;
+        use crate::session::event_signature_trust_set;
+        use crate::session::projection::cosignature::{
+            CosignatureClassification, CosignatureSource, cosignatures_for_event,
+        };
+
+        // A captured target authored by the repo's git identity actor (NOT the endorser).
+        let repo = modified_repo();
+        let target_event_id = captured_target(&repo);
+        let target = stored_target(&repo, &target_event_id);
+        let target_actor = target.writer.actor_id.clone();
+
+        // The endorser: a distinct actor whose key signs in its OWN identity.
+        let endorser_signer = TestEd25519Signer::from_seed([42u8; 32]);
+        let endorser_signer_id = endorser_signer.signer_id().clone();
+        let endorser_actor = ActorId::new("actor:git-email:kevin@swiber.dev");
+        assert_ne!(
+            endorser_actor, target_actor,
+            "endorser must differ from the target's author"
+        );
+
+        // Endorse through the REAL producer the CLI uses (carrier writer = endorser's own actor).
+        record_event_signature(
+            EventSignatureRecordOptions::new(repo.path(), target_event_id.clone(), endorser_signer)
+                .with_actor_id(endorser_actor.clone()),
+        )
+        .unwrap();
+
+        // Project with a trust set that enrolls the endorser's key ONLY under the endorser
+        // actor (so the carrier is UntrustedKey for the target's actor → endorsement candidate).
+        let events = EventStore::open(repo.path().join(".shore/data"))
+            .list_events()
+            .unwrap();
+        let trust = event_signature_trust_set(serde_json::json!({
+            "allowedSigners": { endorser_actor.as_str(): [endorser_signer_id.as_str()] }
+        }))
+        .unwrap();
+        let set = cosignatures_for_event(&events, target_event_id.as_str(), &trust).unwrap();
+
+        let detached = set
+            .members
+            .iter()
+            .find(|m| matches!(m.source, CosignatureSource::Detached { .. }))
+            .expect("the endorsement carrier is a detached member");
+        assert!(
+            matches!(&detached.classification,
+                CosignatureClassification::EndorsementTrusted { endorser } if *endorser == endorser_actor),
+            "an enrolled actor's own-identity endorsement classifies endorsement-trusted: {:?}",
+            detached.classification
+        );
+        assert!(
+            set.has_trusted_endorsement(),
+            "has_trusted_endorsement() is true"
+        );
+
+        // Binding is unaffected by the endorsement member (ADR-0013 binding/stewardship
+        // split): the endorsement carrier is UntrustedKey (it is not authorized for the
+        // target's actor), so it never contributes to `has_valid_member`.
+        assert_eq!(detached.status, EventVerificationStatus::UntrustedKey);
+        assert!(
+            !set.has_valid_member(),
+            "an UntrustedKey endorsement does not make the set binding-valid"
+        );
+    }
+
+    #[test]
     fn inline_author_signature_is_cosignature_one_with_no_transformation() {
         let repo = modified_repo();
         let target_event_id = captured_target(&repo);
