@@ -496,3 +496,108 @@ custodian** (the OpenSSH agent), distinct from a coding or reviewing **agent** (
   `authorizes` ignores `occurred_at` (tie to the **Revisit Triggers** above).
 
 *Landed 2026-06-16.*
+
+## Amendment: Delegates-Write CLI (`shore identity enroll`) and Enrollment-Wording Correction
+
+> **The original ADR-0010 decisions stand.** This is a **landing-record correction** (the §"Enrollment Is
+> Possession-Based" command was described as if it existed but was never built) plus a concretizing
+> decision on the command shape. It changes no actor/principal/delegation model, no resolution semantics,
+> and no event bytes.
+
+### The wording correction
+
+ADR-0010 §"Enrollment Is Possession-Based: Agent Proposes, Human Commits" says *"the agent (or the human)
+runs `shore identity enroll`, which writes the delegates entry into the working tree and prints the diff."*
+That command was **never built** by the read-side landing: it landed only the **read/resolution** side of
+delegation — `DelegationMap::resolve`, `with_local_override`, `discover_delegation_map`
+(`src/cli/review/common.rs`), and `principal_view_for`. There was **no `DelegationMap` serializer and
+no `shore identity enroll`**; the delegates map (and its `.local.json` override) was **hand-edited** until
+this amendment landed. Read the body's "runs `shore identity enroll`" as the **intended** command, now
+landed — not (until now) an existing one. (This supersedes the body's present-tense phrasing, the same way
+the "Key Custody Landing" amendment supersedes the older `.shoreline/` path references.)
+
+### Decision: the delegates-write command
+
+```
+shore identity enroll <agent-actor-id> --principal <principal-actor-id>
+                      [--from <RFC3339>] [--until <RFC3339>] [--comment <text>]
+                      [--local] [--repo <path>] [--pretty]
+```
+
+- **Stages a delegation record** into the working-tree `.shore/delegates.json` (the shared default) or,
+  with `--local`, `.shore/delegates.local.json` (the private override). It appends to the **chosen file's**
+  agent record array (creating it if absent) and **never invokes git** — the human's `git commit` is the
+  authorization and `git log -p .shore/delegates.json` is the audit trail (ADR-0003 advisory; exactly the
+  §Enrollment posture, now buildable).
+- **Validation:** `<agent-actor-id>` must satisfy `is_agent_actor_id` (the map-key contract,
+  `actor:agent:<name>`); `<principal-actor-id>` is the **responsible principal — the human/non-agent actor
+  that answers for the agent** (syntactically any non-agent actor id: `actor:git-email:…`,
+  `actor:git-name:Kevin Swiber`, `actor:local`, or a `did:key`). It must satisfy
+  `is_valid_principal_actor_id` **and** be non-agent — the depth-0 rule, enforced exactly as
+  `delegates.rs::parse_record` enforces it at load.
+- **Defaults:** `--from` = now (UTC RFC 3339); `--until` = null (open window). The common case is a
+  one-liner: `shore identity enroll actor:agent:claude-code --principal actor:git-email:kevin@swiber.dev`.
+- **Output:** a `DiagnosticDocument` (`shore.identity-enroll`) carrying the staged record/diff, with a
+  stderr hint to review and commit (mirroring `shore keys enroll`'s `shore.keys-enroll` document and the
+  `use_ssh` enroll-hint pattern).
+- **Closes the `--local` *writer* gap — and surfaces the full-replace caveat.** Today only the delegates
+  *reader* layering exists (`with_local_override`); there had been **no way to write** the local override.
+  `--local` adds it. Critically, the layers merge **git-config style**: at read time the local file's
+  agent array **fully replaces** the committed agent array for that actor (ADR-0010 §"A Local Override
+  Layers Over The Committed Map") — *not* a merge. So a first local enrollment **shadows**
+  any committed records for that agent on this machine. The command output **surfaces this**
+  (e.g. "this local entry replaces N committed record(s) for `<agent>` locally"), never presenting
+  `--local` as appending onto the committed set.
+
+### Decision: implementation reuses the landed possession-based precedent
+
+The command is a thin CLI over a new **pure `stage_delegation(path, agent, record)`** library writer,
+symmetric to the landed `stage_enrollment` (the `.shore/allowed-signers.json` writer): read-or-init,
+append, re-serialize sorted + trailing-newline byte-stable, `create_dir_all` the parent, never call git.
+This uses a write-oriented `DelegationWriteRecord` that **round-trips** the raw `validFrom`/`validUntil`/
+`comment` (the read-path record discards them after parsing into a `ValidityWindow`) — a separate
+write-side record struct so the read path stays minimal.
+
+For `--local`, the command ensures `.shore/delegates.local.json` is git-excluded. The existing helper
+`ensure_local_delegates_excluded` (`src/session/store/store_init.rs`) was **`pub(crate)`** and so was
+**not reachable from the `shore` binary crate** (which calls the library only through `shoreline::…` public
+APIs). The landing therefore **exposed a public seam** by promoting that helper (and its
+`ensure_local_actor_attributes_excluded` sibling) to `pub`, while keeping `stage_delegation` itself a
+pure, git-free writer.
+
+### Decision: command group and v1 scope
+
+- **Group: `shore identity`** — matching the ADR's literal `shore identity enroll` spelling and giving the
+  actor/principal model a coherent home. The sibling **`shore identity attest`** (ADR-0012's
+  actor-attributes writer) joins the same group with the same stage-and-commit pattern. *Rejected:*
+  overloading `shore keys` (key-custody, a different layer) or minting a separate `shore delegates`.
+- **Revocation and disavowal stay hand-edited diffs in v1.** No `revoke`/`disavow` mutating subcommands:
+  ADR-0010 §"Principals Are Resolved At Projection Time" already routes **revocation** (close the window)
+  and **disavowal** (delete the record) through reviewable diffs and `git log`; a mutating subcommand would
+  re-introduce the ceremony the ADR deliberately avoids. `--until` on a fresh `enroll` expresses a
+  closed-window enrollment; window-closing an *existing* record is a hand edit (or a deferred follow-up).
+
+### Consequences
+
+#### Accepted
+
+- The entire LANDED accountability mechanism finally gets a creation surface: delegation moves from
+  hand-edited JSON to `shore identity enroll`, closing the ADR's own described-but-unbuilt divergence, and
+  the delegates `--local` writer gap is closed.
+- Uniform with the landed `keys enroll` / `stage_enrollment` precedent (stage the working-tree edit, print
+  the diff, emit a diagnostic document, hint to commit, never invoke git) and with ADR-0012's
+  `shore identity attest` — one possession-based pattern across the config family.
+
+#### Rejected
+
+- **`revoke`/`disavow` mutating subcommands in v1** — the diff/`git log` path is the intended mechanism.
+- **A countersignature/broker ceremony** — possession + commit is the trust root (ADR-0003/0009), unchanged.
+
+### Revisit Triggers
+
+- **Window-closing an existing record needs to be ergonomic** (beyond a hand edit) → a deferred
+  `shore identity revoke` that stages a `validUntil` edit as a reviewable diff (still no ceremony).
+- **The federation-grade signed delegation record** (ADR-0010's deferred `require-signed-delegation`)
+  lands → enrollment may gain a signed variant; the possession-based command remains the local default.
+
+*Landed 2026-06-18.*
