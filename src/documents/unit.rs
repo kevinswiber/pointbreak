@@ -156,8 +156,8 @@ struct SnapshotOrderDocument {
 /// Build the `shore.review-unit` composite document from a show result.
 pub fn unit_show_document(mut result: ReviewUnitShowResult) -> DiagnosticDocument<UnitShowBody> {
     // The readback side table is keyed by event id; attach it to each member and to
-    // the capture identity at the document layer (INV-8). Take it out before the
-    // by-value moves below.
+    // the capture identity at the document layer. Take it out before the by-value
+    // moves below.
     let readbacks = std::mem::take(&mut result.member_readbacks);
     DiagnosticDocument::new(
         "shore.review-unit",

@@ -44,8 +44,8 @@ pub(crate) enum CosignatureSource {
 
 /// ADR-0013 read-side classification of a co-signature member. Derived at projection
 /// from stored bytes + the reader's committed trust set; never stored, never binding.
+/// The endorser/reason payload is read by `endorsement_readbacks` (the readback projection).
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(dead_code)] // payload (endorser/reason) is read by the deferred policy consumer.
 pub(crate) enum CosignatureClassification {
     /// Inline member (#1, any status), or a detached member whose signer is authorized
     /// for the event's own actor. `reason` is set only for the laundering-guard overlap.
@@ -83,8 +83,7 @@ pub(crate) struct CosignatureMember {
     pub status: EventVerificationStatus,
     pub source: CosignatureSource,
     /// ADR-0013 read-side classification (derived; never stored). Read by
-    /// `has_trusted_endorsement` and the deferred policy consumer.
-    #[allow(dead_code)]
+    /// `endorsement_readbacks` (the readback projection) and `has_trusted_endorsement`.
     pub classification: CosignatureClassification,
 }
 
@@ -137,8 +136,9 @@ impl CosignatureSet {
 }
 
 /// Detached `event_signature` carriers grouped by their `target_event_id`, each
-/// payload parsed once at build. Build ONCE per multi-target document (INV-5); look
-/// up the bucket for a target in O(1). The classifier reads only `&TrustSet` (INV-2).
+/// payload parsed once at build. Build once per multi-target document; look up the
+/// bucket for a target in O(1). The classifier reads only `&TrustSet` — never delegates
+/// or actor-attributes.
 pub(crate) struct CosignatureIndex<'a> {
     carriers_by_target: BTreeMap<String, Vec<DetachedCarrier<'a>>>,
 }
@@ -366,7 +366,7 @@ pub(crate) fn classify_cosignature_member(
 }
 
 /// Reader-relative endorsement classification, projected from a co-signature member
-/// for rendering. The `pub(crate)` `CosignatureClassification` is never exposed (INV-1).
+/// for rendering. The `pub(crate)` `CosignatureClassification` is never exposed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EndorsementClassification {
@@ -392,7 +392,7 @@ pub struct EndorsementReadback {
 }
 
 /// The endorser's attested kind/roles, surfaced beside the classification. Sibling
-/// enrichment — never a classifier input (INV-2).
+/// enrichment — never a classifier input.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EndorserAttributesView {
@@ -402,7 +402,7 @@ pub struct EndorserAttributesView {
     pub roles: Vec<String>,
 }
 
-/// Lower a co-signature set's endorsement members to readbacks (trust-only — INV-2).
+/// Lower a co-signature set's endorsement members to readbacks (trust-only).
 /// Authoring members are not endorsements and are not surfaced. Enrichment is applied
 /// separately by `enrich_endorser_attributes`.
 pub(crate) fn endorsement_readbacks(set: &CosignatureSet) -> Vec<EndorsementReadback> {
@@ -439,8 +439,8 @@ pub(crate) fn endorsement_readbacks(set: &CosignatureSet) -> Vec<EndorsementRead
 
 /// Decorate each readback that has a resolved endorser with that endorser's attested
 /// kind/roles. Sibling enrichment, applied AFTER classification — never a classifier
-/// input (INV-2). A `None` map, a readback without a resolved endorser, or an endorser
-/// with no attested attributes is a no-op (no field rendered).
+/// input. A `None` map, a readback without a resolved endorser, or an endorser with no
+/// attested attributes is a no-op (no field rendered).
 pub(crate) fn enrich_endorser_attributes(
     readbacks: &mut [EndorsementReadback],
     attributes: Option<&ActorAttributesMap>,

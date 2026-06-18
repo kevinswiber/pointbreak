@@ -29,8 +29,8 @@ pub(super) fn history_from_events(
         .event_set_hash
         .clone()
         .expect("SessionState::from_events sets event_set_hash");
-    // Build the co-signature index once per document (INV-5), only when a policy is
-    // set — the zero-policy path stays free of cost and output.
+    // Build the co-signature index once per document, only when a policy is set —
+    // the zero-policy path stays free of cost and output.
     let cosig_index = filters
         .verification_policy
         .is_some()

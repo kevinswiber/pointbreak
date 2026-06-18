@@ -65,7 +65,7 @@ impl ReviewHistoryOptions {
     }
 
     /// Supply the reader's actor-attributes map. Sibling enrichment for endorsement
-    /// readbacks (the endorser's attested kind/roles) — never a classifier input (INV-2).
+    /// readbacks (the endorser's attested kind/roles) — never a classifier input.
     pub fn with_actor_attributes(mut self, actor_attributes: Option<ActorAttributesMap>) -> Self {
         self.actor_attributes = actor_attributes;
         self

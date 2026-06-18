@@ -545,6 +545,45 @@ shore review history [--repo <path>] [--review-unit <id>] [--track <track-id>] \
 - Duplicate semantic events remain visible as separate entries while shared duplicate diagnostics
   are included in the document.
 
+### Verification status and endorsement readback
+
+`shore review history`, `shore review unit show`, and the inspector endpoints render two
+reader-relative, **advisory** facts beside each event. They render only — they never gate a write or
+change an exit code, and the temporal `require-verified-endorsement` tier is out of scope.
+
+- `verificationStatus` ∈ `valid | invalid | untrusted_key | unsigned` — the per-event signature
+  ladder, resolved against the **reader's** `.shore/allowed-signers.json`. An event signed by a key
+  the reader has not enrolled reads `untrusted_key`; an event with no signature reads `unsigned`.
+- `endorsements[]` — for an endorsed (co-signed) target event, one entry per distinct endorsing
+  signer:
+  - `classification` ∈ `endorsement-trusted | unknown_endorser | ambiguous_endorser`.
+  - `endorser` — the resolved actor, present only when `endorsement-trusted`.
+  - `endorserAttributes` — the endorser's attested `kind`/`roles` from
+    `.shore/actor-attributes.json`. This is a **sibling enrichment** rendered beside the
+    classification; it is **not** an input to how the classification is decided.
+
+Both are **reader-relative**: the same endorsement carrier may read `endorsement-trusted` for a
+reader who has enrolled the endorser and `unknown_endorser` for a reader who has not. A field is
+omitted when empty — no verification policy configured, no endorsement on the target, or no attested
+attributes for the endorser. The classification rules are decided in
+[ADR-0013](./adr/adr-0013-endorsement-record-and-classification.md).
+
+```json
+{
+  "eventId": "evt:sha256:…",
+  "eventType": "review_unit_captured",
+  "verificationStatus": "unsigned",
+  "endorsements": [
+    {
+      "classification": "endorsement-trusted",
+      "endorser": "actor:git-email:kevin@swiber.dev",
+      "endorserAttributes": { "kind": "human", "roles": ["reviewer"] }
+    },
+    { "classification": "unknown_endorser" }
+  ]
+}
+```
+
 History is not the full ReviewUnit row projection. Use `shore review unit show` for the composite
 narrative-first plus snapshot-complete view of one captured ReviewUnit.
 
@@ -577,6 +616,11 @@ thread. Change-Id optional enrichment only: it is not required and is not the li
   event-set freshness metadata, or captured snapshot completeness.
 - Body-like text is omitted by default. `--include-body` hydrates observation bodies, input request
   bodies and response reasons, assessment summaries, validation summaries, and imported-note bodies.
+- Each narrative member (observations, input requests and their responses, assessments, validation
+  checks) and the `reviewUnit` identity (the capture event) carry the same reader-relative
+  `verificationStatus` and `endorsements` (with `endorserAttributes`) readback documented under
+  [`shore review history`](#verification-status-and-endorsement-readback) — advisory, render-only,
+  resolved against the reader's `.shore/` trust and attributes config.
 
 Lineage-scoped current selection resolves to `headReviewUnitId`; no implicit newest capture globally
 wins. Unscoped current selection with multiple captured ReviewUnits still errors at the selection

@@ -156,18 +156,18 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
 
     // Reader-relative readback, keyed by event id and computed once over the events
     // already in scope. Presence of a verification policy enables it; advisory render
-    // only, never a gate (INV-3). The document layer attaches it by event id (INV-8).
+    // only, never a gate. The document layer attaches it by event id.
     let mut member_readbacks: BTreeMap<EventId, MemberReadback> = BTreeMap::new();
     if options.verification_policy.is_some() {
         let by_id: HashMap<&str, &ShoreEvent> =
             events.iter().map(|e| (e.event_id.as_str(), e)).collect();
-        let cosig_index = CosignatureIndex::build(&events)?; // ONCE per call (INV-5)
+        let cosig_index = CosignatureIndex::build(&events)?; // once per call
         let mut record = |event_id: &EventId| -> Result<()> {
             if let Some(event) = by_id.get(event_id.as_str()) {
                 let entry = member_readbacks.entry(event_id.clone()).or_default();
                 entry.verification_status =
                     Some(verify_event_signature(event, &options.trust_set)?);
-                // Trust-only classification, then sibling enrichment (INV-2).
+                // Trust-only classification, then sibling enrichment.
                 let mut readbacks = endorsement_readbacks(
                     &cosig_index.cosignatures_for_target(event, &options.trust_set)?,
                 );

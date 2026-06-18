@@ -1,4 +1,32 @@
 #[test]
+fn cli_reference_documents_verification_and_endorsement_readback() {
+    let cli = std::fs::read_to_string("docs/cli-reference.md").expect("read CLI reference");
+
+    // The per-event verification status + endorsement readback, with the advisory +
+    // reader-relative contract, are documented on the read surfaces.
+    assert_markdown_section_contains(
+        &cli,
+        "## `shore review history`",
+        &[
+            "verificationStatus",
+            "untrusted_key",
+            "endorsements",
+            "endorsement-trusted",
+            "unknown_endorser",
+            "ambiguous_endorser",
+            "endorserAttributes",
+            "reader-relative",
+            "advisory",
+        ],
+    );
+    assert_markdown_section_contains(
+        &cli,
+        "## `shore review unit`",
+        &["verificationStatus", "endorsements", "endorserAttributes"],
+    );
+}
+
+#[test]
 fn adr_0007_is_landed_and_writer_identity_docs_are_role_free() {
     let adr = std::fs::read_to_string("docs/adr/adr-0007-writer-act-vocabulary.md")
         .expect("ADR-0007 is landed in docs/adr/");

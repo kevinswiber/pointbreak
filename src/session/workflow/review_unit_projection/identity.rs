@@ -65,7 +65,7 @@ impl ReviewUnitShowOptions {
     }
 
     /// Supply the verification policy. Advisory (render-only): its presence enables
-    /// the per-event `verificationStatus` readback; it never gates a write (INV-3).
+    /// the per-event `verificationStatus` readback; it never gates a write.
     pub fn with_verification_policy(mut self, policy: EventVerificationPolicy) -> Self {
         self.verification_policy = Some(policy);
         self
@@ -80,7 +80,7 @@ impl ReviewUnitShowOptions {
     }
 
     /// Supply the reader's actor-attributes map. Sibling enrichment for endorsement
-    /// readbacks (the endorser's attested kind/roles) — never a classifier input (INV-2).
+    /// readbacks (the endorser's attested kind/roles) — never a classifier input.
     pub fn with_actor_attributes(mut self, actor_attributes: Option<ActorAttributesMap>) -> Self {
         self.actor_attributes = actor_attributes;
         self
@@ -161,8 +161,8 @@ pub struct ReviewUnitShowResult {
     pub adapter_notes: Vec<AdapterNoteView>,
     pub rows: Vec<ReviewUnitProjectionRow>,
     /// Reader-relative readback keyed by event id, covering the capture event and
-    /// every narrative member. Attached at the document layer (INV-8); empty when
-    /// no verification policy is set.
+    /// every narrative member. Attached at the document layer; empty when no
+    /// verification policy is set.
     pub member_readbacks: BTreeMap<EventId, MemberReadback>,
     pub diagnostics: Vec<ProjectionDiagnostic>,
 }

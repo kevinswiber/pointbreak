@@ -124,7 +124,7 @@ fn review_unit_show_options(args: &UnitShowArgs) -> ReviewUnitShowOptions {
         options = options.with_delegation_map(map);
     }
     // Advisory policy + reader trust: enable the per-event verificationStatus +
-    // endorsement readback, reader-relative; render-only, never a gate (INV-3).
+    // endorsement readback, reader-relative; render-only, never a gate.
     options = options
         .with_trust_set(super::common::discover_trust_set(&args.repo))
         .with_verification_policy(EventVerificationPolicy::advisory())
