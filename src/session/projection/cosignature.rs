@@ -816,4 +816,94 @@ mod tests {
         );
         assert_eq!(with_carrier, reversed, "the set hash is order-independent");
     }
+
+    #[test]
+    fn endorsement_carriers_for_one_triple_converge_byte_identical_across_writers() {
+        use crate::session::event::{EventTarget, Writer, WriterProducer};
+
+        let signer = DeterministicSigner::from_seed(SIGNER_B_SEED);
+        let target = inline_signed(&DeterministicSigner::from_seed(SIGNER_A_SEED));
+
+        // One attestation triple (target_record_hash, attesting_signer, attestation.sig).
+        let attesting_signer = signer.signer_id().clone();
+        let record_hash = target.event_record_hash().unwrap();
+        let tbs = EventToBeSigned::from_event(&target, &attesting_signer).unwrap();
+        let pae = event_signature_pre_authentication_encoding(&tbs).unwrap();
+        let sig = signer.sign_event_message(&pae).unwrap();
+        let payload = EventSignatureRecordedPayload {
+            target_event_id: target.event_id.clone(),
+            target_event_record_hash: record_hash.clone(),
+            attesting_signer: attesting_signer.clone(),
+            attestation: EventSignature::ed25519_v1(sig),
+            inclusion_proof: None,
+        };
+        let key = EventSignatureRecordedPayload::idempotency_key(
+            &record_hash,
+            &attesting_signer,
+            payload.attestation.sig.as_str(),
+        );
+
+        // The carrier payload carries NO meaning/relation field (INV-2): with inclusion_proof
+        // absent, the serialized payload has EXACTLY the current key set — and explicitly none
+        // of `relation` / `endorser` / `classification`. (A same-valued stored marker would not
+        // diverge the hashes below, so this key-set assertion is the part that catches it.)
+        let payload_json = serde_json::to_value(&payload).unwrap();
+        let keys: std::collections::BTreeSet<&str> = payload_json
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "attestation",
+                "attestingSigner",
+                "targetEventId",
+                "targetEventRecordHash"
+            ]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>(),
+            "endorsement carrier payload must carry no meaning/relation field"
+        );
+        for forbidden in ["relation", "endorser", "classification"] {
+            assert!(
+                !payload_json.as_object().unwrap().contains_key(forbidden),
+                "carrier payload must not carry `{forbidden}` (INV-2: derived or identity-bearing, never an excluded payload field)"
+            );
+        }
+
+        // Two carriers for the SAME triple, differing ONLY in the envelope writer.
+        let carrier = |actor: &str| {
+            ShoreEvent::new(
+                EventType::EventSignatureRecorded,
+                key.clone(),
+                EventTarget::for_event_signature(target.target.session_id.clone()),
+                Writer {
+                    actor_id: crate::model::ActorId::new(actor),
+                    producer: WriterProducer {
+                        name: "shore".into(),
+                        version: "test".into(),
+                    },
+                },
+                payload.clone(),
+                "2026-06-04T00:00:00Z",
+            )
+            .unwrap()
+        };
+        let mirror_a = carrier("actor:git-email:alice@example.com");
+        let mirror_b = carrier("actor:agent:bob");
+
+        // Envelope writers differ...
+        assert_ne!(mirror_a.writer.actor_id, mirror_b.writer.actor_id);
+        // ...but identity + payload converge byte-for-byte.
+        assert_eq!(mirror_a.idempotency_key, mirror_b.idempotency_key);
+        assert_eq!(mirror_a.event_id, mirror_b.event_id);
+        assert_eq!(mirror_a.payload_hash, mirror_b.payload_hash);
+        assert_eq!(
+            event_set_hash_for_events([&mirror_a]).unwrap(),
+            event_set_hash_for_events([&mirror_b]).unwrap(),
+            "envelope-only writer differences must not affect eventSetHash"
+        );
+    }
 }
