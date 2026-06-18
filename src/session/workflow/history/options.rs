@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use crate::model::{ReviewUnitId, TrackId};
 use crate::session::event::EventType;
-use crate::session::{DelegationMap, EventVerificationPolicy, TrustSet};
+use crate::session::{ActorAttributesMap, DelegationMap, EventVerificationPolicy, TrustSet};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewHistoryOptions {
@@ -15,6 +15,7 @@ pub struct ReviewHistoryOptions {
     pub(super) include_body: bool,
     pub(super) verification_policy: Option<EventVerificationPolicy>,
     pub(super) trust_set: TrustSet,
+    pub(super) actor_attributes: Option<ActorAttributesMap>,
     pub(super) delegation_map: Option<DelegationMap>,
 }
 
@@ -28,6 +29,7 @@ impl ReviewHistoryOptions {
             include_body: false,
             verification_policy: None,
             trust_set: TrustSet::default(),
+            actor_attributes: None,
             delegation_map: None,
         }
     }
@@ -62,6 +64,13 @@ impl ReviewHistoryOptions {
         self
     }
 
+    /// Supply the reader's actor-attributes map. Sibling enrichment for endorsement
+    /// readbacks (the endorser's attested kind/roles) — never a classifier input (INV-2).
+    pub fn with_actor_attributes(mut self, actor_attributes: Option<ActorAttributesMap>) -> Self {
+        self.actor_attributes = actor_attributes;
+        self
+    }
+
     /// Supply the reader-side delegation map. Beside `with_trust_set`: config the
     /// reader provides, never store content. With it set, agent-scheme writers'
     /// entries carry a resolved principal object; without it they degrade to the
@@ -92,6 +101,7 @@ pub(super) struct ResolvedHistoryFilters {
     pub(super) include_body: bool,
     pub(super) verification_policy: Option<EventVerificationPolicy>,
     pub(super) trust_set: TrustSet,
+    pub(super) actor_attributes: Option<ActorAttributesMap>,
     pub(super) delegation_map: Option<DelegationMap>,
 }
 

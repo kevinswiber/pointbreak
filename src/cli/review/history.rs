@@ -85,6 +85,8 @@ fn history_options(args: &HistoryArgs) -> ReviewHistoryOptions {
     // Advisory policy: presence enables the verificationStatus render, never gates a write.
     options = options.with_trust_set(super::common::discover_trust_set(&args.repo));
     options = options.with_verification_policy(EventVerificationPolicy::advisory());
+    // Sibling enrichment for endorsement readbacks (endorser kind/roles), reader-relative.
+    options = options.with_actor_attributes(super::common::discover_actor_attributes(&args.repo));
     options
 }
 

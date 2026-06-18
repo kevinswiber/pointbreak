@@ -74,10 +74,9 @@ fn load_optional_delegates(path: &Path) -> Option<DelegationMap> {
 /// malformed file is advisory (one-line stderr warning, treated as absent). This is reader-supplied
 /// config, never store content, and is advisory/reader-relative (ADR-0012).
 //
-// Unwired in this pass: the classification's 3-value bucket needs only the trust set; the production
-// consumer (surfacing endorser kind/roles + relationship alongside the classification) is the
-// policy plane. Mirrors the `agent_resumption_from_events` landed-but-unwired posture.
-#[allow(dead_code)]
+// Consumed by the readback projection: the history and unit-show read surfaces enrich each
+// endorsement readback with the endorser's attested kind/roles (a sibling of the trust-only
+// classification, never a classifier input).
 pub(crate) fn discover_actor_attributes(repo: &Path) -> Option<ActorAttributesMap> {
     let worktree_root =
         shoreline::git::git_worktree_root(repo).unwrap_or_else(|_| repo.to_path_buf());
@@ -97,7 +96,6 @@ pub(crate) fn discover_actor_attributes(repo: &Path) -> Option<ActorAttributesMa
 
 /// Load an actor-attributes file if present; a malformed file is advisory — warn once to stderr and
 /// treat it as absent (per-file, so a bad local never poisons the committed default).
-#[allow(dead_code)]
 fn load_optional_actor_attributes(path: &Path) -> Option<ActorAttributesMap> {
     if !path.exists() {
         return None;

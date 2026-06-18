@@ -13,7 +13,9 @@ use crate::session::event::{
     ReviewUnitLineageRoundRecordedPayload, ShoreEvent, ValidationCheckRecordedPayload,
     decode_input_request_opened_payload,
 };
-use crate::session::projection::cosignature::{CosignatureIndex, endorsement_readbacks};
+use crate::session::projection::cosignature::{
+    CosignatureIndex, endorsement_readbacks, enrich_endorser_attributes,
+};
 use crate::session::state::SessionState;
 use crate::session::{principal_view_for, verify_event_signature};
 
@@ -251,7 +253,11 @@ pub(super) fn history_entry_from_event(
             .transpose()?,
         endorsements: match cosig_index {
             Some(index) => {
-                endorsement_readbacks(&index.cosignatures_for_target(event, &filters.trust_set)?)
+                let mut readbacks = endorsement_readbacks(
+                    &index.cosignatures_for_target(event, &filters.trust_set)?,
+                );
+                enrich_endorser_attributes(&mut readbacks, filters.actor_attributes.as_ref());
+                readbacks
             }
             None => Vec::new(),
         },

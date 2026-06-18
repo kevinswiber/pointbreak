@@ -28,6 +28,7 @@ pub fn review_history(options: ReviewHistoryOptions) -> Result<ReviewHistoryResu
         include_body: options.include_body,
         verification_policy: options.verification_policy,
         trust_set: options.trust_set,
+        actor_attributes: options.actor_attributes,
         delegation_map: options.delegation_map,
     };
     let events = EventStore::open(read_store.store_dir()).list_events()?;

@@ -28,7 +28,8 @@ use crate::session::event::{
     EventSignatureRecordedPayload, EventType, ShoreEvent, resolve_effective_signer,
 };
 use crate::session::{
-    CosignatureVerification, TrustSet, verify_cosignature, verify_event_signature,
+    ActorAttributesMap, CosignatureVerification, TrustSet, verify_cosignature,
+    verify_event_signature,
 };
 
 /// Where a co-signature set member came from.
@@ -436,6 +437,32 @@ pub(crate) fn endorsement_readbacks(set: &CosignatureSet) -> Vec<EndorsementRead
         .collect()
 }
 
+/// Decorate each readback that has a resolved endorser with that endorser's attested
+/// kind/roles. Sibling enrichment, applied AFTER classification — never a classifier
+/// input (INV-2). A `None` map, a readback without a resolved endorser, or an endorser
+/// with no attested attributes is a no-op (no field rendered).
+pub(crate) fn enrich_endorser_attributes(
+    readbacks: &mut [EndorsementReadback],
+    attributes: Option<&ActorAttributesMap>,
+) {
+    let Some(attributes) = attributes else {
+        return;
+    };
+    for readback in readbacks.iter_mut() {
+        let Some(endorser) = readback.endorser.as_ref() else {
+            continue;
+        };
+        let resolved = attributes.resolve(endorser);
+        if resolved.kind().is_none() && resolved.roles().is_empty() {
+            continue;
+        }
+        readback.endorser_attributes = Some(EndorserAttributesView {
+            kind: resolved.kind().map(str::to_owned),
+            roles: resolved.roles().iter().cloned().collect(),
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -600,6 +627,51 @@ mod tests {
             serde_json::to_value(EndorsementClassification::AmbiguousEndorser).unwrap(),
             serde_json::json!("ambiguous_endorser")
         );
+    }
+
+    #[test]
+    fn enrich_sets_kind_and_roles_only_for_resolved_endorsers() {
+        let mut readbacks = vec![
+            EndorsementReadback {
+                classification: EndorsementClassification::EndorsementTrusted,
+                endorser: Some(ActorId::new("actor:git-email:a@example.com")),
+                reason: None,
+                endorser_attributes: None,
+            },
+            EndorsementReadback {
+                classification: EndorsementClassification::UnknownEndorser,
+                endorser: None,
+                reason: None,
+                endorser_attributes: None,
+            },
+        ];
+        let attrs = crate::session::actor_attributes_from_value(serde_json::json!({
+            "actors": {
+                "actor:git-email:a@example.com": { "kind": "human", "roles": ["reviewer"] }
+            }
+        }))
+        .unwrap();
+        enrich_endorser_attributes(&mut readbacks, Some(&attrs));
+        let enriched = readbacks[0].endorser_attributes.as_ref().unwrap();
+        assert_eq!(enriched.kind.as_deref(), Some("human"));
+        assert!(enriched.roles.contains(&"reviewer".to_string()));
+        // No resolved endorser → no attributes (and an empty resolution sets no field).
+        assert!(
+            readbacks[1].endorser_attributes.is_none(),
+            "no endorser → no attributes"
+        );
+    }
+
+    #[test]
+    fn enrich_is_a_noop_without_a_map() {
+        let mut readbacks = vec![EndorsementReadback {
+            classification: EndorsementClassification::EndorsementTrusted,
+            endorser: Some(ActorId::new("actor:git-email:a@example.com")),
+            reason: None,
+            endorser_attributes: None,
+        }];
+        enrich_endorser_attributes(&mut readbacks, None);
+        assert!(readbacks[0].endorser_attributes.is_none());
     }
 
     #[test]
