@@ -12,10 +12,10 @@ use serde::Serialize;
 use shoreline::documents::{lineage_show_document, unit_show_document};
 use shoreline::model::{ReviewEndpoint, ReviewUnitId, ReviewUnitLineageId, SnapshotId};
 use shoreline::session::{
-    LineageListEntry, LineageListOptions, LineageShowOptions, LineageShowResult,
-    ProjectionDiagnostic, ReviewHistoryEntry, ReviewHistoryOptions, ReviewUnitListEntry,
-    ReviewUnitListOptions, ReviewUnitShowOptions, list_lineages, list_review_units,
-    read_snapshot_artifact, review_history, show_lineage, show_review_unit,
+    EventVerificationPolicy, LineageListEntry, LineageListOptions, LineageShowOptions,
+    LineageShowResult, ProjectionDiagnostic, ReviewHistoryEntry, ReviewHistoryOptions,
+    ReviewUnitListEntry, ReviewUnitListOptions, ReviewUnitShowOptions, list_lineages,
+    list_review_units, read_snapshot_artifact, review_history, show_lineage, show_review_unit,
 };
 
 #[derive(Serialize)]
@@ -264,7 +264,11 @@ impl From<shoreline::session::LineageRoundView> for LineageRoundEntryDocument {
 
 /// Full chronological event timeline with hydrated bodies.
 pub(super) fn history_json(repo: &Path) -> Result<String, String> {
-    let mut options = ReviewHistoryOptions::new(repo).with_include_body(true);
+    let mut options = ReviewHistoryOptions::new(repo)
+        .with_include_body(true)
+        .with_verification_policy(EventVerificationPolicy::advisory())
+        .with_trust_set(crate::cli::review::common::discover_trust_set(repo))
+        .with_actor_attributes(crate::cli::review::common::discover_actor_attributes(repo));
     if let Some(map) = crate::cli::review::common::discover_delegation_map(repo) {
         options = options.with_delegation_map(map);
     }
@@ -394,7 +398,10 @@ pub(super) fn unit_json(repo: &Path, review_unit_id: &str) -> Result<String, Str
     }
     let mut show_options = ReviewUnitShowOptions::new(repo)
         .with_review_unit_id(ReviewUnitId::new(review_unit_id.to_owned()))
-        .with_include_body(true);
+        .with_include_body(true)
+        .with_verification_policy(EventVerificationPolicy::advisory())
+        .with_trust_set(crate::cli::review::common::discover_trust_set(repo))
+        .with_actor_attributes(crate::cli::review::common::discover_actor_attributes(repo));
     if let Some(map) = crate::cli::review::common::discover_delegation_map(repo) {
         show_options = show_options.with_delegation_map(map);
     }

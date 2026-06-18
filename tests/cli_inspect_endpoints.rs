@@ -8,6 +8,19 @@ mod support;
 use serde_json::Value;
 use support::git_repo::GitRepo;
 use support::inspect::{Inspector, capture, representative_store, urlencode};
+use support::shore_env;
+
+/// Find the captured ReviewUnit event id via the public read path (`read_events`).
+fn captured_event_id(repo: &std::path::Path) -> String {
+    shoreline::session::read_events(repo)
+        .unwrap()
+        .iter()
+        .find(|e| e.event_type == shoreline::session::event::EventType::ReviewUnitCaptured)
+        .expect("a captured review unit")
+        .event_id
+        .as_str()
+        .to_owned()
+}
 
 /// Trailing-millisecond stamp from an `occurredAt` string (e.g. `unix-ms:1234`),
 /// for asserting chronological ordering without depending on the prefix shape.
@@ -222,4 +235,72 @@ fn payloads_never_expose_raw_repository_paths_on_path_private_surfaces() {
     let units = inspector.get_json("/api/units");
     let target_display = &units["entries"][0]["targetDisplay"];
     assert!(!target_display.to_string().contains(&repo_path));
+}
+
+#[test]
+fn inspect_history_endpoint_renders_endorsement_readback() {
+    let home = tempfile::tempdir().unwrap();
+    let env_home = home.path().to_str().unwrap();
+    let env: [(&str, &str); 1] = [("SHORE_HOME", env_home)];
+    assert!(
+        shore_env(["keys", "init", "--name", "default"], &env)
+            .status
+            .success()
+    );
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn v() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn v() -> u32 { 2 }\n");
+    let repo_arg = repo.path().to_str().unwrap();
+    // Enroll the default key under kevin (reader trust config in the repo).
+    assert!(
+        shore_env(
+            [
+                "keys",
+                "enroll",
+                "default",
+                "--actor",
+                "actor:git-email:kevin@swiber.dev",
+                "--repo",
+                repo_arg,
+            ],
+            &env,
+        )
+        .status
+        .success()
+    );
+    // Capture UNSIGNED so the detached endorsement carrier is not deduped, then endorse.
+    assert!(
+        shore_env(
+            ["review", "capture", "--repo", repo_arg],
+            &[("SHORE_HOME", env_home), ("SHORE_SIGNING", "off")],
+        )
+        .status
+        .success()
+    );
+    let target = captured_event_id(repo.path());
+    assert!(
+        shore_env(
+            ["review", "endorse", &target, "--repo", repo_arg],
+            &[
+                ("SHORE_HOME", env_home),
+                ("SHORE_ACTOR_ID", "actor:git-email:kevin@swiber.dev"),
+            ],
+        )
+        .status
+        .success()
+    );
+
+    // The inspector reads the repo's reader config (allowed-signers.json), so it
+    // resolves the same reader-relative classification as the CLI.
+    let inspector = Inspector::spawn(repo.path());
+    let history = inspector.get_json("/api/history");
+    let endorsement = history["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find_map(|e| e.get("endorsements").and_then(|x| x.get(0)))
+        .expect("an endorsement readback in the inspector history");
+    assert_eq!(endorsement["classification"], "endorsement-trusted");
+    assert_eq!(endorsement["endorser"], "actor:git-email:kevin@swiber.dev");
 }
