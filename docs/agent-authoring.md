@@ -61,7 +61,10 @@ segment is reserved.
 
 Who an agent acts on behalf of is resolved at read time from the checked-in `.shore/delegates.json`
 map, documented in [storage-model.md](./storage-model.md) and decided in
-[ADR-0010](./adr/adr-0010-actor-identity-and-delegation.md). Identity is reported, never the basis
+[ADR-0010](./adr/adr-0010-actor-identity-and-delegation.md). A human (or the agent proposing the edit)
+creates that binding with `shore identity enroll <agent> --principal <human>` — possession-style like
+key enrollment: it stages the working-tree `.shore/delegates.json` edit and the commit is the
+authorization (see [cli-reference.md](./cli-reference.md)). Identity is reported, never the basis
 of a binding decision. Agent events written before adopting an `actor:agent:` id carry the human's
 git-email id and stay exactly that — the `agent:*` track name is a heuristic, never re-attribution.
 

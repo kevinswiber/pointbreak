@@ -44,6 +44,9 @@ rendering it beside the writer as `claude-code (for kevin@swiber.dev)`. Discover
 the read proceeds with no resolution (advisory, never blocking). The file format is documented in
 [storage-model.md](./storage-model.md).
 
+The **write** side of this config — creating a delegation record or describing an actor's kind/roles —
+is the `shore identity` command group (`shore identity enroll` / `shore identity attest`, below).
+
 ### Signing
 
 Every write may carry an Ed25519 signature. Which key signs (if any) follows this precedence:
@@ -265,6 +268,45 @@ siblings.
 Command output is the stable integration surface. Raw clone-local store paths, event files, artifact
 paths, `.git` paths, `.shore/data` paths, and `state.json` remain internal storage details.
 
+## `shore identity`
+
+```bash
+# Stage a delegation record binding an agent to its responsible principal (shore.identity-enroll).
+shore identity enroll <agent-actor-id> --principal <principal-actor-id> \
+  [--from <RFC3339>] [--until <RFC3339>] [--comment <text>] [--local] [--repo .] [--pretty]
+
+# Stage an actor-attributes entry — kind + roles — for any actor (shore.identity-attest).
+shore identity attest <actor-id> --kind <kind> [--role <role>]... \
+  [--comment <text>] [--local] [--repo .] [--pretty]
+```
+
+`shore identity` writes the actor/principal config the read side (above) resolves. Both subcommands are
+possession-style: they stage the working-tree edit only and never invoke git — review and commit the
+file to apply it (`git log -p` is the audit trail), exactly like `shore keys enroll`.
+
+- **`enroll`** stages a delegation record into `.shore/delegates.json` binding `<agent-actor-id>` (an
+  `actor:agent:<name>` id) to a responsible **non-agent** `--principal` (the human/actor that answers
+  for the agent; the depth-0 rule rejects an agent principal). `--from` defaults to now in RFC 3339 UTC;
+  `--until` defaults to an open window; `--comment` is free text for diff readers. Emits a
+  `shore.identity-enroll` document and a stderr hint to commit.
+- **`attest`** stages an actor-attributes entry into `.shore/actor-attributes.json` for `<actor-id>`
+  (any persisted actor id). `--kind` is required — exactly one kind per actor; the reserved well-known
+  kinds are `human`, `agent`, `service`, and `reviewer-model`, but any lowercase-kebab token is
+  accepted. `--role` is repeatable; kind and roles are normalized to lowercase-kebab and roles are
+  deduped + sorted. Re-attesting **replaces** the actor's entry (kind, roles, and comment) — it is not
+  additive. Emits a `shore.identity-attest` document.
+- **`--local`** writes the private `.local.json` sibling instead of the committed file and git-excludes
+  it via `.git/info/exclude`. The layers merge git-config style: a local entry **fully replaces** the
+  committed entry for that key on this machine (never a merge), and the command surfaces that
+  full-replace caveat on stderr.
+- `--repo` (default `.`) may be the repository root or a path inside it; the entry always lands at the
+  worktree-root `.shore/`. Inputs are validated against the same grammar the readers enforce, so a
+  staged file always re-reads and a rejected input writes nothing.
+
+The delegation-map format is documented in [storage-model.md](./storage-model.md); the models and
+decisions are in [ADR-0010](./adr/adr-0010-actor-identity-and-delegation.md) (delegation) and
+[ADR-0012](./adr/adr-0012-actor-attributes-and-roles.md) (actor attributes).
+
 ## `shore keys`
 
 Manage the user-level signing keystore and stage signer enrollment. Keys live in `~/.shore/keys/`
@@ -450,6 +492,31 @@ replace a review assessment.
 Output documents are compact `shore.review-validation-add` and
 `shore.review-validation-list` JSON by default. `validation list` also accepts `--pretty` and
 `--compact`.
+
+## `shore review endorse`
+
+```bash
+shore review endorse <target-event-id> [--sign-key <name|path>] [--actor <id>] [--repo .] [--pretty]
+```
+
+`shore review endorse` records a detached co-signature (an endorsement) over an existing target event —
+for example a captured ReviewUnit's `review_unit_captured` event. The resolved signer is the attesting
+signer and the carrier's envelope writer is the **endorser's own actor** (`--actor`, else the resolved
+writing identity), never the target's author.
+
+- **Unsigned is a hard error.** Unlike every other write — where signing never gates — an endorsement
+  has no unsigned form, because the signature *is* its content. The signer is resolved first (before the
+  target); if none resolves (`SHORE_SIGNING=off`, no key, an unreadable key), the command exits non-zero
+  and writes nothing. Signer precedence otherwise follows the **Signing** rules above.
+- Idempotent: re-endorsing the same target with the same signer is a no-op (`eventsCreated: 0`,
+  `eventsExisting: 1`, same carrier `eventId`).
+- The emitted `shore.review-endorse` document reports carrier facts (`eventId`, `targetEventId`,
+  `targetEventRecordHash`, `attestingSigner`, `actorId`, and write counts) — **not** a trust verdict.
+  Whether an endorsement classifies as trusted is reader-relative (resolved against the reader's
+  allow-list at read time), not stamped at write time.
+
+The endorsement record and its read-side classification are decided in
+[ADR-0013](./adr/adr-0013-endorsement-record-and-classification.md).
 
 ## `shore review history`
 
