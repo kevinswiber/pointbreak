@@ -366,23 +366,16 @@ pub(super) fn snapshot_json(repo: &Path, snapshot_id: &str) -> Result<String, St
             format!("snapshot not found or unreadable: {snapshot_id}")
         },
     )?;
-    let target_display = derive_target_display(&artifact.target, &artifact.base);
     let mut wire = serde_json::to_value(&artifact).map_err(|error| error.to_string())?;
-    if let Some(target) = wire
-        .get_mut("target")
-        .and_then(|value| value.as_object_mut())
-    {
-        target.remove("worktreeRoot");
+    if let Some(object) = wire.as_object_mut() {
+        // Snapshot-scoped wire: identity/endpoints live on /api/unit (from the
+        // projection), never on the shared snapshot artifact. The v2 body already
+        // omits these; the removals also keep a dual-read v1 artifact path-private
+        // here, so the endpoint is forward- and backward-compatible.
+        for key in ["reviewUnitId", "source", "base", "target"] {
+            object.remove(key);
+        }
     }
-    let Some(object) = wire.as_object_mut() else {
-        return Err("snapshot wire shape must be an object".to_owned());
-    };
-    object.insert("worktreeRootRedacted".to_owned(), true.into());
-    object.insert("contentHashScope".to_owned(), "stored-artifact".into());
-    object.insert(
-        "targetDisplay".to_owned(),
-        serde_json::to_value(target_display).map_err(|error| error.to_string())?,
-    );
     serde_json::to_string(&wire).map_err(|error| error.to_string())
 }
 
@@ -550,51 +543,41 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_json_redacts_worktree_root_on_the_wire() {
+    fn snapshot_json_serves_snapshot_scoped_wire() {
         let (repo, snapshot_id) = captured_repo();
 
         let wire: serde_json::Value =
             serde_json::from_str(&snapshot_json(repo.path(), &snapshot_id).unwrap()).unwrap();
 
-        assert!(wire["target"].get("worktreeRoot").is_none());
-        assert_eq!(wire["worktreeRootRedacted"], true);
-        assert_eq!(wire["contentHashScope"], "stored-artifact");
+        // Snapshot-scoped wire: content hash + frozen diff only. Identity and
+        // endpoints live on /api/unit (from the projection), never here — so the
+        // worktree root is simply absent (nothing to redact).
         assert!(wire["contentHash"].is_string());
-        assert!(wire["targetDisplay"]["label"].is_string());
+        assert!(wire.get("reviewUnitId").is_none());
+        assert!(wire.get("source").is_none());
+        assert!(wire.get("base").is_none());
+        assert!(wire.get("target").is_none());
+        assert!(wire.get("worktreeRootRedacted").is_none());
+        assert!(wire.get("contentHashScope").is_none());
+        assert!(wire.get("targetDisplay").is_none());
     }
 
     #[test]
-    fn snapshot_json_redaction_happens_after_validation_not_on_disk() {
-        let (repo, snapshot_id) = captured_repo();
-
-        snapshot_json(repo.path(), &snapshot_id).unwrap();
-
-        // The stored artifact is untouched: it still carries the hash-baked
-        // target.worktreeRoot and still hash-validates on read.
-        let artifact = read_snapshot_artifact(repo.path(), &SnapshotId::new(snapshot_id.clone()))
-            .expect("stored artifact still validates after a wire read");
-        match &artifact.target {
-            ReviewEndpoint::GitWorkingTree { worktree_root } => {
-                assert!(!worktree_root.is_empty());
-            }
-            other => panic!("unexpected target endpoint: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn snapshot_json_rejects_tampered_artifact_before_redaction() {
+    fn snapshot_json_rejects_tampered_artifact_before_wire_shaping() {
         let (repo, snapshot_id) = captured_repo();
         let artifact_path = stored_snapshot_artifact_path(repo.path());
         let mut json: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&artifact_path).unwrap()).unwrap();
-        json["target"]["worktreeRoot"] = serde_json::json!("/other/repo");
+        // Tamper a field that is inside the content hash for both v1 and v2 (the
+        // snapshot rows). `DiffFile` is snake_case, unlike the camelCase wrapper.
+        json["snapshot"]["files"][0]["new_path"] = serde_json::json!("/evil");
         std::fs::write(&artifact_path, serde_json::to_vec(&json).unwrap()).unwrap();
 
         let error = snapshot_json(repo.path(), &snapshot_id)
             .expect_err("tampered artifact is rejected before wire shaping");
 
         assert!(error.contains("snapshot not found or unreadable"));
-        assert!(!error.contains("/other/repo"));
+        assert!(!error.contains("/evil"));
     }
 
     #[test]

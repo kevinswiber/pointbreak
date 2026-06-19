@@ -142,7 +142,7 @@ function resolveRef(kind, id) {
       break;
     case "snap": {
       const unit = (state.units?.entries || []).find((u) => u.snapshotId === id);
-      openDiff(id, unit ? shortId(unit.reviewUnitId) : "");
+      openDiff(id, unit ? shortId(unit.reviewUnitId) : "", unit?.reviewUnitId);
       break;
     }
     case "obs":
@@ -671,7 +671,7 @@ function renderDetail() {
     <pre>${escapeHtml(JSON.stringify(e, null, 2))}</pre>`;
   if (snapshotId) {
     const btn = el.querySelector("#detail-diff-btn");
-    if (btn) btn.addEventListener("click", () => openDiff(snapshotId, shortId(e.reviewUnitId), focusId));
+    if (btn) btn.addEventListener("click", () => openDiff(snapshotId, shortId(e.reviewUnitId), e.reviewUnitId, focusId));
   }
 }
 
@@ -723,14 +723,16 @@ function annotationsForUnit(reviewUnitId) {
   return out;
 }
 
-async function openDiff(snapshotId, label, focusId) {
+async function openDiff(snapshotId, label, reviewUnitId = null, focusId = null) {
   const modal = $("#diff-modal");
   $("#diff-title").textContent = label ? `${label} · snapshot ${shortId(snapshotId)}` : shortId(snapshotId);
   $("#diff-body").innerHTML = `<p class="empty">loading snapshot…</p>`;
   modal.classList.remove("hidden");
   try {
+    // The snapshot endpoint is snapshot-scoped (no reviewUnitId on the wire);
+    // the caller threads the review unit id for annotation lookup.
     const artifact = await fetchJSON("/api/snapshot?id=" + encodeURIComponent(snapshotId));
-    const annotations = annotationsForUnit(artifact.reviewUnitId);
+    const annotations = annotationsForUnit(reviewUnitId);
     $("#diff-body").innerHTML = renderDiff(artifact, annotations);
     if (focusId) {
       const target = $("#diff-body").querySelector(`[data-anno="${focusId}"]`);
@@ -900,7 +902,7 @@ function renderUnits() {
     diffBtn.textContent = "view snapshot diff";
     diffBtn.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      openDiff(u.snapshotId, shortId(u.reviewUnitId));
+      openDiff(u.snapshotId, shortId(u.reviewUnitId), u.reviewUnitId);
     });
     actions.appendChild(diffBtn);
     card.appendChild(actions);
@@ -1327,7 +1329,7 @@ function renderUnitPage(d) {
   $("#unit-page").innerHTML = sections.join("");
 
   const diffBtn = $("#up-diff-btn");
-  if (diffBtn && ru.snapshotId) diffBtn.addEventListener("click", () => openDiff(ru.snapshotId, shortId(ru.id)));
+  if (diffBtn && ru.snapshotId) diffBtn.addEventListener("click", () => openDiff(ru.snapshotId, shortId(ru.id), ru.id));
   const tlBtn = $("#up-timeline-btn");
   if (tlBtn) tlBtn.addEventListener("click", () => navigateToUnit(ru.id));
 }

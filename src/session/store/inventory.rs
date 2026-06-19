@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -5,7 +6,7 @@ use std::process::Command;
 use serde::Serialize;
 
 use crate::error::{Result, ShoreError};
-use crate::session::event::ShoreEvent;
+use crate::session::event::{EventType, ShoreEvent};
 use crate::session::store::body_artifact::NoteBodyEnvelope;
 use crate::session::store::snapshot_artifact::SnapshotArtifact;
 
@@ -33,7 +34,11 @@ pub(crate) struct ArtifactInventoryEntry {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ReviewUnitSnapshotInventory {
-    pub review_unit_id: String,
+    /// The review units that captured this snapshot, sorted and deduped. Under
+    /// the snapshot-scoped artifact (INV-1) one artifact may be shared by several
+    /// units, so identity is joined from the `ReviewUnitCaptured` events keyed by
+    /// `snapshot_id`, never read from the artifact body.
+    pub review_unit_ids: Vec<String>,
     pub snapshot_id: String,
     pub artifact_ref: String,
     pub byte_size: u64,
@@ -47,8 +52,10 @@ pub(crate) fn scan_store_inventory(
     let mut artifact_entries = Vec::new();
     let mut review_unit_snapshots = Vec::new();
 
+    let capture_owners = capture_owners_by_snapshot(&store_dir.join("events"))?;
     let (snapshot_count, snapshot_bytes) = scan_snapshot_artifacts(
         &store_dir.join("artifacts/snapshots"),
+        &capture_owners,
         &mut artifact_entries,
         &mut review_unit_snapshots,
     )?;
@@ -62,11 +69,9 @@ pub(crate) fn scan_store_inventory(
             .then_with(|| left.artifact_ref.cmp(&right.artifact_ref))
     });
     artifact_entries.truncate(5);
-    review_unit_snapshots.sort_by(|left, right| {
-        left.review_unit_id
-            .cmp(&right.review_unit_id)
-            .then_with(|| left.snapshot_id.cmp(&right.snapshot_id))
-    });
+    // One snapshot artifact is one entry now, so sort by snapshot_id alone — this
+    // avoids an empty-`review_unit_ids` edge in the comparator.
+    review_unit_snapshots.sort_by(|left, right| left.snapshot_id.cmp(&right.snapshot_id));
 
     let artifact_count = snapshot_count + note_count;
     let artifact_bytes = snapshot_bytes + note_bytes;
@@ -101,6 +106,7 @@ fn scan_events(events_dir: &Path) -> Result<(usize, u64)> {
 
 fn scan_snapshot_artifacts(
     snapshots_dir: &Path,
+    capture_owners: &BTreeMap<String, BTreeSet<String>>,
     artifacts: &mut Vec<ArtifactInventoryEntry>,
     snapshots: &mut Vec<ReviewUnitSnapshotInventory>,
 ) -> Result<(usize, u64)> {
@@ -117,15 +123,20 @@ fn scan_snapshot_artifacts(
             continue;
         }
         let byte_size = contents.len() as u64;
-        let artifact_ref = format!("snapshot:{}", artifact.snapshot.snapshot_id.as_str());
+        let snapshot_id = artifact.snapshot.snapshot_id.as_str().to_owned();
+        let artifact_ref = format!("snapshot:{snapshot_id}");
+        let review_unit_ids = capture_owners
+            .get(&snapshot_id)
+            .map(|ids| ids.iter().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
         artifacts.push(ArtifactInventoryEntry {
             artifact_ref: artifact_ref.clone(),
             artifact_kind: "snapshot".to_owned(),
             byte_size,
         });
         snapshots.push(ReviewUnitSnapshotInventory {
-            review_unit_id: artifact.review_unit_id.as_str().to_owned(),
-            snapshot_id: artifact.snapshot.snapshot_id.as_str().to_owned(),
+            review_unit_ids,
+            snapshot_id,
             artifact_ref,
             byte_size,
         });
@@ -133,6 +144,36 @@ fn scan_snapshot_artifacts(
         bytes += byte_size;
     }
     Ok((count, bytes))
+}
+
+/// Join `snapshot_id → {review_unit_ids}` from the `ReviewUnitCaptured` events.
+/// Identity lives in the event log (INV-3), so this is the inventory's only
+/// source for the capturing units of a snapshot artifact. A `BTreeSet` keeps the
+/// ids sorted and deduped for deterministic output.
+fn capture_owners_by_snapshot(events_dir: &Path) -> Result<BTreeMap<String, BTreeSet<String>>> {
+    let mut owners: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for path in list_files(events_dir)? {
+        if !is_event_file(&path) {
+            continue;
+        }
+        let contents =
+            fs::read(&path).map_err(|error| io_error("read event file", &path, error))?;
+        let event: ShoreEvent = serde_json::from_slice(&contents)?;
+        if event.event_type != EventType::ReviewUnitCaptured {
+            continue;
+        }
+        let (Some(snapshot_id), Some(review_unit_id)) = (
+            event.payload["snapshotId"].as_str(),
+            event.payload["reviewUnitId"].as_str(),
+        ) else {
+            continue;
+        };
+        owners
+            .entry(snapshot_id.to_owned())
+            .or_default()
+            .insert(review_unit_id.to_owned());
+    }
+    Ok(owners)
 }
 
 fn scan_note_artifacts(
@@ -247,10 +288,80 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::model::{ReviewUnitId, RevisionId, SessionId};
+    use crate::session::event::{EventTarget, EventType, ReviewUnitCapturedPayload, Writer};
     use crate::session::{
-        CaptureOptions, ObservationAddOptions, ShoreStorePaths, capture_worktree_review,
-        record_observation,
+        CaptureOptions, CaptureResult, EventStore, ObservationAddOptions, ShoreStorePaths,
+        capture_worktree_review, record_observation,
     };
+
+    #[test]
+    fn review_unit_snapshots_list_all_capturing_units_for_a_shared_snapshot() {
+        let repo = TestRepo::new();
+        repo.write("README.md", "base\n");
+        repo.commit_all("base");
+        repo.write("README.md", "changed\n");
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        // A second capture event over the SAME snapshot id, different review unit id
+        // (simulating a second worktree's capture sharing the byte-identical artifact).
+        let store_dir = ShoreStorePaths::resolve(repo.path())
+            .unwrap()
+            .store_dir()
+            .to_path_buf();
+        write_second_capture_event_for_same_snapshot(&store_dir, &capture);
+
+        let inventory = scan_store_inventory(&store_dir, Some(repo.path())).unwrap();
+        let entry = inventory
+            .review_unit_snapshots
+            .iter()
+            .find(|snapshot| snapshot.snapshot_id == capture.snapshot_id.as_str())
+            .expect("snapshot inventory entry");
+        assert!(
+            entry
+                .review_unit_ids
+                .contains(&capture.review_unit_id.as_str().to_owned())
+        );
+        assert!(
+            entry
+                .review_unit_ids
+                .contains(&"review-unit:sha256:second-worktree".to_owned())
+        );
+        assert!(entry.review_unit_ids.windows(2).all(|w| w[0] <= w[1])); // sorted
+    }
+
+    /// Build and record a minimal `ReviewUnitCaptured` event referencing
+    /// `capture`'s snapshot id under a different review unit id and idempotency
+    /// key, mirroring a second worktree capturing the same range.
+    fn write_second_capture_event_for_same_snapshot(store_dir: &Path, capture: &CaptureResult) {
+        let review_unit_id = ReviewUnitId::new("review-unit:sha256:second-worktree");
+        let revision_id = RevisionId::new("revision:sha256:second-worktree");
+        let event = ShoreEvent::new(
+            EventType::ReviewUnitCaptured,
+            format!("review_unit_captured:{}", review_unit_id.as_str()),
+            EventTarget::for_review_unit(
+                SessionId::new("session:default"),
+                review_unit_id.clone(),
+                revision_id.clone(),
+                capture.snapshot_id.clone(),
+            ),
+            Writer::shore_local("0.1.0"),
+            ReviewUnitCapturedPayload {
+                review_unit_id,
+                source: capture.source.clone(),
+                base: capture.base.clone(),
+                target: capture.target.clone(),
+                revision_id,
+                snapshot_id: capture.snapshot_id.clone(),
+                snapshot_artifact_content_hash: capture.snapshot_artifact_content_hash.clone(),
+            },
+            "2026-01-01T00:00:00Z",
+        )
+        .unwrap();
+        EventStore::open(store_dir)
+            .record_event_once(&event)
+            .unwrap();
+    }
 
     #[test]
     fn scan_store_inventory_counts_events_artifacts_and_bytes() {
@@ -293,7 +404,9 @@ mod tests {
                 && !artifact.artifact_ref.contains("state.json")
         }));
         assert!(inventory.review_unit_snapshots.iter().any(|snapshot| {
-            snapshot.review_unit_id == capture.review_unit_id.as_str()
+            snapshot
+                .review_unit_ids
+                .contains(&capture.review_unit_id.as_str().to_owned())
                 && snapshot.snapshot_id == capture.snapshot_id.as_str()
                 && snapshot.byte_size > 0
         }));

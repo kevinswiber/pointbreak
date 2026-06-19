@@ -63,7 +63,7 @@ pub struct StoreStatusArtifactInventory {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoreStatusReviewUnitSnapshot {
-    pub review_unit_id: String,
+    pub review_unit_ids: Vec<String>,
     pub snapshot_id: String,
     pub artifact_ref: String,
     pub byte_size: u64,
@@ -138,7 +138,7 @@ impl From<ArtifactInventoryEntry> for StoreStatusArtifactInventory {
 impl From<ReviewUnitSnapshotInventory> for StoreStatusReviewUnitSnapshot {
     fn from(snapshot: ReviewUnitSnapshotInventory) -> Self {
         Self {
-            review_unit_id: snapshot.review_unit_id,
+            review_unit_ids: snapshot.review_unit_ids,
             snapshot_id: snapshot.snapshot_id,
             artifact_ref: snapshot.artifact_ref,
             byte_size: snapshot.byte_size,

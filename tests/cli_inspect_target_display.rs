@@ -319,11 +319,17 @@ fn linked_inspector_drill_in_survives_deleted_source_worktree() {
     assert_eq!(unit["summary"]["validationCheckCount"], 1);
     assert!(unit["currentAssessment"]["status"].is_string());
 
+    // The snapshot wire is snapshot-scoped: content hash + diff only, no
+    // target/targetDisplay (those are on /api/unit(s), asserted above).
     let snapshot = inspector.get_json(&format!("/api/snapshot?id={}", urlencode(&snapshot_id)));
-    assert!(snapshot["target"].get("worktreeRoot").is_none());
-    assert_eq!(snapshot["worktreeRootRedacted"], true);
-    assert_eq!(snapshot["contentHashScope"], "stored-artifact");
-    assert_eq!(snapshot["targetDisplay"]["label"], "gone");
+    assert!(
+        snapshot["contentHash"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:")
+    );
+    assert!(snapshot.get("target").is_none());
+    assert!(snapshot.get("targetDisplay").is_none());
 
     let history = inspector.get_json("/api/history");
     assert!(history["eventCount"].as_u64().unwrap() > 0);

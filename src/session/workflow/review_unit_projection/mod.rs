@@ -491,26 +491,6 @@ mod tests {
     }
 
     #[test]
-    fn show_review_unit_rejects_snapshot_artifact_metadata_mismatch() {
-        let repo = modified_repo();
-        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        tamper_snapshot_artifact_target_and_rehash(
-            repo.path(),
-            &capture.snapshot_id,
-            "/other/repo",
-        );
-
-        let error = show_review_unit(ReviewUnitShowOptions::new(repo.path()))
-            .expect_err("metadata mismatch should fail");
-
-        assert!(
-            error
-                .to_string()
-                .contains("snapshot artifact metadata mismatch")
-        );
-    }
-
-    #[test]
     fn show_review_unit_rejects_event_artifact_binding_mismatch() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
@@ -1367,37 +1347,6 @@ mod tests {
             serde_json::to_vec_pretty(&json).expect("serialize tampered snapshot artifact"),
         )
         .expect("write tampered snapshot artifact");
-    }
-
-    fn tamper_snapshot_artifact_target_and_rehash(
-        repo: &Path,
-        snapshot_id: &SnapshotId,
-        target_root: &str,
-    ) {
-        let path = snapshot_artifact_path(repo, snapshot_id);
-        let mut json: serde_json::Value =
-            serde_json::from_slice(&fs::read(&path).expect("read snapshot artifact"))
-                .expect("parse snapshot artifact json");
-
-        assert_eq!(json["snapshot"]["snapshot_id"], snapshot_id.as_str());
-        json["target"]["worktreeRoot"] = target_root.into();
-        json["contentHash"] = snapshot_artifact_hash_from_json(&json).into();
-
-        fs::write(
-            &path,
-            serde_json::to_vec_pretty(&json).expect("serialize tampered snapshot artifact"),
-        )
-        .expect("write tampered snapshot artifact");
-    }
-
-    fn snapshot_artifact_hash_from_json(json: &serde_json::Value) -> String {
-        let mut material = json.clone();
-        material
-            .as_object_mut()
-            .expect("snapshot artifact is an object")
-            .remove("contentHash")
-            .expect("snapshot artifact has contentHash");
-        sha256_json_prefixed(&material).expect("hash snapshot artifact material")
     }
 
     fn rewrite_capture_event_snapshot_artifact_hash(

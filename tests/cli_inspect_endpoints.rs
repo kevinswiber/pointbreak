@@ -154,7 +154,7 @@ fn api_units_lists_captured_unit_with_counts_and_target_display() {
 }
 
 #[test]
-fn api_snapshot_returns_immutable_artifact_for_unit() {
+fn api_snapshot_returns_snapshot_scoped_artifact() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
     let snapshot = inspector.get_json(&format!(
@@ -162,19 +162,19 @@ fn api_snapshot_returns_immutable_artifact_for_unit() {
         urlencode(&store.snapshot_id)
     ));
 
-    assert_eq!(snapshot["reviewUnitId"], store.review_unit_id.as_str());
+    // Snapshot-scoped wire (#146): content hash + frozen diff only — no
+    // identity/endpoint fields. Identity/target display live on /api/unit(s).
     assert!(
         snapshot["contentHash"]
             .as_str()
             .unwrap()
             .starts_with("sha256:")
     );
-
-    // Post-0062 wire shape: the hash-baked worktreeRoot is redacted after
-    // validation; the stored artifact is untouched (covered in api.rs unit tests).
-    assert!(snapshot["target"].get("worktreeRoot").is_none());
-    assert_eq!(snapshot["worktreeRootRedacted"], true);
-    assert_eq!(snapshot["contentHashScope"], "stored-artifact");
+    assert!(snapshot.get("reviewUnitId").is_none());
+    assert!(snapshot.get("target").is_none());
+    assert!(snapshot.get("base").is_none());
+    assert!(snapshot.get("source").is_none());
+    assert!(snapshot.get("worktreeRootRedacted").is_none());
 
     // The captured diff has a real file with a hunk consistent with the edit.
     let files = snapshot["snapshot"]["files"].as_array().unwrap();
@@ -229,15 +229,16 @@ fn payloads_never_expose_raw_repository_paths_on_path_private_surfaces() {
     let freshness = inspector.get_json("/api/freshness");
     assert!(!freshness.to_string().contains(&repo_path));
 
-    // The snapshot wire redacts worktreeRoot, so a linked reader never sees the
-    // raw absolute path even though the stored artifact bakes it into the hash.
+    // The snapshot wire is snapshot-scoped — it carries no endpoint/target at all,
+    // so there is no worktree path to leak (the redaction logic is gone).
     let snapshot = inspector.get_json(&format!(
         "/api/snapshot?id={}",
         urlencode(&store.snapshot_id)
     ));
+    assert!(snapshot.get("target").is_none());
     assert!(
         !snapshot.to_string().contains(&repo_path),
-        "redacted snapshot wire must not carry the raw worktree path"
+        "snapshot-scoped wire must not carry the raw worktree path"
     );
 
     // The derived targetDisplay label on /api/units is always path-private
