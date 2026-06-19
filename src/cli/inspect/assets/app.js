@@ -251,6 +251,60 @@ function principalLabel(e) {
   const principal = e.principal.actorId.replace(/^actor:git-(email|name):/, "");
   return `${agent} (for ${principal})`;
 }
+
+// Reader-relative, advisory signature/endorsement readback (#171). Render-only:
+// these never gate a write or change a verdict, and the same carrier may read
+// differently for another reader (whoever the inspector's host enrolled). Labels
+// mirror docs/cli-reference.md "Verification status and endorsement readback".
+const VERIFICATION_LABELS = {
+  valid: "signature valid",
+  invalid: "signature invalid",
+  untrusted_key: "untrusted key",
+  unsigned: "unsigned",
+};
+
+function verificationChip(status) {
+  if (!status) return "";
+  const label = VERIFICATION_LABELS[status] || status;
+  return `<span class="verify verify-${escapeHtml(status)}" title="advisory signature readback — reader-relative, never gates a write">${escapeHtml(label)}</span>`;
+}
+
+const ENDORSEMENT_LABELS = {
+  "endorsement-trusted": "trusted endorsement",
+  unknown_endorser: "unknown endorser",
+  ambiguous_endorser: "ambiguous endorser",
+};
+
+// Strip the actor namespace for display, matching principalLabel's posture.
+function endorserDisplay(actorId) {
+  return actorId.replace(/^actor:git-(email|name):/, "");
+}
+
+function endorsementRow(en) {
+  const cls = en.classification || "";
+  const label = ENDORSEMENT_LABELS[cls] || cls;
+  const parts = [`<span class="endorse-label">${escapeHtml(label)}</span>`];
+  if (en.endorser) parts.push(`<span class="endorse-who">${escapeHtml(endorserDisplay(en.endorser))}</span>`);
+  const attrs = en.endorserAttributes || {};
+  const attrBits = [];
+  if (attrs.kind) attrBits.push(attrs.kind);
+  if ((attrs.roles || []).length) attrBits.push(attrs.roles.join(", "));
+  if (attrBits.length) parts.push(`<span class="endorse-attrs">${escapeHtml(attrBits.join(" · "))}</span>`);
+  return `<li class="endorse endorse-${escapeHtml(cls)}">${parts.join(" ")}</li>`;
+}
+
+// Advisory, reader-relative endorsement readback (#171). One row per attestation
+// (one per endorsing signer/key) — never collapsed, mirroring the API.
+function endorsementsBlock(endorsements) {
+  endorsements = endorsements || [];
+  if (!endorsements.length) return "";
+  const rows = endorsements.map(endorsementRow).join("");
+  return `<div class="endorsements" title="advisory endorsement readback — reader-relative, never gates a write">
+    <span class="endorsements-label">endorsements</span>
+    <ul class="endorse-list">${rows}</ul>
+  </div>`;
+}
+
 function entryTitle(e) {
   const s = e.summary || {};
   if (s.title) return s.title;
@@ -549,6 +603,7 @@ function renderTimeline() {
           ${entryTrack(e) ? `<span>${escapeHtml(entryTrack(e))}</span>` : ""}
           ${e.reviewUnitId ? `<span>unit ${escapeHtml(shortId(e.reviewUnitId))}</span>` : ""}
           ${entryAnchor(e) ? `<span>${escapeHtml(entryAnchor(e))}</span>` : ""}
+          ${verificationChip(e.verificationStatus)}
         </span>
       </span>`;
     li.addEventListener("click", (ev) => {
@@ -602,9 +657,16 @@ function renderDetail() {
     focusNoun = "input request";
   }
   const btnLabel = focusId ? `show this ${focusNoun} in the diff` : "view snapshot diff";
+  const verifyChip = verificationChip(e.verificationStatus);
+  const endorse = endorsementsBlock(e.endorsements);
+  const readback =
+    verifyChip || endorse
+      ? `<div class="readback">${verifyChip ? `<div class="readback-row">${verifyChip}</div>` : ""}${endorse}</div>`
+      : "";
   el.innerHTML = `
     <h2>${linkify(entryTitle(e))}</h2>
     <dl class="kv">${kv.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${linkify(String(v))}</dd>`).join("")}</dl>
+    ${readback}
     ${snapshotId ? `<button class="ghost diff-btn" id="detail-diff-btn">${escapeHtml(btnLabel)}</button>` : ""}
     <pre>${escapeHtml(JSON.stringify(e, null, 2))}</pre>`;
   if (snapshotId) {
@@ -978,6 +1040,8 @@ function renderLineageFact(e, stale) {
     tags,
     body: s.body || s.summary || "",
     createdAt: e.occurredAt,
+    verify: verificationChip(e.verificationStatus),
+    endorsements: endorsementsBlock(e.endorsements),
     extra: `<div class="fact-rel">${linkify(e.eventId)}</div>`,
   });
 }
@@ -1111,9 +1175,11 @@ function factCard(kind, opts) {
       ${opts.status ? `<span class="fact-status ${escapeHtml(opts.status)}">${escapeHtml(opts.status)}</span>` : ""}
       ${opts.target ? `<span class="anno-loc">${opts.target}</span>` : ""}
       ${tags}
+      ${opts.verify || ""}
       ${opts.createdAt ? `<span class="anno-time" title="${escapeHtml(opts.createdAt)}">${escapeHtml(fmtDateTime(opts.createdAt))}</span>` : ""}
     </div>
     ${body}
+    ${opts.endorsements || ""}
     ${opts.extra || ""}</div>`;
 }
 
@@ -1129,13 +1195,18 @@ function renderObservationCard(o) {
     tags: o.tags,
     body: o.body,
     createdAt: o.createdAt,
+    verify: verificationChip(o.verificationStatus),
+    endorsements: endorsementsBlock(o.endorsements),
     extra,
   });
 }
 
 function renderInputRequestCard(ir) {
   const responses = (ir.responses || [])
-    .map((r) => `<div class="fact-response"><span class="outcome">${escapeHtml(r.outcome)}</span>${r.reason ? `: ${linkify(r.reason)}` : ""}</div>`)
+    .map(
+      (r) =>
+        `<div class="fact-response"><span class="outcome">${escapeHtml(r.outcome)}</span>${r.reason ? `: ${linkify(r.reason)}` : ""} ${verificationChip(r.verificationStatus)}${endorsementsBlock(r.endorsements)}</div>`,
+    )
     .join("");
   return factCard("input-request", {
     track: ir.trackId,
@@ -1145,6 +1216,8 @@ function renderInputRequestCard(ir) {
     tags: [ir.mode, ir.reasonCode],
     body: ir.body,
     createdAt: ir.createdAt,
+    verify: verificationChip(ir.verificationStatus),
+    endorsements: endorsementsBlock(ir.endorsements),
     extra: responses ? `<div class="fact-responses">${responses}</div>` : "",
   });
 }
@@ -1161,6 +1234,8 @@ function renderAssessmentCard(a) {
     target: targetLabel(a.target),
     body: a.summary,
     createdAt: a.createdAt,
+    verify: verificationChip(a.verificationStatus),
+    endorsements: endorsementsBlock(a.endorsements),
     extra: rel.length ? `<div class="fact-rel">${rel.join(" · ")}</div>` : "",
   });
 }
@@ -1180,6 +1255,8 @@ function renderValidationCheckCard(v) {
     tags: [v.trigger, v.exitCode != null ? `exit ${v.exitCode}` : null],
     body: v.summary || "",
     createdAt: v.completedAt || v.createdAt,
+    verify: verificationChip(v.verificationStatus),
+    endorsements: endorsementsBlock(v.endorsements),
     extra: rel.length ? `<div class="fact-rel">${rel.join(" · ")}</div>` : "",
   });
 }

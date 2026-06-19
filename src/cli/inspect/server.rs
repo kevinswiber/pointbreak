@@ -317,6 +317,49 @@ mod tests {
     }
 
     #[test]
+    fn app_js_renders_verification_and_endorsement_readback() {
+        let response = route_for("GET", "/app.js");
+        let body = String::from_utf8(response.body).expect("app.js is utf-8");
+
+        // The advisory readback (#171) is rendered client-side from the fields the
+        // API already serves — verificationStatus on the timeline/detail and per
+        // fact, endorsements on the detail and ReviewUnit page.
+        assert!(
+            body.contains("function verificationChip"),
+            "app.js renders the per-event verification status chip"
+        );
+        assert!(
+            body.contains("function endorsementsBlock"),
+            "app.js renders the endorsement readback block"
+        );
+        assert!(
+            body.contains("e.verificationStatus") && body.contains("e.endorsements"),
+            "app.js consumes the readback fields off the history entry"
+        );
+        assert!(
+            body.contains("o.verificationStatus") && body.contains("a.endorsements"),
+            "app.js consumes the readback fields off the ReviewUnit fact documents"
+        );
+
+        // The contract is advisory and reader-relative: the rendered framing must
+        // say so and must never present the readback as a gate or verdict.
+        assert!(
+            body.contains("never gates a write") && body.contains("reader-relative"),
+            "the readback renders as advisory, reader-relative information, not a gate"
+        );
+    }
+
+    #[test]
+    fn app_css_styles_verification_and_endorsement_readback() {
+        let response = route_for("GET", "/app.css");
+        let body = String::from_utf8(response.body).expect("app.css is utf-8");
+        assert!(
+            body.contains(".verify") && body.contains(".endorsements"),
+            "app.css carries the verification chip and endorsement block styles"
+        );
+    }
+
+    #[test]
     fn static_assets_carry_expected_content_types() {
         assert_eq!(
             route_for("GET", "/app.css").content_type,

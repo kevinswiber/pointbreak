@@ -140,7 +140,13 @@ older-round facts, and the captured diff for a ReviewUnit annotated with the rev
 each line. Validation checks recorded with `shore review validation add` appear throughout — as a
 labeled timeline event type, a "Validation checks" section on the ReviewUnit page (with the check
 name, status, trigger, and exit code), and on lineage round cards — shown for context only; they do
-not affect the current assessment and carry no merge or acceptance authority. Long IDs render as
+not affect the current assessment and carry no merge or acceptance authority. The reader-relative
+`verificationStatus` and `endorsements` readback (see
+[Verification status and endorsement readback](#verification-status-and-endorsement-readback))
+renders beside events and review facts: the per-event signature status as a chip on the timeline,
+detail view, and ReviewUnit fact cards, and the endorsement classification with its resolved
+`endorser` and `endorserAttributes` on the detail view and ReviewUnit page — presented as advisory,
+render-only information, never as a gate or verdict. Long IDs render as
 truncated, clickable references that navigate to the resource they name, and the page auto-refreshes
 when the store changes or a freshness diagnostic appears or clears.
 
