@@ -7,10 +7,11 @@ use crate::documents::{
 };
 use crate::model::{EventId, ReviewTargetRef, Side};
 use crate::session::{
-    AdapterNoteView, EndorsementReadback, EventVerificationStatus, MemberReadback,
-    ReviewUnitListEntry, ReviewUnitListResult, ReviewUnitProjectionIdentity,
-    ReviewUnitProjectionRow, ReviewUnitProjectionSummary, ReviewUnitShowFilters,
-    ReviewUnitShowResult,
+    AdapterNoteView, CurrentCommitAssociation, CurrentRefAssociation, EndorsementReadback,
+    EventVerificationStatus, MemberReadback, ReviewUnitCommitRangeView, ReviewUnitListEntry,
+    ReviewUnitListResult, ReviewUnitProjectionIdentity, ReviewUnitProjectionRow,
+    ReviewUnitProjectionSummary, ReviewUnitShowFilters, ReviewUnitShowResult,
+    WithdrawnCommitAssociation, WithdrawnRefAssociation,
 };
 
 /// Documented body for `shore.review-unit`.
@@ -29,6 +30,7 @@ pub struct UnitShowBody {
     validation_checks: Vec<ValidationCheckViewDocument>,
     adapter_notes: Vec<AdapterNoteDocument>,
     rows: Vec<UnitProjectionRowDocument>,
+    commit_range: CommitRangeDocument,
 }
 
 /// Documented body for `shore.review-unit-list`.
@@ -141,6 +143,32 @@ struct UnitProjectionRowDocument {
     related_validation_check_ids: Vec<String>,
 }
 
+/// Events-only commit-range lifecycle block. Liveness (merged/live/orphaned) is
+/// layered by repo-holding callers, never here. The view's `reviewUnitId` and
+/// `diagnostics` are omitted: the id renders on the review-unit identity and the
+/// diagnostics merge into the document's top-level diagnostics.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CommitRangeDocument {
+    anchored: bool,
+    current_commits: Vec<CurrentCommitAssociation>,
+    current_refs: Vec<CurrentRefAssociation>,
+    withdrawn_commits: Vec<WithdrawnCommitAssociation>,
+    withdrawn_refs: Vec<WithdrawnRefAssociation>,
+}
+
+impl From<ReviewUnitCommitRangeView> for CommitRangeDocument {
+    fn from(view: ReviewUnitCommitRangeView) -> Self {
+        Self {
+            anchored: view.anchored,
+            current_commits: view.current_commits,
+            current_refs: view.current_refs,
+            withdrawn_commits: view.withdrawn_commits,
+            withdrawn_refs: view.withdrawn_refs,
+        }
+    }
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SnapshotOrderDocument {
@@ -198,6 +226,7 @@ pub fn unit_show_document(mut result: ReviewUnitShowResult) -> DiagnosticDocumen
                 .into_iter()
                 .map(UnitProjectionRowDocument::from)
                 .collect(),
+            commit_range: CommitRangeDocument::from(result.commit_range),
         },
         result.diagnostics,
     )

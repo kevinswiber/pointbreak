@@ -18,7 +18,9 @@ use crate::session::state::SessionState;
 use crate::session::store::resolution::resolve_read_store;
 use crate::session::workflow::read_store::divergence_diagnostics;
 use crate::session::workflow::{ValidationCheckProjectionOptions, project_validation_checks};
-use crate::session::{EventStore, verify_event_signature};
+use crate::session::{
+    EventStore, ReviewUnitCommitRangeProjection, ReviewUnitCommitRangeView, verify_event_signature,
+};
 
 mod adapter_notes;
 mod identity;
@@ -129,6 +131,23 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
     let mut diagnostics = state.diagnostics;
     diagnostics.extend(divergence_diagnostics(&read_store));
 
+    // Git-free commit-range lifecycle: fold the association events into the resolved
+    // unit's view and surface its diagnostics. Liveness is layered by repo-holding
+    // callers, never here.
+    let commit_range = ReviewUnitCommitRangeProjection::from_events(&events)?
+        .unit(&resolved.review_unit_id)
+        .cloned()
+        .unwrap_or_else(|| ReviewUnitCommitRangeView {
+            review_unit_id: resolved.review_unit_id.clone(),
+            anchored: false,
+            current_commits: Vec::new(),
+            current_refs: Vec::new(),
+            withdrawn_commits: Vec::new(),
+            withdrawn_refs: Vec::new(),
+            diagnostics: Vec::new(),
+        });
+    diagnostics.extend(commit_range.diagnostics.clone());
+
     if let Some(map) = options.delegation_map.as_ref() {
         let members = observations
             .iter()
@@ -212,6 +231,7 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         validation_checks,
         adapter_notes,
         rows,
+        commit_range,
         member_readbacks,
         diagnostics,
     })
@@ -884,6 +904,77 @@ mod tests {
                 .iter()
                 .all(|obs| obs.track_id.as_str() == "agent:codex")
         );
+    }
+
+    #[test]
+    fn show_review_unit_surfaces_floating_then_anchored() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        let floating = show_review_unit(ReviewUnitShowOptions::new(repo.path())).unwrap();
+        assert!(!floating.commit_range.anchored);
+        assert!(floating.commit_range.current_commits.is_empty());
+
+        record_commit_association(repo.path(), &capture, "oidA");
+
+        let anchored = show_review_unit(ReviewUnitShowOptions::new(repo.path())).unwrap();
+        assert!(anchored.commit_range.anchored);
+        assert_eq!(anchored.commit_range.current_commits.len(), 1);
+        assert_eq!(anchored.commit_range.current_commits[0].commit_oid, "oidA");
+    }
+
+    #[test]
+    fn show_review_unit_extends_diagnostics_with_commit_range_diagnostics() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        record_commit_association(repo.path(), &capture, "oidA");
+        record_commit_association(repo.path(), &capture, "oidB");
+
+        let result = show_review_unit(ReviewUnitShowOptions::new(repo.path())).unwrap();
+
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "divergent_commit_association")
+        );
+    }
+
+    fn record_commit_association(repo: &Path, capture: &CaptureResult, commit_oid: &str) {
+        use crate::session::event::{
+            ReviewUnitCommitAssociatedPayload, build_commit_association_id,
+        };
+        let commit_association_id =
+            build_commit_association_id(&capture.review_unit_id, commit_oid).unwrap();
+        let mut target = EventTarget::for_review_unit(
+            crate::model::SessionId::new("session:default"),
+            capture.review_unit_id.clone(),
+            capture.revision_id.clone(),
+            capture.snapshot_id.clone(),
+        );
+        target.track_id = Some(crate::model::TrackId::new("agent:codex"));
+        let event = ShoreEvent::new(
+            EventType::ReviewUnitCommitAssociated,
+            ReviewUnitCommitAssociatedPayload::idempotency_key(&capture.review_unit_id, commit_oid),
+            target,
+            Writer::shore_local("0.1.0"),
+            ReviewUnitCommitAssociatedPayload {
+                commit_association_id,
+                target: crate::model::ReviewTargetRef::ReviewUnit {
+                    review_unit_id: capture.review_unit_id.clone(),
+                },
+                commit: crate::model::ReviewEndpoint::GitCommit {
+                    commit_oid: commit_oid.to_owned(),
+                    tree_oid: format!("{commit_oid}-tree"),
+                },
+            },
+            "2026-05-10T00:00:00Z",
+        )
+        .unwrap();
+
+        EventStore::open(repo.join(".shore/data"))
+            .record_event_once(&event)
+            .unwrap();
     }
 
     fn modified_repo() -> TestRepo {

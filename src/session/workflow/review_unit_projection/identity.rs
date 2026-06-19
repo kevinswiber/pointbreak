@@ -13,7 +13,8 @@ use crate::session::state::ProjectionDiagnostic;
 use crate::session::workflow::ValidationCheckView;
 use crate::session::{
     ActorAttributesMap, DelegationMap, EndorsementReadback, EventVerificationPolicy,
-    EventVerificationStatus, PrincipalResolution, TrustSet, principal_resolution_for_writer,
+    EventVerificationStatus, PrincipalResolution, ReviewUnitCommitRangeView, TrustSet,
+    principal_resolution_for_writer,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -160,6 +161,10 @@ pub struct ReviewUnitShowResult {
     pub validation_checks: Vec<ValidationCheckView>,
     pub adapter_notes: Vec<AdapterNoteView>,
     pub rows: Vec<ReviewUnitProjectionRow>,
+    /// Commit-range lifecycle view (floating/anchored, current and withdrawn
+    /// commit/ref associations) derived git-free from the event set. Liveness
+    /// (merged/live/orphaned) is layered separately by callers that hold a repo.
+    pub commit_range: ReviewUnitCommitRangeView,
     /// Reader-relative readback keyed by event id, covering the capture event and
     /// every narrative member. Attached at the document layer; empty when no
     /// verification policy is set.

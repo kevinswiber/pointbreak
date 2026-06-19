@@ -27,7 +27,10 @@ pub use projection::cosignature::{
 };
 pub(crate) use projection::state;
 pub use projection::{
-    ProjectionDiagnostic, SessionState, load_durable_notes_for_repo, read_events, rebuild_state,
+    CommitEdgeSource, CurrentCommitAssociation, CurrentRefAssociation, ProjectionDiagnostic,
+    ReviewUnitCommitRangeProjection, ReviewUnitCommitRangeView, SessionState,
+    WithdrawnCommitAssociation, WithdrawnRefAssociation, load_durable_notes_for_repo, read_events,
+    rebuild_state,
 };
 pub use signing::{
     ALLOWED_SIGNERS_REL_PATH, ArtifactAvailability, BestEffortSkipSink,
