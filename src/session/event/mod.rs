@@ -6,6 +6,7 @@ use crate::error::{Result, ShoreError};
 use crate::model::EventId;
 
 mod assertion;
+mod association;
 mod assessment;
 mod event_signature;
 mod input_request;
@@ -25,6 +26,14 @@ mod validation;
 mod writer;
 
 pub use assertion::AssertionMode;
+pub(crate) use association::{
+    build_commit_association_id, build_commit_withdrawal_id, build_ref_association_id,
+    build_ref_withdrawal_id,
+};
+pub use association::{
+    ReviewUnitCommitAssociatedPayload, ReviewUnitCommitWithdrawnPayload,
+    ReviewUnitRefAssociatedPayload, ReviewUnitRefWithdrawnPayload,
+};
 pub use assessment::{ReviewAssessment, ReviewAssessmentRecordedPayload};
 pub use event_signature::{EventSignatureRecordedPayload, InclusionProof};
 pub(crate) use input_request::decode_input_request_opened_payload;

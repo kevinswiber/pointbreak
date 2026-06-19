@@ -187,6 +187,13 @@ impl StateReducer {
             EventType::ReviewUnitLineageDeclared | EventType::ReviewUnitLineageRoundRecorded => {
                 // Lineage projections are derived by the dedicated lineage reducer.
             }
+            EventType::ReviewUnitRefAssociated
+            | EventType::ReviewUnitRefWithdrawn
+            | EventType::ReviewUnitCommitAssociated
+            | EventType::ReviewUnitCommitWithdrawn => {
+                // Commit-range lifecycle is derived by the dedicated commit-range projection;
+                // these events do not change session state.
+            }
             EventType::ValidationCheckRecorded => self.apply_validation_check_recorded(event)?,
             EventType::TaskAttemptCaptured
             | EventType::TaskCheckpointCaptured

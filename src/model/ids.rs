@@ -40,6 +40,10 @@ id_type!(AssessmentId);
 id_type!(WorkObjectId);
 id_type!(CheckpointId);
 id_type!(ValidationCheckId);
+id_type!(CommitAssociationId);
+id_type!(RefAssociationId);
+id_type!(CommitWithdrawalId);
+id_type!(RefWithdrawalId);
 
 #[cfg(test)]
 mod tests {

@@ -247,6 +247,10 @@ fn referenced_artifacts_for_event(
         EventType::ReviewInitialized
         | EventType::ReviewUnitLineageDeclared
         | EventType::ReviewUnitLineageRoundRecorded
+        | EventType::ReviewUnitRefAssociated
+        | EventType::ReviewUnitRefWithdrawn
+        | EventType::ReviewUnitCommitAssociated
+        | EventType::ReviewUnitCommitWithdrawn
         | EventType::TaskAttemptCaptured
         | EventType::TaskCheckpointCaptured
         | EventType::EventSignatureRecorded => Ok(()),

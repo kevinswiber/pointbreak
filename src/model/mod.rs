@@ -21,10 +21,10 @@ pub use cursor::CursorState;
 pub use file::{DiffFile, FileStatus};
 pub use hunk::ReviewHunk;
 pub use ids::{
-    ActorId, AssessmentId, CheckpointId, EventId, FileId, HunkId, InputRequestId,
-    InputRequestResponseId, ObservationId, ReviewId, ReviewNoteId, ReviewUnitId,
-    ReviewUnitLineageId, ReviewUnitLineageRoundId, RevisionId, RowId, SessionId, SnapshotId,
-    TrackId, ValidationCheckId, WorkObjectId, WorkUnitId,
+    ActorId, AssessmentId, CheckpointId, CommitAssociationId, CommitWithdrawalId, EventId, FileId,
+    HunkId, InputRequestId, InputRequestResponseId, ObservationId, RefAssociationId, RefWithdrawalId,
+    ReviewId, ReviewNoteId, ReviewUnitId, ReviewUnitLineageId, ReviewUnitLineageRoundId, RevisionId,
+    RowId, SessionId, SnapshotId, TrackId, ValidationCheckId, WorkObjectId, WorkUnitId,
 };
 pub use lineage::ReviewUnitLineageBasisV1;
 pub use review::{DiffSnapshot, Review, ReviewStream};

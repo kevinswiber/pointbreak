@@ -12,6 +12,10 @@ pub enum EventType {
     ReviewNoteImported,
     ReviewUnitLineageDeclared,
     ReviewUnitLineageRoundRecorded,
+    ReviewUnitRefAssociated,
+    ReviewUnitRefWithdrawn,
+    ReviewUnitCommitAssociated,
+    ReviewUnitCommitWithdrawn,
     ValidationCheckRecorded,
     TaskAttemptCaptured,
     TaskCheckpointCaptured,
@@ -33,6 +37,10 @@ impl EventType {
             Self::ReviewNoteImported => "review_note_imported",
             Self::ReviewUnitLineageDeclared => "review_unit_lineage_declared",
             Self::ReviewUnitLineageRoundRecorded => "review_unit_lineage_round_recorded",
+            Self::ReviewUnitRefAssociated => "review_unit_ref_associated",
+            Self::ReviewUnitRefWithdrawn => "review_unit_ref_withdrawn",
+            Self::ReviewUnitCommitAssociated => "review_unit_commit_associated",
+            Self::ReviewUnitCommitWithdrawn => "review_unit_commit_withdrawn",
             Self::ValidationCheckRecorded => "validation_check_recorded",
             Self::TaskAttemptCaptured => "task_attempt_captured",
             Self::TaskCheckpointCaptured => "task_checkpoint_captured",
@@ -58,6 +66,10 @@ mod tests {
             EventType::ReviewNoteImported,
             EventType::ReviewUnitLineageDeclared,
             EventType::ReviewUnitLineageRoundRecorded,
+            EventType::ReviewUnitRefAssociated,
+            EventType::ReviewUnitRefWithdrawn,
+            EventType::ReviewUnitCommitAssociated,
+            EventType::ReviewUnitCommitWithdrawn,
             EventType::ValidationCheckRecorded,
             EventType::TaskAttemptCaptured,
             EventType::TaskCheckpointCaptured,
@@ -69,6 +81,37 @@ mod tests {
                 serde_wire,
                 serde_json::json!(variant.as_str()),
                 "as_str() must equal the serde wire string for {variant:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn association_family_wire_strings_match() {
+        assert_eq!(
+            EventType::ReviewUnitRefAssociated.as_str(),
+            "review_unit_ref_associated"
+        );
+        assert_eq!(
+            EventType::ReviewUnitRefWithdrawn.as_str(),
+            "review_unit_ref_withdrawn"
+        );
+        assert_eq!(
+            EventType::ReviewUnitCommitAssociated.as_str(),
+            "review_unit_commit_associated"
+        );
+        assert_eq!(
+            EventType::ReviewUnitCommitWithdrawn.as_str(),
+            "review_unit_commit_withdrawn"
+        );
+        for variant in [
+            EventType::ReviewUnitRefAssociated,
+            EventType::ReviewUnitRefWithdrawn,
+            EventType::ReviewUnitCommitAssociated,
+            EventType::ReviewUnitCommitWithdrawn,
+        ] {
+            assert_eq!(
+                serde_json::to_value(variant).unwrap(),
+                serde_json::json!(variant.as_str())
             );
         }
     }

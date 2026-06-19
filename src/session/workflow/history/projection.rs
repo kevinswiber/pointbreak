@@ -222,6 +222,14 @@ pub(super) fn history_entry_from_event(
                 log_artifact_content_hashes: payload.log_artifact_content_hashes,
             }
         }
+        EventType::ReviewUnitRefAssociated
+        | EventType::ReviewUnitRefWithdrawn
+        | EventType::ReviewUnitCommitAssociated
+        | EventType::ReviewUnitCommitWithdrawn => {
+            return Err(ShoreError::Message(
+                "review history rendering of commit-range association events is not wired yet; the lifecycle read surface owns their summaries".to_owned(),
+            ));
+        }
         EventType::TaskAttemptCaptured
         | EventType::TaskCheckpointCaptured
         | EventType::TaskObservationRecorded
