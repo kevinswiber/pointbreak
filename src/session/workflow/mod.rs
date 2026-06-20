@@ -15,6 +15,7 @@ mod review_unit_list;
 mod review_unit_projection;
 mod store_link;
 mod store_migrate;
+mod store_migrate_common_dir;
 mod store_status;
 mod validation;
 
@@ -87,6 +88,9 @@ pub use review_unit_projection::{
 };
 pub use store_link::{StoreLinkOptions, StoreLinkResult, link_clone_local_store};
 pub use store_migrate::{MigrateStoreOptions, StoreMigrateResult, migrate_store};
+pub use store_migrate_common_dir::{
+    MigrateToCommonDirOptions, MigrateToCommonDirResult, migrate_store_to_common_dir,
+};
 pub use store_status::{
     StoreStatusArtifactInventory, StoreStatusInventory, StoreStatusOptions, StoreStatusResult,
     StoreStatusReviewUnitSnapshot, StoreStatusSensitivity, StoreStatusSensitivityFinding,

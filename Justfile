@@ -74,5 +74,12 @@ run *args:
 migrate-store repo=".":
     cargo +stable run --example migrate-store -- {{ repo }}
 
+# Fold a worktree-local .shore/data store into the common-dir store (.git/shore).
+# Non-destructive + idempotent; refuses an ephemeral/sensitive worktree unless
+# you pass include-ephemeral=true. This IS a shipped subcommand (shore store migrate).
+migrate-store-common-dir repo="." include-ephemeral="false":
+    cargo +stable run --bin shore -- store migrate --repo {{ repo }} \
+        {{ if include-ephemeral == "true" { "--include-ephemeral" } else { "" } }}
+
 # Check commit messages, compile, lint, and tests.
 check: commit-check build lint test

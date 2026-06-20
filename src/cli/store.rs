@@ -4,10 +4,11 @@ use std::path::PathBuf;
 use clap::{ArgGroup, Args, Subcommand, ValueEnum};
 use shoreline::model::{ReviewUnitId, SnapshotId};
 use shoreline::session::{
-    CompactOptions, CompactResult, RemoveOptions, RemoveResult, RemoveSelector, RemovedContent,
-    StoreLinkOptions, StoreLinkResult, StoreMode, StoreModeSource, StoreStatusInventory,
-    StoreStatusOptions, StoreStatusResult, StoreStatusSensitivity, SweepOutcome, SweptBlob,
-    compact_store, link_clone_local_store, remove_content, resolve_store_mode_for_repo,
+    CompactOptions, CompactResult, MigrateToCommonDirOptions, MigrateToCommonDirResult,
+    RemoveOptions, RemoveResult, RemoveSelector, RemovedContent, StoreLinkOptions, StoreLinkResult,
+    StoreMode, StoreModeSource, StoreStatusInventory, StoreStatusOptions, StoreStatusResult,
+    StoreStatusSensitivity, SweepOutcome, SweptBlob, compact_store, link_clone_local_store,
+    migrate_store_to_common_dir, remove_content, resolve_store_mode_for_repo,
     set_store_mode_for_repo, store_status,
 };
 
@@ -27,6 +28,7 @@ enum StoreCommand {
     Link(StoreLinkArgs),
     Status(StoreStatusArgs),
     Mode(StoreModeArgs),
+    Migrate(StoreMigrateArgs),
     Remove(StoreRemoveArgs),
     /// Alias of `compact`.
     Gc(StoreCompactArgs),
@@ -59,6 +61,20 @@ struct StoreModeArgs {
 
     #[arg(long, default_value = ".")]
     repo: PathBuf,
+
+    #[arg(long)]
+    pretty: bool,
+}
+
+#[derive(Debug, Args)]
+struct StoreMigrateArgs {
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
+
+    /// Fan an ephemeral or sensitivity-flagged worktree's store into the shared
+    /// store anyway. Off by default: such a worktree is refused without this flag.
+    #[arg(long)]
+    include_ephemeral: bool,
 
     #[arg(long)]
     pretty: bool,
@@ -126,6 +142,16 @@ struct StoreLinkBody {
     artifacts_created: usize,
     artifacts_existing: usize,
     sensitivity: StoreStatusSensitivity,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoreMigrateBody {
+    events_created: usize,
+    events_existing: usize,
+    artifacts_created: usize,
+    artifacts_existing: usize,
+    source_empty: bool,
 }
 
 #[derive(serde::Serialize)]
@@ -198,6 +224,10 @@ pub(super) fn run(
             tracing::debug!(command = "store.mode", "command_start");
             mode(args, stdout)
         }
+        StoreCommand::Migrate(args) => {
+            tracing::debug!(command = "store.migrate", "command_start");
+            migrate(args, stdout)
+        }
         StoreCommand::Remove(args) => {
             tracing::debug!(command = "store.remove", "command_start");
             remove(args, stdout, stderr)
@@ -244,6 +274,23 @@ fn mode(args: StoreModeArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::
         source: outcome.source,
     };
     let document = json::DiagnosticDocument::new("shore.store-mode", body, vec![]);
+    json::write_json(stdout, &document, args.pretty)
+}
+
+fn migrate(
+    args: StoreMigrateArgs,
+    stdout: &mut dyn Write,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let span = tracing::info_span!("shore.store.migrate");
+    let _entered = span.enter();
+    let result = migrate_store_to_common_dir(
+        MigrateToCommonDirOptions::new(args.repo).with_include_ephemeral(args.include_ephemeral),
+    )?;
+    let document = json::DiagnosticDocument::new(
+        "shore.store-migrate",
+        StoreMigrateBody::from(result),
+        vec![],
+    );
     json::write_json(stdout, &document, args.pretty)
 }
 
@@ -320,6 +367,18 @@ impl From<StoreLinkResult> for StoreLinkBody {
             artifacts_created: result.artifacts_created,
             artifacts_existing: result.artifacts_existing,
             sensitivity: result.sensitivity,
+        }
+    }
+}
+
+impl From<MigrateToCommonDirResult> for StoreMigrateBody {
+    fn from(result: MigrateToCommonDirResult) -> Self {
+        Self {
+            events_created: result.events_created,
+            events_existing: result.events_existing,
+            artifacts_created: result.artifacts_created,
+            artifacts_existing: result.artifacts_existing,
+            source_empty: result.source_empty,
         }
     }
 }

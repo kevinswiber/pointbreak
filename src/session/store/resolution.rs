@@ -370,7 +370,7 @@ fn validate_registration_matches_manifest(
     ))
 }
 
-fn clone_local_store_dir(worktree_root: &Path) -> Result<PathBuf> {
+pub(crate) fn clone_local_store_dir(worktree_root: &Path) -> Result<PathBuf> {
     Ok(git_common_dir(worktree_root)?.join("shore"))
 }
 
