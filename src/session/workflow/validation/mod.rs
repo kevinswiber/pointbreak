@@ -179,8 +179,15 @@ mod tests {
         assert_eq!(result.validation_checks[0].status, ValidationStatus::Passed);
     }
 
+    /// The store a workflow actually lands in for `repo` — the shared common-dir
+    /// store by default. Reads that follow a workflow resolve here, not the raw
+    /// worktree-local `.shore/data`.
+    fn resolved_store_dir(repo: &std::path::Path) -> std::path::PathBuf {
+        crate::git::git_common_dir(repo).unwrap().join("shore")
+    }
+
     fn validation_events(repo: &Path) -> Vec<crate::session::event::ShoreEvent> {
-        EventStore::open(repo.join(".shore/data"))
+        EventStore::open(resolved_store_dir(repo))
             .list_events()
             .unwrap()
             .into_iter()

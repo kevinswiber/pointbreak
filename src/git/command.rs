@@ -99,11 +99,6 @@ fn absolute_git_cwd_path(repo: &Path, path: PathBuf) -> Result<PathBuf> {
     })
 }
 
-pub(crate) fn git_absolute_git_dir(repo: &Path) -> Result<PathBuf> {
-    let output = run_git(repo, ["rev-parse", "--absolute-git-dir"])?;
-    git_stdout_path(repo, &output.stdout, "absolute git-dir")
-}
-
 pub fn git_info_exclude_path(repo: &Path) -> Result<PathBuf> {
     let output = run_git(repo, ["rev-parse", "--git-path", "info/exclude"])?;
     let relative = git_stdout_path(repo, &output.stdout, "info/exclude path")?;
@@ -198,11 +193,6 @@ pub(crate) fn git_head_ref(repo: &Path) -> Result<Option<String>> {
 pub fn git_head_oid(repo: &Path) -> Result<String> {
     let output = run_git(repo, ["rev-parse", "HEAD"])?;
     git_stdout_string(repo, &output.stdout, "HEAD oid")
-}
-
-pub(crate) fn git_object_format(repo: &Path) -> Result<String> {
-    let output = run_git(repo, ["rev-parse", "--show-object-format"])?;
-    git_stdout_string(repo, &output.stdout, "object format")
 }
 
 pub fn git_head_tree_oid(repo: &Path) -> Result<String> {
@@ -451,7 +441,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn git_identity_helpers_distinguish_common_and_worktree_git_dirs() {
+    fn git_common_dir_is_shared_across_worktrees() {
         let fixture = LinkedWorktreeFixture::new();
 
         let main_common_dir = git_common_dir(fixture.main.path()).unwrap();
@@ -459,16 +449,6 @@ mod tests {
         assert_eq!(
             canonicalize(&main_common_dir),
             canonicalize(&linked_common_dir)
-        );
-
-        let main_git_dir = git_absolute_git_dir(fixture.main.path()).unwrap();
-        let linked_git_dir = git_absolute_git_dir(&fixture.linked_path).unwrap();
-        assert_ne!(canonicalize(&main_git_dir), canonicalize(&linked_git_dir));
-
-        let object_format = git_object_format(fixture.main.path()).unwrap();
-        assert!(
-            matches!(object_format.as_str(), "sha1" | "sha256"),
-            "unexpected object format: {object_format}"
         );
 
         let worktrees = git_worktree_list(fixture.main.path()).unwrap();

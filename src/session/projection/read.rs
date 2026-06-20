@@ -5,7 +5,8 @@ use crate::error::Result;
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{EventType, ReviewNoteImportedPayload, ShoreEvent};
 use crate::session::state::SessionState;
-use crate::session::{EventStore, ShoreStorePaths, sweep_stale_temp_files};
+use crate::session::store::resolution::{resolve_read_store, resolve_write_store};
+use crate::session::{EventStore, sweep_stale_temp_files};
 use crate::sidecar::{
     ParsedReviewNotes, ReviewNoteEntry, ReviewNoteTarget, ReviewNotesFile, ReviewNotesSidecar,
 };
@@ -89,7 +90,7 @@ fn parsed_review_notes_from_imports(
 }
 
 pub fn load_durable_notes_for_repo(repo: impl AsRef<Path>) -> Result<Option<ParsedReviewNotes>> {
-    let Some((paths, events)) = list_events_if_store_exists(repo)? else {
+    let Some((store_dir, events)) = list_events_if_store_exists(repo)? else {
         return Ok(None);
     };
 
@@ -109,13 +110,13 @@ pub fn load_durable_notes_for_repo(repo: impl AsRef<Path>) -> Result<Option<Pars
 
     Ok(Some(parsed_review_notes_from_imports(
         &imported_payloads,
-        paths.store_dir(),
+        &store_dir,
     )?))
 }
 
 #[cfg(test)]
 fn load_or_rebuild_session_state(repo: impl AsRef<Path>) -> Result<Option<SessionState>> {
-    let Some((_paths, events)) = list_events_if_store_exists(repo)? else {
+    let Some((_store_dir, events)) = list_events_if_store_exists(repo)? else {
         return Ok(None);
     };
 
@@ -123,39 +124,43 @@ fn load_or_rebuild_session_state(repo: impl AsRef<Path>) -> Result<Option<Sessio
 }
 
 pub fn rebuild_state(repo: impl AsRef<Path>) -> Result<SessionState> {
-    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
-    let worktree_root = paths.worktree_root();
-    let store_dir = paths.store_dir();
+    // Resolve the store the same way read and write surfaces do, so the rebuilt
+    // projection lands in (and is replayed from) the resolved store — the shared
+    // common-dir store by default — never a stale worktree-local copy.
+    let write_store = resolve_write_store(repo.as_ref())?;
+    let store_dir = write_store.store_dir();
+    let worktree_root = write_store.worktree_root();
     let storage = LocalStorage::new(store_dir);
     sweep_stale_temp_files(&storage, store_dir)?;
 
     let span = tracing::info_span!("session.rebuild_state", repo = %worktree_root.display());
     let _entered = span.enter();
 
-    let state = SessionState::from_events(&list_events_for_paths(&paths)?)?;
-    storage.write_json_atomic(&paths.state_path(), &state, Durability::Projection)?;
+    let state = SessionState::from_events(&EventStore::open(store_dir).list_events()?)?;
+    storage.write_json_atomic(
+        &store_dir.join("state.json"),
+        &state,
+        Durability::Projection,
+    )?;
     Ok(state)
 }
 
 pub fn read_events(repo: impl AsRef<Path>) -> Result<Vec<ShoreEvent>> {
-    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
-    list_events_for_paths(&paths)
+    let read_store = resolve_read_store(repo.as_ref())?;
+    EventStore::open(read_store.store_dir()).list_events()
 }
 
 fn list_events_if_store_exists(
     repo: impl AsRef<Path>,
-) -> Result<Option<(ShoreStorePaths, Vec<ShoreEvent>)>> {
-    let paths = ShoreStorePaths::resolve(repo.as_ref())?;
-    if !paths.store_dir().exists() {
+) -> Result<Option<(std::path::PathBuf, Vec<ShoreEvent>)>> {
+    let read_store = resolve_read_store(repo.as_ref())?;
+    let store_dir = read_store.store_dir().to_path_buf();
+    if !store_dir.exists() {
         return Ok(None);
     }
 
-    let events = list_events_for_paths(&paths)?;
-    Ok(Some((paths, events)))
-}
-
-fn list_events_for_paths(paths: &ShoreStorePaths) -> Result<Vec<ShoreEvent>> {
-    EventStore::open(paths.store_dir()).list_events()
+    let events = EventStore::open(&store_dir).list_events()?;
+    Ok(Some((store_dir, events)))
 }
 
 #[cfg(test)]
@@ -321,11 +326,11 @@ mod tests {
     }
 
     #[test]
-    fn load_or_rebuild_session_state_rebuilds_from_events_when_shore_dir_present() {
+    fn load_or_rebuild_session_state_rebuilds_from_events_when_store_present() {
         let repo = test_repo_with(vec![review_initialized()]);
 
         let state = load_or_rebuild_session_state(repo.path()).unwrap();
-        let state = state.expect("state should be present when .shore/data/ exists");
+        let state = state.expect("state should be present when the resolved store exists");
 
         assert_eq!(state.event_count, 1);
     }
@@ -337,7 +342,12 @@ mod tests {
             .current_dir(repo.path())
             .output()
             .unwrap();
-        let store_dir = repo.path().join(".shore/data");
+        // Write to the resolved store (the shared common-dir store), where the
+        // read surfaces look — not the raw worktree-local `.shore/data`.
+        let store_dir = resolve_read_store(repo.path())
+            .unwrap()
+            .store_dir()
+            .to_path_buf();
         std::fs::create_dir_all(store_dir.join("events")).unwrap();
         let store = EventStore::open(&store_dir);
         for event in events {

@@ -55,7 +55,7 @@ fn cli_reference_exists_and_covers_current_commands() {
         "shore dump",
         "shore review capture",
         "shore store status",
-        "shore store link",
+        "shore store migrate",
         "shore review observation add",
         "shore review input-request open",
         "shore review assessment add",
@@ -109,7 +109,7 @@ fn cli_reference_exists_and_covers_current_commands() {
 }
 
 #[test]
-fn public_docs_cover_clone_local_store_behavior() {
+fn public_docs_cover_the_shared_common_dir_store() {
     let cli = std::fs::read_to_string("docs/cli-reference.md").expect("read CLI reference");
     let storage = std::fs::read_to_string("docs/storage-model.md").expect("read storage model");
 
@@ -118,27 +118,28 @@ fn public_docs_cover_clone_local_store_behavior() {
         "## `shore store`",
         &[
             "shore store status",
-            "shore store link",
+            "shore store migrate",
             "shore.store-status",
-            "shore.store-link",
             "policyOutcome",
             "file:sha256:",
             "hard-blocking policy",
             "review unit list",
+            "shared common-dir store",
         ],
     );
 
     for token in [
-        "clone-local store",
-        "batch-only",
+        ".git/shore",
+        "shared common-dir store",
+        "shore store migrate",
+        "ephemeral",
         "sensitivity scan",
-        "hard-blocking policy",
         "inventory",
-        "opaque store, clone, and repository-family refs",
+        "opaque refs",
     ] {
         assert!(
             storage.contains(token),
-            "storage model missing clone-local behavior: {token}"
+            "storage model missing shared common-dir store behavior: {token}"
         );
     }
 

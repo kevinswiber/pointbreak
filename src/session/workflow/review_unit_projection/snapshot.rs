@@ -119,7 +119,7 @@ mod tests {
     /// projection's `selected_review_unit_capture` would — sourcing every field
     /// from the capture event/result, never from the artifact body.
     fn identity_from(captured: &CaptureResult, repo: &Path) -> ReviewUnitProjectionIdentity {
-        let events = EventStore::open(repo.join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo))
             .list_events()
             .unwrap();
         let event = events
@@ -140,6 +140,13 @@ mod tests {
             snapshot_artifact_content_hash: captured.snapshot_artifact_content_hash.clone(),
             capture_event_id: event.event_id.clone(),
         }
+    }
+
+    /// The store a workflow actually lands in for `repo` — the shared common-dir
+    /// store by default. Reads that follow a workflow resolve here, not the raw
+    /// worktree-local `.shore/data`.
+    fn resolved_store_dir(repo: &Path) -> std::path::PathBuf {
+        crate::git::git_common_dir(repo).unwrap().join("shore")
     }
 
     fn committed_repo() -> TestRepo {

@@ -4,7 +4,9 @@ use shoreline::model::{SessionId, WorkUnitId};
 use shoreline::session::event::{
     EventTarget, EventType, ReviewInitializedPayload, ShoreEvent, Writer,
 };
-use shoreline::session::{MigrateStoreOptions, migrate_store, read_events};
+use shoreline::session::{
+    MigrateStoreOptions, StoreMode, migrate_store, read_events, set_store_mode_for_repo,
+};
 use support::git_repo::GitRepo;
 
 /// Build a unique event via the public builder and return its content-addressed
@@ -59,7 +61,12 @@ fn migrate_store_via_public_api_nests_and_upgrades_a_flat_store() {
     assert!(result.relocated);
     assert_eq!(result.events_rewritten, 2);
 
-    // Post-migration: the store resolves and every event reads cleanly.
+    // This relocation nests the flat store under the worktree-local `.shore/data`;
+    // folding it into the shared common-dir store is the separate `store migrate`
+    // step. A non-ephemeral worktree resolves the common-dir store by default, so
+    // pin the worktree ephemeral to read the relocated nested store through the
+    // public API and confirm every event reads cleanly.
+    set_store_mode_for_repo(repo.path(), StoreMode::Ephemeral).expect("pin worktree-local read");
     let events = read_events(repo.path()).expect("events read after migration");
     assert_eq!(events.len(), 2);
     assert!(!repo.path().join(".shore/events").exists());

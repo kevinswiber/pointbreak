@@ -12,7 +12,6 @@ use crate::error::Result;
 use crate::session::EventStore;
 use crate::session::observation::validated_track_id;
 use crate::session::store::resolution::resolve_read_store;
-use crate::session::workflow::read_store::divergence_diagnostics;
 
 pub fn review_history(options: ReviewHistoryOptions) -> Result<ReviewHistoryResult> {
     let read_store = resolve_read_store(&options.repo)?;
@@ -47,10 +46,7 @@ pub fn review_history(options: ReviewHistoryOptions) -> Result<ReviewHistoryResu
         actor_attributes: options.actor_attributes,
         delegation_map: options.delegation_map,
     };
-    let mut result = history_from_events(&events, filters, Some(read_store.store_dir()))?;
-    result
-        .diagnostics
-        .extend(divergence_diagnostics(&read_store));
+    let result = history_from_events(&events, filters, Some(read_store.store_dir()))?;
     Ok(result)
 }
 

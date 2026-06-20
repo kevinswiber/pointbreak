@@ -81,7 +81,7 @@ mod tests {
     fn resolves_single_current_review_unit_when_not_explicit() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let event_store = EventStore::open(repo.path().join(".shore/data"));
+        let event_store = EventStore::open(resolved_store_dir(repo.path()));
         let events = event_store.list_events().unwrap();
 
         let context = CurrentReviewUnitContext::for_repo(repo.path()).unwrap();
@@ -326,7 +326,7 @@ mod tests {
         );
         assert!(result.body_content_hash.is_none());
 
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let state = SessionState::from_events(&events).unwrap();
@@ -358,7 +358,7 @@ mod tests {
         // The override flows into the content-addressed observation id.
         assert_ne!(with_a.observation_id, with_b.observation_id);
 
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let actor_for = |id: &crate::model::ObservationId| {
@@ -384,7 +384,7 @@ mod tests {
         )
         .unwrap();
 
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let observation = events
@@ -430,10 +430,10 @@ mod tests {
         assert_eq!(first.events_created, 1);
         assert_eq!(first.events_existing, 0);
         let on_disk: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(repo.path().join(".shore/data/state.json")).unwrap(),
+            &std::fs::read_to_string(resolved_store_dir(repo.path()).join("state.json")).unwrap(),
         )
         .unwrap();
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let replay = serde_json::to_value(SessionState::from_events(&events).unwrap()).unwrap();
@@ -443,10 +443,10 @@ mod tests {
         assert_eq!(second.events_created, 0);
         assert_eq!(second.events_existing, 1);
         let on_disk: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(repo.path().join(".shore/data/state.json")).unwrap(),
+            &std::fs::read_to_string(resolved_store_dir(repo.path()).join("state.json")).unwrap(),
         )
         .unwrap();
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let replay = serde_json::to_value(SessionState::from_events(&events).unwrap()).unwrap();
@@ -502,7 +502,7 @@ mod tests {
             "workflow result must not expose internal artifact paths"
         );
 
-        let artifacts = std::fs::read_dir(repo.path().join(".shore/data/artifacts/notes"))
+        let artifacts = std::fs::read_dir(resolved_store_dir(repo.path()).join("artifacts/notes"))
             .unwrap()
             .collect::<Vec<_>>();
         assert_eq!(artifacts.len(), 1);
@@ -529,7 +529,7 @@ mod tests {
 
         assert_ne!(original.observation_id, correction.observation_id);
 
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let correction_event = events
@@ -613,7 +613,9 @@ mod tests {
     }
 
     #[test]
-    fn list_observations_uses_worktree_store_dir_from_subdirectory() {
+    fn list_observations_resolves_the_store_from_a_subdirectory() {
+        // Listing from a nested path resolves the worktree root and reads the same
+        // resolved (shared common-dir) store the write landed in.
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let added = record_observation(
@@ -898,6 +900,13 @@ mod tests {
         repo.commit_all("base");
         repo.write("src/lib.rs", "pub fn value() -> u32 {\n    2\n}\n");
         repo
+    }
+
+    /// The store a workflow actually lands in for `repo` — the shared common-dir
+    /// store by default. Reads that follow a workflow resolve here, not the raw
+    /// worktree-local `.shore/data`.
+    fn resolved_store_dir(repo: &Path) -> std::path::PathBuf {
+        crate::git::git_common_dir(repo).unwrap().join("shore")
     }
 
     struct TestRepo {

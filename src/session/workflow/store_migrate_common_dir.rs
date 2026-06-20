@@ -199,15 +199,30 @@ mod tests {
         repo
     }
 
+    /// Seed a pre-shared-default capture: a populated worktree-local `.shore/data`
+    /// store, which is exactly the source `shore store migrate` folds forward. We
+    /// capture under ephemeral mode (so the write lands in `.shore/data`), then
+    /// restore the default Shared mode so the migration runs against a
+    /// non-ephemeral worktree carrying a legacy worktree-local store.
+    fn seed_worktree_local_capture(repo: &TestRepo) {
+        write_store_config(repo.path(), StoreMode::Ephemeral).unwrap();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        write_store_config(repo.path(), StoreMode::Shared).unwrap();
+        assert!(
+            repo.path().join(".shore/data/events").is_dir(),
+            "the seed lands a worktree-local store to migrate"
+        );
+    }
+
     #[test]
     fn folds_worktree_local_store_into_common_dir_non_destructively() {
         let repo = modified_repo();
-        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        seed_worktree_local_capture(&repo);
         let local = repo.path().join(".shore/data");
         let common = git_common_dir(repo.path()).unwrap().join("shore");
         assert!(
-            !common.exists(),
-            "common-dir store does not exist before migration"
+            !common.join("events").exists(),
+            "common-dir store has no events before migration"
         );
 
         let result =
@@ -228,7 +243,7 @@ mod tests {
     #[test]
     fn re_run_is_idempotent_and_reports_existing() {
         let repo = modified_repo();
-        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        seed_worktree_local_capture(&repo);
 
         let first =
             migrate_store_to_common_dir(MigrateToCommonDirOptions::new(repo.path())).unwrap();
@@ -248,7 +263,7 @@ mod tests {
     #[test]
     fn refuses_an_ephemeral_worktree_without_include_ephemeral() {
         let repo = modified_repo();
-        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        seed_worktree_local_capture(&repo);
         // Mark the worktree ephemeral via the store-config writer.
         write_store_config(repo.path(), StoreMode::Ephemeral).unwrap();
 
@@ -270,7 +285,7 @@ mod tests {
     #[test]
     fn include_ephemeral_override_migrates_an_ephemeral_worktree() {
         let repo = modified_repo();
-        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        seed_worktree_local_capture(&repo);
         write_store_config(repo.path(), StoreMode::Ephemeral).unwrap();
 
         let result = migrate_store_to_common_dir(
@@ -311,7 +326,7 @@ mod tests {
     #[test]
     fn source_shore_data_is_never_deleted_by_migration() {
         let repo = modified_repo();
-        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        seed_worktree_local_capture(&repo);
         let local = repo.path().join(".shore/data");
         let before = EventStore::open(&local).list_event_file_names().unwrap();
 

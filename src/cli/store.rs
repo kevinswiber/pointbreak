@@ -5,11 +5,10 @@ use clap::{ArgGroup, Args, Subcommand, ValueEnum};
 use shoreline::model::{ReviewUnitId, SnapshotId};
 use shoreline::session::{
     CompactOptions, CompactResult, MigrateToCommonDirOptions, MigrateToCommonDirResult,
-    RemoveOptions, RemoveResult, RemoveSelector, RemovedContent, StoreLinkOptions, StoreLinkResult,
-    StoreMode, StoreModeSource, StoreStatusInventory, StoreStatusOptions, StoreStatusResult,
-    StoreStatusSensitivity, SweepOutcome, SweptBlob, compact_store, link_clone_local_store,
-    migrate_store_to_common_dir, remove_content, resolve_store_mode_for_repo,
-    set_store_mode_for_repo, store_status,
+    RemoveOptions, RemoveResult, RemoveSelector, RemovedContent, StoreMode, StoreModeSource,
+    StoreStatusInventory, StoreStatusOptions, StoreStatusResult, StoreStatusSensitivity,
+    SweepOutcome, SweptBlob, compact_store, migrate_store_to_common_dir, remove_content,
+    resolve_store_mode_for_repo, set_store_mode_for_repo, store_status,
 };
 
 use crate::cli::json;
@@ -25,7 +24,6 @@ pub(super) struct StoreArgs {
 
 #[derive(Debug, Subcommand)]
 enum StoreCommand {
-    Link(StoreLinkArgs),
     Status(StoreStatusArgs),
     Mode(StoreModeArgs),
     Migrate(StoreMigrateArgs),
@@ -33,15 +31,6 @@ enum StoreCommand {
     /// Alias of `compact`.
     Gc(StoreCompactArgs),
     Compact(StoreCompactArgs),
-}
-
-#[derive(Debug, Args)]
-struct StoreLinkArgs {
-    #[arg(long, default_value = ".")]
-    repo: PathBuf,
-
-    #[arg(long)]
-    pretty: bool,
 }
 
 #[derive(Debug, Args)]
@@ -132,20 +121,6 @@ struct StoreCompactArgs {
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct StoreLinkBody {
-    mode: String,
-    store_ref: String,
-    clone_ref: String,
-    repository_family_ref: String,
-    events_created: usize,
-    events_existing: usize,
-    artifacts_created: usize,
-    artifacts_existing: usize,
-    sensitivity: StoreStatusSensitivity,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
 struct StoreMigrateBody {
     events_created: usize,
     events_existing: usize,
@@ -212,10 +187,6 @@ pub(super) fn run(
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
-        StoreCommand::Link(args) => {
-            tracing::debug!(command = "store.link", "command_start");
-            link(args, stdout)
-        }
         StoreCommand::Status(args) => {
             tracing::debug!(command = "store.status", "command_start");
             status(args, stdout)
@@ -237,15 +208,6 @@ pub(super) fn run(
             compact(args, stdout)
         }
     }
-}
-
-fn link(args: StoreLinkArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
-    let span = tracing::info_span!("shore.store.link");
-    let _entered = span.enter();
-    let result = link_clone_local_store(StoreLinkOptions::new(args.repo))?;
-    let document =
-        json::DiagnosticDocument::new("shore.store-link", StoreLinkBody::from(result), vec![]);
-    json::write_json(stdout, &document, args.pretty)
 }
 
 fn status(args: StoreStatusArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
@@ -352,22 +314,6 @@ fn selector_from_args(
         Ok(RemoveSelector::Orphans)
     } else {
         Err("exactly one of --snapshot/--review-unit/--ref/--range/--orphans is required".into())
-    }
-}
-
-impl From<StoreLinkResult> for StoreLinkBody {
-    fn from(result: StoreLinkResult) -> Self {
-        Self {
-            mode: result.mode,
-            store_ref: result.store_ref,
-            clone_ref: result.clone_ref,
-            repository_family_ref: result.repository_family_ref,
-            events_created: result.events_created,
-            events_existing: result.events_existing,
-            artifacts_created: result.artifacts_created,
-            artifacts_existing: result.artifacts_existing,
-            sensitivity: result.sensitivity,
-        }
     }
 }
 

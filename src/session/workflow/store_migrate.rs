@@ -285,31 +285,11 @@ mod tests {
         assert!(!shore.join("data/delegates.json").exists());
     }
 
-    #[test]
-    fn migrate_store_relocates_a_registration_only_legacy_store() {
-        let repo = git_repo();
-        let shore = repo.path().join(".shore");
-        // A registered linked checkout with NO local events/state — only the
-        // top-level registration file (a registered checkout from before the
-        // relocation, before any local write).
-        std::fs::create_dir_all(&shore).unwrap();
-        std::fs::write(
-            shore.join("store-registration.json"),
-            r#"{"schema":"shore.store-registration","version":1,"mode":"cloneLocal","storeRef":"store:random:s","cloneRef":"clone:random:c","repositoryFamilyRef":"clone:random:c"}"#,
-        )
-        .unwrap();
-
-        let result = migrate_store(MigrateStoreOptions::new(repo.path())).unwrap();
-        assert!(
-            result.relocated,
-            "a registration-only legacy store must relocate"
-        );
-        // The registration moved into data/; the old top-level path is gone, so
-        // resolve_store (which reads .shore/data/store-registration.json) keeps
-        // the checkout registered instead of silently dropping to worktree-local.
-        assert!(shore.join("data/store-registration.json").is_file());
-        assert!(!shore.join("store-registration.json").exists());
-    }
+    // The "registration-only legacy store relocates" scenario is retired: store
+    // registration was removed with the shared-store default, so there is no
+    // top-level registration file for the flat-store relocation to move. The
+    // relocation now keys solely on real flat-store markers (events/artifacts/
+    // state.json), covered by the flat-store relocation tests above.
 
     #[test]
     fn migrate_store_is_idempotent_on_second_run() {

@@ -17,7 +17,6 @@ use crate::session::projection::cosignature::{
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::resolve_read_store;
-use crate::session::workflow::read_store::divergence_diagnostics;
 use crate::session::workflow::{ValidationCheckProjectionOptions, project_validation_checks};
 use crate::session::{
     EventStore, ReviewUnitCommitRangeProjection, ReviewUnitCommitRangeView, verify_event_signature,
@@ -151,7 +150,6 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         .clone()
         .expect("SessionState::from_events sets event_set_hash");
     let mut diagnostics = state.diagnostics;
-    diagnostics.extend(divergence_diagnostics(&read_store));
     if let Some(content_hash) = &removed_snapshot_content_hash {
         diagnostics.push(ProjectionDiagnostic {
             code: "snapshot_content_removed".to_owned(),
@@ -986,7 +984,7 @@ mod tests {
         )
         .unwrap();
 
-        EventStore::open(repo.join(".shore/data"))
+        EventStore::open(resolved_store_dir(repo))
             .record_event_once(&event)
             .unwrap();
     }
@@ -1035,7 +1033,7 @@ mod tests {
         )
         .unwrap();
 
-        EventStore::open(repo.join(".shore/data"))
+        EventStore::open(resolved_store_dir(repo))
             .record_event_once(&event)
             .unwrap();
     }
@@ -1365,6 +1363,13 @@ mod tests {
         }
     }
 
+    /// The store a workflow actually lands in for `repo` — the shared common-dir
+    /// store by default. Reads that follow a workflow resolve here, not the raw
+    /// worktree-local `.shore/data`.
+    fn resolved_store_dir(repo: &Path) -> std::path::PathBuf {
+        crate::git::git_common_dir(repo).unwrap().join("shore")
+    }
+
     fn tamper_snapshot_artifact_snapshot_field(repo: &Path, snapshot_id: &SnapshotId) {
         let path = snapshot_artifact_path(repo, snapshot_id);
         let mut json: serde_json::Value =
@@ -1417,7 +1422,7 @@ mod tests {
             "2026-05-10T00:00:00Z",
         )
         .unwrap();
-        EventStore::open(repo.join(".shore/data"))
+        EventStore::open(resolved_store_dir(repo))
             .record_event_once(&event)
             .unwrap();
     }
@@ -1467,7 +1472,7 @@ mod tests {
     }
 
     fn snapshot_artifact_path(repo: &Path, snapshot_id: &SnapshotId) -> PathBuf {
-        fs::read_dir(repo.join(".shore/data/artifacts/snapshots"))
+        fs::read_dir(resolved_store_dir(repo).join("artifacts/snapshots"))
             .expect("read snapshot artifacts directory")
             .map(|entry| entry.expect("read snapshot artifact dir entry").path())
             .find(|path| {
@@ -1483,7 +1488,7 @@ mod tests {
     }
 
     fn capture_event_path(repo: &Path, review_unit_id: &ReviewUnitId) -> PathBuf {
-        fs::read_dir(repo.join(".shore/data/events"))
+        fs::read_dir(resolved_store_dir(repo).join("events"))
             .expect("read events directory")
             .map(|entry| entry.expect("read event dir entry").path())
             .find(|path| {

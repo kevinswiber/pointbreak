@@ -710,7 +710,7 @@ mod tests {
     fn export_manifest_includes_events_and_snapshot_artifacts() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let store = EventStore::open(repo.path().join(".shore/data"));
+        let store = EventStore::open(resolved_store_dir(repo.path()));
         let capture_event = store
             .list_events()
             .unwrap()
@@ -718,7 +718,7 @@ mod tests {
             .find(|event| event.event_type == EventType::ReviewUnitCaptured)
             .expect("capture event");
 
-        let manifest = build_export_manifest(repo.path().join(".shore/data")).unwrap();
+        let manifest = build_export_manifest(resolved_store_dir(repo.path())).unwrap();
 
         assert_eq!(manifest.schema, "shore.store-export-manifest");
         assert_eq!(manifest.version, 1);
@@ -780,7 +780,7 @@ mod tests {
         )
         .unwrap();
 
-        let manifest = build_export_manifest(repo.path().join(".shore/data")).unwrap();
+        let manifest = build_export_manifest(resolved_store_dir(repo.path())).unwrap();
 
         assert_eq!(manifest.fidelity_status, ExportFidelityStatus::Full);
         let body_hash = observation.body_content_hash.expect("body hash");
@@ -888,7 +888,7 @@ mod tests {
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         remove_snapshot_artifacts(repo.path());
 
-        let manifest = build_export_manifest(repo.path().join(".shore/data")).unwrap();
+        let manifest = build_export_manifest(resolved_store_dir(repo.path())).unwrap();
 
         assert_eq!(manifest.fidelity_status, ExportFidelityStatus::Incomplete);
         assert_eq!(manifest.artifacts.len(), 0);
@@ -911,9 +911,9 @@ mod tests {
         let target_store_dir = target.path().join(".shore/data");
 
         let first =
-            import_store_bundle(repo.path().join(".shore/data"), &target_store_dir).unwrap();
+            import_store_bundle(resolved_store_dir(repo.path()), &target_store_dir).unwrap();
         let second =
-            import_store_bundle(repo.path().join(".shore/data"), &target_store_dir).unwrap();
+            import_store_bundle(resolved_store_dir(repo.path()), &target_store_dir).unwrap();
 
         // The capture event plus the auto-recorded ref association.
         assert_eq!(first.events_created, 2);
@@ -1015,7 +1015,7 @@ mod tests {
         let target = tempfile::tempdir().unwrap();
 
         let error = import_store_bundle(
-            repo.path().join(".shore/data"),
+            resolved_store_dir(repo.path()),
             target.path().join(".shore/data"),
         )
         .expect_err("incomplete bundle is rejected");
@@ -1028,7 +1028,7 @@ mod tests {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         fs::write(
-            repo.path().join(".shore/data/state.json"),
+            resolved_store_dir(repo.path()).join("state.json"),
             r#"{"sourceState":"must not be imported as authority"}"#,
         )
         .unwrap();
@@ -1036,7 +1036,7 @@ mod tests {
         let target_store_dir = target.path().join(".shore/data");
 
         let result =
-            import_store_bundle(repo.path().join(".shore/data"), &target_store_dir).unwrap();
+            import_store_bundle(resolved_store_dir(repo.path()), &target_store_dir).unwrap();
 
         assert_eq!(
             result.commit_order,
@@ -1060,7 +1060,7 @@ mod tests {
         let target = tempfile::tempdir().unwrap();
         let target_store_dir = target.path().join(".shore/data");
 
-        import_store_bundle(repo.path().join(".shore/data"), &target_store_dir).unwrap();
+        import_store_bundle(resolved_store_dir(repo.path()), &target_store_dir).unwrap();
 
         let stored = EventStore::open(&target_store_dir).list_events().unwrap();
         assert!(!stored.is_empty());
@@ -1073,7 +1073,7 @@ mod tests {
             assert!(stamp.received_at.starts_with("unix-ms:"));
         }
         // The source store is never modified.
-        let source = EventStore::open(repo.path().join(".shore/data"))
+        let source = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         assert!(source.iter().all(|event| event.ingest.is_none()));
@@ -1113,7 +1113,7 @@ mod tests {
         let target = tempfile::tempdir().unwrap();
         let target_store_dir = target.path().join(".shore/data");
 
-        import_store_bundle(repo.path().join(".shore/data"), &target_store_dir).unwrap();
+        import_store_bundle(resolved_store_dir(repo.path()), &target_store_dir).unwrap();
         let first_stamps: Vec<_> = EventStore::open(&target_store_dir)
             .list_events()
             .unwrap()
@@ -1123,7 +1123,7 @@ mod tests {
         assert!(first_stamps.iter().all(Option::is_some));
 
         let second =
-            import_store_bundle(repo.path().join(".shore/data"), &target_store_dir).unwrap();
+            import_store_bundle(resolved_store_dir(repo.path()), &target_store_dir).unwrap();
         assert_eq!(second.events_created, 0);
         assert!(second.events_existing > 0);
 
@@ -1195,6 +1195,13 @@ mod tests {
         repo.commit_all("base");
         repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
         repo
+    }
+
+    /// The store a capture/workflow actually lands in for `repo` — the shared
+    /// common-dir store by default. A repo used as an export/import bundle source
+    /// is read from here, not the raw worktree-local `.shore/data`.
+    fn resolved_store_dir(repo: &std::path::Path) -> std::path::PathBuf {
+        crate::git::git_common_dir(repo).unwrap().join("shore")
     }
 
     fn review_initialized_event(idempotency_key: &str, value: u32) -> ShoreEvent {
@@ -1291,7 +1298,7 @@ mod tests {
     }
 
     fn remove_snapshot_artifacts(repo: &Path) {
-        let artifact_dir = repo.join(".shore/data/artifacts/snapshots");
+        let artifact_dir = resolved_store_dir(repo).join("artifacts/snapshots");
         for entry in fs::read_dir(artifact_dir).unwrap() {
             let path = entry.unwrap().path();
             if path.extension() == Some(OsStr::new("json")) {

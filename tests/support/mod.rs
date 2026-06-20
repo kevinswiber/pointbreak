@@ -65,6 +65,30 @@ pub fn committed_repo() -> git_repo::GitRepo {
     repo
 }
 
+/// The shared common-dir store a clone resolves by default
+/// (`<git-common-dir>/shore`, i.e. `.git/shore`). Every non-ephemeral worktree of
+/// a clone — main and linked — reads and writes here, with no `store link`. Use
+/// this for store-path assertions after a `shore` write instead of the raw
+/// worktree-local `.shore/data`.
+#[allow(dead_code)]
+pub fn common_dir_store(repo_root: &Path) -> std::path::PathBuf {
+    let output = Command::new("git")
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .current_dir(repo_root)
+        .output()
+        .expect("run git rev-parse --git-common-dir");
+    assert!(
+        output.status.success(),
+        "git rev-parse --git-common-dir failed in {}",
+        repo_root.display()
+    );
+    let common_dir = String::from_utf8(output.stdout)
+        .expect("git-common-dir is utf-8")
+        .trim()
+        .to_owned();
+    Path::new(&common_dir).join("shore")
+}
+
 #[track_caller]
 #[allow(dead_code)]
 pub fn assert_existing_paths_eq(actual: &Path, expected: &Path) {

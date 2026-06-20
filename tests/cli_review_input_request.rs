@@ -49,7 +49,11 @@ fn input_request_open_defaults_to_operative_mode_and_emits_v1_json() {
     assert_eq!(json["eventsCreatedByType"]["input_request_opened"], 1);
     assert!(json.get("bodyArtifactPath").is_none());
     assert_has_no_legacy_public_input_request_shape(&json);
-    assert!(repo.path().join(".shore/data/state.json").is_file());
+    assert!(
+        support::common_dir_store(repo.path())
+            .join("state.json")
+            .is_file()
+    );
 }
 
 #[test]

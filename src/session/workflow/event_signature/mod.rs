@@ -268,7 +268,7 @@ mod tests {
 
     fn captured_target(repo: &TestRepo) -> EventId {
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         events
@@ -280,7 +280,7 @@ mod tests {
     }
 
     fn stored_carrier(repo: &TestRepo) -> ShoreEvent {
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         events
@@ -290,7 +290,7 @@ mod tests {
     }
 
     fn stored_target(repo: &TestRepo, target_event_id: &EventId) -> ShoreEvent {
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         events
@@ -384,7 +384,7 @@ mod tests {
 
         // Project with a trust set that enrolls the endorser's key ONLY under the endorser
         // actor (so the carrier is UntrustedKey for the target's actor → endorsement candidate).
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let trust = event_signature_trust_set(serde_json::json!({
@@ -494,7 +494,7 @@ mod tests {
         .unwrap();
 
         assert_ne!(a.event_id, b.event_id);
-        let carriers: Vec<_> = EventStore::open(repo.path().join(".shore/data"))
+        let carriers: Vec<_> = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap()
             .into_iter()
@@ -580,6 +580,13 @@ mod tests {
 
         let carrier = stored_carrier(&repo);
         assert_eq!(carrier.writer.actor_id.as_str(), "actor:agent:cosigner");
+    }
+
+    /// The store a workflow actually lands in for `repo` — the shared common-dir
+    /// store by default. Reads that follow a workflow resolve here, not the raw
+    /// worktree-local `.shore/data`.
+    fn resolved_store_dir(repo: &std::path::Path) -> std::path::PathBuf {
+        crate::git::git_common_dir(repo).unwrap().join("shore")
     }
 
     struct TestRepo {

@@ -6,8 +6,8 @@ use shoreline::session::{
     load_durable_notes_for_repo, read_events, rebuild_state, store_dir_for_repo,
 };
 
-use crate::support::assert_existing_paths_eq;
 use crate::support::git_repo::GitRepo;
+use crate::support::{assert_existing_paths_eq, common_dir_store};
 
 #[test]
 fn shore_dir_resolves_to_git_worktree_root_from_subdirectory() {
@@ -19,8 +19,10 @@ fn shore_dir_resolves_to_git_worktree_root_from_subdirectory() {
     let store_dir = store_dir_for_repo(&subdir).expect("store dir resolves");
 
     assert_existing_paths_eq(&root, repo.path());
-    assert_eq!(path_file_name(&store_dir), "data");
-    assert_eq!(path_file_name(path_parent(&store_dir)), ".shore");
+    // From a subdirectory, the public helper resolves the repo's shared common-dir
+    // store (`.git/shore`), the same store the read/write seams use.
+    assert_eq!(path_file_name(&store_dir), "shore");
+    assert_eq!(path_file_name(path_parent(&store_dir)), ".git");
     assert_existing_paths_eq(path_parent(path_parent(&store_dir)), repo.path());
 }
 
@@ -125,14 +127,15 @@ fn read_events_uses_worktree_store_dir_from_subdirectory() {
 }
 
 #[test]
-fn rebuild_state_uses_worktree_store_dir_from_subdirectory() {
+fn rebuild_state_resolves_the_store_from_a_subdirectory() {
     let repo = modified_repo();
     capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-    std::fs::remove_file(repo.path().join(".shore/data/state.json")).unwrap();
+    let store = common_dir_store(repo.path());
+    std::fs::remove_file(store.join("state.json")).unwrap();
 
     rebuild_state(repo.path().join("src")).unwrap();
 
-    assert!(repo.path().join(".shore/data/state.json").is_file());
+    assert!(store.join("state.json").is_file());
 }
 
 #[test]
@@ -220,9 +223,10 @@ fn first_capture_creates_shore_store_events_artifacts_and_state() {
     let result =
         capture_worktree_review(CaptureOptions::new(repo.path())).expect("capture succeeds");
 
-    assert!(repo.path().join(".shore/data/events").is_dir());
-    assert!(repo.path().join(".shore/data/artifacts/snapshots").is_dir());
-    assert!(repo.path().join(".shore/data/state.json").is_file());
+    let store = common_dir_store(repo.path());
+    assert!(store.join("events").is_dir());
+    assert!(store.join("artifacts/snapshots").is_dir());
+    assert!(store.join("state.json").is_file());
     // Storage is registered in the repository-local exclude, never the tracked
     // worktree .gitignore.
     assert!(
@@ -237,7 +241,8 @@ fn first_capture_creates_shore_store_events_artifacts_and_state() {
     assert_eq!(result.events_created_by_type["review_unit_captured"], 1);
 
     let state: SessionState =
-        serde_json::from_str(&repo.read(".shore/data/state.json")).expect("state decodes");
+        serde_json::from_str(&std::fs::read_to_string(store.join("state.json")).unwrap())
+            .expect("state decodes");
     assert_eq!(state.current_review_unit_id, Some(result.review_unit_id));
     assert_eq!(state.review_unit_count, 1);
     assert_eq!(state.event_count, 2);
@@ -323,7 +328,10 @@ fn import_notes_from_native_sidecar_records_note_events_and_updates_state() {
 
     let result =
         import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar)).unwrap();
-    let state: SessionState = serde_json::from_str(&repo.read(".shore/data/state.json")).unwrap();
+    let state: SessionState = serde_json::from_str(
+        &std::fs::read_to_string(common_dir_store(repo.path()).join("state.json")).unwrap(),
+    )
+    .unwrap();
 
     assert_eq!(result.note_count, 1);
     assert_eq!(result.notes_created, 1);
@@ -341,7 +349,10 @@ fn reimporting_same_sidecar_is_idempotent() {
         import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar)).unwrap();
     let second =
         import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar)).unwrap();
-    let state: SessionState = serde_json::from_str(&repo.read(".shore/data/state.json")).unwrap();
+    let state: SessionState = serde_json::from_str(
+        &std::fs::read_to_string(common_dir_store(repo.path()).join("state.json")).unwrap(),
+    )
+    .unwrap();
 
     assert_eq!(first.notes_created, 1);
     assert_eq!(second.notes_created, 0);
@@ -360,7 +371,10 @@ fn changing_imported_note_creates_one_new_durable_event() {
 
     let result =
         import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar)).unwrap();
-    let state: SessionState = serde_json::from_str(&repo.read(".shore/data/state.json")).unwrap();
+    let state: SessionState = serde_json::from_str(
+        &std::fs::read_to_string(common_dir_store(repo.path()).join("state.json")).unwrap(),
+    )
+    .unwrap();
 
     assert_eq!(result.notes_created, 1);
     assert_eq!(result.notes_existing, 0);
@@ -375,10 +389,12 @@ fn importing_notes_auto_initializes_shore() {
 
     let result =
         import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar)).unwrap();
-    let state: SessionState = serde_json::from_str(&repo.read(".shore/data/state.json")).unwrap();
+    let store = common_dir_store(repo.path());
+    let state: SessionState =
+        serde_json::from_str(&std::fs::read_to_string(store.join("state.json")).unwrap()).unwrap();
 
-    assert!(repo.path().join(".shore/data/events").is_dir());
-    assert!(repo.path().join(".shore/data/state.json").is_file());
+    assert!(store.join("events").is_dir());
+    assert!(store.join("state.json").is_file());
     assert_eq!(result.note_count, 1);
     assert_eq!(state.note_count, 1);
     assert_eq!(state.current_revision_id, None);
@@ -413,7 +429,10 @@ fn large_note_body_is_written_to_content_addressed_artifact() {
             .unwrap()
             .starts_with("artifacts/notes/")
     );
-    assert_eq!(note_body_artifact_file_count(repo.path()), 1);
+    assert_eq!(
+        note_body_artifact_file_count(&common_dir_store(repo.path())),
+        1
+    );
 }
 
 #[test]
@@ -426,7 +445,10 @@ fn small_note_body_remains_inline_without_note_body_artifact() {
 
     assert_eq!(note.payload["body"], "small body");
     assert!(note.payload["bodyArtifactPath"].is_null());
-    assert_eq!(note_body_artifact_file_count(repo.path()), 0);
+    assert_eq!(
+        note_body_artifact_file_count(&common_dir_store(repo.path())),
+        0
+    );
 }
 
 #[test]
@@ -454,7 +476,8 @@ fn reimporting_same_long_body_reuses_content_addressed_artifact_path() {
 #[test]
 fn ledger_pipeline_records_capture_import_and_bounded_state() {
     let repo = bounded_ledger_repo();
-    let state_json = repo.read(".shore/data/state.json");
+    let state_json =
+        std::fs::read_to_string(common_dir_store(repo.path()).join("state.json")).unwrap();
     let state: serde_json::Value = serde_json::from_str(&state_json).expect("state is json");
 
     assert_eq!(state["schema"], "shore.state");
@@ -468,21 +491,24 @@ fn ledger_pipeline_records_capture_import_and_bounded_state() {
     assert_eq!(state["reviewUnitCount"], 1);
     assert_eq!(state["noteCount"], 1);
     assert!(state.get("events").is_none());
-    assert_eq!(event_file_count(repo.path()), 4);
+    assert_eq!(event_file_count(&common_dir_store(repo.path())), 4);
 }
 
 #[test]
 fn state_event_set_hash_changes_when_events_change() {
     let repo = modified_repo();
     capture_worktree_review(CaptureOptions::new(repo.path())).expect("capture succeeds");
+    let store = common_dir_store(repo.path());
     let capture_state: serde_json::Value =
-        serde_json::from_str(&repo.read(".shore/data/state.json")).expect("capture state");
+        serde_json::from_str(&std::fs::read_to_string(store.join("state.json")).unwrap())
+            .expect("capture state");
 
     let sidecar = repo.write_fixture("review-notes.json", native_review_notes_json());
     import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(sidecar))
         .expect("notes import succeeds");
     let import_state: serde_json::Value =
-        serde_json::from_str(&repo.read(".shore/data/state.json")).expect("import state");
+        serde_json::from_str(&std::fs::read_to_string(store.join("state.json")).unwrap())
+            .expect("import state");
 
     assert_eq!(capture_state["eventCount"], 2);
     assert_eq!(import_state["eventCount"], 4);
@@ -492,13 +518,14 @@ fn state_event_set_hash_changes_when_events_change() {
 #[test]
 fn state_can_be_deleted_and_rebuilt_from_events() {
     let repo = bounded_ledger_repo();
-    let original_state = repo.read(".shore/data/state.json");
-    std::fs::remove_file(repo.path().join(".shore/data/state.json")).unwrap();
+    let store = common_dir_store(repo.path());
+    let original_state = std::fs::read_to_string(store.join("state.json")).unwrap();
+    std::fs::remove_file(store.join("state.json")).unwrap();
 
     let rebuilt = rebuild_state(repo.path()).expect("state rebuilds");
-    let rebuilt_state = repo.read(".shore/data/state.json");
+    let rebuilt_state = std::fs::read_to_string(store.join("state.json")).unwrap();
 
-    assert!(repo.path().join(".shore/data/state.json").is_file());
+    assert!(store.join("state.json").is_file());
     assert!(rebuilt.event_count >= 1);
     let original: serde_json::Value = serde_json::from_str(&original_state).unwrap();
     let rebuilt: serde_json::Value = serde_json::from_str(&rebuilt_state).unwrap();
@@ -508,11 +535,12 @@ fn state_can_be_deleted_and_rebuilt_from_events() {
 #[test]
 fn corrupt_state_json_is_ignored_and_rebuilt_from_events() {
     let repo = bounded_ledger_repo();
-    let original_state = repo.read(".shore/data/state.json");
-    std::fs::write(repo.path().join(".shore/data/state.json"), "{").unwrap();
+    let store = common_dir_store(repo.path());
+    let original_state = std::fs::read_to_string(store.join("state.json")).unwrap();
+    std::fs::write(store.join("state.json"), "{").unwrap();
 
     rebuild_state(repo.path()).expect("state rebuilds from events");
-    let rebuilt_state = repo.read(".shore/data/state.json");
+    let rebuilt_state = std::fs::read_to_string(store.join("state.json")).unwrap();
 
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&rebuilt_state).unwrap(),
@@ -523,7 +551,7 @@ fn corrupt_state_json_is_ignored_and_rebuilt_from_events() {
 #[test]
 fn event_store_detects_corrupted_event_payload_hash() {
     let repo = bounded_ledger_repo();
-    corrupt_first_event_payload(repo.path());
+    corrupt_first_event_payload(&common_dir_store(repo.path()));
 
     let error = rebuild_state(repo.path()).expect_err("corrupt event is rejected");
 
@@ -566,7 +594,7 @@ fn load_durable_notes_for_repo_returns_none_with_empty_store() {
     let repo = modified_repo();
     capture_worktree_review(CaptureOptions::new(repo.path())).expect("capture succeeds");
 
-    assert!(repo.path().join(".shore/data/events").exists());
+    assert!(common_dir_store(repo.path()).join("events").exists());
 
     let parsed = load_durable_notes_for_repo(repo.path()).expect("load succeeds");
 
@@ -616,7 +644,7 @@ fn artifacts_notes_directory_is_not_a_complete_note_body_inventory() {
         .count();
     assert_eq!(imported_count, 2, "expected two ReviewNoteImported events");
     assert_eq!(
-        note_body_artifact_file_count(repo.path()),
+        note_body_artifact_file_count(&common_dir_store(repo.path())),
         1,
         "artifacts/notes/ is an overflow store — only the large body should materialize",
     );
@@ -672,8 +700,8 @@ fn shore_is_ignored(repo: &GitRepo) -> bool {
     !output.stdout.is_empty()
 }
 
-fn event_file_count(repo: &std::path::Path) -> usize {
-    std::fs::read_dir(repo.join(".shore/data/events"))
+fn event_file_count(store: &std::path::Path) -> usize {
+    std::fs::read_dir(store.join("events"))
         .map(|entries| {
             entries
                 .filter(|entry| {
@@ -686,8 +714,8 @@ fn event_file_count(repo: &std::path::Path) -> usize {
         .unwrap_or_default()
 }
 
-fn note_body_artifact_file_count(repo: &std::path::Path) -> usize {
-    let dir = repo.join(".shore/data/artifacts/notes");
+fn note_body_artifact_file_count(store: &std::path::Path) -> usize {
+    let dir = store.join("artifacts/notes");
     std::fs::read_dir(dir)
         .map(|entries| {
             entries
@@ -701,8 +729,8 @@ fn note_body_artifact_file_count(repo: &std::path::Path) -> usize {
         .unwrap_or_default()
 }
 
-fn corrupt_first_event_payload(repo: &std::path::Path) {
-    let mut event_files = std::fs::read_dir(repo.join(".shore/data/events"))
+fn corrupt_first_event_payload(store: &std::path::Path) {
+    let mut event_files = std::fs::read_dir(store.join("events"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))

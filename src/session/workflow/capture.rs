@@ -418,7 +418,6 @@ mod tests {
         CommitRangeCaptureMode, ReviewEndpoint, ReviewUnitLineageId, ReviewUnitSource, SnapshotId,
     };
     use crate::session::event::EventType;
-    use crate::session::store::resolution::register_clone_local_store;
     use crate::session::{
         ArtifactKind, CaptureOptions, CaptureResult, CommitRangeSpec, EventStore,
         ImportArtifactOptions, ImportArtifactOutcome, LineageAttachOptions, ReviewUnitShowOptions,
@@ -482,7 +481,7 @@ mod tests {
             1
         );
 
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let projection =
@@ -506,7 +505,7 @@ mod tests {
         )
         .unwrap();
 
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let ref_count = events
@@ -540,7 +539,7 @@ mod tests {
         )
         .unwrap();
 
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         assert!(
@@ -562,7 +561,7 @@ mod tests {
         )
         .unwrap();
 
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         assert!(
@@ -581,7 +580,7 @@ mod tests {
 
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         assert!(
@@ -613,7 +612,7 @@ mod tests {
         // capture event is idempotent) but a new ref-association write. Make the
         // events dir read-only so only that write fails; reads still work.
         repo.git(["checkout", "-b", "other"]);
-        let events_dir = repo.path().join(".shore/data/events");
+        let events_dir = resolved_store_dir(repo.path()).join("events");
         let original = fs::metadata(&events_dir).unwrap().permissions();
         fs::set_permissions(&events_dir, fs::Permissions::from_mode(0o555)).unwrap();
 
@@ -798,7 +797,7 @@ mod tests {
         read_snapshot_artifact(repo.path(), &worktree.snapshot_id).unwrap();
         read_snapshot_artifact(repo.path(), &range.snapshot_id).unwrap();
 
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let captured = events
@@ -823,7 +822,7 @@ mod tests {
         )
         .unwrap();
 
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let declared = events
@@ -844,8 +843,8 @@ mod tests {
         let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let artifact = read_snapshot_artifact(repo.path(), &result.snapshot_id).unwrap();
 
-        assert!(repo.path().join(".shore/data/events").is_dir());
-        assert!(repo.path().join(".shore/data/state.json").is_file());
+        assert!(resolved_store_dir(repo.path()).join("events").is_dir());
+        assert!(resolved_store_dir(repo.path()).join("state.json").is_file());
         // The artifact binds via its content hash, not an embedded review_unit_id.
         assert_eq!(artifact.content_hash, result.snapshot_artifact_content_hash);
         assert!(
@@ -872,7 +871,7 @@ mod tests {
         )
         .unwrap();
 
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let event = events
@@ -895,7 +894,7 @@ mod tests {
         let repo = modified_repo();
         capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let event = events
@@ -914,7 +913,7 @@ mod tests {
 
         let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let artifact = read_snapshot_artifact(repo.path(), &result.snapshot_id).unwrap();
-        let event_store = EventStore::open(repo.path().join(".shore/data"));
+        let event_store = EventStore::open(resolved_store_dir(repo.path()));
         let events = event_store.list_events().unwrap();
         let event = events
             .iter()
@@ -931,9 +930,7 @@ mod tests {
     #[test]
     fn capture_worktree_review_preserves_fresh_shore_temp_files() {
         let repo = modified_repo();
-        let temp_path = repo
-            .path()
-            .join(".shore/data/events/.shore-write.inflight.tmp");
+        let temp_path = resolved_store_dir(repo.path()).join("events/.shore-write.inflight.tmp");
 
         fs::create_dir_all(temp_path.parent().unwrap()).unwrap();
         fs::write(&temp_path, b"in flight").unwrap();
@@ -955,7 +952,7 @@ mod tests {
 
         let result = capture_worktree_review(CaptureOptions::new(&subdir)).unwrap();
 
-        assert!(repo.path().join(".shore/data/events").is_dir());
+        assert!(resolved_store_dir(repo.path()).join("events").is_dir());
         assert!(
             result
                 .review_unit_id
@@ -992,32 +989,25 @@ mod tests {
     }
 
     #[test]
-    fn linked_capture_does_not_emit_batch_only_diagnostic() {
-        let fixture = LinkedCapture::new();
-
-        let result = capture_review(CaptureOptions::new(&fixture.linked_path)).unwrap();
-
-        assert!(
-            !result
-                .diagnostics
-                .iter()
-                .any(|d| d.code == "clone_local_capture_batch_only"),
-            "write-through capture is no longer batch-only"
-        );
-    }
-
-    #[test]
-    fn unlinked_capture_still_lands_worktree_local() {
-        // Escape hatch (INV-7): unchanged behavior.
+    fn default_capture_lands_in_shared_common_dir_store() {
+        // The shared-store default: a capture in a plain (non-ephemeral) worktree
+        // lands in the common-dir store, not the worktree-local .shore/data.
         let repo = modified_repo();
         capture_review(CaptureOptions::new(repo.path())).unwrap();
-        let store = ShoreStorePaths::resolve(repo.path()).unwrap();
+
+        let common_dir = git_common_dir(repo.path()).unwrap().join("shore");
         assert!(
-            !EventStore::open(store.store_dir())
+            !EventStore::open(&common_dir)
                 .list_events()
                 .unwrap()
                 .is_empty()
         );
+        // The worktree-local .shore/data is NOT the resolved store anymore.
+        let worktree_local = ShoreStorePaths::resolve(repo.path()).unwrap();
+        let local = EventStore::open(worktree_local.store_dir())
+            .list_events()
+            .unwrap_or_default();
+        assert!(local.is_empty());
     }
 
     #[test]
@@ -1137,7 +1127,7 @@ mod tests {
         )
         .unwrap();
 
-        let events_a = EventStore::open(repo_a.path().join(".shore/data"))
+        let events_a = EventStore::open(resolved_store_dir(repo_a.path()))
             .list_events()
             .unwrap();
         let refs = referenced_artifacts(&events_a).unwrap();
@@ -1192,8 +1182,6 @@ mod tests {
                 worktree_b.to_str().unwrap(),
                 "HEAD",
             ]);
-            register_clone_local_store(&worktree_a).unwrap();
-            register_clone_local_store(&worktree_b).unwrap();
 
             Self {
                 _main: main,
@@ -1323,7 +1311,6 @@ mod tests {
                 "pub fn value() -> u32 { 2 }\n",
             )
             .unwrap();
-            register_clone_local_store(&linked_path).unwrap();
 
             Self {
                 _main: main,
@@ -1343,6 +1330,13 @@ mod tests {
         repo.commit_all("base");
         repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
         repo
+    }
+
+    /// The store a workflow actually lands in for `repo` — the shared common-dir
+    /// store by default. Reads that follow a capture/observation/etc. resolve
+    /// here, never the raw worktree-local `.shore/data`.
+    fn resolved_store_dir(repo: &Path) -> std::path::PathBuf {
+        git_common_dir(repo).unwrap().join("shore")
     }
 
     fn committed_repo() -> TestRepo {

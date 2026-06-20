@@ -14,7 +14,6 @@ use crate::session::observation::{
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::resolve_read_store;
-use crate::session::workflow::read_store::divergence_diagnostics;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputRequestListOptions {
@@ -124,8 +123,7 @@ pub fn list_input_requests(options: InputRequestListOptions) -> Result<InputRequ
         status_filter: options.status,
         include_body: options.include_body,
     })?;
-    let mut diagnostics = SessionState::from_events(&events)?.diagnostics;
-    diagnostics.extend(divergence_diagnostics(&read_store));
+    let diagnostics = SessionState::from_events(&events)?.diagnostics;
 
     Ok(InputRequestListResult {
         review_unit_id: resolved.review_unit_id,

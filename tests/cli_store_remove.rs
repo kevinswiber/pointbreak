@@ -34,10 +34,10 @@ fn capture(repo: &Path) -> Value {
 }
 
 /// Read back the single `artifact_removed` event JSON the CLI wrote to the
-/// worktree-local store (an integration test cannot reach the `pub(crate)`
+/// shared common-dir store (an integration test cannot reach the `pub(crate)`
 /// `EventStore`, so it reads the event files directly).
 fn artifact_removed_event(repo: &Path) -> Value {
-    let events_dir = repo.join(".shore/data/events");
+    let events_dir = support::common_dir_store(repo).join("events");
     for entry in fs::read_dir(&events_dir).expect("events dir exists") {
         let path = entry.unwrap().path();
         if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
@@ -95,8 +95,8 @@ fn store_remove_by_snapshot_emits_removed_document() {
 #[test]
 fn store_remove_by_review_unit_reports_co_referencing_units() {
     // Two worktrees capturing the same committed range share one snapshot content
-    // hash under distinct review unit ids (the cross-worktree coexistence case),
-    // both linked into the shared clone-local store.
+    // hash under distinct review unit ids (the cross-worktree coexistence case).
+    // Both worktrees write through to the shared common-dir store by default.
     let main = GitRepo::new();
     main.write("README.md", "base\n");
     main.commit_all("base");
@@ -110,9 +110,7 @@ fn store_remove_by_review_unit_reports_co_referencing_units() {
     add_worktree(main.path(), &wt2, "wt2");
 
     let cap1 = capture_range(&wt1);
-    link_store(&wt1);
     let cap2 = capture_range(&wt2);
-    link_store(&wt2);
 
     let unit1 = cap1["reviewUnit"]["id"].as_str().unwrap();
     let unit2 = cap2["reviewUnit"]["id"].as_str().unwrap().to_owned();
@@ -386,15 +384,6 @@ fn capture_range(repo: &Path) -> Value {
         String::from_utf8_lossy(&output.stderr)
     );
     parse_json(&output.stdout)
-}
-
-fn link_store(repo: &Path) {
-    let output = shore(["store", "link", "--repo", repo.to_str().unwrap()]);
-    assert!(
-        output.status.success(),
-        "store link stderr:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
 }
 
 fn add_worktree(repo: &Path, path: &Path, branch: &str) {

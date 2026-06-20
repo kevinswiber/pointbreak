@@ -428,12 +428,12 @@ mod tests {
         let result = import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(&sidecar))
             .expect("import succeeds");
 
-        assert!(repo.path().join(".shore/data/events").is_dir());
-        assert!(repo.path().join(".shore/data/state.json").is_file());
+        assert!(resolved_store_dir(repo.path()).join("events").is_dir());
+        assert!(resolved_store_dir(repo.path()).join("state.json").is_file());
         assert!(result.note_count > 0);
         assert_eq!(result.notes_created, 1);
         let state: serde_json::Value = serde_json::from_str(
-            &fs::read_to_string(repo.path().join(".shore/data/state.json")).unwrap(),
+            &fs::read_to_string(resolved_store_dir(repo.path()).join("state.json")).unwrap(),
         )
         .expect("state json");
         assert_eq!(state["noteCount"], 1);
@@ -497,6 +497,13 @@ mod tests {
     }
   ]
 }"#
+    }
+
+    /// The store a workflow actually lands in for `repo` — the shared common-dir
+    /// store by default. Reads that follow a workflow resolve here, not the raw
+    /// worktree-local `.shore/data`.
+    fn resolved_store_dir(repo: &std::path::Path) -> std::path::PathBuf {
+        crate::git::git_common_dir(repo).unwrap().join("shore")
     }
 
     struct TestRepo {

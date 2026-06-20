@@ -15,7 +15,6 @@ use crate::session::workflow::commit_range_liveness::{CommitGraphCondition, enri
 use crate::session::workflow::observation::{
     CurrentReviewUnitContext, review_unit_ids_in_worktree,
 };
-use crate::session::workflow::read_store::divergence_diagnostics;
 use crate::session::{
     CommitOidGroupingProjection, EventStore, ReviewUnitCommitRangeProjection,
     ReviewUnitCommitRangeView,
@@ -185,9 +184,6 @@ pub fn list_review_units(options: ReviewUnitListOptions) -> Result<ReviewUnitLis
         options.integration_ref.as_deref(),
     );
 
-    result
-        .diagnostics
-        .extend(divergence_diagnostics(&read_store));
     Ok(result)
 }
 

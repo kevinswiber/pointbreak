@@ -9,11 +9,9 @@ mod history;
 mod import;
 mod ingest;
 mod lineage;
-mod read_store;
 mod reload;
 mod review_unit_list;
 mod review_unit_projection;
-mod store_link;
 mod store_migrate;
 mod store_migrate_common_dir;
 mod store_status;
@@ -86,7 +84,6 @@ pub use review_unit_projection::{
     ReviewUnitProjectionSummary, ReviewUnitShowFilters, ReviewUnitShowOptions,
     ReviewUnitShowResult, SnapshotOrder, show_review_unit,
 };
-pub use store_link::{StoreLinkOptions, StoreLinkResult, link_clone_local_store};
 pub use store_migrate::{MigrateStoreOptions, StoreMigrateResult, migrate_store};
 pub use store_migrate_common_dir::{
     MigrateToCommonDirOptions, MigrateToCommonDirResult, migrate_store_to_common_dir,

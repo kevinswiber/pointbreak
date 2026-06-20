@@ -532,8 +532,26 @@ mod tests {
         );
     }
 
+    /// The shared common-dir store a clone resolves by default
+    /// (`<git-common-dir>/shore`). A non-ephemeral worktree reads and writes here,
+    /// so a post-capture store path resolves here, not the worktree-local
+    /// `.shore/data`.
+    fn common_dir_store(repo: &Path) -> std::path::PathBuf {
+        let output = std::process::Command::new("git")
+            .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+            .current_dir(repo)
+            .output()
+            .expect("run git rev-parse --git-common-dir");
+        assert!(output.status.success(), "git rev-parse --git-common-dir");
+        let common_dir = String::from_utf8(output.stdout)
+            .expect("git-common-dir is utf-8")
+            .trim()
+            .to_owned();
+        Path::new(&common_dir).join("shore")
+    }
+
     fn stored_snapshot_artifact_path(repo: &Path) -> std::path::PathBuf {
-        let snapshots_dir = repo.join(".shore/data/artifacts/snapshots");
+        let snapshots_dir = common_dir_store(repo).join("artifacts/snapshots");
         let mut entries: Vec<_> = std::fs::read_dir(&snapshots_dir)
             .expect("snapshot artifacts dir exists")
             .map(|entry| entry.unwrap().path())
@@ -883,8 +901,8 @@ mod tests {
         );
         git(elsewhere.path(), &["config", "commit.gpgsign", "false"]);
         copy_dir_all(
-            &repo.path().join(".shore"),
-            &elsewhere.path().join(".shore"),
+            &common_dir_store(repo.path()),
+            &common_dir_store(elsewhere.path()),
         );
 
         let value: serde_json::Value =

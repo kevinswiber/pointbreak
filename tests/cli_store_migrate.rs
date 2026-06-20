@@ -21,12 +21,44 @@ fn repo_with_pending_change() -> GitRepo {
 #[test]
 fn store_migrate_folds_worktree_local_into_common_dir() {
     let repo = repo_with_pending_change();
+
+    // Seed a pre-flip worktree-local store: capture while the worktree is
+    // ephemeral (so the write lands in `.shore/data`), then restore the shared
+    // default so the migration runs against a non-ephemeral worktree carrying a
+    // legacy worktree-local store.
+    let ephemeral = shore([
+        "store",
+        "mode",
+        "ephemeral",
+        "--repo",
+        repo.path().to_str().unwrap(),
+    ]);
+    assert!(
+        ephemeral.status.success(),
+        "ephemeral mode: {}",
+        String::from_utf8_lossy(&ephemeral.stderr)
+    );
     let capture = shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         capture.status.success(),
         "capture: {}",
         String::from_utf8_lossy(&capture.stderr)
     );
+    let shared = shore([
+        "store",
+        "mode",
+        "shared",
+        "--repo",
+        repo.path().to_str().unwrap(),
+    ]);
+    assert!(
+        shared.status.success(),
+        "shared mode: {}",
+        String::from_utf8_lossy(&shared.stderr)
+    );
+
+    // The seed landed worktree-local; the shared common-dir store is still empty.
+    assert!(repo.path().join(".shore/data/events").is_dir());
 
     let migrate = shore(["store", "migrate", "--repo", repo.path().to_str().unwrap()]);
     assert!(
@@ -46,6 +78,12 @@ fn store_migrate_folds_worktree_local_into_common_dir() {
     assert!(!stdout.contains(".git"));
     // Non-destructive: the worktree-local store still exists after migration.
     assert!(repo.path().join(".shore/data/events").is_dir());
+    // The folded events now resolve from the shared common-dir store.
+    assert!(
+        support::common_dir_store(repo.path())
+            .join("events")
+            .is_dir()
+    );
 }
 
 #[test]

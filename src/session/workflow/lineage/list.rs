@@ -5,7 +5,6 @@ use crate::model::{ReviewUnitId, ReviewUnitLineageId};
 use crate::session::EventStore;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::resolve_read_store;
-use crate::session::workflow::read_store::divergence_diagnostics;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LineageListOptions {
@@ -63,6 +62,6 @@ pub fn list_lineages(options: LineageListOptions) -> Result<LineageListResult> {
         event_count: events.len(),
         lineage_count,
         entries,
-        diagnostics: divergence_diagnostics(&read_store),
+        diagnostics: Vec::new(),
     })
 }

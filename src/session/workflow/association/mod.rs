@@ -695,6 +695,13 @@ mod tests {
     use super::*;
     use crate::session::{CaptureOptions, capture_worktree_review};
 
+    /// The store a workflow actually lands in for `repo` — the shared common-dir
+    /// store by default. Reads that follow a workflow resolve here, not the raw
+    /// worktree-local `.shore/data`.
+    fn resolved_store_dir(repo: &std::path::Path) -> std::path::PathBuf {
+        crate::git::git_common_dir(repo).unwrap().join("shore")
+    }
+
     struct Repo {
         root: tempfile::TempDir,
     }
@@ -775,7 +782,7 @@ mod tests {
         )
         .unwrap();
 
-        let store_dir = repo.path().join(".shore/data");
+        let store_dir = resolved_store_dir(repo.path());
         let events = EventStore::open(&store_dir).list_events().unwrap();
         let replay = SessionState::from_events(&events).unwrap();
         let persisted: SessionState =

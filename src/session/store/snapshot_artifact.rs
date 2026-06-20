@@ -100,8 +100,9 @@ pub(crate) fn build_snapshot_artifact_v2(snapshot: DiffSnapshot) -> Result<Snaps
 
 /// Read and hash-validate a stored snapshot artifact.
 ///
-/// Reads resolve through the linked clone-local store when one is registered
-/// for the worktree; otherwise they read the worktree-local `.shore/data` store.
+/// Reads resolve through the worktree's resolved store — the shared common-dir
+/// store by default, or the worktree-local `.shore/data` store when the worktree
+/// is ephemeral.
 pub fn read_snapshot_artifact(
     repo: impl AsRef<Path>,
     snapshot_id: &SnapshotId,
@@ -120,13 +121,13 @@ pub(crate) fn read_snapshot_artifact_bytes(
 }
 
 /// Read a snapshot artifact for WRITE-PATH target validation. Resolves the
-/// linked store first (matching read surfaces), then falls back to the
-/// worktree-local `.shore/data/` when the artifact has not yet been copied by
-/// `store link`. Both sources are content-addressed and the hash is validated,
-/// so the choice is invisible to the caller. This closes a split-brain where a
-/// locally captured, unsynced unit validated (write-path unit validation reads
-/// local events) but its file target could not resolve its artifact, because
-/// the artifact read resolved only the linked store the unit was not yet in.
+/// worktree's store first (matching read surfaces), then falls back to the
+/// worktree-local `.shore/data/` when the artifact lives only there — an
+/// ephemeral or pre-migration capture the resolved common-dir store does not
+/// hold. Both sources are content-addressed and the hash is validated, so the
+/// choice is invisible to the caller. This closes a split-brain where a unit's
+/// events validate (write-path unit validation reads the resolved store) but its
+/// file target could not resolve its artifact from a different store.
 pub(crate) fn read_snapshot_artifact_for_write_validation(
     repo: impl AsRef<Path>,
     snapshot_id: &SnapshotId,
@@ -144,9 +145,9 @@ fn read_snapshot_artifact_bytes_with_local_fallback(
     match std::fs::read(&resolved_path) {
         Ok(bytes) => Ok(bytes),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            // Fall back to the worktree-local store: the unsynced-local case
-            // where the unit was captured here but `store link` has not yet
-            // copied its content-addressed artifact into the linked store.
+            // Fall back to the worktree-local store: the case where the unit's
+            // content-addressed artifact lives only in `.shore/data` (an
+            // ephemeral or pre-migration capture) and not in the resolved store.
             let local = ShoreStorePaths::resolve(repo.as_ref())?;
             let local_path = snapshot_artifact_path(local.store_dir(), snapshot_id);
             std::fs::read(&local_path)
@@ -271,7 +272,7 @@ mod tests {
     use crate::canonical_hash::sha256_json_prefixed;
     use crate::git::capture_worktree_diff_files;
     use crate::model::{DiffSnapshot, ReviewId};
-    use crate::session::store::resolution::register_clone_local_store;
+    use crate::session::store::resolution::resolve_store;
     use crate::session::{
         CaptureOptions, CommitRangeSpec, capture_review, compute_review_unit_fingerprint,
         read_snapshot_artifact,
@@ -324,12 +325,12 @@ mod tests {
         );
 
         let bytes_a = fs::read(snapshot_artifact_path(
-            &repo_a.path().join(".shore/data"),
+            &resolved_store_dir(repo_a.path()),
             &a.snapshot_id,
         ))
         .unwrap();
         let bytes_b = fs::read(snapshot_artifact_path(
-            &repo_b.path().join(".shore/data"),
+            &resolved_store_dir(repo_b.path()),
             &b.snapshot_id,
         ))
         .unwrap();
@@ -347,7 +348,7 @@ mod tests {
         let repo = modified_repo();
         let artifact = write_current_snapshot_artifact(&repo);
         let path = snapshot_artifact_path(
-            &repo.path().join(".shore/data"),
+            &resolved_store_dir(repo.path()),
             &artifact.snapshot.snapshot_id,
         );
         let v1_bytes = rewrite_as_v1(&fs::read(&path).unwrap());
@@ -367,7 +368,7 @@ mod tests {
         let repo = modified_repo();
         let artifact = write_current_snapshot_artifact(&repo);
         let path = snapshot_artifact_path(
-            &repo.path().join(".shore/data"),
+            &resolved_store_dir(repo.path()),
             &artifact.snapshot.snapshot_id,
         );
         let mut value: serde_json::Value =
@@ -488,7 +489,7 @@ mod tests {
         let repo = modified_repo();
         let artifact = write_current_snapshot_artifact(&repo);
         let path = snapshot_artifact_path(
-            &repo.path().join(".shore/data"),
+            &resolved_store_dir(repo.path()),
             &artifact.snapshot.snapshot_id,
         );
 
@@ -559,10 +560,10 @@ mod tests {
     #[test]
     fn write_validation_artifact_read_prefers_resolved_store_when_present() {
         let repo = modified_repo();
+        // The artifact lands in the resolved (shared common-dir) store, exactly
+        // where capture writes it, so the read resolves it without any fallback.
         let artifact = write_current_snapshot_artifact(&repo);
 
-        // Unlinked: the resolved store IS the worktree-local `.shore/data`, and the
-        // artifact is there, so the read resolves it without any fallback.
         let read = read_snapshot_artifact_for_write_validation(
             repo.path(),
             &artifact.snapshot.snapshot_id,
@@ -572,25 +573,13 @@ mod tests {
         assert_eq!(read, artifact);
     }
 
-    #[test]
-    fn write_validation_artifact_read_falls_back_to_worktree_local() {
-        let repo = modified_repo();
-        // The artifact lands in the worktree-local `.shore/data` (write_snapshot_artifact
-        // always writes worktree-local).
-        let artifact = write_current_snapshot_artifact(&repo);
-        // Register clone-local AFTER writing: linked mode now resolves the empty
-        // `.git/shore` store, which lacks this unsynced-local artifact.
-        register_clone_local_store(repo.path()).unwrap();
-
-        let read = read_snapshot_artifact_for_write_validation(
-            repo.path(),
-            &artifact.snapshot.snapshot_id,
-        )
-        .unwrap();
-
-        // Read via the worktree-local fallback, content-hash validated.
-        assert_eq!(read, artifact);
-    }
+    // The worktree-local read fallback's old premise — a non-ephemeral worktree
+    // that captured locally and had not yet copied its artifact into a separate
+    // linked store — no longer exists: with one shared store by default, a
+    // populated worktree-local `.shore/data` is a pre-default store that the
+    // legacy guard routes to `shore store migrate` rather than reading through.
+    // The dedicated fallback test is retired; `..._prefers_resolved_store...` and
+    // `..._missing_everywhere...` cover the surviving write-validation reads.
 
     #[test]
     fn write_validation_artifact_read_missing_everywhere_errors_clearly() {
@@ -614,18 +603,17 @@ mod tests {
     }
 
     /// Test convenience: write a snapshot artifact to the worktree's resolved
-    /// write store. Production has a single snapshot writer
+    /// write store — the shared common-dir store by default, exactly where
+    /// capture lands it. Production has a single snapshot writer
     /// (`write_snapshot_artifact_to`); capture resolves the write store once and
-    /// calls it directly. These tests run in unlinked repos, so resolving the
-    /// worktree-local store dir matches that write store.
+    /// calls it directly. Resolving the store here keeps these reads and the
+    /// production read surface on the same store.
     fn write_snapshot_artifact(
         repo: impl AsRef<Path>,
         fingerprint: &ReviewUnitFingerprint,
         snapshot: DiffSnapshot,
     ) -> Result<SnapshotArtifact> {
-        let store_dir = ShoreStorePaths::resolve(repo.as_ref())?
-            .store_dir()
-            .to_path_buf();
+        let store_dir = resolve_store(repo.as_ref())?.store_dir().to_path_buf();
         write_snapshot_artifact_to(&store_dir, fingerprint, snapshot)
     }
 
@@ -647,6 +635,12 @@ mod tests {
         repo.commit_all("base");
         repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
         repo
+    }
+
+    /// The store a capture/write actually lands in for `repo` — the shared
+    /// common-dir store by default.
+    fn resolved_store_dir(repo: &Path) -> PathBuf {
+        resolve_store(repo).unwrap().store_dir().to_path_buf()
     }
 
     fn committed_repo() -> TestRepo {

@@ -4,7 +4,6 @@ mod event_migrate;
 mod event_store;
 pub(in crate::session) mod fingerprint;
 pub(in crate::session) mod inventory;
-pub(in crate::session) mod manifest;
 pub(in crate::session) mod resolution;
 pub(in crate::session) mod sensitivity;
 pub(in crate::session) mod snapshot_artifact;

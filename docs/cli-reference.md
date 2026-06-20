@@ -3,7 +3,7 @@
 This reference covers the public `shore` command surface provided by the `shoreline` crate.
 
 Command output JSON is the integration surface. Raw event files, artifact paths, event filenames,
-and `.shore/data/state.json` are internal storage details unless a command explicitly returns them.
+and the store's `state.json` are internal storage details unless a command explicitly returns them.
 
 ## Global Tracing Flags
 
@@ -79,8 +79,8 @@ shore show [--repo <path>] [--review-notes <path>]
 
 - `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
 - `--review-notes <path>` loads Shoreline-native `review-notes.json`.
-- Without an explicit sidecar, repo-only `shore show` auto-loads durable imported notes from
-  `.shore/data/` when the store exists.
+- Without an explicit sidecar, repo-only `shore show` auto-loads durable imported notes from the
+  worktree's resolved store when one exists.
 - Press `r` to reload the working-tree projection without losing cursor position when possible.
 - Stale and orphan review notes appear as dedicated rows.
 - Explicit sidecar inputs and `--log-file` are command helpers and are excluded from the reviewed
@@ -100,8 +100,8 @@ shore dump [--repo <path>] [--review-notes <path>] [--pretty | --compact]
 
 - `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
 - `--review-notes <path>` loads Shoreline-native `review-notes.json`.
-- Without an explicit sidecar, repo-only `shore dump` auto-loads durable imported notes from
-  `.shore/data/` when the store exists.
+- Without an explicit sidecar, repo-only `shore dump` auto-loads durable imported notes from the
+  worktree's resolved store when one exists.
 - Output is compact by default; use `--pretty` for human-readable formatting.
 - Recoverable review-note diagnostics stay in the JSON document and the command exits
   successfully.
@@ -122,9 +122,9 @@ the sibling `ordinal` field for numeric position.
 shore inspect [--repo <path>] [--host <addr>] [--port <n>] [--open]
 ```
 
-`shore inspect` starts a small local web server that visualizes a `.shore/data` store for tracing event
-timelines and outcomes — the kind of inspection that is awkward against the raw JSON files or
-per-command output.
+`shore inspect` starts a small local web server that visualizes the worktree's resolved store for
+tracing event timelines and outcomes — the kind of inspection that is awkward against the raw JSON
+files or per-command output.
 
 - `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
 - `--host <addr>` defaults to `127.0.0.1` (loopback). `--port <n>` defaults to `7878`; use
@@ -157,8 +157,9 @@ small JSON API the page consumes (`/api/history`, `/api/units`, `/api/unit`, `/a
 `/api/lineage`, `/api/snapshot`, `/api/freshness`) is an internal surface for the bundled page, not
 a stable contract.
 
-In a linked worktree the inspector serves the clone-local store, so it can render snapshots
-captured in sibling worktrees. The `/api/snapshot` payload is **snapshot-scoped** (#146): it carries
+Every worktree of a clone resolves the shared common-dir store (`.git/shore`), so the inspector
+renders snapshots captured in sibling worktrees as well as the current one. The `/api/snapshot`
+payload is **snapshot-scoped** (#146): it carries
 the immutable diff content and its `contentHash` only — no `reviewUnitId`, `source`, `base`, or
 `target`. The captured worktree path is therefore simply absent from the snapshot wire (there is
 nothing to redact). Endpoint/target display lives on `/api/unit` and `/api/units`, derived from the
@@ -184,11 +185,14 @@ tree, including untracked files (source `git_worktree`).
   endpoints serialize as `git_commit` and no worktree path appears in the output. `--target`
   requires `--base`. Re-capturing the same range is idempotent and reports `eventsExisting`, and an
   equivalent rev spelling (`HEAD~1` versus the resolved OID) captures the same ReviewUnit because
-  rev spellings are never stored. Like worktree capture, a range capture in a linked worktree writes
-  through to the clone-local store (see below).
-- Durable state is created at the Git worktree root under `.shore/data/`. A legacy flat `.shore/`
-  store from before this layout is upgraded with `just migrate-store [<repo>]` (an owner-run
-  one-off driver, not a `shore` subcommand); see
+  rev spellings are never stored. Like worktree capture, a range capture lands in the shared
+  common-dir store, so it is immediately visible from sibling worktrees (see below).
+- Durable state lands in the shared common-dir store at `.git/shore` under the clone's Git common
+  directory (the default for every worktree). An `ephemeral` worktree instead keeps its own
+  discardable `.shore/data/` store. A legacy flat `.shore/` store from before the `.shore/data/`
+  layout is upgraded with `just migrate-store [<repo>]` (an owner-run one-off driver, not a `shore`
+  subcommand) — distinct from `shore store migrate`, which folds a pre-flip worktree-local
+  `.shore/data/` store into the shared store; see
   [storage-model.md](./storage-model.md#migrations-and-doctor).
 - The command registers `.shore/data/` in the repository-local `.git/info/exclude`
   when it is not already ignored, so it never modifies a tracked `.gitignore` or
@@ -198,10 +202,12 @@ tree, including untracked files (source `git_worktree`).
   `.shore/allowed-signers.json`, `.shore/store.json`) stay tracked; only `.shore/data/` and the
   private `.shore/delegates.local.json`, `.shore/actor-attributes.local.json`, and
   `.shore/store.local.json` overrides are excluded.
-- `.shore/data/events/` stores immutable local event files.
-- `.shore/data/state.json` is a rebuildable projection, not the authority.
-- Full captured snapshots are Shoreline-owned immutable artifacts under
-  `.shore/data/artifacts/snapshots/`.
+- The store subtree (`events/`, `state.json`, and `artifacts/`) is the same wherever it resolves:
+  the shared common-dir store at `.git/shore` by default, or an `ephemeral` worktree's own
+  `.shore/data/`.
+- `events/` stores immutable event files.
+- `state.json` is a rebuildable projection, not the authority.
+- Full captured snapshots are Shoreline-owned immutable artifacts under `artifacts/snapshots/`.
 - The `review_unit_captured` event binds to the snapshot artifact's canonical content hash; the
   snapshot-scoped artifact body carries no ReviewUnit identity or endpoints (those live on the event).
 - Output is compact `shore.review-capture` JSON and includes ReviewUnit, revision, and snapshot IDs
@@ -209,48 +215,46 @@ tree, including untracked files (source `git_worktree`).
 - With `--lineage`, capture immediately records lineage declaration/round facts for the newly
   captured ReviewUnit. `--predecessor` is allowed only with `--lineage`.
 
-V1 storage is local and synchronous. The worktree-local `.shore/data/` store has a single active
-writer — its own worktree — while the shared clone-local store may take concurrent writes from
-multiple linked worktrees, kept safe by content-addressed writes and a regenerable projection rather
-than a lock. V1 does not add a daemon, delivery queue, approval flow, async storage, remote storage,
-or note mutation.
+V1 storage is local and synchronous. The shared common-dir store may take concurrent writes from
+multiple worktrees of the same clone, kept safe by content-addressed writes and a regenerable
+projection rather than a lock. V1 does not add a daemon, delivery queue, approval flow, async
+storage, remote storage, or note mutation.
 
-When a worktree is linked to a clone-local store, `shore review capture` writes the capture **through
-to that clone-local store** (`.git/shore`) — the same store the worktree's reads resolve — so the
-capture is visible to `review unit list`, `unit show`, and `history` in place, with no `shore store
-link` step. Captures in an unlinked worktree still write to that worktree's local `.shore/data/`
-store.
+By default every worktree of a clone resolves the shared common-dir store at `.git/shore`, so
+`shore review capture` lands its capture directly there — no setup step — and the capture is
+immediately visible to `review unit list`, `unit show`, and `history` from any sibling worktree. An
+`ephemeral` worktree instead captures into its own discardable `.shore/data/` store (see
+[`shore store`](#shore-store)).
 
 The native review write commands — `shore review observation add`, `shore review input-request open`
 and `respond`, `shore review assessment add`, `shore review validation add`, and `shore review
-lineage attach` — behave the same way in a linked worktree. They validate against the linked family's
-review record plus your unsynced local facts, so you can record a fact against a review unit (or
-related observation, assessment, or request) captured in a sibling worktree, and the fact is written
-**through to the clone-local store** — the same store reads resolve — so other checkouts see it in
-place, with no `shore store link` step. In an unlinked worktree the fact writes to that worktree's
-local `.shore/data/` store, unchanged.
+lineage attach` — behave the same way. They resolve the shared common-dir store, so you can record a
+fact against a review unit (or related observation, assessment, or request) captured in a sibling
+worktree, and the fact lands directly in that shared store, visible to every worktree in place. An
+`ephemeral` worktree writes the fact to its own `.shore/data/` store, unchanged.
 
 ## `shore store`
 
 ```bash
 shore store status [--repo <path>] [--pretty]
-shore store link [--repo <path>] [--pretty]
 shore store mode (shared | ephemeral | show) [--repo <path>] [--pretty]
+shore store migrate [--repo <path>] [--include-ephemeral] [--pretty]
 shore store remove [--repo <path>] (--snapshot <id> | --review-unit <id> | --ref <name> | --range <a>..<b> | --orphans) [--sign-key <key>] [--pretty]
 shore store gc [--repo <path>] [--pretty]
 shore store compact [--repo <path>] [--pretty]
 ```
 
-`shore store` commands inspect or connect the current Git worktree to a clone-local store. A
-clone-local store is shared by Git linked worktrees from the same clone; it is not a user-level
-multi-repository store or remote sync service.
+`shore store` commands inspect, configure, and maintain the review store the current Git worktree
+resolves. By default every worktree of a clone — the main worktree and every linked worktree alike —
+resolves the same **shared common-dir store** at `.git/shore` (the path under the repo's Git common
+directory), automatically and with no setup step. Because linked worktrees share one Git common
+directory, a capture in any worktree is immediately visible from its siblings. This is a per-clone
+store, not a user-level multi-repository store or remote sync service.
 
-`shore store status` resolves the selected store and emits `shore.store-status` JSON.
+`shore store status` resolves the store and emits `shore.store-status` JSON.
 
-- `mode` is `local` for the default worktree-local `.shore/data/` store and `linked` when the worktree
-  has been registered with a clone-local store.
-- `storeRef` is `worktree-local` in local mode and an opaque `store:random:*` ref in linked mode.
-  Linked output also includes opaque `cloneRef` and `repositoryFamilyRef` values.
+- `mode` is `local` and `storeRef` is `local`. (Both report the resolved local store; there is no
+  registration step and no separate "linked" mode.)
 - `inventory` reports `eventCount`, `eventBytes`, `artifactCount`, `artifactBytes`, `totalBytes`,
   optional `untrackedBytes`, `largestArtifacts`, and `reviewUnitSnapshots`. Artifact entries use
   opaque artifact refs rather than filesystem paths. Each `reviewUnitSnapshots` entry carries a
@@ -260,41 +264,38 @@ multi-repository store or remote sync service.
 - `sensitivity` reports `policyOutcome` plus redacted findings. Finding references use
   `file:sha256:*` refs, and command output does not print secret values or source file paths.
 
-`shore store link` registers the current worktree with the clone-local store and imports the
-worktree-local `.shore/data/` events and artifacts into that store. It emits `shore.store-link` JSON with
-the selected opaque refs and `eventsCreated`, `eventsExisting`, `artifactsCreated`, and
-`artifactsExisting` counters. It also includes the same redacted `sensitivity` object as
-`shore store status`. The import is idempotent for already-present matching facts.
+Sensitivity findings are reported but do not currently abort a write. A hard-blocking policy and
+explicit override controls are a forward-looking note for when movement can target a wider store;
+blocking findings still name only safe finding kinds, such as `known_token`, and command output does
+not print the secret text or file path.
 
-Sensitivity scanning happens before data movement. For this clone-local release, findings are
-reported but do not abort `shore store link`; hard-blocking policy and explicit override controls are
-deferred until movement can target a wider user-level or remote store. Blocking findings still name
-only safe finding kinds, such as `known_token`, and command output does not print the secret text or
-file path.
-
-Linked capture writes through to the clone-local store: in a linked worktree, `shore review capture`
-lands its event, snapshot artifact, and rebuilt `state.json` directly in the clone-local store, so no
-`shore store link` step is needed to make the capture visible. Every review read command resolves the
-linked store:
-`review unit list` and `unit show`, `history`, the observation, input-request, and validation
-lists, `assessment show`, and `lineage show` read the clone-local store from any linked worktree,
-including hydrated bodies and the captured snapshot, so their `eventCount` and `eventSetHash`
-reflect the linked store. Linked reads are store-only — local facts not yet copied by
-`shore store link` do not appear in results; read commands report them with the
-`clone_local_unsynced_local_events` diagnostic, and `shore store link` copies them and clears it.
-Run `shore store link` before removing a worktree whose review record should survive for its
-siblings.
+Every review read command resolves the shared common-dir store: `review unit list` and `unit show`,
+`history`, the observation, input-request, and validation lists, `assessment show`, and
+`lineage show` read it from any worktree of the clone, including hydrated bodies and the captured
+snapshot, so their `eventCount` and `eventSetHash` reflect that one store.
 
 `shore store mode` reads or sets a per-worktree store mode that controls where the worktree's review
-data lands. `shore store mode ephemeral` pins the worktree to its discardable worktree-local
-`.shore/data` store regardless of any clone-local registration — the escape hatch for sensitive,
-throwaway work whose bytes should disappear with the worktree. `shore store mode shared` (the default)
-leaves placement to normal resolution. The mode is written to a committed `.shore/store.json`, and may
-be overridden privately by a git-excluded `.shore/store.local.json` (the local file wins, the
+data lands. `shore store mode ephemeral` pins the worktree to a discardable worktree-local
+`.shore/data` store — the privacy escape hatch for sensitive or throwaway work whose bytes should
+disappear when the worktree is removed. `shore store mode shared` (the default) uses the shared
+common-dir store. The mode is written to a committed `.shore/store.json`, and may be overridden
+privately by a git-excluded `.shore/store.local.json` (the local file wins, the
 `delegates.json` / `delegates.local.json` precedent). A malformed or unsupported config is a hard
 error rather than a silent fallback. `shore store mode show` reports the resolved mode without changing
 it. All three forms emit `shore.store-mode` JSON with `mode` (`shared` | `ephemeral`) and `source`
 (`default` | `committed` | `local`); the body embeds no storage path.
+
+A pre-flip worktree-local `.shore/data` store on a non-ephemeral worktree (data written before the
+shared common-dir default) is detected on any read or write and errors with a hint to run
+`shore store migrate`. `shore store migrate` folds that legacy store into the shared common-dir store
+**non-destructively**: it copies events and artifacts forward and leaves `.shore/data` in place, so
+you can verify the result and then remove `.shore/data` yourself to finish the switch. It is
+idempotent (re-running reports the already-present facts as existing), and it refuses an ephemeral or
+sensitivity-flagged worktree unless you pass `--include-ephemeral`. It emits `shore.store-migrate`
+JSON with `eventsCreated`, `eventsExisting`, `artifactsCreated`, `artifactsExisting`, and
+`sourceEmpty`. (This is distinct from the owner-run flat-store driver `just migrate-store`, which
+relocates a legacy flat `.shore/` store to `.shore/data/`; see
+[storage-model.md](./storage-model.md#migrations-and-doctor).)
 
 `shore store remove` retires content-addressed artifacts from the store. It resolves exactly one
 selector to a set of content hashes — `--snapshot <id>` (a snapshot's bound artifact), `--review-unit
@@ -316,8 +317,8 @@ It emits `shore.store-compact` JSON listing each swept blob's `contentHash` and 
 (`removed` or `missing`) plus `bytesReclaimed`. Running it again is a no-op (every removed blob is
 already `missing`).
 
-Command output is the stable integration surface. Raw clone-local store paths, event files, artifact
-paths, `.git` paths, `.shore/data` paths, and `state.json` remain internal storage details.
+Command output is the stable integration surface. Raw store paths, event files, artifact paths,
+`.git` paths, `.shore/data` paths, and `state.json` remain internal storage details.
 
 ## `shore identity`
 
@@ -580,7 +581,8 @@ shore review history [--repo <path>] [--review-unit <id>] [--track <track-id>] \
 
 `shore review history` reads the chronological ledger of durable Shoreline events.
 
-- History replays `.shore/data/events/` and emits compact `shore.review-history` v1 JSON by default.
+- History replays the resolved store's `events/` and emits compact `shore.review-history` v1 JSON by
+  default.
 - `eventSetHash` and `eventCount` describe the full validated event set used to build the output,
   even when filters return only a subset of entries.
 - `historyCount` is the number of returned entries after filters.
@@ -724,10 +726,10 @@ revision.
 
 - `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
 - `--review-notes <path>` is required.
-- The command initializes local `.shore/data/` storage when needed, records one immutable durable event
-  per imported note, and rebuilds `.shore/data/state.json`.
+- The command initializes the worktree's resolved store when needed, records one immutable durable
+  event per imported note, and rebuilds the store's `state.json`.
 - Native `review-notes.json` is an import/transport input, not the authoritative persisted
   Shoreline store.
-- Large note bodies may be stored as content-addressed note-body artifacts under
-  `.shore/data/artifacts/notes/`; small note bodies remain inline in the imported-note event payload.
+- Large note bodies may be stored as content-addressed note-body artifacts under the store's
+  `artifacts/notes/`; small note bodies remain inline in the imported-note event payload.
 - Output is compact `shore.notes-apply` JSON with note counts, diagnostics, and `statePath`.

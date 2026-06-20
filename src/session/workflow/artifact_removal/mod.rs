@@ -533,8 +533,14 @@ mod tests {
     use crate::session::{
         ArtifactRemovalProjection, CaptureOptions, CommitRangeSpec, EventStore,
         ObservationAddOptions, capture_review, capture_worktree_review, record_observation,
-        store_dir_for_repo,
     };
+
+    /// The store a workflow actually lands in for `repo` — the shared common-dir
+    /// store by default. Reads that follow a workflow resolve here, not the raw
+    /// worktree-local `.shore/data`.
+    fn resolved_store_dir(repo: &Path) -> std::path::PathBuf {
+        crate::git::git_common_dir(repo).unwrap().join("shore")
+    }
 
     struct TestRepo {
         root: tempfile::TempDir,
@@ -599,7 +605,7 @@ mod tests {
     }
 
     fn list_events(repo: &TestRepo) -> Vec<ShoreEvent> {
-        let store_dir = store_dir_for_repo(repo.path()).unwrap();
+        let store_dir = resolved_store_dir(repo.path());
         EventStore::open(store_dir).list_events().unwrap()
     }
 
@@ -609,7 +615,7 @@ mod tests {
 
     /// Count the blob files under a store subdir (e.g. `artifacts/snapshots`).
     fn blob_count(repo: &TestRepo, subdir: &str) -> usize {
-        let dir = store_dir_for_repo(repo.path()).unwrap().join(subdir);
+        let dir = resolved_store_dir(repo.path()).join(subdir);
         match std::fs::read_dir(&dir) {
             Ok(entries) => entries.filter_map(std::result::Result::ok).count(),
             Err(_) => 0,
@@ -656,7 +662,7 @@ mod tests {
             "2026-06-19T00:00:00Z",
         )
         .unwrap();
-        let store_dir = store_dir_for_repo(repo.path()).unwrap();
+        let store_dir = resolved_store_dir(repo.path());
         EventStore::open(store_dir)
             .record_event_once(&event)
             .unwrap();
@@ -929,12 +935,7 @@ mod tests {
                 .iter()
                 .any(|event| event.event_type == EventType::ReviewUnitCaptured)
         );
-        assert!(
-            store_dir_for_repo(repo.path())
-                .unwrap()
-                .join("state.json")
-                .exists()
-        );
+        assert!(resolved_store_dir(repo.path()).join("state.json").exists());
     }
 
     #[test]

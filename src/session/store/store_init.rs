@@ -52,28 +52,29 @@ impl ShoreStorePaths {
         &self.store_dir
     }
 
+    #[cfg(test)]
     pub(crate) fn state_path(&self) -> PathBuf {
         self.store_dir.join("state.json")
     }
 }
 
+/// The store directory reads and writes for `repo` actually resolve to — the
+/// shared common-dir store by default, or the worktree-local `.shore/data` when
+/// the worktree is Ephemeral. Delegates to the same resolver the read/write seams
+/// use, so a library caller is never pointed at a different store than the CLI.
 pub fn store_dir_for_repo(repo: &Path) -> Result<PathBuf> {
-    Ok(ShoreStorePaths::resolve(repo)?.store_dir().to_path_buf())
+    Ok(crate::session::store::resolution::resolve_store(repo)?
+        .store_dir()
+        .to_path_buf())
 }
 
 /// The worktree-local store entries that, when found directly under `.shore/`,
 /// mark a pre-relocation flat store. This is the single source of truth shared
 /// by the resolve-time layout guard and the migration's relocation step, so the
-/// two never diverge on which shapes count as a legacy store (a registration-only
-/// linked checkout is a store just as much as one with events). It deliberately
-/// excludes the committed config siblings (`delegates.json`,
-/// `allowed-signers.json`), so a config-only `.shore/` is not a store.
-pub(crate) const FLAT_STORE_MARKERS: &[&str] = &[
-    "events",
-    "artifacts",
-    "state.json",
-    "store-registration.json",
-];
+/// two never diverge on which shapes count as a store. It deliberately excludes
+/// the committed config siblings (`delegates.json`, `allowed-signers.json`,
+/// `store.json`), so a config-only `.shore/` is not a store.
+pub(crate) const FLAT_STORE_MARKERS: &[&str] = &["events", "artifacts", "state.json"];
 
 /// True when any flat-store marker sits directly under `shore`
 /// (`<worktree-root>/.shore`) — the pre-relocation layout.
@@ -81,6 +82,18 @@ fn flat_store_marker_present(shore: &Path) -> bool {
     FLAT_STORE_MARKERS
         .iter()
         .any(|entry| shore.join(entry).exists())
+}
+
+/// True when `<store_dir>` (`<root>/.shore/data`) holds a real worktree-local
+/// store (any flat-store marker present), as opposed to an empty/absent dir. The
+/// legacy guard on the normal read/write resolution path uses this to direct the
+/// user to `shore store migrate` when a worktree-local store predates the shared
+/// store default. A config-only `.shore/` (no events/artifacts/state.json under
+/// `.shore/data`) is not populated.
+pub(crate) fn worktree_local_store_is_populated(store_dir: &Path) -> bool {
+    FLAT_STORE_MARKERS
+        .iter()
+        .any(|marker| store_dir.join(marker).exists())
 }
 
 /// The on-disk layout of a `.shore/` directory, classified for the hard-cutover
@@ -91,9 +104,8 @@ pub(crate) enum StoreLayout {
     /// No flat-store markers and no `.shore/data/`: a fresh repo or a `.shore/`
     /// that holds only committed config (`delegates.json`).
     Fresh,
-    /// Flat-store markers (events/artifacts/state.json/store-registration.json
-    /// directly under `.shore/`) and no `.shore/data/`: a pre-relocation store
-    /// that must be migrated.
+    /// Flat-store markers (events/artifacts/state.json directly under `.shore/`)
+    /// and no `.shore/data/`: a pre-relocation store that must be migrated.
     Flat,
     /// `.shore/data/` present and no flat markers: the migrated steady state.
     Nested,
@@ -286,16 +298,19 @@ mod tests {
     }
 
     #[test]
-    fn public_shore_dir_helper_delegates_to_store_paths() {
+    fn public_shore_dir_helper_resolves_the_same_store_as_the_read_write_seams() {
         let repo = git_repo();
 
         let from_public_helper = store_dir_for_repo(repo.path()).unwrap();
-        let from_paths = ShoreStorePaths::resolve(repo.path())
+        let from_resolver = crate::session::store::resolution::resolve_store(repo.path())
             .unwrap()
             .store_dir()
             .to_path_buf();
 
-        assert_eq!(from_public_helper, from_paths);
+        assert_eq!(from_public_helper, from_resolver);
+        // A fresh (non-ephemeral) repo resolves the shared common-dir store, not
+        // the raw worktree-local `.shore/data`.
+        assert_eq!(path_file_name(&from_public_helper), "shore");
     }
 
     fn assert_existing_paths_eq(actual: &Path, expected: &Path) {
@@ -511,23 +526,15 @@ mod tests {
     }
 
     #[test]
-    fn legacy_registration_only_store_returns_migrate_hint() {
+    fn store_registration_json_is_no_longer_a_flat_store_marker() {
+        // Registration is retired: a lone store-registration.json is not a store,
+        // so it does not trip the flat-store layout guard.
         let repo = git_repo();
-        // A registered linked checkout from before the relocation: only the
-        // top-level registration file, no .shore/events, .shore/state.json, or
-        // .shore/data/. The new code reads the registration from .shore/data/,
-        // so without the guard this would silently resolve as worktree-local and
-        // drop the registration.
         fs::create_dir_all(repo.path().join(".shore")).unwrap();
         fs::write(repo.path().join(".shore/store-registration.json"), "{}").unwrap();
 
-        let err = ShoreStorePaths::resolve(repo.path())
-            .expect_err("a top-level registration is a legacy store, not a clean resolve");
-        let message = err.to_string();
-        assert!(
-            message.contains("migrate-store"),
-            "names the fix; got: {message}"
-        );
+        let layout = detect_store_layout(&repo.path().join(".shore"));
+        assert_eq!(layout, StoreLayout::Fresh);
     }
 
     #[test]

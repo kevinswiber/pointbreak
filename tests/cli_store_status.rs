@@ -7,7 +7,7 @@ use std::process::Command;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
-use support::shore;
+use support::{common_dir_store, shore};
 
 #[test]
 fn store_status_emits_local_json_without_storage_paths() {
@@ -26,8 +26,9 @@ fn store_status_emits_local_json_without_storage_paths() {
 
     assert_eq!(json["schema"], "shore.store-status");
     assert_eq!(json["version"], 1);
+    // The single-store view: one store per clone, no clone/family refs.
     assert_eq!(json["mode"], "local");
-    assert_eq!(json["storeRef"], "worktree-local");
+    assert_eq!(json["storeRef"], "local");
     assert!(json.get("cloneRef").is_none());
     assert!(json.get("repositoryFamilyRef").is_none());
     assert!(!stdout.contains(".shore"));
@@ -35,10 +36,15 @@ fn store_status_emits_local_json_without_storage_paths() {
     assert!(!stdout.contains("artifacts/"));
 }
 
+// The "linked" store-status mode with clone/repository-family refs is retired:
+// store registration was removed with the shared-store default, so every worktree
+// reports the single-store view (`mode: "local"`, `storeRef: "local"`, no
+// clone/family refs) — covered by `store_status_emits_local_json_without_storage_paths`,
+// and the shared-store visibility itself by the shared-store-default suite. A
+// linked worktree resolves the same shared store as main with no registration.
 #[test]
-fn store_status_emits_linked_refs_without_storage_paths() {
+fn linked_worktree_store_status_reports_the_shared_single_store_view() {
     let fixture = LinkedWorktreeFixture::new();
-    seed_clone_local_registration(&fixture.linked_path);
 
     let output = shore([
         "store",
@@ -57,10 +63,10 @@ fn store_status_emits_linked_refs_without_storage_paths() {
 
     assert_eq!(json["schema"], "shore.store-status");
     assert_eq!(json["version"], 1);
-    assert_eq!(json["mode"], "linked");
-    assert_eq!(json["storeRef"], "store:random:test-store");
-    assert_eq!(json["cloneRef"], "clone:random:test-clone");
-    assert_eq!(json["repositoryFamilyRef"], "clone:random:test-clone");
+    assert_eq!(json["mode"], "local");
+    assert_eq!(json["storeRef"], "local");
+    assert!(json.get("cloneRef").is_none());
+    assert!(json.get("repositoryFamilyRef").is_none());
     assert!(!stdout.contains(fixture.main.path().to_str().unwrap()));
     assert!(!stdout.contains(fixture.linked_path.to_str().unwrap()));
     assert!(!stdout.contains(".git"));
@@ -104,7 +110,7 @@ fn store_status_includes_inventory_without_artifact_paths() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     let json = parse_json(stdout.as_bytes());
     let inventory = &json["inventory"];
-    let store_dir = repo.path().join(".shore/data");
+    let store_dir = common_dir_store(repo.path());
     let (event_count, event_bytes) = directory_file_stats(&store_dir.join("events"));
     let (snapshot_count, snapshot_bytes) =
         directory_file_stats(&store_dir.join("artifacts/snapshots"));
@@ -191,35 +197,6 @@ fn store_status_includes_redacted_sensitivity_findings() {
     assert!(!stdout.contains("target/generated"));
 }
 
-fn seed_clone_local_registration(worktree: &Path) {
-    let common_dir = git_stdout(
-        worktree,
-        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    );
-    let git_dir = git_stdout(worktree, ["rev-parse", "--absolute-git-dir"]);
-    let object_format = git_stdout(worktree, ["rev-parse", "--show-object-format"]);
-    let shared_store = PathBuf::from(common_dir.trim()).join("shore");
-    fs::create_dir_all(&shared_store).unwrap();
-    fs::write(
-        shared_store.join("manifest.json"),
-        format!(
-            "{{\"schema\":\"shore.store-manifest\",\"version\":1,\"storeId\":\"store:random:test-store\",\"cloneId\":\"clone:random:test-clone\",\"repositoryFamilyId\":\"clone:random:test-clone\",\"git\":{{\"commonDir\":{},\"gitDir\":{},\"worktreeRoot\":{},\"objectFormat\":{}}}}}",
-            serde_json::to_string(common_dir.trim()).unwrap(),
-            serde_json::to_string(git_dir.trim()).unwrap(),
-            serde_json::to_string(worktree.to_str().unwrap()).unwrap(),
-            serde_json::to_string(object_format.trim()).unwrap(),
-        ),
-    )
-    .unwrap();
-
-    fs::create_dir_all(worktree.join(".shore/data")).unwrap();
-    fs::write(
-        worktree.join(".shore/data/store-registration.json"),
-        "{\"schema\":\"shore.store-registration\",\"version\":1,\"mode\":\"cloneLocal\",\"storeRef\":\"store:random:test-store\",\"cloneRef\":\"clone:random:test-clone\",\"repositoryFamilyRef\":\"clone:random:test-clone\"}",
-    )
-    .unwrap();
-}
-
 struct LinkedWorktreeFixture {
     main: GitRepo,
     _linked_parent: tempfile::TempDir,
@@ -251,15 +228,6 @@ impl LinkedWorktreeFixture {
             linked_path,
         }
     }
-}
-
-fn git_stdout<I, S>(cwd: &Path, args: I) -> String
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<OsStr>,
-{
-    let output = run_git(cwd, args);
-    String::from_utf8(output.stdout).unwrap()
 }
 
 fn run_git<I, S>(cwd: &Path, args: I) -> std::process::Output

@@ -138,17 +138,6 @@ impl EventStore {
             .collect()
     }
 
-    /// Parse the named event files in this store. Names are content-addressed
-    /// (`<stem>.json`), so this is the by-name hydration counterpart to
-    /// `list_event_file_names`. A name not present errors like `read_event`
-    /// (a vanished file is loud, not silent).
-    pub(crate) fn read_events_by_file_names(&self, names: &[String]) -> Result<Vec<ShoreEvent>> {
-        names
-            .iter()
-            .map(|name| self.read_event(&self.events_dir().join(name)))
-            .collect()
-    }
-
     /// Event file names in this store, with the same accept/skip rules as
     /// `list_events` but without parsing event JSON. Sorted; a missing events
     /// directory lists as empty.
@@ -656,53 +645,6 @@ mod tests {
             store_two.read_event(&path_two).unwrap().ingest,
             stamped.ingest
         );
-    }
-
-    #[test]
-    fn read_events_by_file_names_hydrates_only_the_named_subset() {
-        let (_root, store) = temp_event_store();
-        let a = review_initialized_event_for_session("session:a");
-        let b = review_initialized_event_for_session("session:b");
-        let c = review_initialized_event_for_session("session:c");
-        store.record_event_once(&a).unwrap();
-        store.record_event_once(&b).unwrap();
-        store.record_event_once(&c).unwrap();
-
-        let name =
-            |event: &ShoreEvent| format!("{}.json", event_filename_stem(&event.idempotency_key));
-        let names = vec![name(&a), name(&c)];
-        let events = store.read_events_by_file_names(&names).unwrap();
-
-        assert_eq!(events.len(), 2);
-        assert!(events.iter().any(|event| event.event_id == a.event_id));
-        assert!(events.iter().any(|event| event.event_id == c.event_id));
-        assert!(!events.iter().any(|event| event.event_id == b.event_id));
-    }
-
-    #[test]
-    fn read_events_by_file_names_errors_on_missing_name_like_read_event() {
-        let (_root, store) = temp_event_store();
-        let present = review_initialized_event();
-        store.record_event_once(&present).unwrap();
-        let missing = format!("{}.json", "0".repeat(64));
-
-        let error = store
-            .read_events_by_file_names(&[missing])
-            .expect_err("a vanished file is loud, not silent");
-
-        assert!(!error.to_string().is_empty());
-    }
-
-    fn review_initialized_event_for_session(session: &str) -> ShoreEvent {
-        ShoreEvent::new(
-            EventType::ReviewInitialized,
-            format!("review_initialized:{session}:work:default"),
-            EventTarget::new(SessionId::new(session), WorkUnitId::new("work:default")),
-            Writer::shore_local("0.1.0"),
-            ReviewInitializedPayload {},
-            "2026-05-10T00:00:00Z",
-        )
-        .expect("event builds")
     }
 
     fn temp_event_store() -> (tempfile::TempDir, EventStore) {

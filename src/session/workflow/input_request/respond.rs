@@ -329,7 +329,7 @@ mod tests {
             TargetRef::Task(TaskTargetRef::TaskAttempt),
             "approve?",
         );
-        EventStore::open(repo.path().join(".shore/data"))
+        EventStore::open(resolved_store_dir(repo.path()))
             .record_event_once(&request)
             .unwrap();
 
@@ -352,6 +352,13 @@ mod tests {
             !message.contains("missing review unit"),
             "the cryptic message is replaced; got: {message}"
         );
+    }
+
+    /// The store a workflow actually lands in for `repo` — the shared common-dir
+    /// store by default. Seeds and reads that pair with a workflow resolve here,
+    /// not the raw worktree-local `.shore/data`.
+    fn resolved_store_dir(repo: &Path) -> PathBuf {
+        crate::git::git_common_dir(repo).unwrap().join("shore")
     }
 
     struct TestRepo {

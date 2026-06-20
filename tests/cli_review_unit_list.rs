@@ -149,7 +149,7 @@ fn review_unit_list_succeeds_without_events() {
 }
 
 #[test]
-fn review_unit_list_reads_imported_facts_from_linked_store() {
+fn review_unit_list_reads_capture_from_the_shared_store_after_seed_worktree_removed() {
     let fixture = CloneWorktreeFixture::new();
     fs::write(fixture.seed.join("README.md"), "changed in seed\n").unwrap();
     let capture = parse_json(
@@ -162,12 +162,8 @@ fn review_unit_list_reads_imported_facts_from_linked_store() {
         .stdout,
     );
 
-    let link = shore(["store", "link", "--repo", fixture.seed.to_str().unwrap()]);
-    assert!(
-        link.status.success(),
-        "link stderr:\n{}",
-        String::from_utf8_lossy(&link.stderr)
-    );
+    // The capture wrote through to the shared common-dir store; removing the seed
+    // worktree cannot strand the record. No `store link` step.
     run_git_os(
         fixture.main.path(),
         [
@@ -178,12 +174,6 @@ fn review_unit_list_reads_imported_facts_from_linked_store() {
         ],
     );
     let reader = fixture.add_worktree("reader");
-    let reader_link = shore(["store", "link", "--repo", reader.to_str().unwrap()]);
-    assert!(
-        reader_link.status.success(),
-        "reader link stderr:\n{}",
-        String::from_utf8_lossy(&reader_link.stderr)
-    );
     assert!(!reader.join(".shore/data/events").exists());
 
     let output = shore(["review", "unit", "list", "--repo", reader.to_str().unwrap()]);
@@ -207,7 +197,7 @@ fn review_unit_list_reads_imported_facts_from_linked_store() {
 }
 
 #[test]
-fn review_unit_list_omits_ambient_ambiguous_current_diagnostic_from_linked_store() {
+fn review_unit_list_omits_ambient_ambiguous_current_diagnostic_from_shared_store() {
     let fixture = CloneWorktreeFixture::new();
     fs::write(fixture.seed.join("README.md"), "changed once\n").unwrap();
     let first = parse_json(
@@ -230,19 +220,9 @@ fn review_unit_list_omits_ambient_ambiguous_current_diagnostic_from_linked_store
         .stdout,
     );
 
-    let link = shore(["store", "link", "--repo", fixture.seed.to_str().unwrap()]);
-    assert!(
-        link.status.success(),
-        "link stderr:\n{}",
-        String::from_utf8_lossy(&link.stderr)
-    );
+    // Both captures wrote through to the shared common-dir store; a sibling reader
+    // sees them with no `store link` step.
     let reader = fixture.add_worktree("reader");
-    let reader_link = shore(["store", "link", "--repo", reader.to_str().unwrap()]);
-    assert!(
-        reader_link.status.success(),
-        "reader link stderr:\n{}",
-        String::from_utf8_lossy(&reader_link.stderr)
-    );
 
     let output = shore(["review", "unit", "list", "--repo", reader.to_str().unwrap()]);
     assert!(

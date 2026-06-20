@@ -82,17 +82,10 @@ fn review_capture_changes_when_untracked_content_changes() {
 }
 
 #[test]
-fn review_capture_on_linked_store_writes_through_to_linked_store() {
+fn review_capture_writes_through_to_the_shared_store_without_a_link_step() {
     let repo = GitRepo::new();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
     repo.commit_all("base");
-
-    let link = shore(["store", "link", "--repo", repo.path().to_str().unwrap()]);
-    assert!(
-        link.status.success(),
-        "link stderr:\n{}",
-        String::from_utf8_lossy(&link.stderr)
-    );
 
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
     let capture = shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
@@ -102,22 +95,20 @@ fn review_capture_on_linked_store_writes_through_to_linked_store() {
         String::from_utf8_lossy(&capture.stderr)
     );
     let capture_stdout = String::from_utf8(capture.stdout).unwrap();
-    let capture_json = parse_json(capture_stdout.as_bytes());
+    let _capture_json = parse_json(capture_stdout.as_bytes());
 
-    // Write-through (INV-1): the capture lands in the linked clone-local store,
-    // so there is no batch-only "run shore store link" guidance any more.
-    let diagnostics = capture_json["diagnostics"].as_array().unwrap();
-    assert!(
-        !diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic["code"].as_str() == Some("clone_local_capture_batch_only")),
-        "write-through capture must not emit a batch-only diagnostic, got {diagnostics:?}"
-    );
+    // No storage paths leak into the capture JSON.
     assert!(!capture_stdout.contains(".git"));
     assert!(!capture_stdout.contains(".shore/data"));
 
-    // The linked store sees the captured event in place — eventCount reflects the
-    // write-through capture rather than staying zero until a `shore store link`.
+    // The capture landed in the shared common-dir store with no link step.
+    assert!(
+        common_dir_store(&repo).join("events").is_dir(),
+        "the capture lands in the shared common-dir store"
+    );
+
+    // `store status` sees the captured event in place — eventCount reflects the
+    // write-through capture, with the single-store view (no clone/family refs).
     let status = shore(["store", "status", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         status.status.success(),
@@ -125,8 +116,9 @@ fn review_capture_on_linked_store_writes_through_to_linked_store() {
         String::from_utf8_lossy(&status.stderr)
     );
     let status_json = parse_json(&status.stdout);
-    assert_eq!(status_json["mode"], "linked");
+    assert_eq!(status_json["mode"], "local");
     assert_eq!(status_json["inventory"]["eventCount"], 2);
+    assert!(status_json.get("cloneRef").is_none() || status_json["cloneRef"].is_null());
 }
 
 #[test]
@@ -135,9 +127,7 @@ fn capture_preserves_inline_rows_for_normal_added_file() {
     let _capture =
         parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
-    let snapshots_dir = shoreline::session::store_dir_for_repo(repo.path())
-        .expect("shore dir resolves")
-        .join("artifacts/snapshots");
+    let snapshots_dir = common_dir_store(&repo).join("artifacts/snapshots");
     let artifact_path = std::fs::read_dir(&snapshots_dir)
         .expect("snapshots dir exists")
         .filter_map(|entry| entry.ok())
@@ -410,6 +400,19 @@ fn committed_repo() -> GitRepo {
 
 fn rev(repo: &GitRepo, rev: &str) -> String {
     repo.git(["rev-parse", rev]).stdout.trim().to_owned()
+}
+
+/// The shared common-dir store a clone resolves by default
+/// (`<git-common-dir>/shore`). Every non-ephemeral worktree reads and writes
+/// here, so post-capture store assertions look here instead of the raw
+/// worktree-local `.shore/data`.
+fn common_dir_store(repo: &GitRepo) -> std::path::PathBuf {
+    let common_dir = repo
+        .git(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .stdout
+        .trim()
+        .to_owned();
+    std::path::Path::new(&common_dir).join("shore")
 }
 
 fn bounded_added_file_repo() -> GitRepo {

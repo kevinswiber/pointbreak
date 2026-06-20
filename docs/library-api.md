@@ -74,23 +74,22 @@ ReviewUnit validation target internally. `ValidationListOptions` filters by Revi
 status, and `with_include_body(true)` hydrates validation summaries. Validation evidence is
 advisory; it does not accept, reject, merge, block, or replace a review assessment.
 
-**Linked write-validation.** In a worktree registered with a clone-local store, every review write
+**Shared-store write resolution.** By default every worktree of a clone resolves the same shared
+common-dir store (`.git/shore`) for both reads and writes, with no setup step. Every review write
 workflow above (`record_observation`, `open_input_request`, `respond_input_request`,
-`record_assessment`, `record_validation_check`, and lineage attach) validates and derives against the
-**writer-visible union**: the linked store's events plus the worktree-local events not yet synced.
-This is the write-path counterpart to the store-only read seam — a consumer can record a fact against
-a ReviewUnit, observation, assessment, or input request that lives only in the linked store. The
-write itself lands **through to the clone-local store** (`resolve_write_store` resolves the same store
-the reads do in linked mode), so the fact is visible to reads in place with no `link_clone_local_store`
-step. The unlinked path is unchanged: the write lands in the worktree-local store and the validation
-union reduces to the local event list.
+`record_assessment`, `record_validation_check`, and lineage attach) validates and derives against
+that store, and the write itself lands directly in it (`resolve_write_store` resolves the same store
+the reads do), so a consumer can record a fact against a ReviewUnit, observation, assessment, or
+input request captured in a sibling worktree, and the fact is visible to reads from every worktree in
+place. An `ephemeral` worktree instead resolves its own discardable worktree-local `.shore/data/`
+store; the validation set reduces to that store's event list.
 
 `respond_input_request` answers **review-unit** input requests (the reviewer-to-author loop). Agent
 **task-attempt** input requests — the resumption domain that feeds ADR-0009 binding — are a separate
 input-request flavour, authored and answered by the agent session / relay rather than by this
 review-fact command; passing a task-attempt request id to `respond_input_request` is rejected with a
 domain-boundary error. A future task-attempt response writer that wants cross-worktree validation can
-route through the same `resolve_write_validation_store` seam — the union is domain-agnostic.
+route through the same `resolve_write_validation_store` seam — it is domain-agnostic.
 
 ### Event signatures — `shoreline::session` / `shoreline::crypto`
 
@@ -226,15 +225,14 @@ with ingest provenance — `ingest: { via, receivedAt }`, with `via` naming the 
 to-be-signed view, so stamping never invalidates a signature, and re-ingest keeps the first
 stored stamp state ([ADR-0009](adr/adr-0009-resumption-binding-trust-source.md)).
 
-Events copied into a clone-local store by `shore store link` carry that same ingest provenance
-(`via: "bundle-apply"`), and binding decisions are a pure function of the events actually read. An
-unsigned input-request response binds via possession only inside the store that locally wrote it:
-when any linked checkout — including the authoring worktree — reads the linked store's stamped
-copy, the response projects as non-binding with reason `ingested_unsigned`. This holds for a response
-*authored* in a sibling worktree just as it does for one merely read there: the predicate never
-consults which workflow or worktree produced the event, only its stamp and signature. A response
-signed by a verified, authorized signer binds identically from any store. Sign responses that must
-stay binding across linked checkouts.
+Events folded into the shared common-dir store by `import_store_bundle` (the seam `shore store
+migrate` uses) carry that same ingest provenance (`via: "bundle-apply"`), and binding decisions are a
+pure function of the events actually read. An unsigned input-request response binds via possession
+only inside the store that locally wrote it: once it is read back as a bundle-stamped copy, the
+response projects as non-binding with reason `ingested_unsigned`. The predicate never consults which
+workflow or worktree produced the event, only its stamp and signature, so a response signed by a
+verified, authorized signer binds identically from any store. Sign responses that must stay binding
+after a migration into the shared store.
 
 ### Artifacts — `shoreline::session`
 
@@ -260,9 +258,9 @@ After events and artifacts are present, `show_review_unit` can load the bound sn
 bodies. The store layout remains private; callers should keep and pass around `ArtifactRef` values
 rather than constructing paths. A remote bridge derives those refs from the forwarded events it
 already has, fetches bytes by `ArtifactRef::content_hash()`, and loops over `import_artifact`;
-callers do not construct refs from a raw hash alone. This byte-level transfer path complements
-`link_clone_local_store`: linked local clones can share one store, while remote or networked
-consumers can fetch and import the required blobs by content hash.
+callers do not construct refs from a raw hash alone. This byte-level transfer path complements the
+shared common-dir store: every worktree of a clone already shares one local store, while remote or
+networked consumers can fetch and import the required blobs by content hash.
 
 Signature validity does not imply artifact availability. A signed event can be `valid` while its
 referenced snapshot or note-body artifact is unavailable, and an available artifact can be attached

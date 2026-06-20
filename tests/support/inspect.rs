@@ -487,15 +487,6 @@ pub fn capture_lineage_round(repo: &Path, lineage_id: &str, predecessor: Option<
         .to_owned()
 }
 
-pub fn link_store(repo: &Path) {
-    let output = shore(["store", "link", "--repo", repo.to_str().unwrap()]);
-    assert!(
-        output.status.success(),
-        "store link stderr:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
 pub fn add_worktree(repo: &Path, path: &Path, branch: &str) {
     run_git(
         repo,

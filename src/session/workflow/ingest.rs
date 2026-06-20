@@ -491,6 +491,7 @@ mod tests {
         reader_actor, task_attempt_event, task_input_request_event_with_target, user_response_event,
     };
     use crate::session::signing::test_support::{DeterministicSigner, trust_for_actor};
+    use crate::session::store::resolution::{resolve_read_store, resolve_store};
     use crate::session::{
         CaptureOptions, EventSignatureRecordOptions, EventVerificationPolicy,
         InputRequestListOptions, InputRequestOpenOptions, InputRequestRespondOptions,
@@ -569,26 +570,31 @@ mod tests {
                 .with_actor_id(ActorId::new("actor:agent:remote-reviewer")),
         )
         .unwrap();
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         (repo, events)
     }
 
     fn dest_repo() -> TestRepo {
-        // The destination only needs a valid repo root to host its own .shore/data.
+        // The destination only needs a valid repo root to host its resolved store.
         modified_repo()
+    }
+
+    /// The store a workflow (capture, ingest, signature) actually lands in for a
+    /// repo — the shared common-dir store by default. Reads that follow such a
+    /// workflow resolve here, never the raw worktree-local `.shore/data`.
+    fn resolved_store_dir(repo: &Path) -> PathBuf {
+        crate::git::git_common_dir(repo).unwrap().join("shore")
     }
 
     #[test]
     fn linked_ingest_lands_events_in_clone_local_store() {
         use crate::git::git_common_dir;
         use crate::session::ShoreStorePaths;
-        use crate::session::store::resolution::register_clone_local_store;
 
         let (_origin, events) = origin_events();
         let dest = dest_repo();
-        register_clone_local_store(dest.path()).unwrap();
 
         ingest_events(IngestEventsOptions::new(dest.path(), events)).unwrap();
 
@@ -613,12 +619,14 @@ mod tests {
     }
 
     fn on_disk_state(repo: &Path) -> serde_json::Value {
-        serde_json::from_str(&std::fs::read_to_string(repo.join(".shore/data/state.json")).unwrap())
-            .unwrap()
+        serde_json::from_str(
+            &std::fs::read_to_string(resolved_store_dir(repo).join("state.json")).unwrap(),
+        )
+        .unwrap()
     }
 
     fn replayed_state(repo: &Path) -> serde_json::Value {
-        let events = EventStore::open(repo.join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo))
             .list_events()
             .unwrap();
         serde_json::to_value(SessionState::from_events(&events).unwrap()).unwrap()
@@ -634,7 +642,7 @@ mod tests {
                 .sign_with(signer.clone()),
         )
         .unwrap();
-        let event = EventStore::open(repo.path().join(".shore/data"))
+        let event = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap()
             .into_iter()
@@ -662,12 +670,12 @@ mod tests {
     }
 
     fn stored_event_count(repo: &Path) -> usize {
-        let events_dir = repo.join(".shore/data/events");
+        let events_dir = resolved_store_dir(repo).join("events");
         if !events_dir.exists() {
             return 0;
         }
 
-        EventStore::open(repo.join(".shore/data"))
+        EventStore::open(resolved_store_dir(repo))
             .list_events()
             .unwrap()
             .len()
@@ -830,7 +838,7 @@ mod tests {
     }
 
     fn carrier_in(repo: &Path) -> ShoreEvent {
-        EventStore::open(repo.join(".shore/data"))
+        EventStore::open(resolved_store_dir(repo))
             .list_events()
             .unwrap()
             .into_iter()
@@ -855,7 +863,7 @@ mod tests {
                 .sign_with(signer.clone()),
         )
         .unwrap();
-        let target = EventStore::open(repo.path().join(".shore/data"))
+        let target = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap()
             .into_iter()
@@ -907,7 +915,7 @@ mod tests {
         );
 
         // The first-stored A-signed event is kept as the stored target.
-        let stored = EventStore::open(dest.path().join(".shore/data"))
+        let stored = EventStore::open(resolved_store_dir(dest.path()))
             .list_events()
             .unwrap();
         let stored_target = stored
@@ -1028,7 +1036,7 @@ mod tests {
                 .all(|diagnostic| diagnostic.code != "cosignature_untrusted_signer"),
             "the authorization observation describes a merge that did not recur"
         );
-        let carriers = EventStore::open(dest.path().join(".shore/data"))
+        let carriers = EventStore::open(resolved_store_dir(dest.path()))
             .list_events()
             .unwrap()
             .into_iter()
@@ -1065,7 +1073,7 @@ mod tests {
             result.events_created, 0,
             "invalid inline sig is not transcribed"
         );
-        let carriers = EventStore::open(dest.path().join(".shore/data"))
+        let carriers = EventStore::open(resolved_store_dir(dest.path()))
             .list_events()
             .unwrap()
             .into_iter()
@@ -1104,7 +1112,7 @@ mod tests {
             result.events_created, 0,
             "an unsigned duplicate adds no co-signature"
         );
-        let carriers = EventStore::open(dest.path().join(".shore/data"))
+        let carriers = EventStore::open(resolved_store_dir(dest.path()))
             .list_events()
             .unwrap()
             .into_iter()
@@ -1160,7 +1168,7 @@ mod tests {
         let copy_b = signed_copy(&base, &signer_b);
 
         let cosigner_set = |repo: &Path| {
-            let stored = EventStore::open(repo.join(".shore/data"))
+            let stored = EventStore::open(resolved_store_dir(repo))
                 .list_events()
                 .unwrap();
             let mut signers: Vec<String> = Vec::new();
@@ -1228,7 +1236,7 @@ mod tests {
             IngestEventsOptions::new(dest.path(), vec![target]).with_trust_set(trust.clone()),
         )
         .unwrap();
-        let before = EventStore::open(dest.path().join(".shore/data"))
+        let before = EventStore::open(resolved_store_dir(dest.path()))
             .list_events()
             .unwrap();
         let before_hash = event_set_hash_for_events(&before).unwrap();
@@ -1248,7 +1256,7 @@ mod tests {
         assert_eq!(verification.status, EventVerificationStatus::Valid);
 
         // The carrier rides the ordinary, signature-blind event-set machinery.
-        let after = EventStore::open(dest.path().join(".shore/data"))
+        let after = EventStore::open(resolved_store_dir(dest.path()))
             .list_events()
             .unwrap();
         assert_ne!(before_hash, event_set_hash_for_events(&after).unwrap());
@@ -1278,7 +1286,7 @@ mod tests {
                 .any(|diagnostic| diagnostic.code == "cosignature_untrusted_signer")
         );
         assert!(
-            EventStore::open(dest.path().join(".shore/data"))
+            EventStore::open(resolved_store_dir(dest.path()))
                 .list_events()
                 .unwrap()
                 .iter()
@@ -1321,7 +1329,7 @@ mod tests {
                 .any(|diagnostic| diagnostic.code == "cosignature_invalid")
         );
         assert!(
-            EventStore::open(dest.path().join(".shore/data"))
+            EventStore::open(resolved_store_dir(dest.path()))
                 .list_events()
                 .unwrap()
                 .iter()
@@ -1369,7 +1377,7 @@ mod tests {
         .unwrap();
         assert_eq!(replayed.events_created, 1);
         assert!(
-            EventStore::open(dest.path().join(".shore/data"))
+            EventStore::open(resolved_store_dir(dest.path()))
                 .list_events()
                 .unwrap()
                 .iter()
@@ -1425,7 +1433,7 @@ mod tests {
                 .iter()
                 .all(|diagnostic| diagnostic.code != "divergent_signature_existing_event")
         );
-        let mut stored = EventStore::open(dest.path().join(".shore/data"))
+        let mut stored = EventStore::open(resolved_store_dir(dest.path()))
             .list_events()
             .unwrap();
         assert_eq!(stored.len(), 1);
@@ -1444,7 +1452,7 @@ mod tests {
 
         ingest_events(IngestEventsOptions::new(dest.path(), events.clone())).unwrap();
 
-        let stored = EventStore::open(dest.path().join(".shore/data"))
+        let stored = EventStore::open(resolved_store_dir(dest.path()))
             .list_events()
             .unwrap();
         assert_eq!(stored.len(), events.len());
@@ -1471,7 +1479,7 @@ mod tests {
 
         import_event(ImportEventOptions::new(dest.path(), event)).unwrap();
 
-        let stored = EventStore::open(dest.path().join(".shore/data"))
+        let stored = EventStore::open(resolved_store_dir(dest.path()))
             .list_events()
             .unwrap();
         let stamp = stored[0].ingest.as_ref().unwrap();
@@ -1491,7 +1499,7 @@ mod tests {
         assert_eq!(result.events_created, 0);
         assert_eq!(result.events_existing, events.len());
 
-        let stored = EventStore::open(origin.path().join(".shore/data"))
+        let stored = EventStore::open(resolved_store_dir(origin.path()))
             .list_events()
             .unwrap();
         assert!(stored.iter().all(|event| event.ingest.is_none()));
@@ -1506,7 +1514,7 @@ mod tests {
         let dest = dest_repo();
 
         ingest_events(IngestEventsOptions::new(dest.path(), events.clone())).unwrap();
-        let first_stamps: Vec<_> = EventStore::open(dest.path().join(".shore/data"))
+        let first_stamps: Vec<_> = EventStore::open(resolved_store_dir(dest.path()))
             .list_events()
             .unwrap()
             .into_iter()
@@ -1517,7 +1525,7 @@ mod tests {
         let second = ingest_events(IngestEventsOptions::new(dest.path(), events)).unwrap();
         assert_eq!(second.events_created, 0);
 
-        let second_stamps: Vec<_> = EventStore::open(dest.path().join(".shore/data"))
+        let second_stamps: Vec<_> = EventStore::open(resolved_store_dir(dest.path()))
             .list_events()
             .unwrap()
             .into_iter()
@@ -1537,7 +1545,7 @@ mod tests {
         )
         .unwrap();
 
-        let stored = EventStore::open(dest.path().join(".shore/data"))
+        let stored = EventStore::open(resolved_store_dir(dest.path()))
             .list_events()
             .unwrap();
         assert!(stored[0].ingest.is_some());
@@ -1620,8 +1628,8 @@ mod tests {
         );
         // Nothing was written (attribution is validated before any write).
         assert!(
-            !dest.path().join(".shore/data/events").exists() || {
-                EventStore::open(dest.path().join(".shore/data"))
+            !resolved_store_dir(dest.path()).join("events").exists() || {
+                EventStore::open(resolved_store_dir(dest.path()))
                     .list_events()
                     .unwrap()
                     .is_empty()
@@ -1760,7 +1768,7 @@ mod tests {
 
         ingest_events(IngestEventsOptions::new(dest.path(), events)).unwrap();
 
-        let stored = EventStore::open(dest.path().join(".shore/data"))
+        let stored = EventStore::open(resolved_store_dir(dest.path()))
             .list_events()
             .unwrap();
         let projection = resumption_projection(
@@ -1803,7 +1811,7 @@ mod tests {
         ingest_events(IngestEventsOptions::new(dest.path(), events).with_trust_set(trust.clone()))
             .unwrap();
 
-        let stored = EventStore::open(dest.path().join(".shore/data"))
+        let stored = EventStore::open(resolved_store_dir(dest.path()))
             .list_events()
             .unwrap();
         let response = stored
@@ -1842,7 +1850,7 @@ mod tests {
         ingest_events(IngestEventsOptions::new(dest.path(), events).with_trust_set(trust.clone()))
             .unwrap();
 
-        let stored = EventStore::open(dest.path().join(".shore/data"))
+        let stored = EventStore::open(resolved_store_dir(dest.path()))
             .list_events()
             .unwrap();
         let projection = resumption_projection(
@@ -1939,17 +1947,20 @@ mod tests {
         );
     }
 
-    // ADR-0009 through the linked-read seam: `store link` stamps every copied
-    // event with ingest provenance, and the binding predicate is a pure
-    // function of the events actually read — never of which store reads them.
-    // The linked store's copies therefore behave exactly like any ingested
-    // events, with no special case for "my own link import". These fixtures
-    // extend the binding outcome matrix in projection/task.rs through a real
-    // worktree pair and the read seam.
+    // ADR-0009 through the shared common-dir store: with one default store per
+    // clone, every worktree resolves the SAME store with no `store link` step,
+    // and the resumption-binding predicate is a pure function of the events
+    // actually read — never of which worktree reads them. A response authored
+    // directly in the shared store is local-authored and unstamped, so it binds
+    // by possession from any sibling worktree. (The stamped/ingested_unsigned
+    // outcome is exercised through the real `ingest_events` path elsewhere in
+    // this module.) These fixtures extend the binding outcome matrix in
+    // projection/task.rs through a real worktree pair and the shared read seam.
 
-    /// A committed main repo plus seed and reader worktrees, with `events`
-    /// written into the seed's worktree-local store.
-    fn linked_resumption_pair(
+    /// A committed main repo plus seed and reader worktrees that share one
+    /// common-dir store, with `events` written into that shared store via the
+    /// seed's resolved write landing — no `store link`.
+    fn shared_resumption_pair(
         events: &[ShoreEvent],
     ) -> (
         TestRepo,
@@ -1967,68 +1978,53 @@ mod tests {
         main.git(["worktree", "add", "-b", "seed", seed.to_str().unwrap()]);
         main.git(["worktree", "add", "-b", "reader", reader.to_str().unwrap()]);
 
-        let seed_store = EventStore::open(seed.join(".shore/data"));
+        // The seed writes into the store it shares with every sibling worktree
+        // (the common-dir store), so the reader sees the same events with no
+        // link step.
+        let shared = resolve_store(&seed).unwrap();
+        let shared_store = EventStore::open(shared.store_dir());
         for event in events {
-            seed_store.record_event_once(event).unwrap();
+            shared_store.record_event_once(event).unwrap();
         }
         (main, parent, seed, reader)
     }
 
-    /// Events as a linked checkout's reads see them: through the read seam,
-    /// asserting the resolution actually went clone-local.
-    fn linked_store_events(repo: &Path) -> Vec<ShoreEvent> {
-        use crate::session::store::resolution::{StoreResolutionMode, resolve_read_store};
+    /// Events as a sibling worktree's reads see them: through the read seam,
+    /// resolving the shared common-dir store with no link step.
+    fn shared_store_events(repo: &Path) -> Vec<ShoreEvent> {
         let read_store = resolve_read_store(repo).unwrap();
-        assert_eq!(read_store.resolution.mode, StoreResolutionMode::CloneLocal);
         EventStore::open(read_store.store_dir())
             .list_events()
             .unwrap()
     }
 
-    fn link(repo: &Path) {
-        use crate::session::{StoreLinkOptions, link_clone_local_store};
-        link_clone_local_store(StoreLinkOptions::new(repo)).unwrap();
-    }
-
     #[test]
-    fn linked_read_unsigned_response_is_non_binding_ingested_unsigned() {
+    fn sibling_worktree_unsigned_response_binds_by_possession_from_shared_store() {
+        // The shared common-dir store holds the seed's local-authored, unstamped
+        // response. A sibling worktree reads it through the same store with no
+        // link, and possession binds it identically.
         let (events, task_attempt_id) = task_resumption_events();
-        let (_main, _parent, seed, reader) = linked_resumption_pair(&events);
+        let (_main, _parent, seed, reader) = shared_resumption_pair(&events);
 
-        // Baseline: before linking, possession binds in the seed's own store.
-        let local = EventStore::open(seed.join(".shore/data"))
-            .list_events()
-            .unwrap();
-        assert!(local.iter().all(|event| event.ingest.is_none()));
-        let baseline = resumption_projection(
-            &local,
-            &task_attempt_id,
-            &TrustSet::default(),
-            ResumptionBindingPolicy::default(),
+        // Seed and reader resolve the same store, and its events are unstamped.
+        assert_eq!(
+            resolve_store(&seed).unwrap().store_dir(),
+            resolve_store(&reader).unwrap().store_dir()
         );
-        assert!(baseline.may_resume);
-
-        link(&seed);
-        link(&reader);
-
-        let stored = linked_store_events(&reader);
-        assert!(stored.iter().all(|event| event.ingest.is_some()));
+        let stored = shared_store_events(&reader);
+        assert!(stored.iter().all(|event| event.ingest.is_none()));
         let projection = resumption_projection(
             &stored,
             &task_attempt_id,
             &TrustSet::default(),
             ResumptionBindingPolicy::default(),
         );
-        assert!(!projection.may_resume);
-        assert_eq!(projection.state, AgentResumptionState::Blocked);
-        assert_eq!(
-            identity_reason(&projection).as_deref(),
-            Some("ingested_unsigned")
-        );
+        assert!(projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Ready);
     }
 
     #[test]
-    fn linked_read_signed_authorized_response_binds_via_verified_signer() {
+    fn sibling_worktree_signed_authorized_response_binds_via_verified_signer() {
         let (mut events, task_attempt_id) = task_resumption_events();
         let signer = DeterministicSigner::fixture();
         crate::session::sign_event_if_requested(
@@ -2037,11 +2033,9 @@ mod tests {
         )
         .unwrap();
         let trust = trust_for_actor(&ActorId::new("actor:claude_code:user"), &signer);
-        let (_main, _parent, seed, reader) = linked_resumption_pair(&events);
-        link(&seed);
-        link(&reader);
+        let (_main, _parent, _seed, reader) = shared_resumption_pair(&events);
 
-        let stored = linked_store_events(&reader);
+        let stored = shared_store_events(&reader);
         let projection = resumption_projection(
             &stored,
             &task_attempt_id,
@@ -2049,61 +2043,40 @@ mod tests {
             ResumptionBindingPolicy::default(),
         );
 
-        // Arm (b) verified-signer binds identically from any store.
+        // Arm (b) verified-signer binds identically from any worktree's read.
         assert!(projection.may_resume);
         assert_eq!(projection.state, AgentResumptionState::Ready);
     }
 
     #[test]
-    fn authoring_worktree_linked_reads_see_their_own_unsigned_response_as_ingested() {
+    fn authoring_worktree_reads_its_own_unsigned_response_as_binding_from_shared_store() {
+        // Post default-share: the author's reads resolve the same shared store it
+        // wrote to, whose copy is local-authored and unstamped — so the author's
+        // own unsigned response keeps binding by possession. There is no stamping
+        // copy step to flip it to ingested_unsigned.
         let (events, task_attempt_id) = task_resumption_events();
-        let (_main, _parent, seed, _reader) = linked_resumption_pair(&events);
+        let (_main, _parent, seed, _reader) = shared_resumption_pair(&events);
 
-        let local = EventStore::open(seed.join(".shore/data"))
-            .list_events()
-            .unwrap();
-        let baseline = resumption_projection(
-            &local,
-            &task_attempt_id,
-            &TrustSet::default(),
-            ResumptionBindingPolicy::default(),
-        );
-        assert!(baseline.may_resume);
-
-        link(&seed);
-
-        // The sharp edge, pinned deliberately: once the author's checkout is
-        // linked, its reads resolve the linked store, whose copy is stamped —
-        // so even the author projects ingested_unsigned for its own unsigned
-        // response. The unstamped original still sits in .shore/data/, but reads
-        // are store-only. Sign responses that must stay binding after linking.
-        let stored = linked_store_events(&seed);
-        assert!(stored.iter().all(|event| event.ingest.is_some()));
+        let stored = shared_store_events(&seed);
+        assert!(stored.iter().all(|event| event.ingest.is_none()));
         let projection = resumption_projection(
             &stored,
             &task_attempt_id,
             &TrustSet::default(),
             ResumptionBindingPolicy::default(),
         );
-        assert!(!projection.may_resume);
-        assert_eq!(
-            identity_reason(&projection).as_deref(),
-            Some("ingested_unsigned")
-        );
+        assert!(projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Ready);
     }
 
     // -- write-side companion: cross-worktree-AUTHORED response ----------------
     //
-    // The cross-worktree READ of a response is covered elsewhere; this covers a
-    // response *authored* in a sibling worktree against a linked-only request.
-    // The resumption-binding predicate is store-agnostic, so a response authored
-    // in the reader's worktree-local store and copied by `store link` is
-    // bundle-stamped exactly like any ingested event: it stops binding by
-    // possession and becomes ingested_unsigned unless signed.
-    //
-    // The task attempt and its input request live in the linked store (seed
-    // authored, linked); the reader — already linked — authors only the response
-    // locally.
+    // The cross-worktree READ of a response is covered above; this covers a
+    // response *authored* in a sibling worktree against a request authored in
+    // another. With one shared store, both worktrees write into and read from the
+    // same common-dir store, so a response authored in the reader's worktree is
+    // immediately visible — and unstamped — to every sibling. The binding
+    // predicate is store-agnostic: possession binds the unstamped response.
 
     fn cross_worktree_response_pair(
         origin_events: &[ShoreEvent],
@@ -2124,35 +2097,38 @@ mod tests {
         main.git(["worktree", "add", "-b", "seed", seed.to_str().unwrap()]);
         main.git(["worktree", "add", "-b", "reader", reader.to_str().unwrap()]);
 
-        // The seed authors the task attempt + input request and links them into
-        // the clone-local store.
-        let seed_store = EventStore::open(seed.join(".shore/data"));
+        // The seed authors the task attempt + input request into the shared
+        // common-dir store; the reader authors only the response into the same
+        // shared store. No link step.
+        let shared = resolve_store(&seed).unwrap();
+        let seed_store = EventStore::open(shared.store_dir());
         for event in origin_events {
             seed_store.record_event_once(event).unwrap();
         }
-        link(&seed);
-        // The reader registers (so its write validation can see the linked-only
-        // request), then authors the response in its own worktree-local store —
-        // unsynced until it links again.
-        link(&reader);
-        EventStore::open(reader.join(".shore/data"))
+        let reader_store = resolve_store(&reader).unwrap();
+        EventStore::open(reader_store.store_dir())
             .record_event_once(response_event)
             .unwrap();
         (main, parent, seed, reader)
     }
 
     #[test]
-    fn cross_worktree_unsigned_response_is_non_binding_ingested_unsigned_after_link() {
+    fn cross_worktree_unsigned_response_binds_by_possession_from_shared_store() {
         let (events, task_attempt_id) = task_resumption_events();
         let response = events.last().expect("response event").clone();
         let origin = &events[..events.len() - 1];
         let (_main, _parent, _seed, reader) = cross_worktree_response_pair(origin, &response);
 
-        // The reader links: its unsigned response is copied into the linked store
-        // and bundle-stamped.
-        link(&reader);
-        let stored = linked_store_events(&reader);
-        assert!(stored.iter().all(|event| event.ingest.is_some()));
+        // The reader's response is in the shared store, unstamped, and visible
+        // without any link step.
+        let stored = shared_store_events(&reader);
+        assert!(stored.iter().all(|event| event.ingest.is_none()));
+        assert!(
+            stored
+                .iter()
+                .any(|event| event.event_type == EventType::InputRequestResponded),
+            "the cross-worktree response is visible in the shared store"
+        );
 
         let projection = resumption_projection(
             &stored,
@@ -2161,16 +2137,12 @@ mod tests {
             ResumptionBindingPolicy::default(),
         );
 
-        assert!(!projection.may_resume);
-        assert_eq!(projection.state, AgentResumptionState::Blocked);
-        assert_eq!(
-            identity_reason(&projection).as_deref(),
-            Some("ingested_unsigned")
-        );
+        assert!(projection.may_resume);
+        assert_eq!(projection.state, AgentResumptionState::Ready);
     }
 
     #[test]
-    fn cross_worktree_signed_authorized_response_binds_after_link() {
+    fn cross_worktree_signed_authorized_response_binds_from_shared_store() {
         let (mut events, task_attempt_id) = task_resumption_events();
         let signer = DeterministicSigner::fixture();
         crate::session::sign_event_if_requested(
@@ -2183,8 +2155,7 @@ mod tests {
         let origin = &events[..events.len() - 1];
         let (_main, _parent, _seed, reader) = cross_worktree_response_pair(origin, &response);
 
-        link(&reader);
-        let stored = linked_store_events(&reader);
+        let stored = shared_store_events(&reader);
 
         let projection = resumption_projection(
             &stored,
@@ -2193,46 +2164,43 @@ mod tests {
             ResumptionBindingPolicy::default(),
         );
 
-        // Arm (b) verified-signer binds identically from any store.
+        // Arm (b) verified-signer binds identically from the shared store.
         assert!(projection.may_resume);
         assert_eq!(projection.state, AgentResumptionState::Ready);
     }
 
     #[test]
-    fn cross_worktree_unsigned_response_binds_locally_before_link_baseline() {
+    fn cross_worktree_unsigned_response_is_immediately_visible_in_shared_store() {
         let (events, task_attempt_id) = task_resumption_events();
         let response = events.last().expect("response event").clone();
         let origin = &events[..events.len() - 1];
-        let (_main, _parent, _seed, reader) = cross_worktree_response_pair(origin, &response);
+        let (_main, _parent, seed, reader) = cross_worktree_response_pair(origin, &response);
 
-        // Before the reader links the response, its writer-visible union is the
-        // linked store's request plus its OWN unstamped local response.
-        let mut union = linked_store_events(&reader);
-        union.extend(
-            EventStore::open(reader.join(".shore/data"))
-                .list_events()
-                .unwrap(),
+        // Seed and reader resolve the same store; the response authored in the
+        // reader is visible from the seed's read with no link step.
+        assert_eq!(
+            resolve_store(&seed).unwrap().store_dir(),
+            resolve_store(&reader).unwrap().store_dir()
         );
+        let from_seed = shared_store_events(&seed);
         assert!(
-            union
+            from_seed
                 .iter()
                 .find(|event| event.event_type == EventType::InputRequestResponded)
-                .expect("the local response is in the union")
+                .expect("the cross-worktree response is in the shared store")
                 .ingest
                 .is_none(),
-            "the reader's own response is unstamped before it links"
+            "the cross-worktree response is local-authored and unstamped"
         );
 
         let projection = resumption_projection(
-            &union,
+            &from_seed,
             &task_attempt_id,
             &TrustSet::default(),
             ResumptionBindingPolicy::default(),
         );
 
-        // The author's own unstamped response binds via arm (a) possession; the
-        // flip to ingested_unsigned is a function of which store the response is
-        // read from, not of this slice's write path.
+        // The unstamped response binds via arm (a) possession from any sibling.
         assert!(projection.may_resume);
         assert_eq!(projection.state, AgentResumptionState::Ready);
     }

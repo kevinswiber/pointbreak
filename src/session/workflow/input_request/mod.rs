@@ -207,7 +207,7 @@ mod tests {
         assert_eq!(result.events_existing, 0);
         assert_eq!(result.events_created_by_type["input_request_opened"], 1);
 
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let state = SessionState::from_events(&events).unwrap();
@@ -343,10 +343,10 @@ mod tests {
         let first = open_input_request(options.clone()).unwrap();
         assert_eq!(first.events_created, 1);
         let on_disk: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(repo.path().join(".shore/data/state.json")).unwrap(),
+            &std::fs::read_to_string(resolved_store_dir(repo.path()).join("state.json")).unwrap(),
         )
         .unwrap();
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let replay = serde_json::to_value(SessionState::from_events(&events).unwrap()).unwrap();
@@ -355,10 +355,10 @@ mod tests {
         let second = open_input_request(options).unwrap();
         assert_eq!(second.events_existing, 1);
         let on_disk: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(repo.path().join(".shore/data/state.json")).unwrap(),
+            &std::fs::read_to_string(resolved_store_dir(repo.path()).join("state.json")).unwrap(),
         )
         .unwrap();
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let replay = serde_json::to_value(SessionState::from_events(&events).unwrap()).unwrap();
@@ -385,10 +385,10 @@ mod tests {
         let first = respond_input_request(options.clone()).unwrap();
         assert_eq!(first.events_created, 1);
         let on_disk: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(repo.path().join(".shore/data/state.json")).unwrap(),
+            &std::fs::read_to_string(resolved_store_dir(repo.path()).join("state.json")).unwrap(),
         )
         .unwrap();
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let replay = serde_json::to_value(SessionState::from_events(&events).unwrap()).unwrap();
@@ -397,10 +397,10 @@ mod tests {
         let second = respond_input_request(options).unwrap();
         assert_eq!(second.events_existing, 1);
         let on_disk: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(repo.path().join(".shore/data/state.json")).unwrap(),
+            &std::fs::read_to_string(resolved_store_dir(repo.path()).join("state.json")).unwrap(),
         )
         .unwrap();
-        let events = EventStore::open(repo.path().join(".shore/data"))
+        let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let replay = serde_json::to_value(SessionState::from_events(&events).unwrap()).unwrap();
@@ -593,7 +593,7 @@ mod tests {
             "workflow result must not expose internal artifact paths"
         );
 
-        let artifacts = std::fs::read_dir(repo.path().join(".shore/data/artifacts/notes"))
+        let artifacts = std::fs::read_dir(resolved_store_dir(repo.path()).join("artifacts/notes"))
             .unwrap()
             .collect::<Vec<_>>();
         assert_eq!(artifacts.len(), 1);
@@ -1100,7 +1100,7 @@ mod tests {
         );
 
         let state = SessionState::from_events(
-            &EventStore::open(repo.path().join(".shore/data"))
+            &EventStore::open(resolved_store_dir(repo.path()))
                 .list_events()
                 .unwrap(),
         )
@@ -1233,6 +1233,13 @@ mod tests {
         repo
     }
 
+    /// The store a workflow actually lands in for `repo` — the shared common-dir
+    /// store by default. Reads that follow a workflow resolve here, not the raw
+    /// worktree-local `.shore/data`.
+    fn resolved_store_dir(repo: &Path) -> std::path::PathBuf {
+        crate::git::git_common_dir(repo).unwrap().join("shore")
+    }
+
     fn open_request(repo: &Path, title: &str) -> InputRequestOpenOptions {
         InputRequestOpenOptions::new(repo)
             .with_track("human:kevin")
@@ -1284,7 +1291,7 @@ mod tests {
         )
         .unwrap();
         let event_id = event.event_id.clone();
-        EventStore::open(repo.join(".shore/data"))
+        EventStore::open(resolved_store_dir(repo))
             .record_event_once(&event)
             .unwrap();
         event_id
@@ -1297,7 +1304,7 @@ mod tests {
     }
 
     fn input_request_opened_events(repo: &Path) -> Vec<ShoreEvent> {
-        EventStore::open(repo.join(".shore/data"))
+        EventStore::open(resolved_store_dir(repo))
             .list_events()
             .unwrap()
             .into_iter()
@@ -1306,7 +1313,7 @@ mod tests {
     }
 
     fn responded_events(repo: &Path) -> Vec<ShoreEvent> {
-        EventStore::open(repo.join(".shore/data"))
+        EventStore::open(resolved_store_dir(repo))
             .list_events()
             .unwrap()
             .into_iter()

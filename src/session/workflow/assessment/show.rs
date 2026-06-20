@@ -12,7 +12,6 @@ use crate::session::observation::{
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::resolve_read_store;
-use crate::session::workflow::read_store::divergence_diagnostics;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssessmentShowOptions {
@@ -104,8 +103,7 @@ pub fn show_assessments(options: AssessmentShowOptions) -> Result<AssessmentShow
         include_summary: options.include_summary,
         include_all: options.include_all,
     })?;
-    let mut diagnostics = SessionState::from_events(&events)?.diagnostics;
-    diagnostics.extend(divergence_diagnostics(&read_store));
+    let diagnostics = SessionState::from_events(&events)?.diagnostics;
 
     Ok(AssessmentShowResult {
         review_unit_id: resolved.review_unit_id,

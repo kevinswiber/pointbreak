@@ -17,8 +17,7 @@ use std::path::Path;
 use serde_json::Value;
 use support::git_repo::GitRepo;
 use support::inspect::{
-    Inspector, WorktreeCapture, add_worktree, capture, capture_lineage_round, link_store, run_git,
-    urlencode,
+    Inspector, WorktreeCapture, add_worktree, capture, capture_lineage_round, run_git, urlencode,
 };
 use support::shore;
 
@@ -182,11 +181,9 @@ fn api_units_label_survives_deleted_worktree() {
     add_worktree(main.path(), &gone, "gone");
     std::fs::write(gone.join("README.md"), "changed in gone\n").unwrap();
     capture(&gone);
-    link_store(&gone);
 
     let reader = parent.path().join("reader");
     add_worktree(main.path(), &reader, "reader");
-    link_store(&reader);
 
     // Force-remove the captured worktree's working directory.
     run_git(
@@ -287,11 +284,9 @@ fn linked_inspector_drill_in_survives_deleted_source_worktree() {
         .unwrap()
         .to_owned();
     record_review_facts(&gone);
-    link_store(&gone);
 
     let reader = parent.path().join("reader");
     add_worktree(main.path(), &reader, "reader");
-    link_store(&reader);
 
     run_git(
         main.path(),
@@ -355,10 +350,8 @@ fn linked_inspector_unit_error_message_stays_path_free_for_unknown_unit() {
     add_worktree(main.path(), &seed, "seed");
     std::fs::write(seed.join("README.md"), "changed in seed\n").unwrap();
     capture(&seed);
-    link_store(&seed);
     let reader = parent.path().join("reader");
     add_worktree(main.path(), &reader, "reader");
-    link_store(&reader);
 
     let inspector = Inspector::spawn(&reader);
     let (status, body) = inspector.get_error("/api/unit?id=review-unit%3Asha256%3Amissing");

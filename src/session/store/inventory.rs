@@ -291,9 +291,10 @@ mod tests {
     use super::*;
     use crate::model::{ReviewUnitId, RevisionId, SessionId};
     use crate::session::event::{EventTarget, EventType, ReviewUnitCapturedPayload, Writer};
+    use crate::session::store::resolution::resolve_store;
     use crate::session::{
-        CaptureOptions, CaptureResult, EventStore, ObservationAddOptions, ShoreStorePaths,
-        capture_worktree_review, record_observation,
+        CaptureOptions, CaptureResult, EventStore, ObservationAddOptions, capture_worktree_review,
+        record_observation,
     };
 
     #[test]
@@ -306,7 +307,7 @@ mod tests {
 
         // A second capture event over the SAME snapshot id, different review unit id
         // (simulating a second worktree's capture sharing the byte-identical artifact).
-        let store_dir = ShoreStorePaths::resolve(repo.path())
+        let store_dir = resolve_store(repo.path())
             .unwrap()
             .store_dir()
             .to_path_buf();
@@ -379,7 +380,7 @@ mod tests {
         )
         .unwrap();
 
-        let store_dir = ShoreStorePaths::resolve(repo.path())
+        let store_dir = resolve_store(repo.path())
             .unwrap()
             .store_dir()
             .to_path_buf();
