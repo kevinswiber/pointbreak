@@ -6,7 +6,10 @@ use super::{
 use crate::error::Result;
 use crate::model::{ReviewUnitId, ReviewUnitLineageId, TrackId};
 use crate::session::EventStore;
-use crate::session::observation::{ReviewUnitSelection, resolve_review_unit, validated_track_id};
+use crate::session::observation::{
+    CurrentReviewUnitContext, ReviewUnitScope, ReviewUnitSelection, resolve_review_unit,
+    validated_track_id,
+};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::resolve_read_store;
 use crate::session::workflow::read_store::divergence_diagnostics;
@@ -85,6 +88,8 @@ pub fn show_assessments(options: AssessmentShowOptions) -> Result<AssessmentShow
             options.review_unit_id.as_ref(),
             options.lineage_id.as_ref(),
         )?,
+        &CurrentReviewUnitContext::for_repo(&options.repo)?,
+        ReviewUnitScope::default(),
     )?;
     let track_filter = options
         .track

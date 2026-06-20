@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 
 use super::super::observation::{
-    ReviewUnitSelection, resolve_review_unit, staged_body, validated_track_id,
+    CurrentReviewUnitContext, ReviewUnitScope, ReviewUnitSelection, resolve_review_unit,
+    staged_body, validated_track_id,
 };
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::crypto::EventSigner;
@@ -187,6 +188,8 @@ pub fn record_validation_check(options: ValidationAddOptions) -> Result<Validati
             options.review_unit_id.as_ref(),
             options.lineage_id.as_ref(),
         )?,
+        &CurrentReviewUnitContext::for_repo(&options.repo)?,
+        ReviewUnitScope::default(),
     )?;
     let check_name = required_check_name(options.check_name.as_deref())?;
     let status = options

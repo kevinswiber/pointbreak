@@ -206,7 +206,7 @@ impl ReviewUnitCommitRangeProjection {
 
 /// The review-unit subject of an association payload, if it is the expected
 /// `ReviewUnit` target shape.
-fn review_unit_of(target: &ReviewTargetRef) -> Option<ReviewUnitId> {
+pub(crate) fn review_unit_of(target: &ReviewTargetRef) -> Option<ReviewUnitId> {
     match target {
         ReviewTargetRef::ReviewUnit { review_unit_id } => Some(review_unit_id.clone()),
         _ => None,

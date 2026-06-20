@@ -23,7 +23,10 @@ use crate::session::event::{
     ReviewUnitRefWithdrawnPayload, ShoreEvent, build_commit_association_id,
     build_commit_withdrawal_id, build_ref_association_id, build_ref_withdrawal_id,
 };
-use crate::session::observation::{ReviewUnitSelection, resolve_review_unit, validated_track_id};
+use crate::session::observation::{
+    CurrentReviewUnitContext, ReviewUnitScope, ReviewUnitSelection, resolve_review_unit,
+    validated_track_id,
+};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::{
     prepare_write_landing, resolve_read_store, resolve_write_store, resolve_write_validation_store,
@@ -533,6 +536,8 @@ pub fn list_associations(options: ListAssociationsOptions) -> Result<ListAssocia
             options.review_unit_id.as_ref(),
             options.lineage_id.as_ref(),
         )?,
+        &CurrentReviewUnitContext::for_repo(&options.repo)?,
+        ReviewUnitScope::default(),
     )?;
     let view = ReviewUnitCommitRangeProjection::from_events(&events)?
         .unit(&resolved.review_unit_id)
@@ -621,6 +626,8 @@ where
     let resolved = resolve_review_unit(
         &validation_events,
         ReviewUnitSelection::from_review_unit_or_lineage(review_unit_id, lineage_id)?,
+        &CurrentReviewUnitContext::for_repo(repo)?,
+        ReviewUnitScope::default(),
     )?;
     let track_id = validated_track_id(track.ok_or_else(|| ShoreError::WorkflowInputInvalid {
         reason: "track is required".to_owned(),

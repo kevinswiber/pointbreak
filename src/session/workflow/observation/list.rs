@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use super::target::{ReviewUnitSelection, resolve_review_unit};
+use super::target::{
+    CurrentReviewUnitContext, ReviewUnitScope, ReviewUnitSelection, resolve_review_unit,
+};
 use super::util::validated_track_id;
 use super::view::{ObservationProjectionOptions, ObservationView, project_observations};
 use crate::error::Result;
@@ -92,6 +94,8 @@ pub fn list_observations(options: ObservationListOptions) -> Result<ObservationL
             options.review_unit_id.as_ref(),
             options.lineage_id.as_ref(),
         )?,
+        &CurrentReviewUnitContext::for_repo(&options.repo)?,
+        ReviewUnitScope::default(),
     )?;
     let track_filter = options
         .track

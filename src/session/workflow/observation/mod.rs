@@ -8,7 +8,8 @@ pub use self::add::{ObservationAddOptions, ObservationAddResult, record_observat
 pub use self::list::{ObservationListOptions, ObservationListResult, list_observations};
 pub use self::target::ObservationTargetSelector;
 pub(crate) use self::target::{
-    ResolvedReviewUnit, ReviewUnitSelection, resolve_observation_target, resolve_review_unit,
+    CurrentReviewUnitContext, ResolvedReviewUnit, ReviewUnitScope, ReviewUnitSelection,
+    resolve_observation_target, resolve_review_unit, review_unit_ids_in_worktree,
 };
 pub(crate) use self::util::{required_title, staged_body, validated_track_id};
 #[cfg(test)]
@@ -83,7 +84,14 @@ mod tests {
         let event_store = EventStore::open(repo.path().join(".shore/data"));
         let events = event_store.list_events().unwrap();
 
-        let resolved = resolve_review_unit(&events, ReviewUnitSelection::Current).unwrap();
+        let context = CurrentReviewUnitContext::for_repo(repo.path()).unwrap();
+        let resolved = resolve_review_unit(
+            &events,
+            ReviewUnitSelection::Current,
+            &context,
+            ReviewUnitScope::CurrentWorktree,
+        )
+        .unwrap();
 
         assert_eq!(resolved.review_unit_id, capture.review_unit_id);
         assert_eq!(resolved.revision_id, capture.revision_id);
@@ -94,7 +102,13 @@ mod tests {
     fn resolving_current_review_unit_errors_when_none_captured() {
         let events = Vec::new();
 
-        let error = resolve_review_unit(&events, ReviewUnitSelection::Current).unwrap_err();
+        let error = resolve_review_unit(
+            &events,
+            ReviewUnitSelection::Current,
+            &any_context(),
+            ReviewUnitScope::All,
+        )
+        .unwrap_err();
 
         assert!(error.to_string().contains("no captured review unit"));
     }
@@ -106,7 +120,13 @@ mod tests {
             review_unit_captured_event_with_ids("review-unit:sha256:two", "rev:two", "snap:two"),
         ];
 
-        let error = resolve_review_unit(&events, ReviewUnitSelection::Current).unwrap_err();
+        let error = resolve_review_unit(
+            &events,
+            ReviewUnitSelection::Current,
+            &any_context(),
+            ReviewUnitScope::All,
+        )
+        .unwrap_err();
 
         assert!(error.to_string().contains("multiple captured review units"));
     }
@@ -122,6 +142,8 @@ mod tests {
         let error = resolve_review_unit(
             &events,
             ReviewUnitSelection::Exact(&ReviewUnitId::new("review-unit:sha256:missing")),
+            &any_context(),
+            ReviewUnitScope::All,
         )
         .unwrap_err();
 
@@ -135,6 +157,8 @@ mod tests {
         let resolved = resolve_review_unit(
             &events,
             ReviewUnitSelection::LineageHead(&review_unit_lineage_id("lineage-a")),
+            &any_context(),
+            ReviewUnitScope::All,
         )
         .unwrap();
 
@@ -145,9 +169,13 @@ mod tests {
     fn explicit_review_unit_still_selects_exact_old_round() {
         let events = two_captures_same_lineage();
 
-        let resolved =
-            resolve_review_unit(&events, ReviewUnitSelection::Exact(&review_unit_id("one")))
-                .unwrap();
+        let resolved = resolve_review_unit(
+            &events,
+            ReviewUnitSelection::Exact(&review_unit_id("one")),
+            &any_context(),
+            ReviewUnitScope::All,
+        )
+        .unwrap();
 
         assert_eq!(resolved.review_unit_id, review_unit_id("one"));
     }
@@ -159,6 +187,8 @@ mod tests {
         let error = resolve_review_unit(
             &events,
             ReviewUnitSelection::LineageHead(&review_unit_lineage_id("missing")),
+            &any_context(),
+            ReviewUnitScope::All,
         )
         .unwrap_err();
 
@@ -184,6 +214,8 @@ mod tests {
         let error = resolve_review_unit(
             &events,
             ReviewUnitSelection::LineageHead(&review_unit_lineage_id("lineage-a")),
+            &any_context(),
+            ReviewUnitScope::All,
         )
         .unwrap_err();
 
@@ -710,6 +742,15 @@ mod tests {
             review_unit_id: capture.review_unit_id.clone(),
             revision_id: capture.revision_id.clone(),
             snapshot_id: capture.snapshot_id.clone(),
+        }
+    }
+
+    /// A context for selection tests that do not exercise worktree scoping (they
+    /// widen to `ReviewUnitScope::All` or resolve `Exact`/`LineageHead`).
+    fn any_context() -> CurrentReviewUnitContext {
+        CurrentReviewUnitContext {
+            worktree_root: "/repo".to_owned(),
+            head_ref: None,
         }
     }
 

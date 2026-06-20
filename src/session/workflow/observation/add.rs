@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 
 use super::target::{
-    ObservationTargetSelector, ReviewUnitSelection, resolve_observation_target, resolve_review_unit,
+    CurrentReviewUnitContext, ObservationTargetSelector, ReviewUnitScope, ReviewUnitSelection,
+    resolve_observation_target, resolve_review_unit,
 };
 use super::util::{required_title, staged_body, validated_track_id};
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
@@ -171,6 +172,8 @@ pub fn record_observation(options: ObservationAddOptions) -> Result<ObservationA
             options.review_unit_id.as_ref(),
             options.lineage_id.as_ref(),
         )?,
+        &CurrentReviewUnitContext::for_repo(&options.repo)?,
+        ReviewUnitScope::default(),
     )?;
     let target = resolve_observation_target(&worktree_root, &resolved, &options.target)?;
     let title = required_title(options.title.as_deref())?;

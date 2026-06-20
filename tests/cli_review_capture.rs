@@ -395,7 +395,8 @@ fn capture_with_base_twice_reports_existing_event() {
 
     assert_eq!(first["reviewUnit"]["id"], second["reviewUnit"]["id"]);
     assert_eq!(second["eventsCreated"], 0);
-    assert_eq!(second["eventsExisting"], 1);
+    // The capture event plus the auto-recorded HEAD-tipping ref association.
+    assert_eq!(second["eventsExisting"], 2);
 }
 
 fn committed_repo() -> GitRepo {

@@ -77,8 +77,8 @@ pub use observation::{
 pub(crate) use reload::reload_diagnostics_for_document;
 pub use reload::{ReloadDiagnostic, ReloadDiagnosticCode, ReloadOutcome, reload_session};
 pub use review_unit_list::{
-    RefFilterMode, ReviewUnitListEntry, ReviewUnitListOptions, ReviewUnitListResult,
-    list_review_units, list_units_for_ref,
+    OrphanVisibility, RefFilterMode, ReviewUnitListEntry, ReviewUnitListOptions,
+    ReviewUnitListResult, list_review_units, list_units_for_ref,
 };
 pub use review_unit_projection::{
     AdapterNoteView, MemberReadback, ReviewUnitProjectionIdentity, ReviewUnitProjectionRow,

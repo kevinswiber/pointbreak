@@ -5,8 +5,8 @@ use clap::{Args, Subcommand, ValueEnum};
 use shoreline::documents::{unit_list_document, unit_show_document};
 use shoreline::model::{ReviewUnitId, ReviewUnitLineageId};
 use shoreline::session::{
-    EventVerificationPolicy, RefFilterMode, ReviewUnitListOptions, ReviewUnitShowOptions,
-    enrich_liveness, list_review_units, show_review_unit,
+    EventVerificationPolicy, OrphanVisibility, RefFilterMode, ReviewUnitListOptions,
+    ReviewUnitShowOptions, enrich_liveness, list_review_units, show_review_unit,
 };
 
 use crate::cli::json;
@@ -38,6 +38,24 @@ pub(super) struct UnitListArgs {
     /// from the ref's live tip.
     #[arg(long, value_enum, default_value = "label")]
     by: RefFilterByArg,
+
+    /// Show units even when every anchored commit is unreachable (orphaned).
+    #[arg(long)]
+    all: bool,
+
+    /// Show only orphaned units (every anchored commit unreachable). Takes
+    /// precedence over `--all`.
+    #[arg(long)]
+    orphans: bool,
+
+    /// Reachability target for the "merged" status: a unit is merged only when an
+    /// ancestor of this ref. Defaults to broad reachability (any live tip).
+    #[arg(long = "integration-ref")]
+    integration_ref: Option<String>,
+
+    /// Scope the listing to captures belonging to the worktree at this path.
+    #[arg(long)]
+    worktree: Option<PathBuf>,
 
     /// Pretty-print the JSON response.
     #[arg(long, conflicts_with = "compact")]
@@ -124,6 +142,20 @@ fn review_unit_list_command(
     let mut options = ReviewUnitListOptions::new(&args.repo);
     if let Some(ref_name) = args.ref_name {
         options = options.with_ref_filter(ref_name, args.by.into());
+    }
+    let visibility = if args.orphans {
+        OrphanVisibility::OrphansOnly
+    } else if args.all {
+        OrphanVisibility::All
+    } else {
+        OrphanVisibility::HideOrphans
+    };
+    options = options.with_orphan_visibility(visibility);
+    if let Some(integration_ref) = args.integration_ref {
+        options = options.with_integration_ref(integration_ref);
+    }
+    if let Some(worktree) = args.worktree {
+        options = options.with_worktree_scope(worktree);
     }
     let result = list_review_units(options)?;
     let document = unit_list_document(result);

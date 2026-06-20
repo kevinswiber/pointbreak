@@ -8,8 +8,8 @@ use crate::session::input_request::{
     InputRequestProjectionOptions, InputRequestStatusFilter, project_input_requests,
 };
 use crate::session::observation::{
-    ObservationProjectionOptions, ReviewUnitSelection, project_observations, resolve_review_unit,
-    validated_track_id,
+    CurrentReviewUnitContext, ObservationProjectionOptions, ReviewUnitScope, ReviewUnitSelection,
+    project_observations, resolve_review_unit, validated_track_id,
 };
 use crate::session::projection::ArtifactRemovalProjection;
 use crate::session::projection::cosignature::{
@@ -58,6 +58,8 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
             options.review_unit_id.as_ref(),
             options.lineage_id.as_ref(),
         )?,
+        &CurrentReviewUnitContext::for_repo(&options.repo)?,
+        ReviewUnitScope::default(),
     )?;
     let review_unit = selected_review_unit_capture(&events, &resolved)?;
     let removal = ArtifactRemovalProjection::from_events(&events)?;

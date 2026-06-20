@@ -8,7 +8,10 @@ use crate::error::Result;
 use crate::model::{ReviewUnitId, ReviewUnitLineageId, TrackId};
 use crate::session::EventStore;
 use crate::session::event::AssertionMode;
-use crate::session::observation::{ReviewUnitSelection, resolve_review_unit, validated_track_id};
+use crate::session::observation::{
+    CurrentReviewUnitContext, ReviewUnitScope, ReviewUnitSelection, resolve_review_unit,
+    validated_track_id,
+};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::resolve_read_store;
 use crate::session::workflow::read_store::divergence_diagnostics;
@@ -103,6 +106,8 @@ pub fn list_input_requests(options: InputRequestListOptions) -> Result<InputRequ
             options.review_unit_id.as_ref(),
             options.lineage_id.as_ref(),
         )?,
+        &CurrentReviewUnitContext::for_repo(&options.repo)?,
+        ReviewUnitScope::default(),
     )?;
     let track_filter = options
         .track

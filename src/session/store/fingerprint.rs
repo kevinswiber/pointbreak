@@ -275,7 +275,7 @@ struct WorktreeFingerprintDescriptor<'a> {
     files: &'a [DiffFile],
 }
 
-fn normalized_worktree_root(repo: &Path) -> Result<String> {
+pub(crate) fn normalized_worktree_root(repo: &Path) -> Result<String> {
     let root = git_worktree_root(repo)?;
     let root = root.canonicalize().map_err(|error| {
         ShoreError::Message(format!(

@@ -18,7 +18,8 @@ use crate::session::event::{
     ReviewObservationRecordedPayload, ShoreEvent, decode_input_request_opened_payload,
 };
 use crate::session::observation::{
-    ReviewUnitSelection, resolve_review_unit, staged_body, validated_track_id,
+    CurrentReviewUnitContext, ReviewUnitScope, ReviewUnitSelection, resolve_review_unit,
+    staged_body, validated_track_id,
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::{
@@ -186,6 +187,8 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
             options.review_unit_id.as_ref(),
             options.lineage_id.as_ref(),
         )?,
+        &CurrentReviewUnitContext::for_repo(&options.repo)?,
+        ReviewUnitScope::default(),
     )?;
     let target = resolve_assessment_target(
         worktree_root,

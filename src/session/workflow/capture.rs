@@ -210,12 +210,23 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
     sign_event_if_requested(&mut event, &options.signing)?;
     recorder.record(&event_store, event)?;
 
-    // LB-11: a worktree capture is born floating; record its capture-time branch
-    // ref as a best-effort `ReviewUnitRefAssociated` after the capture event.
-    // Skipped on detached HEAD (no ref to name) and on a commit-range capture.
-    // Any failure degrades to a diagnostic and never blocks capture.
+    // Record the capture-time branch ref as a best-effort `ReviewUnitRefAssociated`
+    // after the capture event, whenever the capture tips at the checked-out
+    // branch: always for a worktree capture (its target is HEAD's working tree),
+    // and for a commit-range capture only when its target endpoint is the current
+    // HEAD. An arbitrary historical range (target != HEAD) records nothing — the
+    // checked-out branch is not its provenance. Detached HEAD names no ref, so the
+    // helper skips it. Any failure degrades to a diagnostic and never blocks capture.
+    let auto_record_ref = match &options.source {
+        CaptureSourceSpec::Worktree => true,
+        CaptureSourceSpec::CommitRange(_) => matches!(
+            &fingerprint.target,
+            ReviewEndpoint::GitCommit { commit_oid, .. }
+                if *commit_oid == git_head_oid(&worktree_root)?
+        ),
+    };
     let mut auto_record_diagnostics = Vec::new();
-    if matches!(&options.source, CaptureSourceSpec::Worktree)
+    if auto_record_ref
         && let Err(error) = auto_record_capture_ref_association(
             &worktree_root,
             &event_store,
@@ -483,9 +494,69 @@ mod tests {
     }
 
     #[test]
-    fn commit_range_capture_records_no_ref_association() {
+    fn range_capture_tipping_at_head_records_capture_branch_ref() {
         let repo = committed_repo();
+        repo.git(["branch", "-M", "feat/range"]);
+        let head_oid = repo.rev_parse("HEAD");
 
+        // A `--base <base>` range with no explicit target tips at HEAD, so it
+        // records its capture-branch ref like a worktree capture does.
+        let capture = capture_review(
+            CaptureOptions::new(repo.path()).with_commit_range(CommitRangeSpec::new("HEAD~1")),
+        )
+        .unwrap();
+
+        let events = EventStore::open(repo.path().join(".shore/data"))
+            .list_events()
+            .unwrap();
+        let ref_count = events
+            .iter()
+            .filter(|event| event.event_type == EventType::ReviewUnitRefAssociated)
+            .count();
+        assert_eq!(
+            ref_count, 1,
+            "a HEAD-tipping range records its capture-branch ref"
+        );
+
+        let projection =
+            crate::session::ReviewUnitCommitRangeProjection::from_events(&events).unwrap();
+        let view = projection.unit(&capture.review_unit_id).unwrap();
+        assert_eq!(view.current_refs.len(), 1);
+        assert_eq!(view.current_refs[0].ref_name, "refs/heads/feat/range");
+        assert_eq!(view.current_refs[0].head_oid, head_oid);
+    }
+
+    #[test]
+    fn range_capture_not_tipping_at_head_records_nothing() {
+        let repo = committed_repo();
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+        repo.commit_all("third");
+
+        // An explicit target older than HEAD: the range does not tip at the
+        // checked-out branch, so it records no capture-branch ref.
+        capture_review(
+            CaptureOptions::new(repo.path())
+                .with_commit_range(CommitRangeSpec::new("HEAD~2").with_target_rev("HEAD~1")),
+        )
+        .unwrap();
+
+        let events = EventStore::open(repo.path().join(".shore/data"))
+            .list_events()
+            .unwrap();
+        assert!(
+            !events
+                .iter()
+                .any(|event| event.event_type == EventType::ReviewUnitRefAssociated),
+            "an arbitrary range (target != HEAD) records no capture-branch ref"
+        );
+    }
+
+    #[test]
+    fn range_capture_on_detached_head_records_nothing() {
+        let repo = committed_repo();
+        repo.git(["checkout", "--detach"]);
+
+        // The range still tips at HEAD, but a detached HEAD names no ref to record.
         capture_review(
             CaptureOptions::new(repo.path()).with_commit_range(CommitRangeSpec::new("HEAD~1")),
         )
@@ -498,7 +569,7 @@ mod tests {
             !events
                 .iter()
                 .any(|event| event.event_type == EventType::ReviewUnitRefAssociated),
-            "a commit-range capture carries both endpoints and records no ref association"
+            "a detached HEAD names no ref to record, even when the range tips at HEAD"
         );
     }
 
@@ -635,7 +706,8 @@ mod tests {
         assert_eq!(first.review_unit_id, second.review_unit_id);
         assert_eq!(first.snapshot_id, second.snapshot_id);
         assert_eq!(second.events_created, 0);
-        assert_eq!(second.events_existing, 1);
+        // The capture event plus the auto-recorded HEAD-tipping ref association.
+        assert_eq!(second.events_existing, 2);
     }
 
     #[test]
@@ -655,7 +727,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(first.review_unit_id, second.review_unit_id);
-        assert_eq!(second.events_existing, 1);
+        // The capture event plus the auto-recorded HEAD-tipping ref association.
+        assert_eq!(second.events_existing, 2);
     }
 
     #[test]
@@ -697,7 +770,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(first.review_unit_id, second.review_unit_id);
-        assert_eq!(second.events_existing, 1);
+        // The capture event plus the auto-recorded HEAD-tipping ref association.
+        assert_eq!(second.events_existing, 2);
     }
 
     #[test]

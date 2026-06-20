@@ -683,6 +683,7 @@ mod tests {
                 withdrawn_refs: Vec::new(),
                 diagnostics: Vec::new(),
             },
+            merge_status: "unknown".to_owned(),
         }
     }
 

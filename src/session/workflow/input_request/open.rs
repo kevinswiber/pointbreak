@@ -16,7 +16,8 @@ use crate::session::event::{
     ShoreEvent,
 };
 use crate::session::observation::{
-    ReviewUnitSelection, required_title, resolve_review_unit, staged_body, validated_track_id,
+    CurrentReviewUnitContext, ReviewUnitScope, ReviewUnitSelection, required_title,
+    resolve_review_unit, staged_body, validated_track_id,
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::{
@@ -168,6 +169,8 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
             options.review_unit_id.as_ref(),
             options.lineage_id.as_ref(),
         )?,
+        &CurrentReviewUnitContext::for_repo(&options.repo)?,
+        ReviewUnitScope::default(),
     )?;
     let target = resolve_input_request_target(
         worktree_root,

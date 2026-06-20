@@ -246,3 +246,53 @@ The open questions the draft carried were resolved as follows:
 - **CLI surface → the `shore review association` noun** with flat verbs `associate-commit` /
   `withdraw-commit` / `associate-ref` / `withdraw-ref` / `list`; `--ref` (alias `--branch`) + `--by
   {label,liveness}` on `review history` and `review unit list`.
+
+## Amendment: Conditional auto-record of the capture-time ref for commit-range captures whose tip is HEAD (2026-06-19)
+
+**Status unchanged.** ADR-0014 remains **Accepted**. This amendment **widens** §9's capture-time
+auto-record; the original decision otherwise stands. No new event type, payload, idempotency key,
+projection rule, or `sigVersion` — purely a change to *when* the existing `ReviewUnitRefAssociated`
+auto-record fires.
+
+**What changes.** §9 and §4 stated "commit-range captures get no auto-association." Extend the
+best-effort capture-time `ReviewUnitRefAssociated` auto-record to **also** fire for a commit-range
+capture **when the range's target endpoint OID equals the current HEAD OID** (and HEAD is not detached).
+Equivalently, the `CaptureSourceSpec::Worktree`-only gate becomes a **"capture tip == current HEAD"**
+gate: always true for a worktree capture (its base is HEAD), and true for a commit-range capture iff
+`target.commit_oid == git_head_oid(worktree_root)`. The recorded edge is the current branch ref + head
+OID, identical to the worktree path; **detached HEAD still records nothing** (no ref name is fabricated);
+still best-effort, never blocking capture, failure degrades to the `ref_association_auto_record_skipped`
+diagnostic.
+
+**Why.** The ref axis is **provenance** (§1: `ReviewUnitRefAssociated` = "captured while HEAD was on
+branch B at oid X"), distinct from the commit axis that derives `anchored`/`merged` (§4). The original
+"no auto-association for ranges" reasoning was specifically about the *commit anchor* — a range is born
+`anchored` from its captured `GitCommit` target, so it needs no commit association. But it left ranges
+with **no provenance/branch signal**, which (a) makes the common
+`shore review capture --base <integration>` form — whose target **defaults to HEAD**
+(`src/session/workflow/capture.rs:332`) — un-`--branch`-filterable, and (b) under the ADR-0015
+single-common-dir collapse leaves a range capture with **no read-time scoping signal**, so two worktrees
+each reviewing *their own* branch's range would collide on a bare `unit show` (an ADR-0008 selection
+error) instead of each resolving its own. Recording the branch ref when the range genuinely **ends at
+that branch's tip** gives a precise provenance + scoping + branch-filter signal for the common case.
+
+**Why conditional (target == HEAD), not unconditional.** A range capture's checked-out branch is
+meaningful provenance only when the range terminates at that branch's tip. An arbitrary historical range
+(`--base v1.0 --target v1.1` captured while standing on `main`) has a target ≠ HEAD; recording `main`
+there would be provenance **noise** that pollutes `--branch main` with an unrelated range. Such captures
+correctly continue to get no auto-association and rely on the **read-time fail-open** (a
+capture with neither a worktree path nor a ref association resolves as the current worktree's) plus the
+commit-OID grouping — both of which ship regardless and remain the safety net.
+
+**What does not change.** `anchored`/`floating` and `merged`/`live`/`orphaned` stay derived from the
+**commit** set and are untouched by this ref edge — a commit-range capture stays **born `anchored`** from
+its `GitCommit` target (§4). Withdrawal/terminality (§3), convergence (the deterministic, writer/
+track-free `ref_association_id`, §2), idempotency, and signing (§8) are all unchanged. The recorded
+vocabulary (the four events) is unchanged.
+
+**Implementation.** Relax the worktree-only capture-time ref auto-record gate from
+`matches!(source, Worktree)` to "tip == current HEAD," reusing `auto_record_capture_ref_association`
+verbatim (it already resolves the branch ref, skips detached HEAD, and signs). For a range capture, the
+tip is `fingerprint.target` (`ReviewEndpoint::GitCommit { commit_oid }`); compare to
+`git_head_oid(worktree_root)`. Lands in the same phase as the read-time scoping it serves; the read-time
+fail-open stays in place as the complementary safety net.

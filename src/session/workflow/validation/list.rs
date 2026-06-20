@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use super::super::observation::{ReviewUnitSelection, resolve_review_unit, validated_track_id};
+use super::super::observation::{
+    CurrentReviewUnitContext, ReviewUnitScope, ReviewUnitSelection, resolve_review_unit,
+    validated_track_id,
+};
 use super::view::{
     ValidationCheckProjectionOptions, ValidationCheckView, project_validation_checks,
 };
@@ -85,6 +88,8 @@ pub fn list_validation_checks(options: ValidationListOptions) -> Result<Validati
             options.review_unit_id.as_ref(),
             options.lineage_id.as_ref(),
         )?,
+        &CurrentReviewUnitContext::for_repo(&options.repo)?,
+        ReviewUnitScope::default(),
     )?;
     let track_filter = options
         .track

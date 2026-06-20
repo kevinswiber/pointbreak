@@ -313,6 +313,148 @@ fn unit_list_renders_commit_range_source_without_paths() {
     );
 }
 
+#[test]
+fn unit_list_hides_orphans_by_default_and_surfaces_with_flags() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+
+    // A range capture anchored to a commit on a soon-deleted branch → orphan.
+    repo.git(["checkout", "-b", "feature"]);
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    repo.commit_all("feature work");
+    let orphan = parse_json(
+        &shore([
+            "review",
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--base",
+            "main",
+        ])
+        .stdout,
+    );
+    let orphan_id = orphan["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    repo.git(["checkout", "main"]);
+    repo.git(["branch", "-D", "feature"]);
+
+    // A floating worktree capture on main → never hidden.
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+    let floating =
+        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let floating_id = floating["reviewUnit"]["id"].as_str().unwrap().to_owned();
+    assert_ne!(orphan_id, floating_id);
+
+    // Default: the orphan is hidden, the floating capture remains.
+    let default_ids = unit_list_ids(&repo, &[]);
+    assert!(default_ids.contains(&floating_id));
+    assert!(!default_ids.contains(&orphan_id));
+
+    // --all surfaces both.
+    let all_ids = unit_list_ids(&repo, &["--all"]);
+    assert!(all_ids.contains(&orphan_id));
+    assert!(all_ids.contains(&floating_id));
+
+    // --orphans surfaces only the orphan.
+    assert_eq!(
+        unit_list_ids(&repo, &["--orphans"]),
+        vec![orphan_id.clone()]
+    );
+
+    // --orphans takes precedence over --all.
+    assert_eq!(
+        unit_list_ids(&repo, &["--orphans", "--all"]),
+        vec![orphan_id]
+    );
+}
+
+#[test]
+fn unit_list_attaches_merge_status_and_accepts_integration_and_worktree_flags() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    repo.commit_all("second");
+    let repo_arg = repo.path().to_str().unwrap();
+
+    // A range capture anchored to HEAD (a live tip) reads "open".
+    let range =
+        parse_json(&shore(["review", "capture", "--repo", repo_arg, "--base", "HEAD~1"]).stdout);
+    let range_id = range["reviewUnit"]["id"].as_str().unwrap().to_owned();
+
+    // A floating worktree capture reads "unknown"; its worktree path lets it
+    // survive the worktree-identity scope.
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+    let worktree = parse_json(&shore(["review", "capture", "--repo", repo_arg]).stdout);
+    let worktree_id = worktree["reviewUnit"]["id"].as_str().unwrap().to_owned();
+
+    // Default list: each entry carries a structural merge-status.
+    let default = parse_json(&shore(["review", "unit", "list", "--repo", repo_arg]).stdout);
+    let status_for = |id: &str| -> String {
+        default["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["reviewUnitId"] == id)
+            .unwrap()["mergeStatus"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(status_for(&range_id), "open");
+    assert_eq!(status_for(&worktree_id), "unknown");
+
+    // --integration-ref and --worktree parse; the worktree-identity scope keeps
+    // the worktree capture.
+    let scoped = shore([
+        "review",
+        "unit",
+        "list",
+        "--repo",
+        repo_arg,
+        "--integration-ref",
+        "refs/heads/main",
+        "--worktree",
+        repo_arg,
+    ]);
+    assert!(
+        scoped.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&scoped.stderr)
+    );
+    let scoped_ids: Vec<String> = parse_json(&scoped.stdout)["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["reviewUnitId"].as_str().unwrap().to_owned())
+        .collect();
+    assert!(scoped_ids.contains(&worktree_id));
+}
+
+/// Run `review unit list` with extra flags and return the entry ids in order.
+fn unit_list_ids(repo: &GitRepo, extra: &[&str]) -> Vec<String> {
+    let mut args: Vec<String> = vec![
+        "review".to_owned(),
+        "unit".to_owned(),
+        "list".to_owned(),
+        "--repo".to_owned(),
+        repo.path().to_str().unwrap().to_owned(),
+    ];
+    args.extend(extra.iter().map(|flag| (*flag).to_owned()));
+    let output = shore(args);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    parse_json(&output.stdout)["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["reviewUnitId"].as_str().unwrap().to_owned())
+        .collect()
+}
+
 fn parse_json(bytes: &[u8]) -> Value {
     serde_json::from_slice(bytes).expect("parse CLI JSON")
 }
