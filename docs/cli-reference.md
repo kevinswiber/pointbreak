@@ -195,8 +195,9 @@ tree, including untracked files (source `git_worktree`).
   dirties the working tree. This applies to every writer-initializing command
   (capture, observation, input-request, assessment, validation), not just `capture`.
   Committed config siblings (`.shore/delegates.json`, `.shore/actor-attributes.json`,
-  `.shore/allowed-signers.json`) stay tracked; only `.shore/data/` and the private
-  `.shore/delegates.local.json` and `.shore/actor-attributes.local.json` overrides are excluded.
+  `.shore/allowed-signers.json`, `.shore/store.json`) stay tracked; only `.shore/data/` and the
+  private `.shore/delegates.local.json`, `.shore/actor-attributes.local.json`, and
+  `.shore/store.local.json` overrides are excluded.
 - `.shore/data/events/` stores immutable local event files.
 - `.shore/data/state.json` is a rebuildable projection, not the authority.
 - Full captured snapshots are Shoreline-owned immutable artifacts under
@@ -234,6 +235,7 @@ local `.shore/data/` store, unchanged.
 ```bash
 shore store status [--repo <path>] [--pretty]
 shore store link [--repo <path>] [--pretty]
+shore store mode (shared | ephemeral | show) [--repo <path>] [--pretty]
 shore store remove [--repo <path>] (--snapshot <id> | --review-unit <id> | --ref <name> | --range <a>..<b> | --orphans) [--sign-key <key>] [--pretty]
 shore store gc [--repo <path>] [--pretty]
 shore store compact [--repo <path>] [--pretty]
@@ -282,6 +284,17 @@ reflect the linked store. Linked reads are store-only — local facts not yet co
 `clone_local_unsynced_local_events` diagnostic, and `shore store link` copies them and clears it.
 Run `shore store link` before removing a worktree whose review record should survive for its
 siblings.
+
+`shore store mode` reads or sets a per-worktree store mode that controls where the worktree's review
+data lands. `shore store mode ephemeral` pins the worktree to its discardable worktree-local
+`.shore/data` store regardless of any clone-local registration — the escape hatch for sensitive,
+throwaway work whose bytes should disappear with the worktree. `shore store mode shared` (the default)
+leaves placement to normal resolution. The mode is written to a committed `.shore/store.json`, and may
+be overridden privately by a git-excluded `.shore/store.local.json` (the local file wins, the
+`delegates.json` / `delegates.local.json` precedent). A malformed or unsupported config is a hard
+error rather than a silent fallback. `shore store mode show` reports the resolved mode without changing
+it. All three forms emit `shore.store-mode` JSON with `mode` (`shared` | `ephemeral`) and `source`
+(`default` | `committed` | `local`); the body embeds no storage path.
 
 `shore store remove` retires content-addressed artifacts from the store. It resolves exactly one
 selector to a set of content hashes — `--snapshot <id>` (a snapshot's bound artifact), `--review-unit

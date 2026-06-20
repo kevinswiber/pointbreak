@@ -1,13 +1,14 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use clap::{ArgGroup, Args, Subcommand};
+use clap::{ArgGroup, Args, Subcommand, ValueEnum};
 use shoreline::model::{ReviewUnitId, SnapshotId};
 use shoreline::session::{
     CompactOptions, CompactResult, RemoveOptions, RemoveResult, RemoveSelector, RemovedContent,
-    StoreLinkOptions, StoreLinkResult, StoreStatusInventory, StoreStatusOptions, StoreStatusResult,
-    StoreStatusSensitivity, SweepOutcome, SweptBlob, compact_store, link_clone_local_store,
-    remove_content, store_status,
+    StoreLinkOptions, StoreLinkResult, StoreMode, StoreModeSource, StoreStatusInventory,
+    StoreStatusOptions, StoreStatusResult, StoreStatusSensitivity, SweepOutcome, SweptBlob,
+    compact_store, link_clone_local_store, remove_content, resolve_store_mode_for_repo,
+    set_store_mode_for_repo, store_status,
 };
 
 use crate::cli::json;
@@ -25,6 +26,7 @@ pub(super) struct StoreArgs {
 enum StoreCommand {
     Link(StoreLinkArgs),
     Status(StoreStatusArgs),
+    Mode(StoreModeArgs),
     Remove(StoreRemoveArgs),
     /// Alias of `compact`.
     Gc(StoreCompactArgs),
@@ -47,6 +49,27 @@ struct StoreStatusArgs {
 
     #[arg(long)]
     pretty: bool,
+}
+
+#[derive(Debug, Args)]
+struct StoreModeArgs {
+    /// `shared`, `ephemeral`, or `show` (report the resolved mode without
+    /// changing it).
+    action: StoreModeAction,
+
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
+
+    #[arg(long)]
+    pretty: bool,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+#[value(rename_all = "kebab-case")]
+enum StoreModeAction {
+    Shared,
+    Ephemeral,
+    Show,
 }
 
 /// Exactly one selector is required; the content-targeted removal key is derived
@@ -120,6 +143,15 @@ struct StoreStatusBody {
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+struct StoreModeBody {
+    /// Serializes camelCase: "shared" | "ephemeral".
+    mode: StoreMode,
+    /// Serializes camelCase: "default" | "committed" | "local".
+    source: StoreModeSource,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct StoreRemoveBody {
     removed: Vec<RemovedContentBody>,
     events_created: usize,
@@ -162,6 +194,10 @@ pub(super) fn run(
             tracing::debug!(command = "store.status", "command_start");
             status(args, stdout)
         }
+        StoreCommand::Mode(args) => {
+            tracing::debug!(command = "store.mode", "command_start");
+            mode(args, stdout)
+        }
         StoreCommand::Remove(args) => {
             tracing::debug!(command = "store.remove", "command_start");
             remove(args, stdout, stderr)
@@ -188,6 +224,26 @@ fn status(args: StoreStatusArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn s
     let result = store_status(StoreStatusOptions::new(args.repo))?;
     let document =
         json::DiagnosticDocument::new("shore.store-status", StoreStatusBody::from(result), vec![]);
+    json::write_json(stdout, &document, args.pretty)
+}
+
+fn mode(args: StoreModeArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
+    let span = tracing::info_span!("shore.store.mode");
+    let _entered = span.enter();
+    match args.action {
+        StoreModeAction::Shared => set_store_mode_for_repo(&args.repo, StoreMode::Shared)?,
+        StoreModeAction::Ephemeral => set_store_mode_for_repo(&args.repo, StoreMode::Ephemeral)?,
+        StoreModeAction::Show => {} // no write; just report the resolved mode below
+    }
+    // Re-read after any set so `show` and `set` report one consistent shape: after
+    // a `shared`/`ephemeral` the committed file now exists, so the source is
+    // `committed`.
+    let outcome = resolve_store_mode_for_repo(&args.repo)?;
+    let body = StoreModeBody {
+        mode: outcome.mode,
+        source: outcome.source,
+    };
+    let document = json::DiagnosticDocument::new("shore.store-mode", body, vec![]);
     json::write_json(stdout, &document, args.pretty)
 }
 

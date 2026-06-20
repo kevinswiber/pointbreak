@@ -150,6 +150,7 @@ pub(crate) fn prepare_store_writer_at(
     // present (and would otherwise mask the more specific probe).
     ensure_local_delegates_excluded(worktree_root)?;
     ensure_local_actor_attributes_excluded(worktree_root)?;
+    ensure_local_store_config_excluded(worktree_root)?;
     ensure_shore_storage_excluded(worktree_root)
 }
 
@@ -206,6 +207,19 @@ pub fn ensure_local_actor_attributes_excluded(worktree_root: &Path) -> Result<()
         return Ok(());
     }
     append_info_exclude_line(worktree_root, ".shore/actor-attributes.local.json")
+}
+
+/// Keeps the private store-config override out of Git status. Mirrors
+/// [`ensure_local_delegates_excluded`]: a no-op if already ignored, else appends
+/// to the repository-local `.git/info/exclude`. Only the `.local.json` override
+/// is excluded — the committed `.shore/store.json` is tracked. Crate-internal
+/// (unlike the delegates/actor-attributes twins): there is no possession-based
+/// `--local` store-config CLI, so the only caller is `prepare_store_writer_at`.
+pub(crate) fn ensure_local_store_config_excluded(worktree_root: &Path) -> Result<()> {
+    if git_path_is_ignored(worktree_root, ".shore/store.local.json")? {
+        return Ok(());
+    }
+    append_info_exclude_line(worktree_root, ".shore/store.local.json")
 }
 
 /// Append `line` (newline-terminated) to the repository-local
@@ -355,6 +369,42 @@ mod tests {
         let hits = exclude
             .lines()
             .filter(|l| l.trim() == ".shore/delegates.local.json")
+            .count();
+        assert_eq!(hits, 1, "the entry is written at most once");
+    }
+
+    #[test]
+    fn prepare_store_writer_at_excludes_local_store_config_override() {
+        let repo = git_repo();
+        let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
+        let storage = LocalStorage::new(paths.store_dir());
+
+        prepare_store_writer_at(&storage, paths.store_dir(), paths.worktree_root()).unwrap();
+
+        let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
+        assert!(
+            exclude
+                .lines()
+                .any(|line| line.trim() == ".shore/store.local.json"),
+            "local store-config override must be git-excluded, got:\n{exclude}"
+        );
+        // The committed config is never excluded.
+        assert!(
+            !exclude
+                .lines()
+                .any(|line| line.trim() == ".shore/store.json")
+        );
+    }
+
+    #[test]
+    fn ensure_local_store_config_excluded_is_idempotent() {
+        let repo = git_repo();
+        ensure_local_store_config_excluded(repo.path()).unwrap();
+        ensure_local_store_config_excluded(repo.path()).unwrap();
+        let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
+        let hits = exclude
+            .lines()
+            .filter(|l| l.trim() == ".shore/store.local.json")
             .count();
         assert_eq!(hits, 1, "the entry is written at most once");
     }

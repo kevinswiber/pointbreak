@@ -11,6 +11,7 @@ use crate::session::store::event_store::EventStore;
 use crate::session::store::manifest::{
     StoreGitProvenance, StoreManifest, load_or_create_store_manifest, read_store_manifest,
 };
+use crate::session::store::store_config::{StoreMode, resolve_store_mode};
 use crate::session::store::store_init::{
     ShoreStorePaths, ensure_shore_storage_excluded, prepare_store_writer_at,
 };
@@ -268,6 +269,24 @@ pub(crate) fn prepare_write_landing(
 
 pub(crate) fn resolve_store(repo: impl AsRef<Path>) -> Result<StoreResolution> {
     let paths = ShoreStorePaths::resolve(repo.as_ref())?;
+
+    // The opt-out is consulted first: an Ephemeral worktree pins its data to the
+    // discardable worktree-local store regardless of any clone-local
+    // registration. A Shared (default, including absent-config) mode falls
+    // through to today's registration-gated logic UNCHANGED — this consult adds
+    // the escape hatch without changing the default placement. A later change
+    // removes the registration branch below and gates resolution solely on the
+    // store mode (Shared → common-dir, Ephemeral → worktree-local); both gates
+    // coexist for now so this stays a no-op under today's default.
+    if resolve_store_mode(paths.worktree_root())? == StoreMode::Ephemeral {
+        return Ok(StoreResolution {
+            mode: StoreResolutionMode::WorktreeLocal,
+            store_dir: paths.store_dir().to_path_buf(),
+            registration: None,
+            manifest: None,
+        });
+    }
+
     let Some(registration) = read_store_registration_if_exists(paths.worktree_root())? else {
         return Ok(StoreResolution {
             mode: StoreResolutionMode::WorktreeLocal,
@@ -387,6 +406,7 @@ mod tests {
         EventTarget, EventType, ReviewInitializedPayload, ShoreEvent, Writer,
     };
     use crate::session::store::manifest::read_store_manifest;
+    use crate::session::store::store_config::write_store_config;
     use crate::session::store::store_init::ShoreStorePaths;
 
     #[test]
@@ -705,6 +725,80 @@ mod tests {
             .unwrap();
         assert_eq!(union.len(), direct.len());
         assert_eq!(union.len(), 1, "the union is exactly the clone-local store");
+    }
+
+    #[test]
+    fn shared_mode_default_is_unchanged_registration_still_decides() {
+        // With no store-config (Shared default), an unlinked repo stays
+        // WorktreeLocal exactly as today — the bit is consulted but does not flip
+        // anything.
+        let repo = GitRepo::new();
+        let resolution = resolve_store(repo.path()).unwrap();
+        assert_eq!(resolution.mode, StoreResolutionMode::WorktreeLocal);
+        assert_eq!(
+            ShoreStorePaths::resolve(repo.path()).unwrap().store_dir(),
+            resolution.store_dir()
+        );
+    }
+
+    #[test]
+    fn shared_mode_linked_still_resolves_clone_local() {
+        // A registered (linked) worktree under Shared mode resolves CloneLocal —
+        // unchanged.
+        let fixture = LinkedWorktreeFixture::new();
+        register_clone_local_store(&fixture.linked_path).unwrap();
+        write_store_config(&fixture.linked_path, StoreMode::Shared).unwrap();
+
+        let resolution = resolve_store(&fixture.linked_path).unwrap();
+        assert_eq!(resolution.mode, StoreResolutionMode::CloneLocal);
+    }
+
+    #[test]
+    fn ephemeral_mode_forces_worktree_local_even_when_registered() {
+        // The escape hatch: an Ephemeral bit pins worktree-local DESPITE a
+        // clone-local registration that would otherwise resolve CloneLocal.
+        let fixture = LinkedWorktreeFixture::new();
+        register_clone_local_store(&fixture.linked_path).unwrap();
+        write_store_config(&fixture.linked_path, StoreMode::Ephemeral).unwrap();
+
+        let resolution = resolve_store(&fixture.linked_path).unwrap();
+        assert_eq!(resolution.mode, StoreResolutionMode::WorktreeLocal);
+        assert_eq!(
+            ShoreStorePaths::resolve(&fixture.linked_path)
+                .unwrap()
+                .store_dir(),
+            resolution.store_dir()
+        );
+    }
+
+    #[test]
+    fn ephemeral_mode_pins_write_store_worktree_local() {
+        // The write-landing path honors the pin: an Ephemeral worktree writes to
+        // .shore/data.
+        let fixture = LinkedWorktreeFixture::new();
+        register_clone_local_store(&fixture.linked_path).unwrap();
+        write_store_config(&fixture.linked_path, StoreMode::Ephemeral).unwrap();
+
+        let write = resolve_write_store(&fixture.linked_path).unwrap();
+        let worktree_local = ShoreStorePaths::resolve(&fixture.linked_path).unwrap();
+        assert_eq!(write.store_dir(), worktree_local.store_dir());
+    }
+
+    #[test]
+    fn ephemeral_mode_scopes_read_and_validation_to_worktree_local() {
+        // Read + write-validation paths resolve the same worktree-local dir under
+        // Ephemeral.
+        let fixture = LinkedWorktreeFixture::new();
+        register_clone_local_store(&fixture.linked_path).unwrap();
+        write_store_config(&fixture.linked_path, StoreMode::Ephemeral).unwrap();
+
+        let read = resolve_read_store(&fixture.linked_path).unwrap();
+        assert_eq!(read.resolution.mode, StoreResolutionMode::WorktreeLocal);
+        // WorktreeLocal mode reports no local-only divergence by construction.
+        assert!(read.local_only_event_files.is_empty());
+
+        let worktree_local = ShoreStorePaths::resolve(&fixture.linked_path).unwrap();
+        assert_eq!(read.store_dir(), worktree_local.store_dir());
     }
 
     struct LinkedWorktreeFixture {
