@@ -360,14 +360,16 @@ function showError(message) {
 
 async function load() {
   try {
-    const [history, units, lineages] = await Promise.all([
+    // The lineages route is retired; the revisions/threads view that replaces it
+    // is a follow-up. Drop the lineages fetch from the gating load so the page
+    // still renders — state.lineages stays null and every reader is null-safe, so
+    // the lineages tab simply shows empty until the replacement view lands.
+    const [history, units] = await Promise.all([
       fetchJSON("/api/history"),
       fetchJSON("/api/units"),
-      fetchJSON("/api/lineages"),
     ]);
     state.history = history;
     state.units = units;
-    state.lineages = lineages;
     state.lastHash = history.eventSetHash;
     // Seed the diagnostic count alongside the hash so the poller can detect a
     // divergence appearing/clearing without a new event (#142). The history
