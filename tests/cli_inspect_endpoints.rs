@@ -70,7 +70,7 @@ fn inspector_harness_serves_history_for_minimal_store() {
         "{event_types:?}"
     );
     assert!(
-        event_types.contains(&"review_unit_ref_associated"),
+        event_types.contains(&"revision_ref_associated"),
         "{event_types:?}"
     );
 }

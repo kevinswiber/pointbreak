@@ -598,10 +598,7 @@ mod tests {
         assert_eq!(capture.events_created, 2);
         assert_eq!(capture.events_existing, 0);
         assert_eq!(capture.events_created_by_type["work_object_proposed"], 1);
-        assert_eq!(
-            capture.events_created_by_type["review_unit_ref_associated"],
-            1
-        );
+        assert_eq!(capture.events_created_by_type["revision_ref_associated"], 1);
 
         let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
@@ -632,7 +629,7 @@ mod tests {
             .unwrap();
         let ref_count = events
             .iter()
-            .filter(|event| event.event_type == EventType::ReviewUnitRefAssociated)
+            .filter(|event| event.event_type == EventType::RevisionRefAssociated)
             .count();
         assert_eq!(
             ref_count, 1,
@@ -667,7 +664,7 @@ mod tests {
         assert!(
             !events
                 .iter()
-                .any(|event| event.event_type == EventType::ReviewUnitRefAssociated),
+                .any(|event| event.event_type == EventType::RevisionRefAssociated),
             "an arbitrary range (target != HEAD) records no capture-branch ref"
         );
     }
@@ -689,7 +686,7 @@ mod tests {
         assert!(
             !events
                 .iter()
-                .any(|event| event.event_type == EventType::ReviewUnitRefAssociated),
+                .any(|event| event.event_type == EventType::RevisionRefAssociated),
             "a detached HEAD names no ref to record, even when the range tips at HEAD"
         );
     }
@@ -708,7 +705,7 @@ mod tests {
         assert!(
             !events
                 .iter()
-                .any(|event| event.event_type == EventType::ReviewUnitRefAssociated),
+                .any(|event| event.event_type == EventType::RevisionRefAssociated),
             "a detached HEAD names no ref to associate"
         );
         assert!(

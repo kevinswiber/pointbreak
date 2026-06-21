@@ -135,7 +135,7 @@ mod tests {
     fn commit_associated_for(unit: &RevisionId, commit_oid: &str) -> ShoreEvent {
         let cid = build_commit_association_id(unit, commit_oid).unwrap();
         ShoreEvent::new(
-            EventType::ReviewUnitCommitAssociated,
+            EventType::RevisionCommitAssociated,
             ReviewUnitCommitAssociatedPayload::idempotency_key(unit, commit_oid),
             envelope(unit),
             Writer::shore_local("test"),
@@ -158,7 +158,7 @@ mod tests {
         let cid = build_commit_association_id(unit, commit_oid).unwrap();
         let wid = build_commit_withdrawal_id(unit, &cid).unwrap();
         ShoreEvent::new(
-            EventType::ReviewUnitCommitWithdrawn,
+            EventType::RevisionCommitWithdrawn,
             ReviewUnitCommitWithdrawnPayload::idempotency_key(&cid),
             envelope(unit),
             Writer::shore_local("test"),

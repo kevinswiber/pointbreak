@@ -10,10 +10,10 @@ pub enum EventType {
     InputRequestOpened,
     InputRequestResponded,
     ReviewNoteImported,
-    ReviewUnitRefAssociated,
-    ReviewUnitRefWithdrawn,
-    ReviewUnitCommitAssociated,
-    ReviewUnitCommitWithdrawn,
+    RevisionRefAssociated,
+    RevisionRefWithdrawn,
+    RevisionCommitAssociated,
+    RevisionCommitWithdrawn,
     ValidationCheckRecorded,
     TaskCheckpointCaptured,
     TaskObservationRecorded,
@@ -33,10 +33,10 @@ impl EventType {
             Self::InputRequestOpened => "input_request_opened",
             Self::InputRequestResponded => "input_request_responded",
             Self::ReviewNoteImported => "review_note_imported",
-            Self::ReviewUnitRefAssociated => "review_unit_ref_associated",
-            Self::ReviewUnitRefWithdrawn => "review_unit_ref_withdrawn",
-            Self::ReviewUnitCommitAssociated => "review_unit_commit_associated",
-            Self::ReviewUnitCommitWithdrawn => "review_unit_commit_withdrawn",
+            Self::RevisionRefAssociated => "revision_ref_associated",
+            Self::RevisionRefWithdrawn => "revision_ref_withdrawn",
+            Self::RevisionCommitAssociated => "revision_commit_associated",
+            Self::RevisionCommitWithdrawn => "revision_commit_withdrawn",
             Self::ValidationCheckRecorded => "validation_check_recorded",
             Self::TaskCheckpointCaptured => "task_checkpoint_captured",
             Self::TaskObservationRecorded => "task_observation_recorded",
@@ -60,10 +60,10 @@ mod tests {
             EventType::InputRequestOpened,
             EventType::InputRequestResponded,
             EventType::ReviewNoteImported,
-            EventType::ReviewUnitRefAssociated,
-            EventType::ReviewUnitRefWithdrawn,
-            EventType::ReviewUnitCommitAssociated,
-            EventType::ReviewUnitCommitWithdrawn,
+            EventType::RevisionRefAssociated,
+            EventType::RevisionRefWithdrawn,
+            EventType::RevisionCommitAssociated,
+            EventType::RevisionCommitWithdrawn,
             EventType::ValidationCheckRecorded,
             EventType::TaskCheckpointCaptured,
             EventType::TaskObservationRecorded,
@@ -82,26 +82,26 @@ mod tests {
     #[test]
     fn association_family_wire_strings_match() {
         assert_eq!(
-            EventType::ReviewUnitRefAssociated.as_str(),
-            "review_unit_ref_associated"
+            EventType::RevisionRefAssociated.as_str(),
+            "revision_ref_associated"
         );
         assert_eq!(
-            EventType::ReviewUnitRefWithdrawn.as_str(),
-            "review_unit_ref_withdrawn"
+            EventType::RevisionRefWithdrawn.as_str(),
+            "revision_ref_withdrawn"
         );
         assert_eq!(
-            EventType::ReviewUnitCommitAssociated.as_str(),
-            "review_unit_commit_associated"
+            EventType::RevisionCommitAssociated.as_str(),
+            "revision_commit_associated"
         );
         assert_eq!(
-            EventType::ReviewUnitCommitWithdrawn.as_str(),
-            "review_unit_commit_withdrawn"
+            EventType::RevisionCommitWithdrawn.as_str(),
+            "revision_commit_withdrawn"
         );
         for variant in [
-            EventType::ReviewUnitRefAssociated,
-            EventType::ReviewUnitRefWithdrawn,
-            EventType::ReviewUnitCommitAssociated,
-            EventType::ReviewUnitCommitWithdrawn,
+            EventType::RevisionRefAssociated,
+            EventType::RevisionRefWithdrawn,
+            EventType::RevisionCommitAssociated,
+            EventType::RevisionCommitWithdrawn,
         ] {
             assert_eq!(
                 serde_json::to_value(variant).unwrap(),
@@ -264,6 +264,22 @@ mod tests {
             EventType::ValidationCheckRecorded.as_str(),
             "validation_check_recorded"
         );
+    }
+
+    #[test]
+    fn legacy_review_unit_association_event_types_no_longer_decode() {
+        for legacy in [
+            "review_unit_ref_associated",
+            "review_unit_ref_withdrawn",
+            "review_unit_commit_associated",
+            "review_unit_commit_withdrawn",
+        ] {
+            let result: Result<EventType, _> = serde_json::from_str(&format!("\"{legacy}\""));
+            assert!(
+                result.is_err(),
+                "{legacy} must not decode after the association family renames to revision_*"
+            );
+        }
     }
 
     #[test]

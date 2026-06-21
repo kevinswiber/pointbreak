@@ -395,8 +395,8 @@ pub(super) fn target_paths(target: &ReviewTargetRef) -> (Option<String>, Option<
 
 fn validation_target_to_review_target(target: &ValidationTarget) -> ReviewTargetRef {
     match target {
-        ValidationTarget::ReviewUnit { review_unit_id } => ReviewTargetRef::Revision {
-            revision_id: review_unit_id.clone(),
+        ValidationTarget::Revision { revision_id } => ReviewTargetRef::Revision {
+            revision_id: revision_id.clone(),
         },
     }
 }

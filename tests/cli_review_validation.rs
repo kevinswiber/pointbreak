@@ -32,7 +32,7 @@ fn cli_review_validation_add_emits_validation_add_document() {
     assert_eq!(value["schema"], "shore.review-validation-add");
     assert_eq!(value["eventsCreated"], 1);
     assert_eq!(value["status"], "passed");
-    assert_eq!(value["target"]["kind"], "review_unit");
+    assert_eq!(value["target"]["kind"], "revision");
 }
 
 #[test]

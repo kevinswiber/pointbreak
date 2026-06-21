@@ -250,8 +250,8 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
     let mut log_artifact_content_hashes = input.log_artifact_content_hashes;
     log_artifact_content_hashes.sort();
     log_artifact_content_hashes.dedup();
-    let target = ValidationTarget::ReviewUnit {
-        review_unit_id: input.resolved.revision_id.clone(),
+    let target = ValidationTarget::Revision {
+        revision_id: input.resolved.revision_id.clone(),
     };
     let validation_check_id = build_validation_check_id(ValidationCheckIdMaterial {
         review_unit_id: &input.resolved.revision_id,

@@ -50,10 +50,7 @@ fn associate_commit_records_then_reports_existing_on_rerun() {
     let json = parse_json(&first.stdout);
     assert_eq!(json["schema"], "shore.review-association-commit");
     assert_eq!(json["eventsCreated"], 1);
-    assert_eq!(
-        json["eventsCreatedByType"]["review_unit_commit_associated"],
-        1
-    );
+    assert_eq!(json["eventsCreatedByType"]["revision_commit_associated"], 1);
     let association_id = json["commitAssociationId"].as_str().unwrap();
     assert!(association_id.starts_with("assoc-commit:"));
     assert!(json["eventId"].as_str().unwrap().starts_with("evt:sha256:"));
@@ -295,11 +292,8 @@ fn history_filters_to_the_commit_associated_event_type() {
     );
     let entries = json["entries"].as_array().unwrap();
     assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0]["eventType"], "review_unit_commit_associated");
-    assert_eq!(
-        entries[0]["summary"]["kind"],
-        "review_unit_commit_associated"
-    );
+    assert_eq!(entries[0]["eventType"], "revision_commit_associated");
+    assert_eq!(entries[0]["summary"]["kind"], "revision_commit_associated");
 }
 
 #[test]

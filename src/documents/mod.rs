@@ -196,7 +196,9 @@ mod tests {
             validation_check_id: ValidationCheckId::new("validation:sha256:one"),
             event_id: EventId::new("evt:sha256:one"),
             track_id: TrackId::new("agent:codex"),
-            target: ValidationTarget::ReviewUnit { review_unit_id },
+            target: ValidationTarget::Revision {
+                revision_id: review_unit_id,
+            },
             status: ValidationStatus::Passed,
             summary_content_hash: Some("sha256:summary".to_owned()),
             events_created: 1,
@@ -353,7 +355,9 @@ mod tests {
             id: ValidationCheckId::new("validation:sha256:one"),
             event_id: EventId::new("evt:sha256:one"),
             track_id: TrackId::new("agent:codex"),
-            target: ValidationTarget::ReviewUnit { review_unit_id },
+            target: ValidationTarget::Revision {
+                revision_id: review_unit_id,
+            },
             check_name: "cargo test".to_owned(),
             command: Some("cargo test --all".to_owned()),
             status: ValidationStatus::Passed,

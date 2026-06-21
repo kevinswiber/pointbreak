@@ -320,7 +320,7 @@ pub(crate) fn build_ref_association_event(
         head_oid: head_oid.to_owned(),
     };
     ShoreEvent::new(
-        EventType::ReviewUnitRefAssociated,
+        EventType::RevisionRefAssociated,
         key,
         EventTarget::for_subject(
             ledger_id.clone(),
@@ -362,7 +362,7 @@ pub fn associate_commit(options: AssociateCommitOptions) -> Result<AssociateComm
             };
             endpoint = Some((commit_oid, tree_oid));
             association_id = Some(commit_association_id);
-            Ok((EventType::ReviewUnitCommitAssociated, key, payload))
+            Ok((EventType::RevisionCommitAssociated, key, payload))
         },
     )?;
     let (commit_oid, tree_oid) = endpoint.expect("build closure resolved the commit endpoint");
@@ -400,7 +400,7 @@ pub fn withdraw_commit(options: WithdrawCommitOptions) -> Result<WithdrawCommitR
                 commit_association_id: options.commit_association_id.clone(),
             };
             withdrawal_id = Some(commit_withdrawal_id);
-            Ok((EventType::ReviewUnitCommitWithdrawn, key, payload))
+            Ok((EventType::RevisionCommitWithdrawn, key, payload))
         },
     )?;
     Ok(WithdrawCommitResult {
@@ -441,7 +441,7 @@ pub fn associate_ref(options: AssociateRefOptions) -> Result<AssociateRefResult>
                 head_oid: options.head_oid.clone(),
             };
             association_id = Some(ref_association_id);
-            Ok((EventType::ReviewUnitRefAssociated, key, payload))
+            Ok((EventType::RevisionRefAssociated, key, payload))
         },
     )?;
     Ok(AssociateRefResult {
@@ -477,7 +477,7 @@ pub fn withdraw_ref(options: WithdrawRefOptions) -> Result<WithdrawRefResult> {
                 ref_association_id: options.ref_association_id.clone(),
             };
             withdrawal_id = Some(ref_withdrawal_id);
-            Ok((EventType::ReviewUnitRefWithdrawn, key, payload))
+            Ok((EventType::RevisionRefWithdrawn, key, payload))
         },
     )?;
     Ok(WithdrawRefResult {

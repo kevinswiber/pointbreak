@@ -68,8 +68,8 @@ mod tests {
     fn fixture_payload() -> ValidationCheckRecordedPayload {
         ValidationCheckRecordedPayload {
             validation_check_id: ValidationCheckId::new("validation:sha256:ghi"),
-            target: ValidationTarget::ReviewUnit {
-                review_unit_id: RevisionId::new("review-unit:sha256:def"),
+            target: ValidationTarget::Revision {
+                revision_id: RevisionId::new("review-unit:sha256:def"),
             },
             check_name: "cargo test".to_owned(),
             command: None,

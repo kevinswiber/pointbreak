@@ -165,21 +165,21 @@ pub enum ReviewHistorySummary {
         #[serde(skip_serializing_if = "Vec::is_empty")]
         log_artifact_content_hashes: Vec<String>,
     },
-    ReviewUnitRefAssociated {
+    RevisionRefAssociated {
         ref_association_id: RefAssociationId,
         ref_name: String,
         head_oid: String,
     },
-    ReviewUnitRefWithdrawn {
+    RevisionRefWithdrawn {
         ref_withdrawal_id: RefWithdrawalId,
         ref_association_id: RefAssociationId,
     },
-    ReviewUnitCommitAssociated {
+    RevisionCommitAssociated {
         commit_association_id: CommitAssociationId,
         commit_oid: String,
         tree_oid: String,
     },
-    ReviewUnitCommitWithdrawn {
+    RevisionCommitWithdrawn {
         commit_withdrawal_id: CommitWithdrawalId,
         commit_association_id: CommitAssociationId,
     },

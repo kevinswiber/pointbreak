@@ -146,10 +146,10 @@ impl StateReducer {
             EventType::ReviewNoteImported => {
                 self.note_count += 1;
             }
-            EventType::ReviewUnitRefAssociated
-            | EventType::ReviewUnitRefWithdrawn
-            | EventType::ReviewUnitCommitAssociated
-            | EventType::ReviewUnitCommitWithdrawn => {
+            EventType::RevisionRefAssociated
+            | EventType::RevisionRefWithdrawn
+            | EventType::RevisionCommitAssociated
+            | EventType::RevisionCommitWithdrawn => {
                 // Commit-range lifecycle is derived by the dedicated commit-range projection;
                 // these events do not change session state.
             }
@@ -933,8 +933,8 @@ mod tests {
             Writer::shore_local("0.1.0"),
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new(validation_check_id),
-                target: ValidationTarget::ReviewUnit {
-                    review_unit_id: RevisionId::new("review-unit:sha256:one"),
+                target: ValidationTarget::Revision {
+                    revision_id: RevisionId::new("review-unit:sha256:one"),
                 },
                 check_name: "cargo test".to_owned(),
                 command: None,

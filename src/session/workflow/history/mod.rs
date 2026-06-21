@@ -921,8 +921,8 @@ mod tests {
     fn validation_check_recorded_event() -> ShoreEvent {
         let payload = ValidationCheckRecordedPayload {
             validation_check_id: ValidationCheckId::new("validation:sha256:one"),
-            target: ValidationTarget::ReviewUnit {
-                review_unit_id: review_unit_id("one"),
+            target: ValidationTarget::Revision {
+                revision_id: review_unit_id("one"),
             },
             check_name: "cargo test".to_owned(),
             command: None,

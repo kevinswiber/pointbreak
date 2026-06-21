@@ -1271,7 +1271,9 @@ mod tests {
             Writer::shore_local("test"),
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new("validation:sha256:bundle"),
-                target: ValidationTarget::ReviewUnit { review_unit_id },
+                target: ValidationTarget::Revision {
+                    revision_id: review_unit_id,
+                },
                 check_name: "cargo nextest run".to_owned(),
                 command: None,
                 status: ValidationStatus::Passed,

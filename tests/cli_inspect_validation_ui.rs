@@ -283,9 +283,9 @@ fn api_history_carries_typed_validation_summaries() {
             .unwrap()
             .starts_with("validation:sha256:")
     );
-    assert_eq!(passed["summary"]["target"]["kind"], "review_unit");
+    assert_eq!(passed["summary"]["target"]["kind"], "revision");
     assert_eq!(
-        passed["summary"]["target"]["reviewUnitId"],
+        passed["summary"]["target"]["revisionId"],
         store.review_unit_id.as_str()
     );
     // Top-level joins the UI relies on (timeline track filter, lineage join key).

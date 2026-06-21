@@ -173,10 +173,10 @@ impl From<HistoryEventTypeArg> for EventType {
             HistoryEventTypeArg::InputRequestOpened => Self::InputRequestOpened,
             HistoryEventTypeArg::InputRequestResponded => Self::InputRequestResponded,
             HistoryEventTypeArg::ReviewNoteImported => Self::ReviewNoteImported,
-            HistoryEventTypeArg::ReviewUnitRefAssociated => Self::ReviewUnitRefAssociated,
-            HistoryEventTypeArg::ReviewUnitRefWithdrawn => Self::ReviewUnitRefWithdrawn,
-            HistoryEventTypeArg::ReviewUnitCommitAssociated => Self::ReviewUnitCommitAssociated,
-            HistoryEventTypeArg::ReviewUnitCommitWithdrawn => Self::ReviewUnitCommitWithdrawn,
+            HistoryEventTypeArg::ReviewUnitRefAssociated => Self::RevisionRefAssociated,
+            HistoryEventTypeArg::ReviewUnitRefWithdrawn => Self::RevisionRefWithdrawn,
+            HistoryEventTypeArg::ReviewUnitCommitAssociated => Self::RevisionCommitAssociated,
+            HistoryEventTypeArg::ReviewUnitCommitWithdrawn => Self::RevisionCommitWithdrawn,
         }
     }
 }

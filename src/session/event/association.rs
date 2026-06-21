@@ -33,7 +33,7 @@ pub struct ReviewUnitCommitAssociatedPayload {
 impl ReviewUnitCommitAssociatedPayload {
     pub fn idempotency_key(review_unit_id: &RevisionId, commit_oid: &str) -> String {
         format!(
-            "review_unit_commit_associated:{}:{}",
+            "revision_commit_associated:{}:{}",
             review_unit_id.as_str(),
             commit_oid
         )
@@ -42,7 +42,7 @@ impl ReviewUnitCommitAssociatedPayload {
 
 impl EventPayload for ReviewUnitCommitAssociatedPayload {
     fn event_type(&self) -> EventType {
-        EventType::ReviewUnitCommitAssociated
+        EventType::RevisionCommitAssociated
     }
 }
 
@@ -58,7 +58,7 @@ pub struct ReviewUnitRefAssociatedPayload {
 impl ReviewUnitRefAssociatedPayload {
     pub fn idempotency_key(review_unit_id: &RevisionId, ref_name: &str, head_oid: &str) -> String {
         format!(
-            "review_unit_ref_associated:{}:{}",
+            "revision_ref_associated:{}:{}",
             review_unit_id.as_str(),
             ref_distinguisher(ref_name, head_oid)
         )
@@ -67,7 +67,7 @@ impl ReviewUnitRefAssociatedPayload {
 
 impl EventPayload for ReviewUnitRefAssociatedPayload {
     fn event_type(&self) -> EventType {
-        EventType::ReviewUnitRefAssociated
+        EventType::RevisionRefAssociated
     }
 }
 
@@ -82,7 +82,7 @@ pub struct ReviewUnitCommitWithdrawnPayload {
 impl ReviewUnitCommitWithdrawnPayload {
     pub fn idempotency_key(commit_association_id: &CommitAssociationId) -> String {
         format!(
-            "review_unit_commit_withdrawn:{}",
+            "revision_commit_withdrawn:{}",
             commit_association_id.as_str()
         )
     }
@@ -90,7 +90,7 @@ impl ReviewUnitCommitWithdrawnPayload {
 
 impl EventPayload for ReviewUnitCommitWithdrawnPayload {
     fn event_type(&self) -> EventType {
-        EventType::ReviewUnitCommitWithdrawn
+        EventType::RevisionCommitWithdrawn
     }
 }
 
@@ -104,13 +104,13 @@ pub struct ReviewUnitRefWithdrawnPayload {
 
 impl ReviewUnitRefWithdrawnPayload {
     pub fn idempotency_key(ref_association_id: &RefAssociationId) -> String {
-        format!("review_unit_ref_withdrawn:{}", ref_association_id.as_str())
+        format!("revision_ref_withdrawn:{}", ref_association_id.as_str())
     }
 }
 
 impl EventPayload for ReviewUnitRefWithdrawnPayload {
     fn event_type(&self) -> EventType {
-        EventType::ReviewUnitRefWithdrawn
+        EventType::RevisionRefWithdrawn
     }
 }
 
@@ -183,7 +183,7 @@ mod tests {
         let ru = RevisionId::new("ru:sha256:abc");
         assert_eq!(
             ReviewUnitCommitAssociatedPayload::idempotency_key(&ru, "oid123"),
-            "review_unit_commit_associated:ru:sha256:abc:oid123"
+            "revision_commit_associated:ru:sha256:abc:oid123"
         );
     }
 
@@ -192,7 +192,7 @@ mod tests {
         let ru = RevisionId::new("ru:sha256:abc");
         assert_eq!(
             ReviewUnitRefAssociatedPayload::idempotency_key(&ru, "refs/heads/feat/x", "oidH"),
-            "review_unit_ref_associated:ru:sha256:abc:refs/heads/feat/x@oidH"
+            "revision_ref_associated:ru:sha256:abc:refs/heads/feat/x@oidH"
         );
     }
 
@@ -201,12 +201,12 @@ mod tests {
         let cid = CommitAssociationId::new("assoc-commit:sha256:zzz");
         assert_eq!(
             ReviewUnitCommitWithdrawnPayload::idempotency_key(&cid),
-            "review_unit_commit_withdrawn:assoc-commit:sha256:zzz"
+            "revision_commit_withdrawn:assoc-commit:sha256:zzz"
         );
         let rid = RefAssociationId::new("assoc-ref:sha256:yyy");
         assert_eq!(
             ReviewUnitRefWithdrawnPayload::idempotency_key(&rid),
-            "review_unit_ref_withdrawn:assoc-ref:sha256:yyy"
+            "revision_ref_withdrawn:assoc-ref:sha256:yyy"
         );
     }
 
@@ -222,7 +222,7 @@ mod tests {
                 tree_oid: "tree9".into(),
             },
         };
-        assert_eq!(p.event_type(), EventType::ReviewUnitCommitAssociated);
+        assert_eq!(p.event_type(), EventType::RevisionCommitAssociated);
         let v = serde_json::to_value(&p).unwrap();
         assert_eq!(v["commitAssociationId"], "assoc-commit:sha256:zzz");
         assert_eq!(v["commit"]["kind"], "git_commit");
@@ -240,7 +240,7 @@ mod tests {
             ref_name: "refs/heads/feat/x".into(),
             head_oid: "oidH".into(),
         };
-        assert_eq!(p.event_type(), EventType::ReviewUnitRefAssociated);
+        assert_eq!(p.event_type(), EventType::RevisionRefAssociated);
         let v = serde_json::to_value(&p).unwrap();
         assert_eq!(v["refAssociationId"], "assoc-ref:sha256:yyy");
         assert_eq!(v["refName"], "refs/heads/feat/x");
@@ -258,7 +258,7 @@ mod tests {
             },
             commit_association_id: CommitAssociationId::new("assoc-commit:sha256:zzz"),
         };
-        assert_eq!(commit.event_type(), EventType::ReviewUnitCommitWithdrawn);
+        assert_eq!(commit.event_type(), EventType::RevisionCommitWithdrawn);
         let v = serde_json::to_value(&commit).unwrap();
         assert_eq!(v["commitWithdrawalId"], "withdraw-commit:sha256:w1");
         assert_eq!(v["commitAssociationId"], "assoc-commit:sha256:zzz");
@@ -276,7 +276,7 @@ mod tests {
             },
             ref_association_id: RefAssociationId::new("assoc-ref:sha256:yyy"),
         };
-        assert_eq!(r.event_type(), EventType::ReviewUnitRefWithdrawn);
+        assert_eq!(r.event_type(), EventType::RevisionRefWithdrawn);
         let rv = serde_json::to_value(&r).unwrap();
         assert_eq!(rv["refWithdrawalId"], "withdraw-ref:sha256:w2");
         assert!(rv.get("reason").is_none());
@@ -383,7 +383,7 @@ mod convergence_tests {
             },
         };
         ShoreEvent::new(
-            EventType::ReviewUnitCommitAssociated,
+            EventType::RevisionCommitAssociated,
             ReviewUnitCommitAssociatedPayload::idempotency_key(&ru, commit_oid),
             target_for(&ru, track),
             writer_for(writer),
@@ -405,7 +405,7 @@ mod convergence_tests {
             commit_association_id: cid.clone(),
         };
         ShoreEvent::new(
-            EventType::ReviewUnitCommitWithdrawn,
+            EventType::RevisionCommitWithdrawn,
             ReviewUnitCommitWithdrawnPayload::idempotency_key(&cid),
             target_for(&ru, track),
             writer_for(writer),

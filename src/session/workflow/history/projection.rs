@@ -227,24 +227,24 @@ pub(super) fn history_entry_from_event(
                 log_artifact_content_hashes: payload.log_artifact_content_hashes,
             }
         }
-        EventType::ReviewUnitRefAssociated => {
+        EventType::RevisionRefAssociated => {
             let payload: ReviewUnitRefAssociatedPayload =
                 serde_json::from_value(event.payload.clone())?;
-            ReviewHistorySummary::ReviewUnitRefAssociated {
+            ReviewHistorySummary::RevisionRefAssociated {
                 ref_association_id: payload.ref_association_id,
                 ref_name: payload.ref_name,
                 head_oid: payload.head_oid,
             }
         }
-        EventType::ReviewUnitRefWithdrawn => {
+        EventType::RevisionRefWithdrawn => {
             let payload: ReviewUnitRefWithdrawnPayload =
                 serde_json::from_value(event.payload.clone())?;
-            ReviewHistorySummary::ReviewUnitRefWithdrawn {
+            ReviewHistorySummary::RevisionRefWithdrawn {
                 ref_withdrawal_id: payload.ref_withdrawal_id,
                 ref_association_id: payload.ref_association_id,
             }
         }
-        EventType::ReviewUnitCommitAssociated => {
+        EventType::RevisionCommitAssociated => {
             let payload: ReviewUnitCommitAssociatedPayload =
                 serde_json::from_value(event.payload.clone())?;
             let ReviewEndpoint::GitCommit {
@@ -256,16 +256,16 @@ pub(super) fn history_entry_from_event(
                     "commit association payload must carry a git_commit endpoint".to_owned(),
                 ));
             };
-            ReviewHistorySummary::ReviewUnitCommitAssociated {
+            ReviewHistorySummary::RevisionCommitAssociated {
                 commit_association_id: payload.commit_association_id,
                 commit_oid,
                 tree_oid,
             }
         }
-        EventType::ReviewUnitCommitWithdrawn => {
+        EventType::RevisionCommitWithdrawn => {
             let payload: ReviewUnitCommitWithdrawnPayload =
                 serde_json::from_value(event.payload.clone())?;
-            ReviewHistorySummary::ReviewUnitCommitWithdrawn {
+            ReviewHistorySummary::RevisionCommitWithdrawn {
                 commit_withdrawal_id: payload.commit_withdrawal_id,
                 commit_association_id: payload.commit_association_id,
             }

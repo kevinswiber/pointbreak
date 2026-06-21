@@ -316,7 +316,7 @@ fn capture_has_ref_association(
 ) -> Result<bool> {
     for event in events
         .iter()
-        .filter(|event| event.event_type == EventType::ReviewUnitRefAssociated)
+        .filter(|event| event.event_type == EventType::RevisionRefAssociated)
     {
         let payload: ReviewUnitRefAssociatedPayload =
             serde_json::from_value(event.payload.clone())?;
@@ -337,7 +337,7 @@ fn capture_has_any_ref_association(
 ) -> Result<bool> {
     for event in events
         .iter()
-        .filter(|event| event.event_type == EventType::ReviewUnitRefAssociated)
+        .filter(|event| event.event_type == EventType::RevisionRefAssociated)
     {
         let payload: ReviewUnitRefAssociatedPayload =
             serde_json::from_value(event.payload.clone())?;

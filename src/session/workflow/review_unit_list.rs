@@ -831,7 +831,7 @@ mod tests {
             },
         };
         ShoreEvent::new(
-            EventType::ReviewUnitCommitAssociated,
+            EventType::RevisionCommitAssociated,
             ReviewUnitCommitAssociatedPayload::idempotency_key(&revision_id, commit_oid),
             EventTarget::for_revision(LedgerId::new("ledger:default"), revision_id, None),
             Writer::shore_local("test"),
@@ -1123,7 +1123,7 @@ mod tests {
             },
         };
         ShoreEvent::new(
-            EventType::ReviewUnitCommitAssociated,
+            EventType::RevisionCommitAssociated,
             ReviewUnitCommitAssociatedPayload::idempotency_key(unit, commit_oid),
             EventTarget::for_revision(LedgerId::new("ledger:default"), unit.clone(), None),
             Writer::shore_local("test"),

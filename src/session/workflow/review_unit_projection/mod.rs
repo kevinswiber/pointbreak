@@ -961,7 +961,7 @@ mod tests {
         );
         target.track_id = Some(crate::model::TrackId::new("agent:codex"));
         let event = ShoreEvent::new(
-            EventType::ReviewUnitCommitAssociated,
+            EventType::RevisionCommitAssociated,
             ReviewUnitCommitAssociatedPayload::idempotency_key(&capture.revision_id, commit_oid),
             target,
             Writer::shore_local("0.1.0"),
@@ -1006,8 +1006,8 @@ mod tests {
             Writer::shore_local("0.1.0"),
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new(validation_check_id),
-                target: ValidationTarget::ReviewUnit {
-                    review_unit_id: capture.revision_id.clone(),
+                target: ValidationTarget::Revision {
+                    revision_id: capture.revision_id.clone(),
                 },
                 check_name: "cargo test".to_owned(),
                 command: None,

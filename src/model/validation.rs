@@ -26,7 +26,7 @@ pub enum ValidationTrigger {
     rename_all_fields = "camelCase"
 )]
 pub enum ValidationTarget {
-    ReviewUnit { review_unit_id: RevisionId },
+    Revision { revision_id: RevisionId },
 }
 
 #[cfg(test)]
@@ -64,14 +64,14 @@ mod tests {
     }
 
     #[test]
-    fn validation_target_review_unit_round_trips_with_kind_tag_and_is_path_free() {
-        let target = ValidationTarget::ReviewUnit {
-            review_unit_id: RevisionId::new("review-unit:sha256:def"),
+    fn validation_target_revision_round_trips_with_kind_tag_and_is_path_free() {
+        let target = ValidationTarget::Revision {
+            revision_id: RevisionId::new("rev:sha256:def"),
         };
 
         let value = serde_json::to_value(&target).unwrap();
-        assert_eq!(value["kind"], "review_unit");
-        assert_eq!(value["reviewUnitId"], "review-unit:sha256:def");
+        assert_eq!(value["kind"], "revision");
+        assert_eq!(value["revisionId"], "rev:sha256:def");
 
         let back: ValidationTarget = serde_json::from_value(value).unwrap();
         assert_eq!(back, target);

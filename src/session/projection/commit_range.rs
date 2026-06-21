@@ -123,7 +123,7 @@ impl ReviewUnitCommitRangeProjection {
                         }
                     }
                 }
-                EventType::ReviewUnitCommitAssociated => {
+                EventType::RevisionCommitAssociated => {
                     let payload: ReviewUnitCommitAssociatedPayload =
                         serde_json::from_value(event.payload.clone())?;
                     if let (
@@ -141,7 +141,7 @@ impl ReviewUnitCommitRangeProjection {
                             .insert(payload.commit_association_id, (commit_oid, tree_oid));
                     }
                 }
-                EventType::ReviewUnitCommitWithdrawn => {
+                EventType::RevisionCommitWithdrawn => {
                     let payload: ReviewUnitCommitWithdrawnPayload =
                         serde_json::from_value(event.payload.clone())?;
                     if let Some(review_unit_id) = review_unit_of(&payload.target) {
@@ -152,7 +152,7 @@ impl ReviewUnitCommitRangeProjection {
                             .insert(payload.commit_association_id, payload.commit_withdrawal_id);
                     }
                 }
-                EventType::ReviewUnitRefAssociated => {
+                EventType::RevisionRefAssociated => {
                     let payload: ReviewUnitRefAssociatedPayload =
                         serde_json::from_value(event.payload.clone())?;
                     if let Some(review_unit_id) = review_unit_of(&payload.target) {
@@ -166,7 +166,7 @@ impl ReviewUnitCommitRangeProjection {
                             );
                     }
                 }
-                EventType::ReviewUnitRefWithdrawn => {
+                EventType::RevisionRefWithdrawn => {
                     let payload: ReviewUnitRefWithdrawnPayload =
                         serde_json::from_value(event.payload.clone())?;
                     if let Some(review_unit_id) = review_unit_of(&payload.target) {
@@ -469,7 +469,7 @@ mod tests {
         let ru = review_unit_id();
         let cid = build_commit_association_id(&ru, commit_oid).unwrap();
         ShoreEvent::new(
-            EventType::ReviewUnitCommitAssociated,
+            EventType::RevisionCommitAssociated,
             ReviewUnitCommitAssociatedPayload::idempotency_key(&ru, commit_oid),
             envelope(),
             Writer::shore_local("test"),
@@ -491,7 +491,7 @@ mod tests {
         let cid = build_commit_association_id(&ru, commit_oid).unwrap();
         let wid = build_commit_withdrawal_id(&ru, &cid).unwrap();
         ShoreEvent::new(
-            EventType::ReviewUnitCommitWithdrawn,
+            EventType::RevisionCommitWithdrawn,
             ReviewUnitCommitWithdrawnPayload::idempotency_key(&cid),
             envelope(),
             Writer::shore_local("test"),
@@ -509,7 +509,7 @@ mod tests {
         let ru = review_unit_id();
         let rid = build_ref_association_id(&ru, ref_name, head_oid).unwrap();
         ShoreEvent::new(
-            EventType::ReviewUnitRefAssociated,
+            EventType::RevisionRefAssociated,
             ReviewUnitRefAssociatedPayload::idempotency_key(&ru, ref_name, head_oid),
             envelope(),
             Writer::shore_local("test"),

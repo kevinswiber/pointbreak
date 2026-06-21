@@ -348,8 +348,8 @@ mod tests {
             review_unit_id,
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new(validation_check_id),
-                target: ValidationTarget::ReviewUnit {
-                    review_unit_id: RevisionId::new(review_unit_id),
+                target: ValidationTarget::Revision {
+                    revision_id: RevisionId::new(review_unit_id),
                 },
                 check_name: "cargo test".to_owned(),
                 command: None,
@@ -380,8 +380,8 @@ mod tests {
             review_unit_id,
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new(validation_check_id),
-                target: ValidationTarget::ReviewUnit {
-                    review_unit_id: RevisionId::new(review_unit_id),
+                target: ValidationTarget::Revision {
+                    revision_id: RevisionId::new(review_unit_id),
                 },
                 check_name: "cargo test".to_owned(),
                 command: None,

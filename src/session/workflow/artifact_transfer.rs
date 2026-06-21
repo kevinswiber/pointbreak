@@ -251,10 +251,10 @@ fn referenced_artifacts_for_event(
             insert_body_ref(refs, payload.body_artifact_path.as_deref())
         }
         EventType::ReviewInitialized
-        | EventType::ReviewUnitRefAssociated
-        | EventType::ReviewUnitRefWithdrawn
-        | EventType::ReviewUnitCommitAssociated
-        | EventType::ReviewUnitCommitWithdrawn
+        | EventType::RevisionRefAssociated
+        | EventType::RevisionRefWithdrawn
+        | EventType::RevisionCommitAssociated
+        | EventType::RevisionCommitWithdrawn
         | EventType::TaskCheckpointCaptured
         | EventType::EventSignatureRecorded
         | EventType::ArtifactRemoved => Ok(()),
@@ -425,7 +425,9 @@ mod tests {
             Writer::shore_local("0.1.0"),
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new("validation:sha256:one"),
-                target: ValidationTarget::ReviewUnit { review_unit_id },
+                target: ValidationTarget::Revision {
+                    revision_id: review_unit_id,
+                },
                 check_name: "cargo test".to_owned(),
                 command: None,
                 status: ValidationStatus::Passed,

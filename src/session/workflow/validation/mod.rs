@@ -71,8 +71,8 @@ mod tests {
             serde_json::from_value(event.payload).unwrap();
         assert_eq!(
             payload.target,
-            ValidationTarget::ReviewUnit {
-                review_unit_id: capture.revision_id
+            ValidationTarget::Revision {
+                revision_id: capture.revision_id
             }
         );
     }
@@ -128,8 +128,8 @@ mod tests {
         let id = build_validation_check_id(ValidationCheckIdMaterial {
             review_unit_id: &RevisionId::new("review-unit:sha256:unit"),
             track_id: &crate::model::TrackId::new("agent:codex"),
-            target: &ValidationTarget::ReviewUnit {
-                review_unit_id: RevisionId::new("review-unit:sha256:unit"),
+            target: &ValidationTarget::Revision {
+                revision_id: RevisionId::new("review-unit:sha256:unit"),
             },
             check_name: "cargo test",
             command: Some("cargo test --all"),
@@ -147,7 +147,7 @@ mod tests {
 
         assert_eq!(
             id.as_str(),
-            "validation:sha256:0e58848bddc493a959257feb648998f020a1d6b80491d49d644646038343ef7c"
+            "validation:sha256:deca0ad1ac022ed1bc9c611932727d9d00963bb32b206201c5cbe610e4da533c"
         );
     }
 
