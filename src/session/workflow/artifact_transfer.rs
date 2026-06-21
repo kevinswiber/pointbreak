@@ -3,15 +3,15 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::error::{Result, ShoreError};
-use crate::model::SnapshotId;
+use crate::model::ObjectId;
 use crate::session::body_artifact::{
     note_body_content_hash_from_path, validate_note_body_artifact_bytes,
 };
 use crate::session::event::{
     EventType, InputRequestRespondedPayload, ReviewAssessmentRecordedPayload,
-    ReviewNoteImportedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
-    ShoreEvent, TaskObservationRecordedPayload, ValidationCheckRecordedPayload,
-    decode_input_request_opened_payload,
+    ReviewNoteImportedPayload, ReviewObservationRecordedPayload, ShoreEvent,
+    TaskObservationRecordedPayload, ValidationCheckRecordedPayload, WorkObjectProposal,
+    WorkObjectProposedPayload, decode_input_request_opened_payload,
 };
 use crate::session::snapshot_artifact::{
     decode_and_validate_snapshot_artifact, read_snapshot_artifact_bytes, snapshot_artifact_path,
@@ -71,7 +71,7 @@ impl fmt::Debug for ArtifactRef {
 
 #[derive(Clone, Eq, PartialEq)]
 enum ArtifactLocator {
-    Snapshot { snapshot_id: SnapshotId },
+    Snapshot { snapshot_id: ObjectId },
     Body { relative_path: String },
 }
 
@@ -196,18 +196,25 @@ fn referenced_artifacts_for_event(
     refs: &mut BTreeMap<String, ArtifactRef>,
 ) -> Result<()> {
     match event.event_type {
-        EventType::ReviewUnitCaptured => {
-            let payload: ReviewUnitCapturedPayload = serde_json::from_value(event.payload.clone())?;
-            insert_artifact_ref(
-                refs,
-                format!("snapshot:{}", payload.snapshot_id.as_str()),
-                ArtifactRef {
-                    locator: ArtifactLocator::Snapshot {
-                        snapshot_id: payload.snapshot_id,
+        EventType::WorkObjectProposed => {
+            let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
+            match payload.work_object {
+                WorkObjectProposal::Revision {
+                    revision,
+                    snapshot_artifact_content_hash,
+                } => insert_artifact_ref(
+                    refs,
+                    format!("snapshot:{}", revision.object_id.as_str()),
+                    ArtifactRef {
+                        locator: ArtifactLocator::Snapshot {
+                            snapshot_id: revision.object_id,
+                        },
+                        content_hash: snapshot_artifact_content_hash,
                     },
-                    content_hash: payload.snapshot_artifact_content_hash,
-                },
-            )
+                ),
+                // A task-attempt proposal references no content-addressed artifact.
+                WorkObjectProposal::TaskAttempt { .. } => Ok(()),
+            }
         }
         EventType::InputRequestOpened => {
             let payload = decode_input_request_opened_payload(event.payload.clone())?;
@@ -249,7 +256,6 @@ fn referenced_artifacts_for_event(
         | EventType::ReviewUnitRefWithdrawn
         | EventType::ReviewUnitCommitAssociated
         | EventType::ReviewUnitCommitWithdrawn
-        | EventType::TaskAttemptCaptured
         | EventType::TaskCheckpointCaptured
         | EventType::EventSignatureRecorded
         | EventType::ArtifactRemoved => Ok(()),
@@ -315,7 +321,7 @@ fn read_body_artifact_bytes(
 fn import_snapshot_artifact(
     store_dir: &Path,
     storage: &LocalStorage,
-    snapshot_id: &SnapshotId,
+    snapshot_id: &ObjectId,
     expected_content_hash: &str,
     bytes: &[u8],
 ) -> Result<ImportArtifactOutcome> {
@@ -387,8 +393,8 @@ fn import_body_artifact(
 mod tests {
     use super::*;
     use crate::model::{
-        ReviewUnitId, RevisionId, SessionId, SnapshotId, TrackId, ValidationCheckId,
-        ValidationStatus, ValidationTarget, ValidationTrigger,
+        LedgerId, RevisionId, TrackId, ValidationCheckId, ValidationStatus, ValidationTarget,
+        ValidationTrigger,
     };
     use crate::session::event::{EventTarget, EventType, ValidationCheckRecordedPayload, Writer};
 
@@ -406,12 +412,11 @@ mod tests {
     }
 
     fn validation_event_with_summary_path(path: &str) -> ShoreEvent {
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
-        let mut target = EventTarget::for_review_unit(
-            SessionId::new("session:default"),
+        let review_unit_id = RevisionId::new("review-unit:sha256:one");
+        let mut target = EventTarget::for_revision(
+            LedgerId::new("session:default"),
             review_unit_id.clone(),
-            RevisionId::new("rev:one"),
-            SnapshotId::new("snap:one"),
+            None,
         );
         target.track_id = Some(TrackId::new("agent:codex"));
         ShoreEvent::new(

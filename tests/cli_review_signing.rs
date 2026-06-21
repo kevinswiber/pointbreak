@@ -39,7 +39,7 @@ fn capture_status(repo: &Path, trust: TrustSet) -> Option<EventVerificationStatu
     history
         .entries
         .iter()
-        .find(|entry| entry.event_type == EventType::ReviewUnitCaptured)
+        .find(|entry| entry.event_type == EventType::WorkObjectProposed)
         .and_then(|entry| entry.verification_status)
 }
 

@@ -266,7 +266,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::model::ReviewUnitId;
+    use crate::model::RevisionId;
     use crate::session::{CommitEdgeSource, CurrentCommitAssociation};
 
     struct LivenessRepo {
@@ -351,7 +351,7 @@ mod tests {
 
     fn view_with(oids: &[&str]) -> ReviewUnitCommitRangeView {
         ReviewUnitCommitRangeView {
-            review_unit_id: ReviewUnitId::new("review-unit:sha256:test"),
+            review_unit_id: RevisionId::new("review-unit:sha256:test"),
             anchored: !oids.is_empty(),
             current_commits: oids
                 .iter()

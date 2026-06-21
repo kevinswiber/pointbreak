@@ -1,7 +1,7 @@
 use super::freshness::event_set_hash_for_events;
 use super::state::SessionState;
 use crate::error::Result;
-use crate::model::ReviewUnitId;
+use crate::model::RevisionId;
 use crate::session::event::ShoreEvent;
 
 /// The reach of a [`LivenessToken`]: the whole store, or a single captured
@@ -15,7 +15,7 @@ pub enum LivenessScope {
     /// Every event in the store.
     Ledger,
     /// Only the events that target this captured work object.
-    WorkObject(ReviewUnitId),
+    WorkObject(RevisionId),
 }
 
 /// A read-only attention signal over a scoped event set.
@@ -41,10 +41,12 @@ impl LivenessToken {
     }
 
     /// Fingerprints only the events that target `work_object`.
-    pub fn for_work_object(events: &[ShoreEvent], work_object: &ReviewUnitId) -> Result<Self> {
+    pub fn for_work_object(events: &[ShoreEvent], work_object: &RevisionId) -> Result<Self> {
         let scoped: Vec<ShoreEvent> = events
             .iter()
-            .filter(|event| event.target.review_unit_id.as_ref() == Some(work_object))
+            .filter(|event| {
+                crate::model::subject_revision_id(&event.target.subject) == Some(work_object)
+            })
             .cloned()
             .collect();
         Self::over(LivenessScope::WorkObject(work_object.clone()), &scoped)
@@ -70,9 +72,13 @@ impl LivenessToken {
 mod tests {
     use super::*;
     use crate::model::{
-        ReviewEndpoint, ReviewUnitSource, RevisionId, SessionId, SnapshotId, WorktreeCaptureMode,
+        EngagementId, LedgerId, ObjectId, ReviewEndpoint, ReviewUnitSource, RevisionId,
+        WorktreeCaptureMode,
     };
-    use crate::session::event::{EventTarget, EventType, ReviewUnitCapturedPayload, Writer};
+    use crate::session::event::{
+        EventTarget, EventType, GitProvenance, Revision, WorkObjectProposal,
+        WorkObjectProposedPayload, Writer,
+    };
 
     #[test]
     fn liveness_token_is_order_independent_and_envelope_stable() {
@@ -108,8 +114,8 @@ mod tests {
         assert!(matches!(scoped.scope, LivenessScope::WorkObject(_)));
     }
 
-    fn work_object_a() -> ReviewUnitId {
-        ReviewUnitId::new("review-unit:sha256:a")
+    fn work_object_a() -> RevisionId {
+        RevisionId::new("review-unit:sha256:a")
     }
 
     fn sample_events() -> Vec<ShoreEvent> {
@@ -129,31 +135,43 @@ mod tests {
 
     fn captured_event(review_unit_id: &str, occurred_at: &str) -> ShoreEvent {
         ShoreEvent::new(
-            EventType::ReviewUnitCaptured,
-            format!("review_unit_captured:{review_unit_id}:{occurred_at}"),
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                ReviewUnitId::new(review_unit_id),
-                RevisionId::new(format!("rev:{review_unit_id}")),
-                SnapshotId::new(format!("snap:{review_unit_id}")),
+            EventType::WorkObjectProposed,
+            format!("work_object_proposed:{review_unit_id}:{occurred_at}"),
+            EventTarget::for_revision(
+                LedgerId::new("ledger:default"),
+                RevisionId::new(review_unit_id),
+                None,
             ),
             Writer::shore_local("0.1.0"),
-            ReviewUnitCapturedPayload {
-                review_unit_id: ReviewUnitId::new(review_unit_id),
-                source: ReviewUnitSource::GitWorktree {
-                    mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
-                    include_untracked: true,
+            WorkObjectProposedPayload {
+                engagement_id: EngagementId::new(format!(
+                    "engagement:sha256:{}",
+                    crate::canonical_hash::sha256_bytes_hex(
+                        (RevisionId::new(format!("rev:{review_unit_id}")))
+                            .as_str()
+                            .as_bytes()
+                    )
+                )),
+                work_object: WorkObjectProposal::Revision {
+                    revision: Revision {
+                        id: RevisionId::new(format!("rev:{review_unit_id}")),
+                        object_id: ObjectId::new(format!("snap:{review_unit_id}")),
+                        git_provenance: Some(GitProvenance {
+                            source: ReviewUnitSource::GitWorktree {
+                                mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                                include_untracked: true,
+                            },
+                            base: ReviewEndpoint::GitCommit {
+                                commit_oid: "base".to_owned(),
+                                tree_oid: "base-tree".to_owned(),
+                            },
+                            target: ReviewEndpoint::GitWorkingTree {
+                                worktree_root: "/tmp/repo".to_owned(),
+                            },
+                        }),
+                    },
+                    snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
                 },
-                base: ReviewEndpoint::GitCommit {
-                    commit_oid: "base".to_owned(),
-                    tree_oid: "base-tree".to_owned(),
-                },
-                target: ReviewEndpoint::GitWorkingTree {
-                    worktree_root: "/tmp/repo".to_owned(),
-                },
-                revision_id: RevisionId::new(format!("rev:{review_unit_id}")),
-                snapshot_id: SnapshotId::new(format!("snap:{review_unit_id}")),
-                snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
             },
             occurred_at,
         )

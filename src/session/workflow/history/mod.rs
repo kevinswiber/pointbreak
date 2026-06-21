@@ -56,17 +56,18 @@ mod tests {
     use super::summary::ReviewHistorySummary;
     use super::*;
     use crate::model::{
-        ActorId, AssessmentId, EventId, InputRequestId, InputRequestResponseId, ObservationId,
-        ReviewEndpoint, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId,
-        Side, SnapshotId, TargetRef, TrackId, ValidationCheckId, ValidationStatus,
-        ValidationTarget, ValidationTrigger, WorkUnitId, WorktreeCaptureMode,
+        ActorId, AssessmentId, EngagementId, EventId, InputRequestId, InputRequestResponseId,
+        LedgerId, ObjectId, ObservationId, ReviewEndpoint, ReviewTargetRef, ReviewUnitSource,
+        RevisionId, Side, TargetRef, TrackId, ValidationCheckId, ValidationStatus,
+        ValidationTarget, ValidationTrigger, WorktreeCaptureMode,
     };
     use crate::session::event::{
-        AssertionMode, EventTarget, EventType, ImportedNoteTarget, InputRequestOpenedPayload,
-        InputRequestReasonCode, InputRequestRespondedPayload, InputRequestResponseOutcome,
-        ReviewAssessment, ReviewAssessmentRecordedPayload, ReviewInitializedPayload,
-        ReviewNoteImportedPayload, ReviewObservationRecordedPayload, ReviewUnitCapturedPayload,
-        ShoreEvent, SidecarSource, ValidationCheckRecordedPayload, Writer,
+        AssertionMode, EventTarget, EventType, GitProvenance, ImportedNoteTarget,
+        InputRequestOpenedPayload, InputRequestReasonCode, InputRequestRespondedPayload,
+        InputRequestResponseOutcome, ReviewAssessment, ReviewAssessmentRecordedPayload,
+        ReviewInitializedPayload, ReviewNoteImportedPayload, ReviewObservationRecordedPayload,
+        Revision, ShoreEvent, SidecarSource, ValidationCheckRecordedPayload, WorkObjectProposal,
+        WorkObjectProposedPayload, Writer,
     };
     use crate::session::state::DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE;
 
@@ -111,8 +112,8 @@ mod tests {
             ),
             (
                 review_unit_captured_event(),
-                EventType::ReviewUnitCaptured,
-                "review_unit_captured",
+                EventType::WorkObjectProposed,
+                "revision_captured",
             ),
             (
                 observation_event_with_body("body"),
@@ -160,7 +161,7 @@ mod tests {
     #[test]
     fn history_entry_preserves_assessment_target_for_assessment_event() {
         let target = ReviewTargetRef::Assessment {
-            review_unit_id: review_unit_id("one"),
+            revision_id: revision_id("one"),
             assessment_id: AssessmentId::new("assess:sha256:prior"),
         };
         let event = assessment_event_with_target(target.clone());
@@ -250,8 +251,8 @@ mod tests {
 
         assert_eq!(
             entry.subject,
-            Some(ReviewTargetRef::ReviewUnit {
-                review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+            Some(ReviewTargetRef::Revision {
+                revision_id: RevisionId::new("review-unit:sha256:one"),
             })
         );
     }
@@ -261,9 +262,9 @@ mod tests {
         use crate::model::{CheckpointId, TargetRef, TaskTargetRef};
 
         let mut event = review_initialized_event("narrow");
-        event.target.subject = Some(TargetRef::Task(TaskTargetRef::Checkpoint {
+        event.target.subject = TargetRef::Task(TaskTargetRef::Checkpoint {
             checkpoint_id: CheckpointId::new("checkpoint:sha256:narrow"),
-        }));
+        });
 
         let entry =
             history_entry_from_event(&event, &ResolvedHistoryFilters::default(), None, None)
@@ -278,13 +279,10 @@ mod tests {
         let task_event = ShoreEvent {
             schema: "shore.event".to_owned(),
             version: 1,
-            event_id: EventId::new("evt:sha256:task-attempt"),
-            event_type: EventType::TaskAttemptCaptured,
-            idempotency_key: "task_attempt_captured:filter".to_owned(),
-            target: EventTarget::new(
-                SessionId::new("session:claude:abc"),
-                WorkUnitId::new("work:default"),
-            ),
+            event_id: EventId::new("evt:sha256:task-checkpoint"),
+            event_type: EventType::TaskCheckpointCaptured,
+            idempotency_key: "task_checkpoint_captured:filter".to_owned(),
+            target: EventTarget::for_ledger(LedgerId::new("session:claude:abc")),
             writer: Writer::shore_local("test"),
             occurred_at: "2026-05-18T10:00:01Z".to_owned(),
             payload_hash: "sha256:placeholder".to_owned(),
@@ -305,10 +303,9 @@ mod tests {
     }
 
     #[test]
-    fn review_history_filter_excludes_all_three_task_event_types() {
+    fn review_history_filter_excludes_all_task_event_types() {
         let init = review_initialized_event("init");
         let task_events = [
-            EventType::TaskAttemptCaptured,
             EventType::TaskCheckpointCaptured,
             EventType::TaskObservationRecorded,
         ]
@@ -320,10 +317,7 @@ mod tests {
             event_id: EventId::new(format!("evt:sha256:task-{idx}")),
             event_type,
             idempotency_key: format!("task_kind_{idx}"),
-            target: EventTarget::new(
-                SessionId::new("session:claude:abc"),
-                WorkUnitId::new("work:default"),
-            ),
+            target: EventTarget::for_ledger(LedgerId::new("session:claude:abc")),
             writer: Writer::shore_local("test"),
             occurred_at: format!("2026-05-18T10:00:0{}Z", idx + 1),
             payload_hash: "sha256:placeholder".to_owned(),
@@ -345,6 +339,49 @@ mod tests {
     }
 
     #[test]
+    fn review_history_filter_excludes_task_attempt_proposals() {
+        // A generative move can propose a task attempt under the shared
+        // WorkObjectProposed type; its Task subject keeps it out of the
+        // review-domain history rather than reaching the revision summary arm.
+        let init = review_initialized_event("init");
+        let task_payload = WorkObjectProposedPayload {
+            engagement_id: EngagementId::new("engagement:sha256:task"),
+            work_object: WorkObjectProposal::TaskAttempt {
+                task_attempt_id: crate::model::WorkObjectId::new("task-attempt:sha256:t"),
+                project_path: "/repo".to_owned(),
+                claude_session_uuid: "uuid".to_owned(),
+                initial_prompt_hash: "sha256:prompt".to_owned(),
+                predecessor: None,
+                base_snapshot_fingerprint: None,
+                source_speaker: None,
+            },
+        };
+        let task_attempt = ShoreEvent::new(
+            EventType::WorkObjectProposed,
+            "task_attempt_proposal",
+            EventTarget::for_subject(
+                LedgerId::new("ledger:claude:abc"),
+                TargetRef::Task(crate::model::TaskTargetRef::TaskAttempt),
+                None,
+            ),
+            Writer::shore_local("test"),
+            task_payload,
+            "2026-05-18T10:00:05Z",
+        )
+        .unwrap();
+
+        let result = history_from_events(
+            &[init, task_attempt],
+            ResolvedHistoryFilters::default(),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].event_type, EventType::ReviewInitialized);
+    }
+
+    #[test]
     fn review_history_projection_rejects_task_event_with_explicit_error() {
         let event = ShoreEvent {
             schema: "shore.event".to_owned(),
@@ -352,10 +389,7 @@ mod tests {
             event_id: EventId::new("evt:sha256:checkpoint-1"),
             event_type: EventType::TaskCheckpointCaptured,
             idempotency_key: "task_checkpoint_captured:cp-1".to_owned(),
-            target: EventTarget::new(
-                SessionId::new("session:claude:abc"),
-                WorkUnitId::new("work:default"),
-            ),
+            target: EventTarget::for_ledger(LedgerId::new("session:claude:abc")),
             writer: Writer::shore_local("test"),
             occurred_at: "2026-05-18T00:00:00Z".to_owned(),
             payload_hash: "sha256:placeholder".to_owned(),
@@ -386,7 +420,7 @@ mod tests {
         let capture = review_unit_captured_event_for("review-unit:sha256:one");
 
         let filters = ResolvedHistoryFilters {
-            review_unit_id: Some(ReviewUnitId::new("review-unit:sha256:one")),
+            review_unit_id: Some(RevisionId::new("review-unit:sha256:one")),
             track_id: Some(TrackId::new("agent:codex")),
             event_types: vec![EventType::ReviewObservationRecorded],
             include_body: false,
@@ -627,7 +661,7 @@ mod tests {
         let duplicate_a = observation_event_with_id_and_key("obs:sha256:same", "retry-a");
         let duplicate_b = observation_event_with_id_and_key("obs:sha256:same", "retry-b");
         let filters = ResolvedHistoryFilters {
-            event_types: vec![EventType::ReviewUnitCaptured],
+            event_types: vec![EventType::WorkObjectProposed],
             ..ResolvedHistoryFilters::default()
         };
 
@@ -643,12 +677,11 @@ mod tests {
     }
 
     fn review_initialized_event(key: &str) -> ShoreEvent {
-        let session_id = SessionId::new("session:default");
-        let work_unit_id = WorkUnitId::new(format!("work:{key}"));
+        let ledger_id = LedgerId::new("session:default");
         ShoreEvent::new(
             EventType::ReviewInitialized,
-            ReviewInitializedPayload::idempotency_key(&session_id, &work_unit_id),
-            EventTarget::new(session_id, work_unit_id),
+            ReviewInitializedPayload::idempotency_key(&ledger_id),
+            EventTarget::for_ledger(ledger_id),
             Writer::shore_local("test"),
             ReviewInitializedPayload {},
             format!("2026-05-13T10:00:0{key}Z"),
@@ -661,33 +694,41 @@ mod tests {
     }
 
     fn review_unit_captured_event_for(review_unit_id: &str) -> ShoreEvent {
-        let review_unit_id = ReviewUnitId::new(review_unit_id);
-        let payload = ReviewUnitCapturedPayload {
-            review_unit_id: review_unit_id.clone(),
-            source: ReviewUnitSource::GitWorktree {
-                mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
-                include_untracked: true,
+        let review_unit_id = RevisionId::new(review_unit_id);
+        let payload = WorkObjectProposedPayload {
+            engagement_id: EngagementId::new(format!(
+                "engagement:sha256:{}",
+                crate::canonical_hash::sha256_bytes_hex(
+                    (RevisionId::new(format!("rev:{}", review_unit_id.as_str())))
+                        .as_str()
+                        .as_bytes()
+                )
+            )),
+            work_object: WorkObjectProposal::Revision {
+                revision: Revision {
+                    id: RevisionId::new(format!("rev:{}", review_unit_id.as_str())),
+                    object_id: ObjectId::new(format!("snap:{}", review_unit_id.as_str())),
+                    git_provenance: Some(GitProvenance {
+                        source: ReviewUnitSource::GitWorktree {
+                            mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                            include_untracked: true,
+                        },
+                        base: ReviewEndpoint::GitCommit {
+                            commit_oid: "base".to_owned(),
+                            tree_oid: "base-tree".to_owned(),
+                        },
+                        target: ReviewEndpoint::GitWorkingTree {
+                            worktree_root: "/repo".to_owned(),
+                        },
+                    }),
+                },
+                snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
             },
-            base: ReviewEndpoint::GitCommit {
-                commit_oid: "base".to_owned(),
-                tree_oid: "base-tree".to_owned(),
-            },
-            target: ReviewEndpoint::GitWorkingTree {
-                worktree_root: "/repo".to_owned(),
-            },
-            revision_id: RevisionId::new(format!("rev:{}", review_unit_id.as_str())),
-            snapshot_id: SnapshotId::new(format!("snap:{}", review_unit_id.as_str())),
-            snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
         };
         ShoreEvent::new(
-            EventType::ReviewUnitCaptured,
+            EventType::WorkObjectProposed,
             "capture:one",
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                review_unit_id,
-                payload.revision_id.clone(),
-                payload.snapshot_id.clone(),
-            ),
+            EventTarget::for_revision(LedgerId::new("session:default"), review_unit_id, None),
             Writer::shore_local("test"),
             payload,
             "2026-05-13T10:00:00Z",
@@ -702,11 +743,11 @@ mod tests {
     }
 
     fn observation_event(review_unit_id: &str, track_id: &str, title: &str) -> ShoreEvent {
-        let review_unit_id = ReviewUnitId::new(review_unit_id);
+        let review_unit_id = RevisionId::new(review_unit_id);
         let payload = ReviewObservationRecordedPayload {
             observation_id: ObservationId::new(format!("obs:sha256:{title}")),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: review_unit_id.clone(),
+            target: ReviewTargetRef::Revision {
+                revision_id: review_unit_id.clone(),
             },
             title: title.to_owned(),
             body: None,
@@ -730,8 +771,8 @@ mod tests {
     fn observation_event_with_body(body: &str) -> ShoreEvent {
         let payload = ReviewObservationRecordedPayload {
             observation_id: ObservationId::new("obs:sha256:one"),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: review_unit_id("one"),
+            target: ReviewTargetRef::Revision {
+                revision_id: revision_id("one"),
             },
             title: "Observation".to_owned(),
             body: Some(body.to_owned()),
@@ -754,8 +795,8 @@ mod tests {
     fn observation_event_with_artifact_path(path: &str) -> ShoreEvent {
         let payload = ReviewObservationRecordedPayload {
             observation_id: ObservationId::new("obs:sha256:artifact"),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: review_unit_id("one"),
+            target: ReviewTargetRef::Revision {
+                revision_id: revision_id("one"),
             },
             title: "Observation".to_owned(),
             body: None,
@@ -776,8 +817,8 @@ mod tests {
     }
 
     fn assessment_event() -> ShoreEvent {
-        assessment_event_with_target(ReviewTargetRef::ReviewUnit {
-            review_unit_id: review_unit_id("one"),
+        assessment_event_with_target(ReviewTargetRef::Revision {
+            revision_id: revision_id("one"),
         })
     }
 
@@ -809,8 +850,8 @@ mod tests {
     ) -> ShoreEvent {
         let payload = ReviewObservationRecordedPayload {
             observation_id: ObservationId::new(observation_id),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: review_unit_id("one"),
+            target: ReviewTargetRef::Revision {
+                revision_id: revision_id("one"),
             },
             title: "Duplicate".to_owned(),
             body: Some("same body".to_owned()),
@@ -833,8 +874,8 @@ mod tests {
     fn input_request_opened_event() -> ShoreEvent {
         let payload = InputRequestOpenedPayload {
             input_request_id: InputRequestId::new("input-request:sha256:one"),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: review_unit_id("one"),
+            target: ReviewTargetRef::Revision {
+                revision_id: revision_id("one"),
             },
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "Need decision".to_owned(),
@@ -930,10 +971,7 @@ mod tests {
         ShoreEvent::new(
             EventType::ReviewNoteImported,
             "review-note:one",
-            EventTarget::new(
-                SessionId::new("session:default"),
-                WorkUnitId::new("work:default"),
-            ),
+            EventTarget::for_ledger(LedgerId::new("session:default")),
             Writer::shore_local("test"),
             payload,
             "2026-05-13T10:00:05Z",
@@ -965,23 +1003,22 @@ mod tests {
         event_type: EventType,
         idempotency_key: &str,
         track_id: &str,
-        review_unit_id: ReviewUnitId,
+        review_unit_id: RevisionId,
         payload: P,
         occurred_at: &str,
     ) -> ShoreEvent
     where
         P: crate::session::event::EventPayload,
     {
-        let mut target = EventTarget::for_review_unit(
-            SessionId::new("session:default"),
+        let mut target = EventTarget::for_revision(
+            LedgerId::new("session:default"),
             review_unit_id.clone(),
-            revision_id("one"),
-            snapshot_id("one"),
+            None,
         );
         target.track_id = Some(TrackId::new(track_id));
-        target.subject = Some(TargetRef::Review(ReviewTargetRef::ReviewUnit {
-            review_unit_id,
-        }));
+        target.subject = TargetRef::Review(ReviewTargetRef::Revision {
+            revision_id: review_unit_id.clone(),
+        });
         ShoreEvent::new(
             event_type,
             idempotency_key,
@@ -993,15 +1030,11 @@ mod tests {
         .unwrap()
     }
 
-    fn review_unit_id(suffix: &str) -> ReviewUnitId {
-        ReviewUnitId::new(format!("review-unit:sha256:{suffix}"))
+    fn review_unit_id(suffix: &str) -> RevisionId {
+        RevisionId::new(format!("review-unit:sha256:{suffix}"))
     }
 
     fn revision_id(suffix: &str) -> RevisionId {
         RevisionId::new(format!("rev:sha256:{suffix}"))
-    }
-
-    fn snapshot_id(suffix: &str) -> SnapshotId {
-        SnapshotId::new(format!("snap:sha256:{suffix}"))
     }
 }

@@ -6,7 +6,7 @@ use shoreline::documents::{
     associate_commit_document, associate_ref_document, list_associations_document,
     withdraw_commit_document, withdraw_ref_document,
 };
-use shoreline::model::{CommitAssociationId, RefAssociationId, ReviewUnitId, ReviewUnitLineageId};
+use shoreline::model::{CommitAssociationId, RefAssociationId, ReviewUnitLineageId, RevisionId};
 use shoreline::session::{
     AssociateCommitOptions, AssociateRefOptions, AssociationAxis, ListAssociationsOptions,
     WithdrawCommitOptions, WithdrawRefOptions, associate_commit, associate_ref, list_associations,
@@ -263,7 +263,7 @@ fn list_run(args: ListArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::e
     let pretty = args.pretty && !args.compact;
     let mut options = ListAssociationsOptions::new(&args.repo).current_only(args.current);
     if let Some(review_unit) = args.review_unit {
-        options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+        options = options.with_review_unit_id(RevisionId::new(review_unit));
     }
     if let Some(lineage) = args.lineage {
         options = options.with_lineage_id(ReviewUnitLineageId::new(lineage));
@@ -284,7 +284,7 @@ fn with_selection<O: AssociationSelection>(
     lineage: Option<String>,
 ) -> O {
     if let Some(review_unit) = review_unit {
-        options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+        options = options.with_review_unit_id(RevisionId::new(review_unit));
     }
     if let Some(lineage) = lineage {
         options = options.with_lineage_id(ReviewUnitLineageId::new(lineage));
@@ -308,14 +308,14 @@ fn apply_signer<O: SignableOptions>(
 }
 
 trait AssociationSelection {
-    fn with_review_unit_id(self, id: ReviewUnitId) -> Self;
+    fn with_review_unit_id(self, id: RevisionId) -> Self;
     fn with_lineage_id(self, id: ReviewUnitLineageId) -> Self;
 }
 
 macro_rules! impl_association_selection {
     ($($ty:ty),+ $(,)?) => {$(
         impl AssociationSelection for $ty {
-            fn with_review_unit_id(self, id: ReviewUnitId) -> Self {
+            fn with_review_unit_id(self, id: RevisionId) -> Self {
                 <$ty>::with_review_unit_id(self, id)
             }
             fn with_lineage_id(self, id: ReviewUnitLineageId) -> Self {

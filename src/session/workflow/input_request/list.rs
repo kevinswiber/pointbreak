@@ -5,7 +5,7 @@ use super::view::{
     project_input_requests,
 };
 use crate::error::Result;
-use crate::model::{ReviewUnitId, ReviewUnitLineageId, TrackId};
+use crate::model::{ReviewUnitLineageId, RevisionId, TrackId};
 use crate::session::EventStore;
 use crate::session::event::AssertionMode;
 use crate::session::observation::{
@@ -18,7 +18,7 @@ use crate::session::store::resolution::resolve_read_store;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputRequestListOptions {
     repo: PathBuf,
-    review_unit_id: Option<ReviewUnitId>,
+    review_unit_id: Option<RevisionId>,
     lineage_id: Option<ReviewUnitLineageId>,
     track: Option<String>,
     mode: Option<AssertionMode>,
@@ -41,7 +41,7 @@ impl InputRequestListOptions {
         }
     }
 
-    pub fn with_review_unit_id(mut self, id: ReviewUnitId) -> Self {
+    pub fn with_review_unit_id(mut self, id: RevisionId) -> Self {
         self.review_unit_id = Some(id);
         self
     }
@@ -88,7 +88,7 @@ pub struct InputRequestListFilters {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputRequestListResult {
-    pub review_unit_id: ReviewUnitId,
+    pub review_unit_id: RevisionId,
     pub filters: InputRequestListFilters,
     pub input_requests: Vec<InputRequestView>,
     pub diagnostics: Vec<ProjectionDiagnostic>,
@@ -126,7 +126,7 @@ pub fn list_input_requests(options: InputRequestListOptions) -> Result<InputRequ
     let diagnostics = SessionState::from_events(&events)?.diagnostics;
 
     Ok(InputRequestListResult {
-        review_unit_id: resolved.review_unit_id,
+        review_unit_id: resolved.revision_id,
         filters: InputRequestListFilters {
             track_id: track_filter,
             mode: options.mode,

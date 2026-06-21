@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use clap::{Args, ValueEnum};
 use shoreline::documents::history_document;
-use shoreline::model::ReviewUnitId;
+use shoreline::model::RevisionId;
 use shoreline::session::event::EventType;
 use shoreline::session::{
     EventVerificationPolicy, LivenessToken, RefFilterMode, ReviewHistoryOptions, read_events,
@@ -67,7 +67,7 @@ pub(super) struct HistoryArgs {
 #[value(rename_all = "kebab-case")]
 enum HistoryEventTypeArg {
     ReviewInitialized,
-    ReviewUnitCaptured,
+    RevisionCaptured,
     ReviewObservationRecorded,
     ReviewAssessmentRecorded,
     ValidationCheckRecorded,
@@ -142,7 +142,7 @@ fn watch(args: &HistoryArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::
 fn history_options(args: &HistoryArgs) -> ReviewHistoryOptions {
     let mut options = ReviewHistoryOptions::new(&args.repo).with_include_body(args.include_body);
     if let Some(review_unit) = &args.review_unit {
-        options = options.with_review_unit_id(ReviewUnitId::new(review_unit.clone()));
+        options = options.with_review_unit_id(RevisionId::new(review_unit.clone()));
     }
     if let Some(track) = &args.track {
         options = options.with_track(track.clone());
@@ -168,7 +168,7 @@ impl From<HistoryEventTypeArg> for EventType {
     fn from(value: HistoryEventTypeArg) -> Self {
         match value {
             HistoryEventTypeArg::ReviewInitialized => Self::ReviewInitialized,
-            HistoryEventTypeArg::ReviewUnitCaptured => Self::ReviewUnitCaptured,
+            HistoryEventTypeArg::RevisionCaptured => Self::WorkObjectProposed,
             HistoryEventTypeArg::ReviewObservationRecorded => Self::ReviewObservationRecorded,
             HistoryEventTypeArg::ReviewAssessmentRecorded => Self::ReviewAssessmentRecorded,
             HistoryEventTypeArg::ValidationCheckRecorded => Self::ValidationCheckRecorded,

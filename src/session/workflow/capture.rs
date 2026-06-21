@@ -8,10 +8,12 @@ use crate::git::{
     git_head_ref, git_rev_parse_commit_oid, ingest_tracked_diff_with_options,
 };
 use crate::model::{
-    ActorId, DiffFile, DiffSnapshot, ReviewEndpoint, ReviewId, ReviewUnitId, ReviewUnitSource,
-    RevisionId, SessionId, SnapshotId,
+    ActorId, DiffFile, DiffSnapshot, EngagementId, EngagementType, LedgerId, ObjectId,
+    ReviewEndpoint, ReviewId, ReviewTargetRef, ReviewUnitSource, RevisionId, TargetRef,
 };
-use crate::session::event::{EventTarget, EventType, ReviewUnitCapturedPayload, ShoreEvent};
+use crate::session::event::{
+    EventTarget, EventType, Revision, ShoreEvent, WorkObjectProposal, WorkObjectProposedPayload,
+};
 use crate::session::fingerprint::{ResolvedCommitEndpoint, ReviewUnitFingerprint};
 use crate::session::store::resolution::{prepare_write_landing, resolve_write_store};
 use crate::session::{
@@ -131,10 +133,10 @@ impl CaptureOptions {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CaptureResult {
-    pub session_id: SessionId,
-    pub review_unit_id: ReviewUnitId,
+    pub ledger_id: LedgerId,
     pub revision_id: RevisionId,
-    pub snapshot_id: SnapshotId,
+    pub object_id: ObjectId,
+    pub engagement_id: EngagementId,
     pub source: ReviewUnitSource,
     pub base: ReviewEndpoint,
     pub target: ReviewEndpoint,
@@ -174,7 +176,7 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
         }
     };
     let review_id = ReviewId::new("review:default");
-    let session_id = SessionId::new("session:default");
+    let ledger_id = LedgerId::new("ledger:default");
     let snapshot = DiffSnapshot::new(review_id, fingerprint.snapshot_id.clone(), files);
     let artifact = crate::session::snapshot_artifact::write_snapshot_artifact_to(
         &store_dir,
@@ -186,24 +188,30 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
     let mut recorder = CaptureRecorder::default();
     let writer = writer_from_options(&worktree_root, options.actor_id.as_ref());
     let occurred_at = current_timestamp();
+    // The generative move is an advisory proposal of a revision over a
+    // content-only object, with its derived engagement grouping hint. The
+    // subject addresses the revision through the checked review-domain
+    // constructor, so a review engagement can never mint a non-review subject.
+    let subject = TargetRef::Review(ReviewTargetRef::Revision {
+        revision_id: fingerprint.revision_id.clone(),
+    });
+    let target =
+        EventTarget::for_generative_move(ledger_id.clone(), EngagementType::Review, subject, None)?;
     let mut event = ShoreEvent::new(
-        EventType::ReviewUnitCaptured,
-        review_unit_captured_idempotency_key(&fingerprint.review_unit_id),
-        EventTarget::for_review_unit(
-            session_id.clone(),
-            fingerprint.review_unit_id.clone(),
-            fingerprint.revision_id.clone(),
-            fingerprint.snapshot_id.clone(),
-        ),
+        EventType::WorkObjectProposed,
+        work_object_proposed_idempotency_key(&fingerprint.revision_id),
+        target,
         writer,
-        ReviewUnitCapturedPayload {
-            review_unit_id: fingerprint.review_unit_id.clone(),
-            source: fingerprint.source.clone(),
-            base: fingerprint.base.clone(),
-            target: fingerprint.target.clone(),
-            revision_id: fingerprint.revision_id.clone(),
-            snapshot_id: fingerprint.snapshot_id.clone(),
-            snapshot_artifact_content_hash: artifact.content_hash.clone(),
+        WorkObjectProposedPayload {
+            engagement_id: fingerprint.engagement_id.clone(),
+            work_object: WorkObjectProposal::Revision {
+                revision: Revision {
+                    id: fingerprint.revision_id.clone(),
+                    object_id: fingerprint.snapshot_id.clone(),
+                    git_provenance: Some(fingerprint.git_provenance()),
+                },
+                snapshot_artifact_content_hash: artifact.content_hash.clone(),
+            },
         },
         occurred_at,
     )?;
@@ -232,7 +240,7 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
             &event_store,
             &mut recorder,
             &fingerprint,
-            &session_id,
+            &ledger_id,
             &options,
         )
     {
@@ -255,10 +263,10 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
     diagnostics.extend(auto_record_diagnostics);
 
     Ok(CaptureResult {
-        session_id,
-        review_unit_id: fingerprint.review_unit_id,
+        ledger_id,
         revision_id: fingerprint.revision_id,
-        snapshot_id: fingerprint.snapshot_id,
+        object_id: fingerprint.snapshot_id,
+        engagement_id: fingerprint.engagement_id,
         source: fingerprint.source,
         base: fingerprint.base,
         target: fingerprint.target,
@@ -287,7 +295,7 @@ fn auto_record_capture_ref_association(
     event_store: &EventStore,
     recorder: &mut CaptureRecorder,
     fingerprint: &ReviewUnitFingerprint,
-    session_id: &SessionId,
+    ledger_id: &LedgerId,
     options: &CaptureOptions,
 ) -> Result<()> {
     let Some(ref_name) = git_head_ref(worktree_root)? else {
@@ -296,10 +304,8 @@ fn auto_record_capture_ref_association(
     let head_oid = git_head_oid(worktree_root)?;
     let writer = writer_from_options(worktree_root, options.actor_id.as_ref());
     let mut event = super::association::build_ref_association_event(
-        session_id,
-        &fingerprint.review_unit_id,
+        ledger_id,
         &fingerprint.revision_id,
-        &fingerprint.snapshot_id,
         &ref_name,
         &head_oid,
         None,
@@ -375,8 +381,8 @@ fn capture_ingest_options(options: &CaptureOptions) -> IngestOptions {
         })
 }
 
-fn review_unit_captured_idempotency_key(review_unit_id: &ReviewUnitId) -> String {
-    format!("review_unit_captured:{}", review_unit_id.as_str())
+fn work_object_proposed_idempotency_key(revision_id: &RevisionId) -> String {
+    format!("work_object_proposed:{}", revision_id.as_str())
 }
 
 #[derive(Default)]
@@ -415,7 +421,7 @@ mod tests {
     use crate::canonical_hash::sha256_json_prefixed;
     use crate::git::git_common_dir;
     use crate::model::{
-        CommitRangeCaptureMode, ReviewEndpoint, ReviewUnitLineageId, ReviewUnitSource, SnapshotId,
+        CommitRangeCaptureMode, ObjectId, ReviewEndpoint, ReviewUnitLineageId, ReviewUnitSource,
     };
     use crate::session::event::EventType;
     use crate::session::{
@@ -453,13 +459,8 @@ mod tests {
             }
             other => panic!("unexpected target endpoint: {other:?}"),
         }
-        assert!(
-            result
-                .review_unit_id
-                .as_str()
-                .starts_with("review-unit:sha256:")
-        );
-        assert_eq!(result.events_created_by_type["review_unit_captured"], 1);
+        assert!(result.revision_id.as_str().starts_with("rev:sha256:"));
+        assert_eq!(result.events_created_by_type["work_object_proposed"], 1);
     }
 
     #[test]
@@ -475,7 +476,7 @@ mod tests {
         // capture event.
         assert_eq!(capture.events_created, 2);
         assert_eq!(capture.events_existing, 0);
-        assert_eq!(capture.events_created_by_type["review_unit_captured"], 1);
+        assert_eq!(capture.events_created_by_type["work_object_proposed"], 1);
         assert_eq!(
             capture.events_created_by_type["review_unit_ref_associated"],
             1
@@ -486,7 +487,7 @@ mod tests {
             .unwrap();
         let projection =
             crate::session::ReviewUnitCommitRangeProjection::from_events(&events).unwrap();
-        let view = projection.unit(&capture.review_unit_id).unwrap();
+        let view = projection.unit(&capture.revision_id).unwrap();
         assert_eq!(view.current_refs.len(), 1);
         assert_eq!(view.current_refs[0].ref_name, "refs/heads/feat/x");
         assert_eq!(view.current_refs[0].head_oid, head_oid);
@@ -519,7 +520,7 @@ mod tests {
 
         let projection =
             crate::session::ReviewUnitCommitRangeProjection::from_events(&events).unwrap();
-        let view = projection.unit(&capture.review_unit_id).unwrap();
+        let view = projection.unit(&capture.revision_id).unwrap();
         assert_eq!(view.current_refs.len(), 1);
         assert_eq!(view.current_refs[0].ref_name, "refs/heads/feat/range");
         assert_eq!(view.current_refs[0].head_oid, head_oid);
@@ -622,7 +623,7 @@ mod tests {
         fs::set_permissions(&events_dir, original).unwrap();
 
         let again = again.expect("capture still succeeds when the auto-record fails");
-        assert_eq!(again.review_unit_id, first.review_unit_id);
+        assert_eq!(again.revision_id, first.revision_id);
         assert!(
             again
                 .diagnostics
@@ -640,7 +641,7 @@ mod tests {
             CaptureOptions::new(repo.path()).with_commit_range(CommitRangeSpec::new("HEAD~1")),
         )
         .unwrap();
-        let artifact = read_snapshot_artifact(repo.path(), &result.snapshot_id).unwrap();
+        let artifact = read_snapshot_artifact(repo.path(), &result.object_id).unwrap();
 
         // The snapshot-scoped v2 artifact no longer carries source/base/target;
         // those live on the CaptureResult/event. The artifact binds via its
@@ -684,8 +685,8 @@ mod tests {
 
         // Default spec is the worktree adapter; the second capture hits the same
         // idempotency keys and reports both existing events (capture + ref).
-        assert_eq!(first.review_unit_id, second.review_unit_id);
-        assert_eq!(first.snapshot_id, second.snapshot_id);
+        assert_eq!(first.revision_id, second.revision_id);
+        assert_eq!(first.object_id, second.object_id);
         assert_eq!(second.events_existing, 2);
     }
 
@@ -702,8 +703,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(first.review_unit_id, second.review_unit_id);
-        assert_eq!(first.snapshot_id, second.snapshot_id);
+        assert_eq!(first.revision_id, second.revision_id);
+        assert_eq!(first.object_id, second.object_id);
         assert_eq!(second.events_created, 0);
         // The capture event plus the auto-recorded HEAD-tipping ref association.
         assert_eq!(second.events_existing, 2);
@@ -725,7 +726,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(first.review_unit_id, second.review_unit_id);
+        assert_eq!(first.revision_id, second.revision_id);
         // The capture event plus the auto-recorded HEAD-tipping ref association.
         assert_eq!(second.events_existing, 2);
     }
@@ -740,7 +741,7 @@ mod tests {
             CaptureOptions::new(repo.path()).with_commit_range(CommitRangeSpec::new("HEAD~1")),
         )
         .unwrap();
-        let artifact = read_snapshot_artifact(repo.path(), &result.snapshot_id).unwrap();
+        let artifact = read_snapshot_artifact(repo.path(), &result.object_id).unwrap();
 
         let paths: Vec<&str> = artifact
             .snapshot
@@ -761,14 +762,14 @@ mod tests {
             CaptureOptions::new(repo.path()).with_commit_range(CommitRangeSpec::new("HEAD")),
         )
         .unwrap();
-        let artifact = read_snapshot_artifact(repo.path(), &first.snapshot_id).unwrap();
+        let artifact = read_snapshot_artifact(repo.path(), &first.object_id).unwrap();
         assert!(artifact.snapshot.files.is_empty());
 
         let second = capture_review(
             CaptureOptions::new(repo.path()).with_commit_range(CommitRangeSpec::new("HEAD")),
         )
         .unwrap();
-        assert_eq!(first.review_unit_id, second.review_unit_id);
+        assert_eq!(first.revision_id, second.revision_id);
         // The capture event plus the auto-recorded HEAD-tipping ref association.
         assert_eq!(second.events_existing, 2);
     }
@@ -782,8 +783,9 @@ mod tests {
         repo.git(["add", "--all"]);
 
         // Capture the fully-staged change as a worktree unit, then commit the same
-        // tree and range-capture it: the snapshot ids must differ so the artifact
-        // layer never conflicts (the collision the tree-pair snapshot hash prevents).
+        // tree and range-capture it: the content is identical, so the content-only
+        // object id converges (one shared artifact, no conflict), while the differing
+        // provenance (worktree path vs commit pair) mints two distinct revisions.
         let worktree = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         repo.commit_all("change");
         let range = capture_review(
@@ -791,18 +793,19 @@ mod tests {
         )
         .unwrap();
 
-        assert_ne!(worktree.snapshot_id, range.snapshot_id);
-        assert_ne!(worktree.review_unit_id, range.review_unit_id);
-        // Both artifacts are independently readable: no conflict overwrote either.
-        read_snapshot_artifact(repo.path(), &worktree.snapshot_id).unwrap();
-        read_snapshot_artifact(repo.path(), &range.snapshot_id).unwrap();
+        assert_eq!(worktree.object_id, range.object_id);
+        assert_ne!(worktree.revision_id, range.revision_id);
+        // The shared artifact is independently readable under either capture: the
+        // converged object id never conflicted on write.
+        read_snapshot_artifact(repo.path(), &worktree.object_id).unwrap();
+        read_snapshot_artifact(repo.path(), &range.object_id).unwrap();
 
         let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap();
         let captured = events
             .iter()
-            .filter(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .filter(|event| event.event_type == EventType::WorkObjectProposed)
             .count();
         assert_eq!(captured, 2);
     }
@@ -818,7 +821,7 @@ mod tests {
         let lineage_id = ReviewUnitLineageId::new("review-unit-lineage:random:test");
         attach_review_unit_to_lineage(
             LineageAttachOptions::new(repo.path(), lineage_id)
-                .with_review_unit_id(result.review_unit_id.clone()),
+                .with_review_unit_id(result.revision_id.clone()),
         )
         .unwrap();
 
@@ -841,19 +844,14 @@ mod tests {
         let repo = modified_repo();
 
         let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let artifact = read_snapshot_artifact(repo.path(), &result.snapshot_id).unwrap();
+        let artifact = read_snapshot_artifact(repo.path(), &result.object_id).unwrap();
 
         assert!(resolved_store_dir(repo.path()).join("events").is_dir());
         assert!(resolved_store_dir(repo.path()).join("state.json").is_file());
         // The artifact binds via its content hash, not an embedded review_unit_id.
         assert_eq!(artifact.content_hash, result.snapshot_artifact_content_hash);
-        assert!(
-            result
-                .review_unit_id
-                .as_str()
-                .starts_with("review-unit:sha256:")
-        );
-        assert_eq!(result.events_created_by_type["review_unit_captured"], 1);
+        assert!(result.revision_id.as_str().starts_with("rev:sha256:"));
+        assert_eq!(result.events_created_by_type["work_object_proposed"], 1);
         assert!(
             !result
                 .events_created_by_type
@@ -876,17 +874,12 @@ mod tests {
             .unwrap();
         let event = events
             .iter()
-            .find(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .find(|event| event.event_type == EventType::WorkObjectProposed)
             .unwrap();
 
         // Attribution changes; the ReviewUnit id is derived from snapshot content, not the writer.
         assert_eq!(event.writer.actor_id.as_str(), "actor:agent:capturer");
-        assert!(
-            result
-                .review_unit_id
-                .as_str()
-                .starts_with("review-unit:sha256:")
-        );
+        assert!(result.revision_id.as_str().starts_with("rev:sha256:"));
     }
 
     #[test]
@@ -899,7 +892,7 @@ mod tests {
             .unwrap();
         let event = events
             .iter()
-            .find(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .find(|event| event.event_type == EventType::WorkObjectProposed)
             .unwrap();
         assert_eq!(
             event.writer.actor_id.as_str(),
@@ -912,17 +905,17 @@ mod tests {
         let repo = modified_repo();
 
         let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        let artifact = read_snapshot_artifact(repo.path(), &result.snapshot_id).unwrap();
+        let artifact = read_snapshot_artifact(repo.path(), &result.object_id).unwrap();
         let event_store = EventStore::open(resolved_store_dir(repo.path()));
         let events = event_store.list_events().unwrap();
         let event = events
             .iter()
-            .find(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .find(|event| event.event_type == EventType::WorkObjectProposed)
             .unwrap();
 
         assert_eq!(result.snapshot_artifact_content_hash, artifact.content_hash);
         assert_eq!(
-            event.payload["snapshotArtifactContentHash"],
+            event.payload["workObject"]["snapshotArtifactContentHash"],
             artifact.content_hash
         );
     }
@@ -937,7 +930,7 @@ mod tests {
 
         let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-        assert_eq!(result.events_created_by_type["review_unit_captured"], 1);
+        assert_eq!(result.events_created_by_type["work_object_proposed"], 1);
         assert_eq!(
             fs::read(&temp_path).unwrap(),
             b"in flight",
@@ -953,12 +946,7 @@ mod tests {
         let result = capture_worktree_review(CaptureOptions::new(&subdir)).unwrap();
 
         assert!(resolved_store_dir(repo.path()).join("events").is_dir());
-        assert!(
-            result
-                .review_unit_id
-                .as_str()
-                .starts_with("review-unit:sha256:")
-        );
+        assert!(result.revision_id.as_str().starts_with("rev:sha256:"));
     }
 
     #[test]
@@ -973,7 +961,7 @@ mod tests {
             .list_events()
             .unwrap()
             .into_iter()
-            .filter(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .filter(|event| event.event_type == EventType::WorkObjectProposed)
             .collect();
         assert_eq!(captured.len(), 1);
 
@@ -983,7 +971,7 @@ mod tests {
             .list_events()
             .unwrap_or_default()
             .into_iter()
-            .filter(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .filter(|event| event.event_type == EventType::WorkObjectProposed)
             .collect();
         assert!(local.is_empty());
     }
@@ -1012,10 +1000,13 @@ mod tests {
 
     #[test]
     fn two_linked_worktrees_capture_same_range_into_shared_store() {
-        // The #146 marquee repro: two linked worktrees capture the SAME commit
-        // range into ONE shared clone-local store. Before the fix the second
-        // capture errored `snapshot artifact conflict`; now both succeed, sharing
-        // one byte-identical artifact and two distinct capture events.
+        // Two linked worktrees capture the SAME commit range into ONE shared
+        // clone-local store. A commit-range capture's provenance is the commit
+        // pair with no working-tree path, so identical content under identical
+        // provenance converges to one revision: the second capture dedups against
+        // the first, leaving one capture event and one shared artifact. Before the
+        // artifact-sharing fix the second capture errored `snapshot artifact
+        // conflict`; now it is a clean no-op convergence.
         let fixture = SharedRangeCapture::new();
 
         let a = capture_review(
@@ -1029,22 +1020,23 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(a.snapshot_id, b.snapshot_id);
-        assert_ne!(a.review_unit_id, b.review_unit_id); // identity namespace unchanged
+        assert_eq!(a.object_id, b.object_id);
+        assert_eq!(a.revision_id, b.revision_id);
         assert_eq!(
             a.snapshot_artifact_content_hash,
             b.snapshot_artifact_content_hash
         );
 
-        // One shared artifact, two capture events in the clone-local store.
+        // One shared artifact and one converged capture event in the clone-local
+        // store: the second capture deduped against the first.
         let clone_local = fixture.clone_local_store_dir();
         let captured: Vec<_> = EventStore::open(&clone_local)
             .list_events()
             .unwrap()
             .into_iter()
-            .filter(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .filter(|event| event.event_type == EventType::WorkObjectProposed)
             .collect();
-        assert_eq!(captured.len(), 2);
+        assert_eq!(captured.len(), 1);
         let snapshot_files = fs::read_dir(clone_local.join("artifacts/snapshots"))
             .unwrap()
             .count();
@@ -1053,8 +1045,8 @@ mod tests {
             "the two captures dedup to one shared artifact"
         );
 
-        // Both ReviewUnits resolve + render their snapshot through the binding.
-        for review_unit_id in [&a.review_unit_id, &b.review_unit_id] {
+        // The converged ReviewUnit resolves + renders its snapshot through the binding.
+        for review_unit_id in [&a.revision_id, &b.revision_id] {
             let shown = show_review_unit(
                 ReviewUnitShowOptions::new(&fixture.worktree_a)
                     .with_review_unit_id(review_unit_id.clone()),
@@ -1068,8 +1060,9 @@ mod tests {
     fn linked_capture_dedups_against_pre_existing_v1_and_both_units_render() {
         // The dual-read mixed case end to end: worktree A is captured by an "old"
         // binary (v1 artifact + v1-bound event), then worktree B captures the same
-        // range with the v2 binary. B dedups against the untouched v1 artifact, A's
-        // signed-shaped v1 binding stays valid, and both units render.
+        // range with the v2 binary. The two range captures converge to one revision,
+        // so B dedups against the untouched v1 artifact, A's signed-shaped v1 binding
+        // stays valid, and the converged unit renders.
         let fixture = SharedRangeCapture::new();
         let a = capture_review(
             CaptureOptions::new(&fixture.worktree_a)
@@ -1077,7 +1070,7 @@ mod tests {
         )
         .unwrap();
         let clone_local = fixture.clone_local_store_dir();
-        let v1_hash = downgrade_capture_to_v1(&clone_local, &a.snapshot_id, &a);
+        let v1_hash = downgrade_capture_to_v1(&clone_local, &a.object_id, &a);
         assert_ne!(
             v1_hash, a.snapshot_artifact_content_hash,
             "the v1 body hash differs from the original v2 hash"
@@ -1089,19 +1082,19 @@ mod tests {
                 .with_commit_range(CommitRangeSpec::new("HEAD~1")),
         )
         .unwrap();
-        assert_eq!(a.snapshot_id, b.snapshot_id);
-        assert_ne!(a.review_unit_id, b.review_unit_id);
+        assert_eq!(a.object_id, b.object_id);
+        assert_eq!(a.revision_id, b.revision_id);
         // B bound to the on-disk (v1) hash it deduped against.
         assert_eq!(b.snapshot_artifact_content_hash, v1_hash);
 
         // The shared artifact is still the untouched v1 body, and both units render.
-        let stored = read_snapshot_artifact(&fixture.worktree_a, &a.snapshot_id).unwrap();
+        let stored = read_snapshot_artifact(&fixture.worktree_a, &a.object_id).unwrap();
         assert_eq!(stored.version, 1);
         let snapshot_files = fs::read_dir(clone_local.join("artifacts/snapshots"))
             .unwrap()
             .count();
         assert_eq!(snapshot_files, 1);
-        for review_unit_id in [&a.review_unit_id, &b.review_unit_id] {
+        for review_unit_id in [&a.revision_id, &b.revision_id] {
             let shown = show_review_unit(
                 ReviewUnitShowOptions::new(&fixture.worktree_b)
                     .with_review_unit_id(review_unit_id.clone()),
@@ -1143,13 +1136,14 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(outcome.outcome, ImportArtifactOutcome::Existing);
-        assert_eq!(a.snapshot_id, _b.snapshot_id);
+        assert_eq!(a.object_id, _b.object_id);
     }
 
     /// A main clone plus two linked worktrees both detached at the same commit, so
-    /// a `--base HEAD~1` capture from each resolves the identical commit range
-    /// (same `snapshot_id`) under a distinct worktree root (distinct
-    /// `review_unit_id`). Both share the clone-local `.git/shore` store.
+    /// a `--base HEAD~1` capture from each resolves the identical commit range. A
+    /// commit-range capture's provenance is the commit pair (no working-tree path),
+    /// so both captures converge to one `object_id` and one `revision_id`. Both
+    /// share the clone-local `.git/shore` store.
     struct SharedRangeCapture {
         _main: TestRepo,
         _parent: tempfile::TempDir,
@@ -1202,7 +1196,7 @@ mod tests {
     /// + `payloadHash` to the v1 hash, so the store looks as an old binary wrote it.
     fn downgrade_capture_to_v1(
         store_dir: &Path,
-        snapshot_id: &SnapshotId,
+        snapshot_id: &ObjectId,
         capture: &CaptureResult,
     ) -> String {
         let artifact_path = find_store_file(&store_dir.join("artifacts/snapshots"), |json| {
@@ -1214,7 +1208,7 @@ mod tests {
         object.insert("version".to_owned(), serde_json::json!(1));
         object.insert(
             "reviewUnitId".to_owned(),
-            serde_json::json!(capture.review_unit_id.as_str()),
+            serde_json::json!(capture.revision_id.as_str()),
         );
         object.insert(
             "source".to_owned(),
@@ -1237,12 +1231,12 @@ mod tests {
         fs::write(&artifact_path, serde_json::to_vec(&value).unwrap()).unwrap();
 
         let event_path = find_store_file(&store_dir.join("events"), |json| {
-            json["eventType"] == "review_unit_captured"
-                && json["payload"]["reviewUnitId"] == capture.review_unit_id.as_str()
+            json["eventType"] == "work_object_proposed"
+                && json["payload"]["workObject"]["revision"]["id"] == capture.revision_id.as_str()
         });
         let mut event: serde_json::Value =
             serde_json::from_slice(&fs::read(&event_path).unwrap()).unwrap();
-        event["payload"]["snapshotArtifactContentHash"] = serde_json::json!(v1_hash);
+        event["payload"]["workObject"]["snapshotArtifactContentHash"] = serde_json::json!(v1_hash);
         event["payloadHash"] = serde_json::json!(sha256_json_prefixed(&event["payload"]).unwrap());
         fs::write(&event_path, serde_json::to_vec(&event).unwrap()).unwrap();
 

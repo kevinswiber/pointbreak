@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use super::{AdapterNoteView, ReviewUnitProjectionRow};
 use crate::model::{
-    ActorId, DiffSnapshot, EventId, ReviewEndpoint, ReviewUnitId, ReviewUnitLineageId,
-    ReviewUnitSource, RevisionId, SessionId, SnapshotId, TrackId,
+    ActorId, DiffSnapshot, EventId, LedgerId, ObjectId, ReviewEndpoint, ReviewUnitLineageId,
+    ReviewUnitSource, RevisionId, TrackId,
 };
 use crate::session::assessment::{AssessmentView, CurrentAssessmentView};
 use crate::session::input_request::InputRequestView;
@@ -20,7 +20,7 @@ use crate::session::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewUnitShowOptions {
     pub(super) repo: PathBuf,
-    pub(super) review_unit_id: Option<ReviewUnitId>,
+    pub(super) review_unit_id: Option<RevisionId>,
     pub(super) lineage_id: Option<ReviewUnitLineageId>,
     pub(super) track: Option<String>,
     pub(super) include_body: bool,
@@ -45,7 +45,7 @@ impl ReviewUnitShowOptions {
         }
     }
 
-    pub fn with_review_unit_id(mut self, review_unit_id: ReviewUnitId) -> Self {
+    pub fn with_review_unit_id(mut self, review_unit_id: RevisionId) -> Self {
         self.review_unit_id = Some(review_unit_id);
         self
     }
@@ -187,13 +187,13 @@ impl ReviewUnitShowResult {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewUnitProjectionIdentity {
-    pub id: ReviewUnitId,
-    pub session_id: SessionId,
+    pub id: RevisionId,
+    pub session_id: LedgerId,
     pub source: ReviewUnitSource,
     pub base: ReviewEndpoint,
     pub target: ReviewEndpoint,
     pub revision_id: RevisionId,
-    pub snapshot_id: SnapshotId,
+    pub snapshot_id: ObjectId,
     pub snapshot_artifact_content_hash: String,
     /// The capture event's id, so the document layer can key the readback side
     /// table for the review-unit identity (the capture has no `eventId` of its own).
@@ -202,7 +202,7 @@ pub struct ReviewUnitProjectionIdentity {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewUnitShowFilters {
-    pub review_unit_id: ReviewUnitId,
+    pub review_unit_id: RevisionId,
     pub track_id: Option<TrackId>,
     pub include_body: bool,
 }

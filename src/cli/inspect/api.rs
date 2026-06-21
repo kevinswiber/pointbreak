@@ -10,7 +10,7 @@ use std::path::Path;
 
 use serde::Serialize;
 use shoreline::documents::{lineage_show_document, unit_show_document};
-use shoreline::model::{ReviewEndpoint, ReviewUnitId, ReviewUnitLineageId, SnapshotId};
+use shoreline::model::{ObjectId, ReviewEndpoint, ReviewUnitLineageId, RevisionId};
 use shoreline::session::{
     EventVerificationPolicy, LineageListEntry, LineageListOptions, LineageShowOptions,
     LineageShowResult, LivenessEnrichment, ProjectionDiagnostic, ReviewHistoryEntry,
@@ -358,14 +358,13 @@ pub(super) fn snapshot_json(repo: &Path, snapshot_id: &str) -> Result<String, St
     if snapshot_id.is_empty() {
         return Err("missing snapshot id".to_owned());
     }
-    let artifact = read_snapshot_artifact(repo, &SnapshotId::new(snapshot_id.to_owned())).map_err(
-        |error| {
+    let artifact =
+        read_snapshot_artifact(repo, &ObjectId::new(snapshot_id.to_owned())).map_err(|error| {
             // Keep the full error (which may include the internal artifact path)
             // in the server trace, but return a path-free message to the client.
             tracing::debug!(error = %error, snapshot = snapshot_id, "inspect_snapshot_read_failed");
             format!("snapshot not found or unreadable: {snapshot_id}")
-        },
-    )?;
+        })?;
     let mut wire = serde_json::to_value(&artifact).map_err(|error| error.to_string())?;
     if let Some(object) = wire.as_object_mut() {
         // Snapshot-scoped wire: identity/endpoints live on /api/unit (from the
@@ -391,7 +390,7 @@ pub(super) fn unit_json(repo: &Path, review_unit_id: &str) -> Result<String, Str
         return Err("missing review unit id".to_owned());
     }
     let mut show_options = ReviewUnitShowOptions::new(repo)
-        .with_review_unit_id(ReviewUnitId::new(review_unit_id.to_owned()))
+        .with_review_unit_id(RevisionId::new(review_unit_id.to_owned()))
         .with_include_body(true)
         .with_verification_policy(EventVerificationPolicy::advisory())
         .with_trust_set(crate::cli::review::common::discover_trust_set(repo))
@@ -481,9 +480,11 @@ pub(super) fn freshness_json(repo: &Path) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use shoreline::model::{
-        ReviewEndpoint, ReviewUnitSource, RevisionId, SessionId, WorktreeCaptureMode,
+        EngagementId, ObjectId, ReviewEndpoint, ReviewUnitSource, RevisionId, WorktreeCaptureMode,
     };
-    use shoreline::session::event::ReviewUnitCapturedPayload;
+    use shoreline::session::event::{
+        GitProvenance, Revision, WorkObjectProposal, WorkObjectProposedPayload,
+    };
 
     use super::*;
 
@@ -515,7 +516,7 @@ mod tests {
             shoreline::session::CaptureOptions::new(path),
         )
         .expect("capture worktree review");
-        (root, result.snapshot_id.as_str().to_owned())
+        (root, result.object_id.as_str().to_owned())
     }
 
     fn git(cwd: &Path, args: &[&str]) {
@@ -675,11 +676,10 @@ mod tests {
 
     fn entry(worktree: &str, commit: &str) -> ReviewUnitListEntry {
         ReviewUnitListEntry {
-            review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
-            session_id: SessionId::new("session:default"),
+            review_unit_id: RevisionId::new("review-unit:sha256:abc"),
             captured_at: "2026-05-13T10:00:00Z".to_owned(),
             revision_id: RevisionId::new("rev:sha256:abc"),
-            snapshot_id: SnapshotId::new("snap:sha256:abc"),
+            snapshot_id: ObjectId::new("snap:sha256:abc"),
             source: ReviewUnitSource::GitWorktree {
                 mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
                 include_untracked: true,
@@ -693,7 +693,7 @@ mod tests {
             },
             snapshot_artifact_content_hash: "sha256:artifact:abc".to_owned(),
             commit_range: shoreline::session::ReviewUnitCommitRangeView {
-                review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
+                review_unit_id: RevisionId::new("review-unit:sha256:abc"),
                 anchored: false,
                 current_commits: Vec::new(),
                 current_refs: Vec::new(),
@@ -702,7 +702,7 @@ mod tests {
                 diagnostics: Vec::new(),
             },
             merge_status: "unknown".to_owned(),
-            grouped_review_unit_ids: vec![ReviewUnitId::new("review-unit:sha256:abc")],
+            grouped_review_unit_ids: vec![RevisionId::new("review-unit:sha256:abc")],
         }
     }
 
@@ -780,26 +780,36 @@ mod tests {
         // A payload that only ever carried `worktreeRoot`. Deriving the display
         // must be a pure read: it must not rewrite the ReviewUnit identity and
         // must not leak the raw path into the derived block.
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:legacy");
-        let payload = ReviewUnitCapturedPayload {
-            review_unit_id: review_unit_id.clone(),
-            source: ReviewUnitSource::GitWorktree {
-                mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
-                include_untracked: true,
+        let revision_id = RevisionId::new("rev:sha256:legacy");
+        let payload = WorkObjectProposedPayload {
+            engagement_id: EngagementId::new("engagement:sha256:legacy"),
+            work_object: WorkObjectProposal::Revision {
+                revision: Revision {
+                    id: revision_id.clone(),
+                    object_id: ObjectId::new("obj:sha256:legacy"),
+                    git_provenance: Some(GitProvenance {
+                        source: ReviewUnitSource::GitWorktree {
+                            mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                            include_untracked: true,
+                        },
+                        base: ReviewEndpoint::GitCommit {
+                            commit_oid: "0123456789abcdef0123456789abcdef01234567".to_owned(),
+                            tree_oid: "tree-oid".to_owned(),
+                        },
+                        target: ReviewEndpoint::GitWorkingTree {
+                            worktree_root: "/repo/legacy-wt".to_owned(),
+                        },
+                    }),
+                },
+                snapshot_artifact_content_hash: "sha256:artifact:legacy".to_owned(),
             },
-            base: ReviewEndpoint::GitCommit {
-                commit_oid: "0123456789abcdef0123456789abcdef01234567".to_owned(),
-                tree_oid: "tree-oid".to_owned(),
-            },
-            target: ReviewEndpoint::GitWorkingTree {
-                worktree_root: "/repo/legacy-wt".to_owned(),
-            },
-            revision_id: RevisionId::new("rev:sha256:legacy"),
-            snapshot_id: SnapshotId::new("snap:sha256:legacy"),
-            snapshot_artifact_content_hash: "sha256:artifact:legacy".to_owned(),
         };
 
-        let display = derive_target_display(&payload.target, &payload.base);
+        let WorkObjectProposal::Revision { revision, .. } = payload.work_object else {
+            unreachable!("constructed a revision proposal");
+        };
+        let provenance = revision.git_provenance.as_ref().unwrap();
+        let display = derive_target_display(&provenance.target, &provenance.base);
         let json = serde_json::to_string(&display).unwrap();
 
         assert_eq!(display.label, "legacy-wt");
@@ -808,7 +818,7 @@ mod tests {
         // No raw path leaks into the derived block.
         assert!(!json.contains("/repo"));
         // Derivation never rewrote identity (no event/file written).
-        assert_eq!(payload.review_unit_id, review_unit_id);
+        assert_eq!(revision.id, revision_id);
     }
 
     fn captured_commit_range_repo() -> (tempfile::TempDir, String, String) {
@@ -832,7 +842,7 @@ mod tests {
         )
         .expect("capture commit range review");
         let branch = current_branch(path);
-        (root, result.review_unit_id.as_str().to_owned(), branch)
+        (root, result.revision_id.as_str().to_owned(), branch)
     }
 
     fn current_branch(repo: &Path) -> String {
@@ -876,8 +886,7 @@ mod tests {
         .expect("capture worktree review");
 
         let value: serde_json::Value =
-            serde_json::from_str(&unit_json(path, capture.review_unit_id.as_str()).unwrap())
-                .unwrap();
+            serde_json::from_str(&unit_json(path, capture.revision_id.as_str()).unwrap()).unwrap();
 
         assert!(
             value["reviewUnit"]["targetDisplay"]["head"]["liveBranch"].is_null(),

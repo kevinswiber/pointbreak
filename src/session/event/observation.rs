@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::kind::EventType;
 use super::payload::EventPayload;
-use crate::model::{ObservationId, ReviewTargetRef, ReviewUnitId, TrackId};
+use crate::model::{ObservationId, ReviewTargetRef, RevisionId, TrackId};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,7 +28,7 @@ pub struct ReviewObservationRecordedPayload {
 
 impl ReviewObservationRecordedPayload {
     pub fn idempotency_key(
-        review_unit_id: &ReviewUnitId,
+        review_unit_id: &RevisionId,
         track_id: &TrackId,
         source_key: &str,
     ) -> String {

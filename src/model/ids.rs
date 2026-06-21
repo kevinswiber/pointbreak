@@ -19,15 +19,15 @@ macro_rules! id_type {
 }
 
 id_type!(ReviewId);
-id_type!(SessionId);
-id_type!(ReviewUnitId);
+id_type!(LedgerId);
+id_type!(EngagementId);
 id_type!(ReviewUnitLineageId);
 id_type!(ReviewUnitLineageRoundId);
 id_type!(EventId);
 id_type!(FileId);
 id_type!(ReviewNoteId);
 id_type!(RevisionId);
-id_type!(SnapshotId);
+id_type!(ObjectId);
 id_type!(HunkId);
 id_type!(RowId);
 id_type!(WorkUnitId);

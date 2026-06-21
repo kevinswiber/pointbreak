@@ -247,10 +247,7 @@ mod tests {
 
     use super::*;
     use crate::crypto::SignerId;
-    use crate::model::{
-        AssessmentId, ReviewTargetRef, ReviewUnitId, RevisionId, SessionId, SnapshotId, TargetRef,
-        TrackId, WorkUnitId,
-    };
+    use crate::model::{AssessmentId, LedgerId, ReviewTargetRef, RevisionId, TargetRef, TrackId};
     use crate::session::event::{
         AssertionMode, EventSignature, EventTarget, EventType, IngestProvenance, IngestVia,
         ReviewAssessment, ReviewAssessmentRecordedPayload, ReviewInitializedPayload,
@@ -498,6 +495,39 @@ mod tests {
     }
 
     #[test]
+    fn read_event_rejects_stored_pre_reshape_target_envelope() {
+        // A stored event whose `target` carries the old flat shape (a sessionId
+        // plus reviewUnitId/snapshotId optionals and no `subject`) must be loudly
+        // rejected: `subject` is now the single, non-optional address, so the old
+        // shape cannot decode. There is no silent upgrade.
+        let (_root, store) = temp_event_store();
+        let event = review_initialized_event();
+        let path = store.event_path_for_idempotency_key(&event.idempotency_key);
+        fs::create_dir_all(store.events_dir()).unwrap();
+
+        let mut json = serde_json::to_value(event).unwrap();
+        json["target"] = serde_json::json!({
+            "sessionId": "session:default",
+            "reviewUnitId": "review-unit:sha256:legacy",
+            "revisionId": "rev:git:sha256:legacy",
+            "snapshotId": "snap:git:sha256:legacy",
+        });
+        fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
+
+        let error = store
+            .read_event(&path)
+            .expect_err("a pre-reshape target envelope must be rejected");
+
+        // The decode fails on a missing non-optional field of the reshaped target
+        // (`ledgerId` / `subject`) — the old flat shape carries neither.
+        let message = error.to_string();
+        assert!(
+            message.contains("ledgerId") || message.contains("subject"),
+            "rejection names a missing reshaped-target field; got: {error}"
+        );
+    }
+
+    #[test]
     fn read_event_accepts_producer_keyed_envelope() {
         let (_root, store) = temp_event_store();
         let event = review_initialized_event();
@@ -674,10 +704,7 @@ mod tests {
         ShoreEvent::new(
             EventType::ReviewInitialized,
             "review_initialized:session:default:work:default",
-            EventTarget::new(
-                SessionId::new("session:default"),
-                WorkUnitId::new("work:default"),
-            ),
+            EventTarget::for_ledger(LedgerId::new("session:default")),
             Writer::shore_local("0.1.0"),
             ReviewInitializedPayload {},
             occurred_at,
@@ -695,11 +722,11 @@ mod tests {
     }
 
     fn review_assessment_recorded_event() -> ShoreEvent {
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
+        let review_unit_id = RevisionId::new("review-unit:sha256:one");
         let track_id = TrackId::new("human:kevin");
         let assessment_id = AssessmentId::new("assess:sha256:one");
-        let target_ref = ReviewTargetRef::ReviewUnit {
-            review_unit_id: review_unit_id.clone(),
+        let target_ref = ReviewTargetRef::Revision {
+            revision_id: review_unit_id.clone(),
         };
 
         ShoreEvent::new(
@@ -709,17 +736,11 @@ mod tests {
                 &track_id,
                 assessment_id.as_str(),
             ),
-            EventTarget {
-                session_id: SessionId::new("session:default"),
-                work_unit_id: None,
-                work_object_id: None,
-                work_object_type: None,
-                review_unit_id: Some(review_unit_id.clone()),
-                revision_id: Some(RevisionId::new("rev:git:sha256:one")),
-                snapshot_id: Some(SnapshotId::new("snap:git:sha256:one")),
-                track_id: Some(track_id),
-                subject: Some(TargetRef::Review(target_ref.clone())),
-            },
+            EventTarget::for_subject(
+                LedgerId::new("session:default"),
+                TargetRef::Review(target_ref.clone()),
+                Some(track_id),
+            ),
             Writer::shore_local("test"),
             ReviewAssessmentRecordedPayload {
                 assessment_id,

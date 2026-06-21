@@ -90,7 +90,7 @@ fn resolve_native_observation_target(
         .iter()
         .filter(|event| event.event_type == EventType::ReviewObservationRecorded)
     {
-        if event.target.review_unit_id.as_ref() != Some(&resolved.review_unit_id) {
+        if crate::model::subject_revision_id(&event.target.subject) != Some(&resolved.revision_id) {
             continue;
         }
 
@@ -98,7 +98,7 @@ fn resolve_native_observation_target(
             serde_json::from_value(event.payload.clone())?;
         if &payload.observation_id == observation_id {
             return Ok(ReviewTargetRef::Observation {
-                review_unit_id: resolved.review_unit_id.clone(),
+                revision_id: resolved.revision_id.clone(),
                 observation_id: observation_id.clone(),
             });
         }

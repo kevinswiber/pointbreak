@@ -19,7 +19,7 @@ use crate::canonical_hash::sha256_json_prefixed;
 use crate::error::Result;
 use crate::model::{
     CommitAssociationId, CommitWithdrawalId, RefAssociationId, RefWithdrawalId, ReviewEndpoint,
-    ReviewTargetRef, ReviewUnitId,
+    ReviewTargetRef, RevisionId,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -31,7 +31,7 @@ pub struct ReviewUnitCommitAssociatedPayload {
 }
 
 impl ReviewUnitCommitAssociatedPayload {
-    pub fn idempotency_key(review_unit_id: &ReviewUnitId, commit_oid: &str) -> String {
+    pub fn idempotency_key(review_unit_id: &RevisionId, commit_oid: &str) -> String {
         format!(
             "review_unit_commit_associated:{}:{}",
             review_unit_id.as_str(),
@@ -56,11 +56,7 @@ pub struct ReviewUnitRefAssociatedPayload {
 }
 
 impl ReviewUnitRefAssociatedPayload {
-    pub fn idempotency_key(
-        review_unit_id: &ReviewUnitId,
-        ref_name: &str,
-        head_oid: &str,
-    ) -> String {
+    pub fn idempotency_key(review_unit_id: &RevisionId, ref_name: &str, head_oid: &str) -> String {
         format!(
             "review_unit_ref_associated:{}:{}",
             review_unit_id.as_str(),
@@ -130,7 +126,7 @@ fn ref_distinguisher(ref_name: &str, head_oid: &str) -> String {
 /// the commit OID, excluding writer/track so the same edge converges across
 /// independently-authored copies.
 pub(crate) fn build_commit_association_id(
-    review_unit_id: &ReviewUnitId,
+    review_unit_id: &RevisionId,
     commit_oid: &str,
 ) -> Result<CommitAssociationId> {
     let digest = sha256_json_prefixed(&serde_json::json!({
@@ -142,7 +138,7 @@ pub(crate) fn build_commit_association_id(
 
 /// Content id for a ref association, folding the full ref name and head OID.
 pub(crate) fn build_ref_association_id(
-    review_unit_id: &ReviewUnitId,
+    review_unit_id: &RevisionId,
     ref_name: &str,
     head_oid: &str,
 ) -> Result<RefAssociationId> {
@@ -156,7 +152,7 @@ pub(crate) fn build_ref_association_id(
 
 /// Content id for a commit withdrawal, folding the association id it retracts.
 pub(crate) fn build_commit_withdrawal_id(
-    review_unit_id: &ReviewUnitId,
+    review_unit_id: &RevisionId,
     commit_association_id: &CommitAssociationId,
 ) -> Result<CommitWithdrawalId> {
     let digest = sha256_json_prefixed(&serde_json::json!({
@@ -168,7 +164,7 @@ pub(crate) fn build_commit_withdrawal_id(
 
 /// Content id for a ref withdrawal, folding the association id it retracts.
 pub(crate) fn build_ref_withdrawal_id(
-    review_unit_id: &ReviewUnitId,
+    review_unit_id: &RevisionId,
     ref_association_id: &RefAssociationId,
 ) -> Result<RefWithdrawalId> {
     let digest = sha256_json_prefixed(&serde_json::json!({
@@ -184,7 +180,7 @@ mod tests {
 
     #[test]
     fn commit_associated_idempotency_key_is_track_free() {
-        let ru = ReviewUnitId::new("ru:sha256:abc");
+        let ru = RevisionId::new("ru:sha256:abc");
         assert_eq!(
             ReviewUnitCommitAssociatedPayload::idempotency_key(&ru, "oid123"),
             "review_unit_commit_associated:ru:sha256:abc:oid123"
@@ -193,7 +189,7 @@ mod tests {
 
     #[test]
     fn ref_associated_idempotency_key_joins_name_and_head() {
-        let ru = ReviewUnitId::new("ru:sha256:abc");
+        let ru = RevisionId::new("ru:sha256:abc");
         assert_eq!(
             ReviewUnitRefAssociatedPayload::idempotency_key(&ru, "refs/heads/feat/x", "oidH"),
             "review_unit_ref_associated:ru:sha256:abc:refs/heads/feat/x@oidH"
@@ -218,8 +214,8 @@ mod tests {
     fn payloads_round_trip_camel_case_and_report_event_type() {
         let p = ReviewUnitCommitAssociatedPayload {
             commit_association_id: CommitAssociationId::new("assoc-commit:sha256:zzz"),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: ReviewUnitId::new("ru:sha256:abc"),
+            target: ReviewTargetRef::Revision {
+                revision_id: RevisionId::new("ru:sha256:abc"),
             },
             commit: ReviewEndpoint::GitCommit {
                 commit_oid: "oid123".into(),
@@ -238,8 +234,8 @@ mod tests {
     fn ref_associated_payload_round_trips_camel_case_and_reports_event_type() {
         let p = ReviewUnitRefAssociatedPayload {
             ref_association_id: RefAssociationId::new("assoc-ref:sha256:yyy"),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: ReviewUnitId::new("ru:sha256:abc"),
+            target: ReviewTargetRef::Revision {
+                revision_id: RevisionId::new("ru:sha256:abc"),
             },
             ref_name: "refs/heads/feat/x".into(),
             head_oid: "oidH".into(),
@@ -257,8 +253,8 @@ mod tests {
     fn withdrawal_payloads_are_ids_only_and_round_trip() {
         let commit = ReviewUnitCommitWithdrawnPayload {
             commit_withdrawal_id: CommitWithdrawalId::new("withdraw-commit:sha256:w1"),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: ReviewUnitId::new("ru:sha256:abc"),
+            target: ReviewTargetRef::Revision {
+                revision_id: RevisionId::new("ru:sha256:abc"),
             },
             commit_association_id: CommitAssociationId::new("assoc-commit:sha256:zzz"),
         };
@@ -275,8 +271,8 @@ mod tests {
 
         let r = ReviewUnitRefWithdrawnPayload {
             ref_withdrawal_id: RefWithdrawalId::new("withdraw-ref:sha256:w2"),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: ReviewUnitId::new("ru:sha256:abc"),
+            target: ReviewTargetRef::Revision {
+                revision_id: RevisionId::new("ru:sha256:abc"),
             },
             ref_association_id: RefAssociationId::new("assoc-ref:sha256:yyy"),
         };
@@ -290,7 +286,7 @@ mod tests {
 
     #[test]
     fn commit_association_id_is_deterministic_and_distinguisher_scoped() {
-        let ru = ReviewUnitId::new("ru:sha256:abc");
+        let ru = RevisionId::new("ru:sha256:abc");
         let a = build_commit_association_id(&ru, "oid123").unwrap();
         let b = build_commit_association_id(&ru, "oid123").unwrap();
         assert_eq!(a, b);
@@ -301,7 +297,7 @@ mod tests {
 
     #[test]
     fn ref_association_id_folds_name_and_head() {
-        let ru = ReviewUnitId::new("ru:sha256:abc");
+        let ru = RevisionId::new("ru:sha256:abc");
         let a = build_ref_association_id(&ru, "refs/heads/feat/x", "oidH").unwrap();
         let b = build_ref_association_id(&ru, "refs/heads/feat/x", "oidH2").unwrap();
         assert_ne!(a, b);
@@ -312,7 +308,7 @@ mod tests {
 
     #[test]
     fn withdrawal_id_folds_the_association_id() {
-        let ru = ReviewUnitId::new("ru:sha256:abc");
+        let ru = RevisionId::new("ru:sha256:abc");
         let cid = build_commit_association_id(&ru, "oid123").unwrap();
         let w = build_commit_withdrawal_id(&ru, &cid).unwrap();
         assert!(w.as_str().starts_with("withdraw-commit:"));
@@ -327,7 +323,7 @@ mod tests {
     #[test]
     fn commit_association_id_digest_is_pinned() {
         // Guards against an accidental change to the id material shape.
-        let ru = ReviewUnitId::new("ru:sha256:abc");
+        let ru = RevisionId::new("ru:sha256:abc");
         let id = build_commit_association_id(&ru, "oid123").unwrap();
         assert_eq!(
             id.as_str(),
@@ -344,21 +340,20 @@ mod tests {
 #[cfg(test)]
 mod convergence_tests {
     use super::*;
-    use crate::model::{ActorId, RevisionId, SessionId, SnapshotId, TrackId};
+    use crate::model::{ActorId, LedgerId, RevisionId, TrackId};
     use crate::session::event::{EventTarget, ShoreEvent, Writer, WriterProducer};
     use crate::session::projection::freshness::event_set_hash_for_events;
     use crate::session::{EventStore, EventWriteOutcome};
 
-    fn review_unit() -> ReviewUnitId {
-        ReviewUnitId::new("ru:sha256:abc")
+    fn review_unit() -> RevisionId {
+        RevisionId::new("ru:sha256:abc")
     }
 
-    fn target_for(review_unit_id: &ReviewUnitId, track: &str) -> EventTarget {
-        let mut target = EventTarget::for_review_unit(
-            SessionId::new("session:default"),
+    fn target_for(review_unit_id: &RevisionId, track: &str) -> EventTarget {
+        let mut target = EventTarget::for_revision(
+            LedgerId::new("session:default"),
             review_unit_id.clone(),
-            RevisionId::new("rev:git:sha256:def"),
-            SnapshotId::new("snap:git:sha256:ghi"),
+            None,
         );
         target.track_id = Some(TrackId::new(track));
         target
@@ -379,8 +374,8 @@ mod convergence_tests {
         let cid = build_commit_association_id(&ru, commit_oid).unwrap();
         let payload = ReviewUnitCommitAssociatedPayload {
             commit_association_id: cid,
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: ru.clone(),
+            target: ReviewTargetRef::Revision {
+                revision_id: ru.clone(),
             },
             commit: ReviewEndpoint::GitCommit {
                 commit_oid: commit_oid.to_owned(),
@@ -404,8 +399,8 @@ mod convergence_tests {
         let wid = build_commit_withdrawal_id(&ru, &cid).unwrap();
         let payload = ReviewUnitCommitWithdrawnPayload {
             commit_withdrawal_id: wid,
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: ru.clone(),
+            target: ReviewTargetRef::Revision {
+                revision_id: ru.clone(),
             },
             commit_association_id: cid.clone(),
         };

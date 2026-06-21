@@ -4,15 +4,16 @@ use super::options::ResolvedHistoryFilters;
 use super::result::ReviewHistoryResult;
 use super::summary::{ReviewHistoryEntry, ReviewHistorySummary};
 use crate::error::{Result, ShoreError};
-use crate::model::{ReviewEndpoint, TargetRef};
+use crate::model::{ReviewEndpoint, ReviewTargetRef, RevisionId, TargetRef};
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
     EventType, InputRequestRespondedPayload, ReviewAssessmentRecordedPayload,
     ReviewInitializedPayload, ReviewNoteImportedPayload, ReviewObservationRecordedPayload,
-    ReviewUnitCapturedPayload, ReviewUnitCommitAssociatedPayload, ReviewUnitCommitWithdrawnPayload,
+    ReviewUnitCommitAssociatedPayload, ReviewUnitCommitWithdrawnPayload,
     ReviewUnitLineageDeclaredPayload, ReviewUnitLineageRoundRecordedPayload,
     ReviewUnitRefAssociatedPayload, ReviewUnitRefWithdrawnPayload, ShoreEvent,
-    ValidationCheckRecordedPayload, decode_input_request_opened_payload,
+    ValidationCheckRecordedPayload, WorkObjectProposal, WorkObjectProposedPayload,
+    decode_input_request_opened_payload,
 };
 use crate::session::projection::cosignature::{
     CosignatureIndex, endorsement_readbacks, enrich_endorser_attributes,
@@ -69,16 +70,38 @@ pub(super) fn history_entry_from_event(
             let _payload: ReviewInitializedPayload = serde_json::from_value(event.payload.clone())?;
             ReviewHistorySummary::ReviewInitialized {}
         }
-        EventType::ReviewUnitCaptured => {
-            let payload: ReviewUnitCapturedPayload = serde_json::from_value(event.payload.clone())?;
-            ReviewHistorySummary::ReviewUnitCaptured {
-                review_unit_id: payload.review_unit_id,
-                source: payload.source,
-                base: payload.base,
-                target: payload.target,
-                revision_id: payload.revision_id,
-                snapshot_id: payload.snapshot_id,
-                snapshot_artifact_content_hash: payload.snapshot_artifact_content_hash,
+        EventType::WorkObjectProposed => {
+            let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
+            match payload.work_object {
+                WorkObjectProposal::Revision {
+                    revision,
+                    snapshot_artifact_content_hash,
+                } => {
+                    let (source, base, target) = match revision.git_provenance {
+                        Some(provenance) => (
+                            Some(provenance.source),
+                            Some(provenance.base),
+                            Some(provenance.target),
+                        ),
+                        None => (None, None, None),
+                    };
+                    ReviewHistorySummary::RevisionCaptured {
+                        revision_id: revision.id,
+                        object_id: revision.object_id,
+                        engagement_id: payload.engagement_id,
+                        source,
+                        base,
+                        target,
+                        snapshot_artifact_content_hash,
+                    }
+                }
+                // A task-attempt proposal is a task-domain event; the upstream
+                // filter keeps it out of the review-domain history stream.
+                WorkObjectProposal::TaskAttempt { .. } => {
+                    return Err(ShoreError::Message(
+                        "review history projects review-domain content events only; a task-attempt proposal reached this match arm — upstream filter missing".to_owned(),
+                    ));
+                }
             }
         }
         EventType::ReviewObservationRecorded => {
@@ -266,8 +289,7 @@ pub(super) fn history_entry_from_event(
                 commit_association_id: payload.commit_association_id,
             }
         }
-        EventType::TaskAttemptCaptured
-        | EventType::TaskCheckpointCaptured
+        EventType::TaskCheckpointCaptured
         | EventType::TaskObservationRecorded
         | EventType::EventSignatureRecorded
         | EventType::ArtifactRemoved => {
@@ -282,14 +304,11 @@ pub(super) fn history_entry_from_event(
         event_type: event.event_type,
         occurred_at: event.occurred_at.clone(),
         payload_hash: event.payload_hash.clone(),
-        session_id: event.target.session_id.clone(),
-        review_unit_id: event.target.review_unit_id.clone(),
-        revision_id: event.target.revision_id.clone(),
-        snapshot_id: event.target.snapshot_id.clone(),
+        ledger_id: event.target.ledger_id.clone(),
         track_id: event.target.track_id.clone(),
-        subject: match event.target.subject.as_ref() {
-            Some(TargetRef::Review(r)) => Some(r.clone()),
-            Some(TargetRef::Task(_)) | None => None,
+        subject: match &event.target.subject {
+            TargetRef::Review(r) => Some(r.clone()),
+            TargetRef::Task(_) | TargetRef::Ledger => None,
         },
         writer: event.writer.clone(),
         verification_status: filters
@@ -347,18 +366,25 @@ fn event_matches_filters(event: &ShoreEvent, filters: &ResolvedHistoryFilters) -
     // rendered through the removal projection. None is summarized in this content stream.
     if matches!(
         event.event_type,
-        EventType::TaskAttemptCaptured
-            | EventType::TaskCheckpointCaptured
+        EventType::TaskCheckpointCaptured
             | EventType::TaskObservationRecorded
             | EventType::EventSignatureRecorded
             | EventType::ArtifactRemoved
     ) {
         return false;
     }
+    // A generative move can propose either a revision or a task attempt; the
+    // task-domain proposal carries a Task subject and belongs to the sibling
+    // task projection, so the review-domain stream skips it (the same exclusion
+    // the dedicated task event types get above).
+    if matches!(event.target.subject, TargetRef::Task(_)) {
+        return false;
+    }
+    let subject_revision_id = subject_revision_id(&event.target.subject);
     if filters
         .review_unit_id
         .as_ref()
-        .is_some_and(|review_unit_id| event.target.review_unit_id.as_ref() != Some(review_unit_id))
+        .is_some_and(|revision_id| subject_revision_id != Some(revision_id))
     {
         return false;
     }
@@ -373,13 +399,27 @@ fn event_matches_filters(event: &ShoreEvent, filters: &ResolvedHistoryFilters) -
         return false;
     }
     if let Some(ref_matched_units) = filters.ref_matched_units.as_ref()
-        && !event
-            .target
-            .review_unit_id
-            .as_ref()
-            .is_some_and(|review_unit_id| ref_matched_units.contains(review_unit_id))
+        && !subject_revision_id.is_some_and(|revision_id| ref_matched_units.contains(revision_id))
     {
         return false;
     }
     true
+}
+
+/// The revision a subject addresses, if any. Every review-domain variant keys on
+/// a `revision_id`; the ledger carrier and task subjects address no revision.
+fn subject_revision_id(subject: &TargetRef) -> Option<&RevisionId> {
+    match subject {
+        TargetRef::Review(review) => match review {
+            ReviewTargetRef::Revision { revision_id }
+            | ReviewTargetRef::File { revision_id, .. }
+            | ReviewTargetRef::Range { revision_id, .. }
+            | ReviewTargetRef::Observation { revision_id, .. }
+            | ReviewTargetRef::InputRequest { revision_id, .. }
+            | ReviewTargetRef::Assessment { revision_id, .. }
+            | ReviewTargetRef::Event { revision_id, .. } => Some(revision_id),
+            ReviewTargetRef::Lineage { .. } => None,
+        },
+        TargetRef::Task(_) | TargetRef::Ledger => None,
+    }
 }

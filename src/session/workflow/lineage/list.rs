@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::error::Result;
-use crate::model::{ReviewUnitId, ReviewUnitLineageId};
+use crate::model::{ReviewUnitLineageId, RevisionId};
 use crate::session::EventStore;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::resolve_read_store;
@@ -31,7 +31,7 @@ pub struct LineageListResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LineageListEntry {
     pub lineage_id: ReviewUnitLineageId,
-    pub head_review_unit_id: Option<ReviewUnitId>,
+    pub head_review_unit_id: Option<RevisionId>,
     pub round_count: usize,
     pub diagnostics: Vec<ProjectionDiagnostic>,
 }

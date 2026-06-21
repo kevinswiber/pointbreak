@@ -49,7 +49,7 @@ fn observation_add_records_review_wide_observation_and_emits_v1_json() {
     );
     assert!(json["eventId"].as_str().unwrap().starts_with("evt:sha256:"));
     assert_eq!(json["trackId"], "agent:codex");
-    assert_eq!(json["target"]["kind"], "review_unit");
+    assert_eq!(json["target"]["kind"], "revision");
     assert!(
         json["bodyContentHash"]
             .as_str()

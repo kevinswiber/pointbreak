@@ -26,13 +26,14 @@ mod tests {
 
     use super::*;
     use crate::model::{
-        EventId, ReviewEndpoint, ReviewTargetRef, ReviewUnitId, ReviewUnitLineageBasisV1,
-        ReviewUnitLineageId, ReviewUnitLineageRoundId, ReviewUnitSource, RevisionId, SessionId,
-        Side, SnapshotId, TrackId, WorktreeCaptureMode,
+        EngagementId, EventId, LedgerId, ObjectId, ReviewEndpoint, ReviewTargetRef,
+        ReviewUnitLineageBasisV1, ReviewUnitLineageId, ReviewUnitLineageRoundId, ReviewUnitSource,
+        RevisionId, Side, TrackId, WorktreeCaptureMode,
     };
     use crate::session::event::{
-        EventTarget, EventType, ReviewUnitCapturedPayload, ReviewUnitLineageDeclaredPayload,
-        ReviewUnitLineageRoundRecordedPayload, ShoreEvent, Writer,
+        EventTarget, EventType, GitProvenance, ReviewUnitLineageDeclaredPayload,
+        ReviewUnitLineageRoundRecordedPayload, Revision, ShoreEvent, WorkObjectProposal,
+        WorkObjectProposedPayload, Writer,
     };
     use crate::session::{
         CaptureOptions, CaptureResult, EventStore, SessionState, capture_worktree_review,
@@ -93,9 +94,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(resolved.review_unit_id, capture.review_unit_id);
         assert_eq!(resolved.revision_id, capture.revision_id);
-        assert_eq!(resolved.snapshot_id, capture.snapshot_id);
+        assert_eq!(resolved.object_id, capture.object_id);
     }
 
     #[test]
@@ -141,7 +141,7 @@ mod tests {
 
         let error = resolve_review_unit(
             &events,
-            ReviewUnitSelection::Exact(&ReviewUnitId::new("review-unit:sha256:missing")),
+            ReviewUnitSelection::Exact(&RevisionId::new("review-unit:sha256:missing")),
             &any_context(),
             ReviewUnitScope::All,
         )
@@ -162,7 +162,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(resolved.review_unit_id, review_unit_id("two"));
+        assert_eq!(resolved.revision_id, review_unit_id("two"));
     }
 
     #[test]
@@ -177,7 +177,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(resolved.review_unit_id, review_unit_id("one"));
+        assert_eq!(resolved.revision_id, review_unit_id("one"));
     }
 
     #[test]
@@ -247,7 +247,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(matches!(review_wide, ReviewTargetRef::ReviewUnit { .. }));
+        assert!(matches!(review_wide, ReviewTargetRef::Revision { .. }));
         assert!(matches!(file, ReviewTargetRef::File { .. }));
         assert!(matches!(
             range,
@@ -315,7 +315,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.review_unit_id, capture.review_unit_id);
+        assert_eq!(result.review_unit_id, capture.revision_id);
         assert!(result.observation_id.as_str().starts_with("obs:sha256:"));
         assert_eq!(result.track_id.as_str(), "agent:codex");
         assert_eq!(result.events_created, 1);
@@ -561,7 +561,7 @@ mod tests {
 
         let result = list_observations(ObservationListOptions::new(repo.path())).unwrap();
 
-        assert_eq!(result.review_unit_id, capture.review_unit_id);
+        assert_eq!(result.review_unit_id, capture.revision_id);
         let mut actual_ids = result
             .observations
             .iter()
@@ -740,10 +740,9 @@ mod tests {
 
     fn resolved_from_capture(capture: &CaptureResult) -> ResolvedReviewUnit {
         ResolvedReviewUnit {
-            session_id: capture.session_id.clone(),
-            review_unit_id: capture.review_unit_id.clone(),
+            ledger_id: capture.ledger_id.clone(),
             revision_id: capture.revision_id.clone(),
-            snapshot_id: capture.snapshot_id.clone(),
+            object_id: capture.object_id.clone(),
         }
     }
 
@@ -761,35 +760,46 @@ mod tests {
         revision_id: &str,
         snapshot_id: &str,
     ) -> ShoreEvent {
-        let review_unit_id = ReviewUnitId::new(review_unit_id);
+        // The envelope subject and the payload revision address one and the same
+        // revision, as a real capture stamps both from one minted id. The extra
+        // `revision_id` param only seeds the engagement hint.
         let revision_id = RevisionId::new(revision_id);
-        let snapshot_id = SnapshotId::new(snapshot_id);
+        let review_unit_id = RevisionId::new(review_unit_id);
+        let snapshot_id = ObjectId::new(snapshot_id);
         ShoreEvent::new(
-            EventType::ReviewUnitCaptured,
-            format!("review_unit_captured:{}", review_unit_id.as_str()),
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
+            EventType::WorkObjectProposed,
+            format!("work_object_proposed:{}", review_unit_id.as_str()),
+            EventTarget::for_revision(
+                LedgerId::new("ledger:default"),
                 review_unit_id.clone(),
-                revision_id.clone(),
-                snapshot_id.clone(),
+                None,
             ),
             Writer::shore_local("0.1.0"),
-            ReviewUnitCapturedPayload {
-                review_unit_id,
-                source: ReviewUnitSource::GitWorktree {
-                    mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
-                    include_untracked: true,
+            WorkObjectProposedPayload {
+                engagement_id: EngagementId::new(format!(
+                    "engagement:sha256:{}",
+                    crate::canonical_hash::sha256_bytes_hex(revision_id.as_str().as_bytes())
+                )),
+                work_object: WorkObjectProposal::Revision {
+                    revision: Revision {
+                        id: review_unit_id.clone(),
+                        object_id: snapshot_id.clone(),
+                        git_provenance: Some(GitProvenance {
+                            source: ReviewUnitSource::GitWorktree {
+                                mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                                include_untracked: true,
+                            },
+                            base: ReviewEndpoint::GitCommit {
+                                commit_oid: "abc".to_owned(),
+                                tree_oid: "def".to_owned(),
+                            },
+                            target: ReviewEndpoint::GitWorkingTree {
+                                worktree_root: "/repo".to_owned(),
+                            },
+                        }),
+                    },
+                    snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
                 },
-                base: ReviewEndpoint::GitCommit {
-                    commit_oid: "abc".to_owned(),
-                    tree_oid: "def".to_owned(),
-                },
-                target: ReviewEndpoint::GitWorkingTree {
-                    worktree_root: "/repo".to_owned(),
-                },
-                revision_id,
-                snapshot_id,
-                snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
             },
             "2026-05-12T00:00:00Z",
         )
@@ -812,7 +822,7 @@ mod tests {
             EventType::ReviewUnitLineageDeclared,
             ReviewUnitLineageDeclaredPayload::idempotency_key(&lineage_id),
             EventTarget::for_review_unit_lineage(
-                SessionId::new("session:default"),
+                LedgerId::new("session:default"),
                 lineage_id.clone(),
             ),
             Writer::shore_local("0.1.0"),
@@ -845,7 +855,7 @@ mod tests {
             EventType::ReviewUnitLineageRoundRecorded,
             ReviewUnitLineageRoundRecordedPayload::idempotency_key(&lineage_id, &unit_id),
             EventTarget::for_review_unit_lineage(
-                SessionId::new("session:default"),
+                LedgerId::new("session:default"),
                 lineage_id.clone(),
             ),
             Writer::shore_local("0.1.0"),
@@ -863,8 +873,8 @@ mod tests {
         .unwrap()
     }
 
-    fn review_unit_id(suffix: &str) -> ReviewUnitId {
-        ReviewUnitId::new(format!("review-unit:sha256:{suffix}"))
+    fn review_unit_id(suffix: &str) -> RevisionId {
+        RevisionId::new(format!("review-unit:sha256:{suffix}"))
     }
 
     fn review_unit_lineage_id(suffix: &str) -> ReviewUnitLineageId {
@@ -876,12 +886,14 @@ mod tests {
         event_id: &str,
         created_at: &str,
     ) -> ObservationView {
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
+        let review_unit_id = RevisionId::new("review-unit:sha256:one");
         ObservationView {
             id: crate::model::ObservationId::new(observation_id),
             event_id: EventId::new(event_id),
             track_id: TrackId::new("agent:codex"),
-            target: ReviewTargetRef::ReviewUnit { review_unit_id },
+            target: ReviewTargetRef::Revision {
+                revision_id: review_unit_id,
+            },
             title: "sort".to_owned(),
             body: None,
             tags: vec![],

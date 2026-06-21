@@ -2,46 +2,21 @@ use serde::{Deserialize, Serialize};
 
 use super::kind::EventType;
 use super::payload::EventPayload;
-use crate::model::{
-    ReviewEndpoint, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId, Side, SnapshotId,
-    WorkUnitId,
-};
+use crate::model::{LedgerId, Side};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewInitializedPayload {}
 
 impl ReviewInitializedPayload {
-    pub fn idempotency_key(session_id: &SessionId, work_unit_id: &WorkUnitId) -> String {
-        format!(
-            "review_initialized:{}:{}",
-            session_id.as_str(),
-            work_unit_id.as_str()
-        )
+    pub fn idempotency_key(ledger_id: &LedgerId) -> String {
+        format!("review_initialized:{}", ledger_id.as_str())
     }
 }
 
 impl EventPayload for ReviewInitializedPayload {
     fn event_type(&self) -> EventType {
         EventType::ReviewInitialized
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewUnitCapturedPayload {
-    pub review_unit_id: ReviewUnitId,
-    pub source: ReviewUnitSource,
-    pub base: ReviewEndpoint,
-    pub target: ReviewEndpoint,
-    pub revision_id: RevisionId,
-    pub snapshot_id: SnapshotId,
-    pub snapshot_artifact_content_hash: String,
-}
-
-impl EventPayload for ReviewUnitCapturedPayload {
-    fn event_type(&self) -> EventType {
-        EventType::ReviewUnitCaptured
     }
 }
 

@@ -12,7 +12,7 @@ use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::crypto::EventSigner;
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    ActorId, EventId, ObservationId, ReviewTargetRef, ReviewUnitId, ReviewUnitLineageId, TargetRef,
+    ActorId, EventId, ObservationId, ReviewTargetRef, ReviewUnitLineageId, RevisionId, TargetRef,
     TrackId,
 };
 use crate::session::event::{EventTarget, EventType, ReviewObservationRecordedPayload, ShoreEvent};
@@ -30,7 +30,7 @@ use crate::storage::{Durability, LocalStorage};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObservationAddOptions {
     repo: PathBuf,
-    review_unit_id: Option<ReviewUnitId>,
+    review_unit_id: Option<RevisionId>,
     lineage_id: Option<ReviewUnitLineageId>,
     track: Option<String>,
     title: Option<String>,
@@ -73,7 +73,7 @@ impl ObservationAddOptions {
         self
     }
 
-    pub fn with_review_unit_id(mut self, id: ReviewUnitId) -> Self {
+    pub fn with_review_unit_id(mut self, id: RevisionId) -> Self {
         self.review_unit_id = Some(id);
         self
     }
@@ -142,7 +142,7 @@ impl ObservationAddOptions {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObservationAddResult {
-    pub review_unit_id: ReviewUnitId,
+    pub review_unit_id: RevisionId,
     pub observation_id: ObservationId,
     pub event_id: EventId,
     pub track_id: TrackId,
@@ -232,7 +232,7 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
     let (body, body_artifact_path, body_artifact_bytes, body_byte_size) =
         staged_body(input.body.as_deref())?;
     let observation_id = build_observation_id(ObservationIdMaterial {
-        review_unit_id: &input.resolved.review_unit_id,
+        review_unit_id: &input.resolved.revision_id,
         track_id: &track_id,
         target: &input.target,
         title: &input.title,
@@ -247,7 +247,7 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
         .as_deref()
         .unwrap_or_else(|| observation_id.as_str());
     let idempotency_key = ReviewObservationRecordedPayload::idempotency_key(
-        &input.resolved.review_unit_id,
+        &input.resolved.revision_id,
         &track_id,
         source_key,
     );
@@ -262,17 +262,11 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
     let mut event = ShoreEvent::new(
         EventType::ReviewObservationRecorded,
         idempotency_key,
-        EventTarget {
-            session_id: input.resolved.session_id,
-            work_unit_id: None,
-            work_object_id: None,
-            work_object_type: None,
-            review_unit_id: Some(input.resolved.review_unit_id.clone()),
-            revision_id: Some(input.resolved.revision_id),
-            snapshot_id: Some(input.resolved.snapshot_id),
-            track_id: Some(track_id.clone()),
-            subject: Some(TargetRef::Review(input.target.clone())),
-        },
+        EventTarget::for_subject(
+            input.resolved.ledger_id,
+            TargetRef::Review(input.target.clone()),
+            Some(track_id.clone()),
+        ),
         writer,
         ReviewObservationRecordedPayload {
             observation_id: observation_id.clone(),
@@ -309,7 +303,7 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
     )?;
 
     Ok(ObservationAddResult {
-        review_unit_id: input.resolved.review_unit_id,
+        review_unit_id: input.resolved.revision_id,
         observation_id,
         event_id,
         track_id,
@@ -324,7 +318,7 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
 }
 
 struct ObservationIdMaterial<'a> {
-    review_unit_id: &'a ReviewUnitId,
+    review_unit_id: &'a RevisionId,
     track_id: &'a TrackId,
     target: &'a ReviewTargetRef,
     title: &'a str,

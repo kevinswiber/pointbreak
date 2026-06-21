@@ -27,7 +27,7 @@ fn review_capture_creates_review_unit_from_subdir() {
         json["reviewUnit"]["id"]
             .as_str()
             .unwrap()
-            .starts_with("review-unit:sha256:")
+            .starts_with("rev:sha256:")
     );
     assert!(
         json["reviewUnit"]["revisionId"]
@@ -39,7 +39,7 @@ fn review_capture_creates_review_unit_from_subdir() {
         json["reviewUnit"]["snapshotId"]
             .as_str()
             .unwrap()
-            .starts_with("snap:")
+            .starts_with("obj:")
     );
     assert_eq!(json["reviewUnit"]["base"]["kind"], "git_commit");
     assert_eq!(json["reviewUnit"]["target"]["kind"], "git_working_tree");
@@ -51,7 +51,7 @@ fn review_capture_creates_review_unit_from_subdir() {
     );
     assert!(json.get("statePath").is_none());
     assert!(json.get("snapshotArtifactPath").is_none());
-    assert_eq!(json["eventsCreatedByType"]["review_unit_captured"], 1);
+    assert_eq!(json["eventsCreatedByType"]["work_object_proposed"], 1);
 }
 
 #[test]
@@ -236,7 +236,7 @@ fn capture_with_dirty_worktree_and_base_ignores_worktree_state() {
         .stdout,
     );
     let snapshot_id =
-        shoreline::model::SnapshotId::new(capture["reviewUnit"]["snapshotId"].as_str().unwrap());
+        shoreline::model::ObjectId::new(capture["reviewUnit"]["snapshotId"].as_str().unwrap());
 
     let artifact = shoreline::session::read_snapshot_artifact(repo.path(), &snapshot_id)
         .expect("snapshot artifact for the range capture");

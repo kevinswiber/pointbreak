@@ -6,44 +6,47 @@ use crate::canonical_hash::sha256_json_hex;
 use crate::error::{Result, ShoreError};
 use crate::git::{capture_worktree_diff_files, git_head_oid, git_head_tree_oid, git_worktree_root};
 use crate::model::{
-    CommitRangeCaptureMode, DiffFile, ReviewEndpoint, ReviewUnitId, ReviewUnitSource, RevisionId,
-    SnapshotId, WorktreeCaptureMode,
+    CommitRangeCaptureMode, DiffFile, DiffRowKind, EngagementId, FileStatus, ObjectId,
+    ReviewEndpoint, ReviewUnitSource, RevisionId, WorktreeCaptureMode,
 };
+use crate::session::event::GitProvenance;
 
 const FINGERPRINT_SCHEMA: &str = "shore.worktree-fingerprint";
 const FINGERPRINT_VERSION: u32 = 1;
-const SNAPSHOT_FINGERPRINT_SCHEMA: &str = "shore.diff-snapshot-fingerprint";
-const SNAPSHOT_FINGERPRINT_VERSION: u32 = 1;
-const COMMIT_RANGE_SNAPSHOT_FINGERPRINT_SCHEMA: &str = "shore.commit-range-snapshot-fingerprint";
-const COMMIT_RANGE_SNAPSHOT_FINGERPRINT_VERSION: u32 = 1;
-const REVIEW_UNIT_FINGERPRINT_SCHEMA: &str = "shore.review-unit-fingerprint";
-const REVIEW_UNIT_FINGERPRINT_VERSION: u32 = 1;
+const REVISION_IDENTITY_SCHEMA: &str = "shore.revision-identity";
+const REVISION_IDENTITY_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorktreeFingerprint {
     pub revision_id: RevisionId,
-    pub snapshot_id: SnapshotId,
+    pub snapshot_id: ObjectId,
 }
 
+/// The resolved identity for one capture: the position revision id (derived
+/// from object id + git provenance), the derived engagement grouping hint, and
+/// the git provenance (source selector + endpoint pair) that the revision wraps.
+/// `snapshot_id` is the content-addressed object id used as the snapshot-artifact
+/// storage key; the artifact subsystem retains its "snapshot" naming, only the
+/// id semantics are the content-only object.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewUnitFingerprint {
     pub revision_id: RevisionId,
-    pub snapshot_id: SnapshotId,
-    pub review_unit_id: ReviewUnitId,
-    source_repo_namespace: String,
+    pub snapshot_id: ObjectId,
+    pub engagement_id: EngagementId,
     pub source: ReviewUnitSource,
     pub base: ReviewEndpoint,
     pub target: ReviewEndpoint,
 }
 
 impl ReviewUnitFingerprint {
-    /// Returns the V1 local source namespace used in the ReviewUnit identity hash.
-    ///
-    /// V1 uses the canonical worktree root, which is intentionally local-only and
-    /// may change when a later repo-namespace model lands.
-    #[cfg(test)]
-    pub(crate) fn source_repo_namespace(&self) -> &str {
-        &self.source_repo_namespace
+    /// The git provenance the revision wraps: the resolved source selector and
+    /// endpoint pair. Always present on the live git capture path.
+    pub fn git_provenance(&self) -> GitProvenance {
+        GitProvenance {
+            source: self.source.clone(),
+            base: self.base.clone(),
+            target: self.target.clone(),
+        }
     }
 }
 
@@ -90,7 +93,7 @@ pub(crate) fn worktree_fingerprint_for_files(
 
     Ok(WorktreeFingerprint {
         revision_id: RevisionId::new(format!("rev:worktree:sha256:{hash}")),
-        snapshot_id: SnapshotId::new(format!("snap:git:sha256:{hash}")),
+        snapshot_id: ObjectId::new(format!("snap:git:sha256:{hash}")),
     })
 }
 
@@ -138,71 +141,77 @@ pub(crate) fn review_unit_fingerprint_for_files(
     repo: &Path,
     files: &[DiffFile],
 ) -> Result<ReviewUnitFingerprint> {
-    let snapshot_descriptor = SnapshotFingerprintDescriptor {
-        schema: SNAPSHOT_FINGERPRINT_SCHEMA,
-        version: SNAPSHOT_FINGERPRINT_VERSION,
-        files,
-    };
-    let snapshot_hash = sha256_json_hex(&snapshot_descriptor)?;
-    let snapshot_id = SnapshotId::new(format!("snap:git:sha256:{snapshot_hash}"));
     let endpoints = resolve_combined_worktree_endpoints(repo)?;
-    review_unit_fingerprint_from_parts(repo, endpoints, snapshot_hash, snapshot_id)
+    review_unit_fingerprint_from_parts(endpoints, files)
 }
 
-/// Range fingerprint: a new snapshot descriptor that hashes the endpoint tree
-/// pair plus the rows, so identical diff content under different endpoints
-/// cannot collide at the snapshot-artifact layer (the artifact path is keyed by
-/// snapshot id). The ReviewUnit identity reuses the unchanged
-/// `ReviewUnitFingerprintDescriptor` with the commit-range source and endpoints.
+/// Range fingerprint over the commit-range source and resolved endpoint pair.
+/// The content-only object id converges for identical content; the revision id
+/// distinguishes the range from a worktree capture of the same content via its
+/// git provenance.
 pub(crate) fn commit_range_review_unit_fingerprint_for_files(
     repo: &Path,
     base: &ResolvedCommitEndpoint,
     target: &ResolvedCommitEndpoint,
     files: &[DiffFile],
 ) -> Result<ReviewUnitFingerprint> {
-    let snapshot_hash = sha256_json_hex(&CommitRangeSnapshotFingerprintDescriptor {
-        schema: COMMIT_RANGE_SNAPSHOT_FINGERPRINT_SCHEMA,
-        version: COMMIT_RANGE_SNAPSHOT_FINGERPRINT_VERSION,
-        base_tree_oid: &base.tree_oid,
-        target_tree_oid: &target.tree_oid,
-        files,
-    })?;
-    let snapshot_id = SnapshotId::new(format!("snap:git:sha256:{snapshot_hash}"));
+    let _ = repo;
     let endpoints = resolve_commit_range_endpoints(base, target);
-    review_unit_fingerprint_from_parts(repo, endpoints, snapshot_hash, snapshot_id)
+    review_unit_fingerprint_from_parts(endpoints, files)
 }
 
-/// Shared review-unit identity tail for every source adapter: assemble the
-/// repo-namespace-scoped `ReviewUnitFingerprintDescriptor` over the resolved
-/// endpoints and the snapshot id, then format the ids. `snapshot_hash` is the
-/// adapter's snapshot content hash and also seeds `revision_id`.
+/// Shared identity tail for every source adapter. Mints the content-only object
+/// id, then derives the position revision id from the object id plus the git
+/// provenance (succession-independent — never from any successor set), and the
+/// engagement grouping hint from the revision (every capture is a root here, so
+/// it seeds from its own revision). The repo namespace and git OIDs stay out of
+/// the content object id; they live in the provenance the revision wraps.
 fn review_unit_fingerprint_from_parts(
-    repo: &Path,
     endpoints: ResolvedReviewUnitEndpoints,
-    snapshot_hash: String,
-    snapshot_id: SnapshotId,
+    files: &[DiffFile],
 ) -> Result<ReviewUnitFingerprint> {
-    let source_repo_namespace = normalized_worktree_root(repo)?;
-    let review_unit_descriptor = ReviewUnitFingerprintDescriptor {
-        schema: REVIEW_UNIT_FINGERPRINT_SCHEMA,
-        version: REVIEW_UNIT_FINGERPRINT_VERSION,
-        source_repo_namespace: &source_repo_namespace,
-        source: &endpoints.source,
-        base: &endpoints.base,
-        target: &endpoints.target,
-        snapshot_id: &snapshot_id,
+    let object_id = object_identity(files);
+    let provenance = GitProvenance {
+        source: endpoints.source.clone(),
+        base: endpoints.base.clone(),
+        target: endpoints.target.clone(),
     };
-    let review_unit_hash = sha256_json_hex(&review_unit_descriptor)?;
+    let revision_id = revision_id_from(&object_id, Some(&provenance))?;
+    let engagement_id = engagement_id_from_root(&revision_id);
 
     Ok(ReviewUnitFingerprint {
-        revision_id: RevisionId::new(format!("rev:git:sha256:{snapshot_hash}")),
-        snapshot_id,
-        review_unit_id: ReviewUnitId::new(format!("review-unit:sha256:{review_unit_hash}")),
-        source_repo_namespace,
+        revision_id,
+        snapshot_id: object_id,
+        engagement_id,
         source: endpoints.source,
         base: endpoints.base,
         target: endpoints.target,
     })
+}
+
+/// Derive a position revision id from a content object id plus its optional git
+/// provenance. Succession-independent: a later successor never re-keys this
+/// revision. `None` provenance yields a revision over a non-git object.
+pub(in crate::session) fn revision_id_from(
+    object_id: &ObjectId,
+    git_provenance: Option<&GitProvenance>,
+) -> Result<RevisionId> {
+    let descriptor = RevisionIdentityDescriptor {
+        schema: REVISION_IDENTITY_SCHEMA,
+        version: REVISION_IDENTITY_VERSION,
+        object_id,
+        git_provenance,
+    };
+    let hash = sha256_json_hex(&descriptor)?;
+    Ok(RevisionId::new(format!("rev:sha256:{hash}")))
+}
+
+/// Derive the engagement grouping hint for a root generative move (empty
+/// supersedes): it seeds deterministically from its own revision, so two clones
+/// that mint the same revision converge to the same engagement.
+pub(in crate::session) fn engagement_id_from_root(revision_id: &RevisionId) -> EngagementId {
+    let hash = crate::canonical_hash::sha256_bytes_hex(revision_id.as_str().as_bytes());
+    EngagementId::new(format!("engagement:sha256:{hash}"))
 }
 
 #[cfg(test)]
@@ -221,48 +230,17 @@ fn is_shore_storage_path(path: &str) -> bool {
     path == ".shore/data" || path.starts_with(".shore/data/")
 }
 
+/// Revision identity hashes the content object id plus its optional git
+/// provenance, so the revision id is succession-independent (no `supersedes`
+/// participates) and convergent for identical content + provenance across
+/// clones. Changing the shape bumps `REVISION_IDENTITY_VERSION`.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SnapshotFingerprintDescriptor<'a> {
+struct RevisionIdentityDescriptor<'a> {
     schema: &'static str,
     version: u32,
-    /// Snapshot identity hashes the current `DiffFile` serde shape.
-    ///
-    /// Changing that shape requires bumping `SNAPSHOT_FINGERPRINT_VERSION`.
-    files: &'a [DiffFile],
-}
-
-/// Range snapshot identity hashes the endpoint tree pair **in addition** to the
-/// rows — unlike the worktree descriptor above, which hashes rows only.
-///
-/// A range snapshot's identity *is* the diff between two trees, so folding the
-/// tree pair into `snapshot_id` keeps distinct ranges distinct: "identical rows,
-/// different endpoints" (e.g. capture staged work, commit it, then range-capture
-/// the same change; or the same patch on two bases) stay separate snapshots
-/// rather than over-deduping to one. (Post-#146 the v2 artifact body no longer
-/// embeds the endpoints, so this is about snapshot *identity*, not avoiding an
-/// artifact-body conflict.) Changing the `DiffFile` serde shape requires bumping
-/// `COMMIT_RANGE_SNAPSHOT_FINGERPRINT_VERSION` (same rule as the worktree one).
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CommitRangeSnapshotFingerprintDescriptor<'a> {
-    schema: &'static str,
-    version: u32,
-    base_tree_oid: &'a str,
-    target_tree_oid: &'a str,
-    files: &'a [DiffFile],
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ReviewUnitFingerprintDescriptor<'a> {
-    schema: &'static str,
-    version: u32,
-    source_repo_namespace: &'a str,
-    source: &'a ReviewUnitSource,
-    base: &'a ReviewEndpoint,
-    target: &'a ReviewEndpoint,
-    snapshot_id: &'a SnapshotId,
+    object_id: &'a ObjectId,
+    git_provenance: Option<&'a GitProvenance>,
 }
 
 #[derive(Serialize)]
@@ -273,6 +251,81 @@ struct WorktreeFingerprintDescriptor<'a> {
     worktree_root: String,
     base_head: String,
     files: &'a [DiffFile],
+}
+
+const OBJECT_IDENTITY_SCHEMA: &str = "shore.object-identity";
+const OBJECT_IDENTITY_VERSION: u32 = 1;
+
+/// Content-only, git-optional, path-sorted object identity.
+///
+/// Hashes a projection of the diff that keeps only what is intrinsic to the
+/// change's content — each file's path, rename source, status, and intrinsic
+/// flags, plus every row's kind and text — and drops everything positional or
+/// git-derived (blob OIDs, file modes, line and hunk numbers, file/hunk ids,
+/// and the local repo namespace). The file set is sorted by path so identity is
+/// set-based rather than capture-array-ordered; rows stay in their natural diff
+/// order. Two clones of identical content converge to one id, and a change with
+/// no git blobs (e.g. a markdown set) is still expressible.
+pub(in crate::session) fn object_identity(files: &[DiffFile]) -> ObjectId {
+    let mut projected: Vec<ContentOnlyFile<'_>> = files.iter().map(content_only_file).collect();
+    projected.sort_by(|a, b| (a.path, a.old_path).cmp(&(b.path, b.old_path)));
+    let descriptor = ContentOnlyObject {
+        schema: OBJECT_IDENTITY_SCHEMA,
+        version: OBJECT_IDENTITY_VERSION,
+        files: projected,
+    };
+    let hash =
+        sha256_json_hex(&descriptor).expect("content-only object projection always serializes");
+    ObjectId::new(format!("obj:sha256:{hash}"))
+}
+
+/// Project a `DiffFile` to its content-only identity view: keep the path, rename
+/// source, status, and intrinsic flags; flatten every hunk's rows to kind + text;
+/// drop blob oids, modes, line/hunk numbers, and file/hunk ids.
+fn content_only_file(file: &DiffFile) -> ContentOnlyFile<'_> {
+    ContentOnlyFile {
+        path: file.new_path.as_deref(),
+        old_path: file.old_path.as_deref(),
+        status: &file.status,
+        is_binary: file.is_binary,
+        is_submodule: file.is_submodule,
+        is_mode_only: file.is_mode_only,
+        synthetic: file.synthetic,
+        rows: file
+            .hunks
+            .iter()
+            .flat_map(|hunk| hunk.rows.iter())
+            .map(|row| ContentOnlyRow {
+                kind: &row.kind,
+                text: &row.text,
+            })
+            .collect(),
+    }
+}
+
+#[derive(Serialize)]
+struct ContentOnlyObject<'a> {
+    schema: &'static str,
+    version: u32,
+    files: Vec<ContentOnlyFile<'a>>,
+}
+
+#[derive(Serialize)]
+struct ContentOnlyFile<'a> {
+    path: Option<&'a str>,
+    old_path: Option<&'a str>,
+    status: &'a FileStatus,
+    is_binary: bool,
+    is_submodule: bool,
+    is_mode_only: bool,
+    synthetic: bool,
+    rows: Vec<ContentOnlyRow<'a>>,
+}
+
+#[derive(Serialize)]
+struct ContentOnlyRow<'a> {
+    kind: &'a DiffRowKind,
+    text: &'a str,
 }
 
 pub(crate) fn normalized_worktree_root(repo: &Path) -> Result<String> {
@@ -298,8 +351,196 @@ mod tests {
         capture_commit_range_diff_files, git_commit_tree_oid, git_rev_parse_commit_oid,
     };
     use crate::model::{
-        CommitRangeCaptureMode, DiffFile, FileId, FileStatus, ReviewEndpoint, ReviewUnitSource,
+        CommitRangeCaptureMode, DiffFile, DiffRow, DiffRowKind, FileId, FileStatus, HunkId,
+        ReviewEndpoint, ReviewHunk, ReviewUnitSource,
     };
+
+    fn content_diff_row(
+        kind: DiffRowKind,
+        old_line: Option<u32>,
+        new_line: Option<u32>,
+        text: &str,
+    ) -> DiffRow {
+        DiffRow {
+            kind,
+            old_line,
+            new_line,
+            text: text.to_owned(),
+        }
+    }
+
+    /// Build a single-hunk `DiffFile`. The file id, blob oids, mode, and hunk
+    /// numbering are exactly the inputs `object_identity` must ignore, so the
+    /// helper lets a test vary them while holding the content (path, status,
+    /// row kind + text) fixed.
+    #[allow(clippy::too_many_arguments)]
+    fn content_file(
+        file_id: &str,
+        path: &str,
+        status: FileStatus,
+        old_oid: Option<&str>,
+        new_oid: Option<&str>,
+        mode: Option<&str>,
+        hunk_start: u32,
+        rows: Vec<DiffRow>,
+    ) -> DiffFile {
+        let row_count = rows.len() as u32;
+        DiffFile {
+            id: FileId::new(file_id),
+            status,
+            old_path: Some(path.to_owned()),
+            new_path: Some(path.to_owned()),
+            old_mode: mode.map(str::to_owned),
+            new_mode: mode.map(str::to_owned),
+            old_oid: old_oid.map(str::to_owned),
+            new_oid: new_oid.map(str::to_owned),
+            similarity: None,
+            is_binary: false,
+            is_submodule: false,
+            is_mode_only: false,
+            synthetic: false,
+            metadata_rows: Vec::new(),
+            hunks: vec![ReviewHunk {
+                id: HunkId::new(format!("{file_id}#hunk")),
+                header: format!("@@ -{hunk_start} +{hunk_start} @@"),
+                old_start: hunk_start,
+                old_lines: row_count,
+                new_start: hunk_start,
+                new_lines: row_count,
+                rows,
+            }],
+        }
+    }
+
+    fn clone_a_files() -> Vec<DiffFile> {
+        vec![content_file(
+            "src/lib.rs",
+            "src/lib.rs",
+            FileStatus::Modified,
+            Some("aaa0001"),
+            Some("bbb0002"),
+            Some("100644"),
+            1,
+            vec![content_diff_row(
+                DiffRowKind::Added,
+                None,
+                Some(1),
+                "pub fn value() -> u32 { 2 }",
+            )],
+        )]
+    }
+
+    fn clone_b_files() -> Vec<DiffFile> {
+        // Identical content, a different clone: different blob oids, file mode,
+        // file/hunk ids, and line/hunk numbers — every input object identity
+        // must drop. Only path, status, and the row's kind + text are shared.
+        vec![content_file(
+            "fileid:other-clone",
+            "src/lib.rs",
+            FileStatus::Modified,
+            Some("ccc0003"),
+            Some("ddd0004"),
+            Some("100755"),
+            41,
+            vec![content_diff_row(
+                DiffRowKind::Added,
+                None,
+                Some(99),
+                "pub fn value() -> u32 { 2 }",
+            )],
+        )]
+    }
+
+    fn sample_files() -> Vec<DiffFile> {
+        vec![
+            content_file(
+                "a",
+                "src/a.rs",
+                FileStatus::Modified,
+                Some("o1"),
+                Some("n1"),
+                Some("100644"),
+                1,
+                vec![content_diff_row(
+                    DiffRowKind::Added,
+                    None,
+                    Some(1),
+                    "let a = 1;",
+                )],
+            ),
+            content_file(
+                "b",
+                "src/b.rs",
+                FileStatus::Added,
+                None,
+                Some("n2"),
+                Some("100644"),
+                1,
+                vec![content_diff_row(
+                    DiffRowKind::Added,
+                    None,
+                    Some(1),
+                    "let b = 2;",
+                )],
+            ),
+        ]
+    }
+
+    fn markdown_set_files() -> Vec<DiffFile> {
+        // No git blobs, no modes: a pure content set must still hash to a stable id.
+        vec![content_file(
+            "NOTES.md",
+            "NOTES.md",
+            FileStatus::Added,
+            None,
+            None,
+            None,
+            1,
+            vec![content_diff_row(
+                DiffRowKind::Added,
+                None,
+                Some(1),
+                "# Notes",
+            )],
+        )]
+    }
+
+    #[test]
+    fn object_identity_converges_for_two_clones() {
+        // Identical content under different namespaces / blob oids -> one id.
+        assert_eq!(
+            object_identity(&clone_a_files()),
+            object_identity(&clone_b_files())
+        );
+    }
+
+    #[test]
+    fn object_identity_is_path_set_based_not_array_ordered() {
+        let mut files = sample_files();
+        let forward = object_identity(&files);
+        files.reverse();
+        let reversed = object_identity(&files);
+        assert_eq!(forward, reversed);
+    }
+
+    #[test]
+    fn object_identity_expresses_a_non_git_markdown_set() {
+        let id = object_identity(&markdown_set_files());
+        assert!(
+            id.as_str().starts_with("obj:"),
+            "expected obj: prefix, got {}",
+            id.as_str()
+        );
+    }
+
+    #[test]
+    fn object_identity_distinguishes_different_content() {
+        // Converse guard: identity is content-sensitive, not vacuously constant.
+        assert_ne!(
+            object_identity(&clone_a_files()),
+            object_identity(&markdown_set_files())
+        );
+    }
 
     #[test]
     fn combined_worktree_capture_resolves_head_commit_and_tree() {
@@ -334,17 +575,18 @@ mod tests {
     }
 
     #[test]
-    fn review_unit_id_is_stable_for_same_captured_snapshot() {
+    fn revision_id_is_stable_for_same_captured_snapshot() {
         let repo = modified_repo();
         let first = compute_review_unit_fingerprint(repo.path()).unwrap();
         let second = compute_review_unit_fingerprint(repo.path()).unwrap();
 
         assert_eq!(first.snapshot_id, second.snapshot_id);
-        assert_eq!(first.review_unit_id, second.review_unit_id);
+        assert_eq!(first.revision_id, second.revision_id);
+        assert_eq!(first.engagement_id, second.engagement_id);
     }
 
     #[test]
-    fn tracked_or_untracked_content_changes_review_unit_id() {
+    fn tracked_or_untracked_content_changes_revision_id() {
         let repo = modified_repo();
         let first = compute_review_unit_fingerprint(repo.path()).unwrap();
 
@@ -352,11 +594,11 @@ mod tests {
         let second = compute_review_unit_fingerprint(repo.path()).unwrap();
 
         assert_ne!(first.snapshot_id, second.snapshot_id);
-        assert_ne!(first.review_unit_id, second.review_unit_id);
+        assert_ne!(first.revision_id, second.revision_id);
     }
 
     #[test]
-    fn shore_directory_is_excluded_from_review_unit_identity() {
+    fn shore_directory_is_excluded_from_revision_identity() {
         let repo = modified_repo();
         let first = compute_review_unit_fingerprint(repo.path()).unwrap();
 
@@ -364,7 +606,7 @@ mod tests {
         fs::write(repo.path().join(".shore/data/events/noise.json"), "{}").unwrap();
         let second = compute_review_unit_fingerprint(repo.path()).unwrap();
 
-        assert_eq!(first.review_unit_id, second.review_unit_id);
+        assert_eq!(first.revision_id, second.revision_id);
     }
 
     #[test]
@@ -384,7 +626,10 @@ mod tests {
     }
 
     #[test]
-    fn source_repo_namespace_is_local_to_canonical_worktree_root_for_v1() {
+    fn worktree_capture_revision_id_distinguishes_repos_but_object_converges() {
+        // A worktree capture's provenance includes its working-tree path, so two
+        // repos with identical content share one content object but mint distinct
+        // revisions. The object id is the content-only identity.
         let repo_a = modified_repo();
         let repo_b = modified_repo();
 
@@ -396,50 +641,15 @@ mod tests {
             repo_b.path().canonicalize().unwrap()
         );
         assert_eq!(first.snapshot_id, second.snapshot_id);
-        assert_ne!(first.review_unit_id, second.review_unit_id);
-        assert_eq!(
-            first.source_repo_namespace(),
-            repo_a
-                .path()
-                .canonicalize()
-                .unwrap()
-                .to_string_lossy()
-                .as_ref()
-        );
+        assert_ne!(first.revision_id, second.revision_id);
     }
 
     #[test]
-    fn snapshot_fingerprint_descriptor_pins_diff_file_serde_shape() {
-        let file = DiffFile {
-            id: FileId::new("src/lib.rs"),
-            status: FileStatus::Modified,
-            old_path: Some("src/lib.rs".to_owned()),
-            new_path: Some("src/lib.rs".to_owned()),
-            old_mode: Some("100644".to_owned()),
-            new_mode: Some("100644".to_owned()),
-            old_oid: Some("abc123".to_owned()),
-            new_oid: Some("def456".to_owned()),
-            similarity: None,
-            is_binary: false,
-            is_submodule: false,
-            is_mode_only: false,
-            synthetic: false,
-            metadata_rows: Vec::new(),
-            hunks: Vec::new(),
-        };
-        let descriptor = SnapshotFingerprintDescriptor {
-            schema: SNAPSHOT_FINGERPRINT_SCHEMA,
-            version: SNAPSHOT_FINGERPRINT_VERSION,
-            files: std::slice::from_ref(&file),
-        };
-
-        let json = serde_json::to_value(&descriptor).unwrap();
-        let file = json["files"][0].as_object().unwrap();
-
-        assert!(file.contains_key("new_path"));
-        assert!(file.contains_key("metadata_rows"));
-        assert!(!file.contains_key("newPath"));
-        assert!(!file.contains_key("metadataRows"));
+    fn object_identity_drops_the_repo_namespace_and_git_oids() {
+        // The content object never folds the worktree path or git blob oids: a
+        // worktree change's object id is purely its diff content.
+        let id = object_identity(&clone_a_files());
+        assert!(id.as_str().starts_with("obj:sha256:"));
     }
 
     #[test]
@@ -494,11 +704,13 @@ mod tests {
 
         assert_eq!(first.snapshot_id, second.snapshot_id);
         assert_eq!(first.revision_id, second.revision_id);
-        assert_eq!(first.review_unit_id, second.review_unit_id);
+        assert_eq!(first.engagement_id, second.engagement_id);
     }
 
     #[test]
-    fn commit_range_snapshot_id_differs_from_worktree_snapshot_id_for_identical_rows() {
+    fn commit_range_revision_id_differs_from_worktree_for_identical_rows() {
+        // Identical content under different provenance (worktree vs commit range)
+        // converges to one content object but mints distinct revisions.
         let repo = committed_repo();
         let base = resolved_endpoint(repo.path(), "HEAD~1");
         let target = resolved_endpoint(repo.path(), "HEAD");
@@ -511,21 +723,10 @@ mod tests {
             commit_range_review_unit_fingerprint_for_files(repo.path(), &base, &target, &files)
                 .unwrap();
 
-        assert_ne!(worktree.snapshot_id, range.snapshot_id);
-        assert_ne!(worktree.review_unit_id, range.review_unit_id);
-        assert!(
-            worktree
-                .snapshot_id
-                .as_str()
-                .starts_with("snap:git:sha256:")
-        );
-        assert!(range.snapshot_id.as_str().starts_with("snap:git:sha256:"));
-        assert!(
-            range
-                .review_unit_id
-                .as_str()
-                .starts_with("review-unit:sha256:")
-        );
+        assert_eq!(worktree.snapshot_id, range.snapshot_id);
+        assert_ne!(worktree.revision_id, range.revision_id);
+        assert!(worktree.snapshot_id.as_str().starts_with("obj:sha256:"));
+        assert!(range.revision_id.as_str().starts_with("rev:sha256:"));
     }
 
     #[test]
@@ -566,50 +767,13 @@ mod tests {
         )
         .unwrap();
 
+        // A real clone preserves commit/tree oids AND content, and a commit-range
+        // capture's provenance carries no worktree path, so both clones converge
+        // to one revision id — content + provenance are identical.
         assert_eq!(base_a.commit_oid, base_b.commit_oid);
         assert_eq!(target_a.commit_oid, target_b.commit_oid);
         assert_eq!(first.snapshot_id, second.snapshot_id);
-        assert_ne!(first.review_unit_id, second.review_unit_id);
-    }
-
-    #[test]
-    fn commit_range_snapshot_descriptor_pins_schema_and_tree_pair() {
-        let file = DiffFile {
-            id: FileId::new("src/lib.rs"),
-            status: FileStatus::Modified,
-            old_path: Some("src/lib.rs".to_owned()),
-            new_path: Some("src/lib.rs".to_owned()),
-            old_mode: Some("100644".to_owned()),
-            new_mode: Some("100644".to_owned()),
-            old_oid: Some("abc123".to_owned()),
-            new_oid: Some("def456".to_owned()),
-            similarity: None,
-            is_binary: false,
-            is_submodule: false,
-            is_mode_only: false,
-            synthetic: false,
-            metadata_rows: Vec::new(),
-            hunks: Vec::new(),
-        };
-        let descriptor = CommitRangeSnapshotFingerprintDescriptor {
-            schema: COMMIT_RANGE_SNAPSHOT_FINGERPRINT_SCHEMA,
-            version: COMMIT_RANGE_SNAPSHOT_FINGERPRINT_VERSION,
-            base_tree_oid: "basetree0",
-            target_tree_oid: "targettree0",
-            files: std::slice::from_ref(&file),
-        };
-
-        let json = serde_json::to_value(&descriptor).unwrap();
-
-        assert_eq!(json["schema"], "shore.commit-range-snapshot-fingerprint");
-        assert_eq!(json["version"], 1);
-        assert_eq!(json["baseTreeOid"], "basetree0");
-        assert_eq!(json["targetTreeOid"], "targettree0");
-        let file = json["files"][0].as_object().unwrap();
-        assert!(file.contains_key("new_path"));
-        assert!(file.contains_key("metadata_rows"));
-        assert!(!file.contains_key("newPath"));
-        assert!(!file.contains_key("metadataRows"));
+        assert_eq!(first.revision_id, second.revision_id);
     }
 
     fn modified_repo() -> TestRepo {

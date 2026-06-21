@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::kind::EventType;
 use super::payload::EventPayload;
 use crate::model::{
-    ReviewUnitId, ReviewUnitLineageBasisV1, ReviewUnitLineageId, ReviewUnitLineageRoundId,
+    ReviewUnitLineageBasisV1, ReviewUnitLineageId, ReviewUnitLineageRoundId, RevisionId,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -30,9 +30,9 @@ impl EventPayload for ReviewUnitLineageDeclaredPayload {
 pub struct ReviewUnitLineageRoundRecordedPayload {
     pub lineage_id: ReviewUnitLineageId,
     pub round_id: ReviewUnitLineageRoundId,
-    pub review_unit_id: ReviewUnitId,
+    pub review_unit_id: RevisionId,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub predecessor_review_unit_id: Option<ReviewUnitId>,
+    pub predecessor_review_unit_id: Option<RevisionId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub change_id: Option<String>,
 }
@@ -40,7 +40,7 @@ pub struct ReviewUnitLineageRoundRecordedPayload {
 impl ReviewUnitLineageRoundRecordedPayload {
     pub fn idempotency_key(
         lineage_id: &ReviewUnitLineageId,
-        review_unit_id: &ReviewUnitId,
+        review_unit_id: &RevisionId,
     ) -> String {
         format!(
             "review_unit_lineage_round_recorded:{}:{}",
@@ -59,8 +59,8 @@ impl EventPayload for ReviewUnitLineageRoundRecordedPayload {
 #[cfg(test)]
 mod tests {
     use crate::model::{
-        ReviewEndpoint, ReviewUnitId, ReviewUnitLineageBasisV1, ReviewUnitLineageId,
-        ReviewUnitLineageRoundId, ReviewUnitSource, SessionId, WorktreeCaptureMode,
+        LedgerId, ReviewEndpoint, ReviewUnitLineageBasisV1, ReviewUnitLineageId,
+        ReviewUnitLineageRoundId, ReviewUnitSource, RevisionId, WorktreeCaptureMode,
     };
     use crate::session::event::{
         EventPayload, EventTarget, EventType, ReviewUnitLineageDeclaredPayload,
@@ -70,7 +70,7 @@ mod tests {
     #[test]
     fn lineage_round_idempotency_key_is_lineage_and_review_unit_scoped() {
         let lineage_id = ReviewUnitLineageId::new("review-unit-lineage:sha256:abc");
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:def");
+        let review_unit_id = RevisionId::new("review-unit:sha256:def");
 
         let key =
             ReviewUnitLineageRoundRecordedPayload::idempotency_key(&lineage_id, &review_unit_id);
@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn lineage_event_payload_and_target_are_path_free() {
         let lineage_id = ReviewUnitLineageId::new("review-unit-lineage:sha256:abc");
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:def");
+        let review_unit_id = RevisionId::new("review-unit:sha256:def");
         let round_id = ReviewUnitLineageRoundId::new("review-unit-lineage-round:sha256:ghi");
         let payload = ReviewUnitLineageRoundRecordedPayload {
             lineage_id: lineage_id.clone(),
@@ -94,7 +94,7 @@ mod tests {
             change_id: Some("Iabc123".to_owned()),
         };
         let target =
-            EventTarget::for_review_unit_lineage(SessionId::new("session:default"), lineage_id);
+            EventTarget::for_review_unit_lineage(LedgerId::new("session:default"), lineage_id);
 
         let combined = format!(
             "{}\n{}",
@@ -111,7 +111,7 @@ mod tests {
     #[test]
     fn lineage_payloads_match_event_types() {
         let lineage_id = ReviewUnitLineageId::new("review-unit-lineage:sha256:abc");
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:def");
+        let review_unit_id = RevisionId::new("review-unit:sha256:def");
         let basis = ReviewUnitLineageBasisV1::new(
             ReviewUnitSource::GitWorktree {
                 mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
@@ -137,7 +137,7 @@ mod tests {
         let declare_event = ShoreEvent::new(
             EventType::ReviewUnitLineageDeclared,
             ReviewUnitLineageDeclaredPayload::idempotency_key(&lineage_id),
-            EventTarget::for_review_unit_lineage(SessionId::new("session:default"), lineage_id),
+            EventTarget::for_review_unit_lineage(LedgerId::new("session:default"), lineage_id),
             Writer::shore_local("test"),
             declared,
             "2026-06-04T00:00:00Z",

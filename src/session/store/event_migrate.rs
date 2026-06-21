@@ -75,7 +75,7 @@ fn io_error(action: &str, path: &Path, error: std::io::Error) -> ShoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{SessionId, WorkUnitId};
+    use crate::model::LedgerId;
     use crate::session::event::{
         EventTarget, EventType, ReviewInitializedPayload, ShoreEvent, Writer,
     };
@@ -85,10 +85,7 @@ mod tests {
         ShoreEvent::new(
             EventType::ReviewInitialized,
             "review_initialized:session:default:work:default",
-            EventTarget::new(
-                SessionId::new("session:default"),
-                WorkUnitId::new("work:default"),
-            ),
+            EventTarget::for_ledger(LedgerId::new("session:default")),
             Writer::shore_local("0.1.0"),
             ReviewInitializedPayload {},
             "2026-05-10T00:00:00Z",

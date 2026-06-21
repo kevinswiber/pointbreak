@@ -188,7 +188,7 @@ mod tests {
 
     use super::*;
     use crate::git::git_path_is_ignored;
-    use crate::model::{EventId, SessionId, WorkUnitId};
+    use crate::model::{EventId, LedgerId};
     use crate::session::event::{
         EventTarget, EventType, ReviewInitializedPayload, ShoreEvent, Writer,
     };
@@ -208,10 +208,7 @@ mod tests {
         ShoreEvent::new(
             EventType::ReviewInitialized,
             format!("review_initialized:session:{i}:work:default"),
-            EventTarget::new(
-                SessionId::new(format!("session:{i}")),
-                WorkUnitId::new("work:default"),
-            ),
+            EventTarget::for_ledger(LedgerId::new(format!("session:{i}"))),
             Writer::shore_local("0.1.0"),
             ReviewInitializedPayload {},
             "2026-05-10T00:00:00Z",

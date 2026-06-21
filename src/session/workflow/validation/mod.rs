@@ -19,7 +19,7 @@ mod tests {
 
     use super::add::{ValidationCheckIdMaterial, build_validation_check_id};
     use super::*;
-    use crate::model::{ReviewUnitId, ValidationStatus, ValidationTarget};
+    use crate::model::{RevisionId, ValidationStatus, ValidationTarget};
     use crate::session::body_artifact::BODY_INLINE_LIMIT;
     use crate::session::event::{EventType, ValidationCheckRecordedPayload};
     use crate::session::{CaptureOptions, EventStore, capture_worktree_review};
@@ -37,14 +37,17 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.review_unit_id, capture.review_unit_id);
+        assert_eq!(result.review_unit_id, capture.revision_id);
         assert_eq!(result.status, ValidationStatus::Passed);
         assert_eq!(result.events_created, 1);
         let event = validation_events(repo.path())
             .pop()
             .expect("validation event");
         assert_eq!(event.event_type, EventType::ValidationCheckRecorded);
-        assert_eq!(event.target.review_unit_id, Some(capture.review_unit_id));
+        assert_eq!(
+            crate::model::subject_revision_id(&event.target.subject),
+            Some(&capture.revision_id)
+        );
     }
 
     #[test]
@@ -54,7 +57,7 @@ mod tests {
 
         record_validation_check(
             ValidationAddOptions::new(repo.path())
-                .with_review_unit_id(capture.review_unit_id.clone())
+                .with_review_unit_id(capture.revision_id.clone())
                 .with_track("agent:codex")
                 .with_check_name("cargo test")
                 .with_status(ValidationStatus::Passed),
@@ -69,7 +72,7 @@ mod tests {
         assert_eq!(
             payload.target,
             ValidationTarget::ReviewUnit {
-                review_unit_id: capture.review_unit_id
+                review_unit_id: capture.revision_id
             }
         );
     }
@@ -123,10 +126,10 @@ mod tests {
     #[test]
     fn build_validation_check_id_uses_stable_material_digest() {
         let id = build_validation_check_id(ValidationCheckIdMaterial {
-            review_unit_id: &ReviewUnitId::new("review-unit:sha256:unit"),
+            review_unit_id: &RevisionId::new("review-unit:sha256:unit"),
             track_id: &crate::model::TrackId::new("agent:codex"),
             target: &ValidationTarget::ReviewUnit {
-                review_unit_id: ReviewUnitId::new("review-unit:sha256:unit"),
+                review_unit_id: RevisionId::new("review-unit:sha256:unit"),
             },
             check_name: "cargo test",
             command: Some("cargo test --all"),

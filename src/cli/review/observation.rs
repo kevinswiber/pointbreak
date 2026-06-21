@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 use shoreline::documents::{observation_add_document, observation_list_document};
-use shoreline::model::{ObservationId, ReviewUnitId, ReviewUnitLineageId};
+use shoreline::model::{ObservationId, ReviewUnitLineageId, RevisionId};
 use shoreline::session::{
     ObservationAddOptions, ObservationListOptions, ObservationTargetSelector, list_observations,
     record_observation,
@@ -181,7 +181,7 @@ fn observation_add_options(
         .with_target(target);
 
     if let Some(review_unit) = args.review_unit {
-        options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+        options = options.with_review_unit_id(RevisionId::new(review_unit));
     }
     if let Some(lineage) = args.lineage {
         options = options.with_lineage_id(ReviewUnitLineageId::new(lineage));
@@ -216,7 +216,7 @@ fn observation_add_options(
 fn observation_list_options(args: ObservationListArgs) -> ObservationListOptions {
     let mut options = ObservationListOptions::new(&args.repo).with_include_body(args.include_body);
     if let Some(review_unit) = args.review_unit {
-        options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+        options = options.with_review_unit_id(RevisionId::new(review_unit));
     }
     if let Some(lineage) = args.lineage {
         options = options.with_lineage_id(ReviewUnitLineageId::new(lineage));

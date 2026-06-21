@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::model::{ReviewUnitId, TrackId};
+use crate::model::{RevisionId, TrackId};
 use crate::session::event::EventType;
 use crate::session::{
     ActorAttributesMap, DelegationMap, EventVerificationPolicy, RefFilterMode, TrustSet,
@@ -12,7 +12,7 @@ use crate::session::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewHistoryOptions {
     pub(super) repo: PathBuf,
-    pub(super) review_unit_id: Option<ReviewUnitId>,
+    pub(super) review_unit_id: Option<RevisionId>,
     pub(super) track: Option<String>,
     pub(super) event_types: Vec<EventType>,
     pub(super) ref_filter: Option<(String, RefFilterMode)>,
@@ -46,7 +46,7 @@ impl ReviewHistoryOptions {
         self
     }
 
-    pub fn with_review_unit_id(mut self, review_unit_id: ReviewUnitId) -> Self {
+    pub fn with_review_unit_id(mut self, review_unit_id: RevisionId) -> Self {
         self.review_unit_id = Some(review_unit_id);
         self
     }
@@ -97,7 +97,7 @@ impl ReviewHistoryOptions {
 #[serde(rename_all = "camelCase")]
 pub struct ReviewHistoryFilters {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub review_unit_id: Option<ReviewUnitId>,
+    pub review_unit_id: Option<RevisionId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub track_id: Option<TrackId>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -107,12 +107,12 @@ pub struct ReviewHistoryFilters {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct ResolvedHistoryFilters {
-    pub(super) review_unit_id: Option<ReviewUnitId>,
+    pub(super) review_unit_id: Option<RevisionId>,
     pub(super) track_id: Option<TrackId>,
     pub(super) event_types: Vec<EventType>,
     /// When a `--ref` filter resolves, the review-unit ids that match it. An
     /// event passes only if its target unit is in this set.
-    pub(super) ref_matched_units: Option<BTreeSet<ReviewUnitId>>,
+    pub(super) ref_matched_units: Option<BTreeSet<RevisionId>>,
     pub(super) include_body: bool,
     pub(super) verification_policy: Option<EventVerificationPolicy>,
     pub(super) trust_set: TrustSet,

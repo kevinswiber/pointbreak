@@ -4,7 +4,7 @@ use super::kind::EventType;
 use super::payload::EventPayload;
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    InputRequestId, InputRequestResponseId, ReviewTargetRef, ReviewUnitId, TrackId, WorkObjectId,
+    InputRequestId, InputRequestResponseId, ReviewTargetRef, RevisionId, TrackId, WorkObjectId,
     WorkObjectType,
 };
 
@@ -74,7 +74,7 @@ impl InputRequestOpenedPayload {
     // callers pick the constructor that matches their work-object kind.
 
     pub fn idempotency_key(
-        review_unit_id: &ReviewUnitId,
+        review_unit_id: &RevisionId,
         track_id: &TrackId,
         source_key: &str,
     ) -> String {
@@ -92,7 +92,7 @@ impl InputRequestOpenedPayload {
         source_key: &str,
     ) -> String {
         let kind = match work_object_type {
-            WorkObjectType::ReviewUnit => "review_unit",
+            WorkObjectType::Revision => "revision",
             WorkObjectType::TaskAttempt => "task_attempt",
         };
         format!(
@@ -152,13 +152,13 @@ impl EventPayload for InputRequestRespondedPayload {
 mod tests {
     use super::*;
     use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
-    use crate::model::{SessionId, WorkObjectId, WorkObjectType, WorkUnitId};
+    use crate::model::{LedgerId, WorkObjectId, WorkObjectType};
     use crate::session::event::{EventTarget, ShoreEvent, Writer};
 
     #[test]
     fn input_request_opened_idempotency_key_uses_new_review_domain_prefix() {
         let key = InputRequestOpenedPayload::idempotency_key(
-            &ReviewUnitId::new("ru-1"),
+            &RevisionId::new("ru-1"),
             &TrackId::new("human:kevin"),
             "source-1",
         );
@@ -193,7 +193,7 @@ mod tests {
     #[test]
     fn idempotency_key_constructors_do_not_collide_on_shared_source_key() {
         let review = InputRequestOpenedPayload::idempotency_key(
-            &ReviewUnitId::new("shared"),
+            &RevisionId::new("shared"),
             &TrackId::new("track-a"),
             "source-1",
         );
@@ -298,10 +298,10 @@ mod tests {
 
     #[test]
     fn input_request_opened_event_hashes_pin_new_wire_shape() {
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:unit");
+        let revision_id = RevisionId::new("review-unit:sha256:unit");
         let track_id = TrackId::new("human:kevin");
-        let target = ReviewTargetRef::ReviewUnit {
-            review_unit_id: review_unit_id.clone(),
+        let target = ReviewTargetRef::Revision {
+            revision_id: revision_id.clone(),
         };
         let payload = InputRequestOpenedPayload {
             input_request_id: InputRequestId::new("input-request:sha256:abc"),
@@ -315,14 +315,15 @@ mod tests {
             target_fingerprint: None,
         };
         let idempotency_key =
-            InputRequestOpenedPayload::idempotency_key(&review_unit_id, &track_id, "source-1");
+            InputRequestOpenedPayload::idempotency_key(&revision_id, &track_id, "source-1");
 
         let event = ShoreEvent::new(
             EventType::InputRequestOpened,
             idempotency_key.clone(),
-            EventTarget::new(
-                SessionId::new("session:default"),
-                WorkUnitId::new("work:default"),
+            EventTarget::for_revision(
+                LedgerId::new("ledger:default"),
+                revision_id.clone(),
+                Some(track_id.clone()),
             ),
             Writer::shore_local("test"),
             payload,
@@ -389,9 +390,10 @@ mod tests {
         let event = ShoreEvent::new(
             EventType::InputRequestResponded,
             idempotency_key.clone(),
-            EventTarget::new(
-                SessionId::new("session:default"),
-                WorkUnitId::new("work:default"),
+            EventTarget::for_revision(
+                LedgerId::new("ledger:default"),
+                RevisionId::new("review-unit:sha256:unit"),
+                None,
             ),
             Writer::shore_local("test"),
             payload,
@@ -428,8 +430,8 @@ mod tests {
     fn opened_input_request_payload() -> InputRequestOpenedPayload {
         InputRequestOpenedPayload {
             input_request_id: InputRequestId::new("input-request:sha256:abc"),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: ReviewUnitId::new("ru-1"),
+            target: ReviewTargetRef::Revision {
+                revision_id: RevisionId::new("ru-1"),
             },
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "t".to_owned(),

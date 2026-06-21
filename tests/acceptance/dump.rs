@@ -2,8 +2,8 @@ use serde_json::Value;
 use shoreline::dump::{DumpDocument, DumpInputSource, DumpInputSummary};
 use shoreline::model::{
     Anchor, DiffFile, DiffRow, DiffRowKind, DiffSnapshot, FileId, FileStatus, HunkId, LineRange,
-    ResolutionStatus, ReviewHunk, ReviewId, ReviewNote, ReviewNoteId, ReviewNoteSource, ReviewRow,
-    ReviewRowKind, ReviewStream, RowId, Side, SnapshotId,
+    ObjectId, ResolutionStatus, ReviewHunk, ReviewId, ReviewNote, ReviewNoteId, ReviewNoteSource,
+    ReviewRow, ReviewRowKind, ReviewStream, RowId, Side,
 };
 use shoreline::sidecar::{
     DiagnosticLevel, ParsedReviewNotes, ReviewNoteEntry, ReviewNoteTarget, ReviewNotesDiagnostic,
@@ -456,7 +456,7 @@ fn snapshot_with_one_hunk() -> DiffSnapshot {
 
     DiffSnapshot::new(
         ReviewId::new("review:test"),
-        SnapshotId::new("snapshot:test"),
+        ObjectId::new("snapshot:test"),
         vec![DiffFile {
             id: FileId::new("src/lib.rs"),
             status: FileStatus::Modified,

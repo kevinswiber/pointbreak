@@ -1,11 +1,11 @@
 use serde::Serialize;
 
 use crate::model::{
-    AssessmentId, CommitAssociationId, CommitWithdrawalId, EventId, InputRequestId,
-    InputRequestResponseId, ObservationId, RefAssociationId, RefWithdrawalId, ReviewEndpoint,
-    ReviewTargetRef, ReviewUnitId, ReviewUnitLineageBasisV1, ReviewUnitLineageId,
-    ReviewUnitLineageRoundId, ReviewUnitSource, RevisionId, SessionId, SnapshotId, TrackId,
-    ValidationCheckId, ValidationStatus, ValidationTarget, ValidationTrigger,
+    AssessmentId, CommitAssociationId, CommitWithdrawalId, EngagementId, EventId, InputRequestId,
+    InputRequestResponseId, LedgerId, ObjectId, ObservationId, RefAssociationId, RefWithdrawalId,
+    ReviewEndpoint, ReviewTargetRef, ReviewUnitLineageBasisV1, ReviewUnitLineageId,
+    ReviewUnitLineageRoundId, ReviewUnitSource, RevisionId, TrackId, ValidationCheckId,
+    ValidationStatus, ValidationTarget, ValidationTrigger,
 };
 use crate::session::event::{
     AssertionMode, EventType, ImportedNoteTarget, InputRequestReasonCode,
@@ -20,13 +20,7 @@ pub struct ReviewHistoryEntry {
     pub event_type: EventType,
     pub occurred_at: String,
     pub payload_hash: String,
-    pub session_id: SessionId,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub review_unit_id: Option<ReviewUnitId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub revision_id: Option<RevisionId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub snapshot_id: Option<SnapshotId>,
+    pub ledger_id: LedgerId,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub track_id: Option<TrackId>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -53,13 +47,16 @@ pub struct ReviewHistoryEntry {
 )]
 pub enum ReviewHistorySummary {
     ReviewInitialized {},
-    ReviewUnitCaptured {
-        review_unit_id: ReviewUnitId,
-        source: ReviewUnitSource,
-        base: ReviewEndpoint,
-        target: ReviewEndpoint,
+    RevisionCaptured {
         revision_id: RevisionId,
-        snapshot_id: SnapshotId,
+        object_id: ObjectId,
+        engagement_id: EngagementId,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source: Option<ReviewUnitSource>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        base: Option<ReviewEndpoint>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        target: Option<ReviewEndpoint>,
         snapshot_artifact_content_hash: String,
     },
     ReviewObservationRecorded {
@@ -153,9 +150,9 @@ pub enum ReviewHistorySummary {
     ReviewUnitLineageRoundRecorded {
         lineage_id: ReviewUnitLineageId,
         round_id: ReviewUnitLineageRoundId,
-        review_unit_id: ReviewUnitId,
+        review_unit_id: RevisionId,
         #[serde(skip_serializing_if = "Option::is_none")]
-        predecessor_review_unit_id: Option<ReviewUnitId>,
+        predecessor_review_unit_id: Option<RevisionId>,
         #[serde(skip_serializing_if = "Option::is_none")]
         change_id: Option<String>,
     },

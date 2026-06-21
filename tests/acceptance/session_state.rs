@@ -238,12 +238,12 @@ fn first_capture_creates_shore_store_events_artifacts_and_state() {
         !repo.path().join(".gitignore").exists(),
         "capture must not create a tracked .gitignore"
     );
-    assert_eq!(result.events_created_by_type["review_unit_captured"], 1);
+    assert_eq!(result.events_created_by_type["work_object_proposed"], 1);
 
     let state: SessionState =
         serde_json::from_str(&std::fs::read_to_string(store.join("state.json")).unwrap())
             .expect("state decodes");
-    assert_eq!(state.current_review_unit_id, Some(result.review_unit_id));
+    assert_eq!(state.current_review_unit_id, Some(result.revision_id));
     assert_eq!(state.review_unit_count, 1);
     assert_eq!(state.event_count, 2);
 }
@@ -296,7 +296,7 @@ fn capture_unchanged_worktree_is_idempotent() {
     let first = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
     let second = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
 
-    assert_eq!(first.review_unit_id, second.review_unit_id);
+    assert_eq!(first.revision_id, second.revision_id);
     assert_eq!(second.events_created, 0);
     assert!(second.events_existing >= 1);
 }
@@ -310,8 +310,8 @@ fn capture_writer_identity_prefers_git_config_email() {
     let event = events
         .iter()
         .find(|event| {
-            event.event_type == EventType::ReviewUnitCaptured
-                && event.payload["reviewUnitId"] == result.review_unit_id.as_str()
+            event.event_type == EventType::WorkObjectProposed
+                && event.payload["workObject"]["revision"]["id"] == result.revision_id.as_str()
         })
         .expect("review unit event exists");
 

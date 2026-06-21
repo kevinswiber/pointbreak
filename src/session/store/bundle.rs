@@ -470,13 +470,17 @@ fn is_event_file(path: &Path) -> bool {
 
 fn event_artifact_refs(event: &ShoreEvent) -> Vec<String> {
     let mut refs = BTreeSet::new();
-    if event.event_type == EventType::ReviewUnitCaptured
-        && let Some(snapshot_id) = event
+    // A generative move binds its content-object snapshot through the proposed
+    // work object: the object id lives on the revision the proposal wraps.
+    if event.event_type == EventType::WorkObjectProposed
+        && let Some(object_id) = event
             .payload
-            .get("snapshotId")
+            .get("workObject")
+            .and_then(|work_object| work_object.get("revision"))
+            .and_then(|revision| revision.get("objectId"))
             .and_then(|value| value.as_str())
     {
-        refs.insert(format!("snapshot:{snapshot_id}"));
+        refs.insert(format!("snapshot:{object_id}"));
     }
 
     for path in note_body_artifact_paths_for_event(event.event_type, &event.payload) {
@@ -692,8 +696,8 @@ mod tests {
     use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
     use crate::crypto::{EventVerificationStatus, SignerId};
     use crate::model::{
-        EventId, ReviewUnitId, RevisionId, SessionId, SnapshotId, TrackId, ValidationCheckId,
-        ValidationStatus, ValidationTarget, ValidationTrigger, WorkUnitId,
+        EventId, LedgerId, RevisionId, TrackId, ValidationCheckId, ValidationStatus,
+        ValidationTarget, ValidationTrigger,
     };
     use crate::session::body_artifact::BODY_INLINE_LIMIT;
     use crate::session::event::{
@@ -715,7 +719,7 @@ mod tests {
             .list_events()
             .unwrap()
             .into_iter()
-            .find(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .find(|event| event.event_type == EventType::WorkObjectProposed)
             .expect("capture event");
 
         let manifest = build_export_manifest(resolved_store_dir(repo.path())).unwrap();
@@ -731,17 +735,17 @@ mod tests {
         let event = manifest
             .events
             .iter()
-            .find(|event| event.event_type == "review_unit_captured")
+            .find(|event| event.event_type == "work_object_proposed")
             .expect("capture event in manifest");
         assert_eq!(event.event_id, capture_event.event_id.as_str());
-        assert_eq!(event.event_type, "review_unit_captured");
+        assert_eq!(event.event_type, "work_object_proposed");
         assert_eq!(event.idempotency_key, capture_event.idempotency_key);
         assert_eq!(event.payload_hash, capture_event.payload_hash);
         assert!(event.event_envelope_hash.starts_with("sha256:"));
         assert!(event.event_file_hash.starts_with("sha256:"));
         assert_ne!(event.event_envelope_hash, event.event_file_hash);
 
-        let snapshot_ref = format!("snapshot:{}", capture.snapshot_id.as_str());
+        let snapshot_ref = format!("snapshot:{}", capture.object_id.as_str());
         assert_eq!(event.artifact_refs, vec![snapshot_ref.clone()]);
         let artifact = manifest
             .artifacts
@@ -1050,7 +1054,7 @@ mod tests {
         assert!(target_store_dir.join("events").is_dir());
         let rebuilt_state = fs::read_to_string(target_store_dir.join("state.json")).unwrap();
         assert!(!rebuilt_state.contains("must not be imported"));
-        assert!(rebuilt_state.contains("sessionId"));
+        assert!(rebuilt_state.contains("ledgerId"));
     }
 
     #[test]
@@ -1215,10 +1219,7 @@ mod tests {
             )),
             event_type: EventType::ReviewInitialized,
             idempotency_key: idempotency_key.to_owned(),
-            target: EventTarget::new(
-                SessionId::new("session:default"),
-                WorkUnitId::new("work:default"),
-            ),
+            target: EventTarget::for_ledger(LedgerId::new("ledger:default")),
             writer: Writer::shore_local("test"),
             occurred_at: "2026-05-30T00:00:00Z".to_owned(),
             payload_hash: sha256_json_prefixed(&payload).unwrap(),
@@ -1250,13 +1251,12 @@ mod tests {
         summary_content_hash: &str,
         summary_byte_size: u64,
     ) -> ShoreEvent {
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:bundle");
+        let review_unit_id = RevisionId::new("review-unit:sha256:bundle");
         let track_id = TrackId::new("agent:codex");
-        let mut target = EventTarget::for_review_unit(
-            SessionId::new("session:default"),
+        let mut target = EventTarget::for_revision(
+            LedgerId::new("session:default"),
             review_unit_id.clone(),
-            RevisionId::new("rev:sha256:bundle"),
-            SnapshotId::new("snap:sha256:bundle"),
+            None,
         );
         target.track_id = Some(track_id.clone());
 

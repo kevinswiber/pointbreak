@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::kind::EventType;
 use super::payload::EventPayload;
 use crate::model::{
-    ReviewUnitId, TrackId, ValidationCheckId, ValidationStatus, ValidationTarget, ValidationTrigger,
+    RevisionId, TrackId, ValidationCheckId, ValidationStatus, ValidationTarget, ValidationTrigger,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -38,7 +38,7 @@ pub struct ValidationCheckRecordedPayload {
 
 impl ValidationCheckRecordedPayload {
     pub fn idempotency_key(
-        review_unit_id: &ReviewUnitId,
+        review_unit_id: &RevisionId,
         track_id: &TrackId,
         source_key: &str,
     ) -> String {
@@ -61,7 +61,7 @@ impl EventPayload for ValidationCheckRecordedPayload {
 mod tests {
     use super::*;
     use crate::model::{
-        ReviewUnitId, TrackId, ValidationCheckId, ValidationStatus, ValidationTarget,
+        RevisionId, TrackId, ValidationCheckId, ValidationStatus, ValidationTarget,
         ValidationTrigger,
     };
 
@@ -69,7 +69,7 @@ mod tests {
         ValidationCheckRecordedPayload {
             validation_check_id: ValidationCheckId::new("validation:sha256:ghi"),
             target: ValidationTarget::ReviewUnit {
-                review_unit_id: ReviewUnitId::new("review-unit:sha256:def"),
+                review_unit_id: RevisionId::new("review-unit:sha256:def"),
             },
             check_name: "cargo test".to_owned(),
             command: None,
@@ -106,7 +106,7 @@ mod tests {
     #[test]
     fn validation_idempotency_key_is_review_unit_track_and_source_scoped() {
         let key = ValidationCheckRecordedPayload::idempotency_key(
-            &ReviewUnitId::new("review-unit:sha256:def"),
+            &RevisionId::new("review-unit:sha256:def"),
             &TrackId::new("agent:codex"),
             "validation:sha256:ghi",
         );
@@ -121,7 +121,7 @@ mod tests {
     fn validation_event_payload_and_target_are_path_free() {
         let payload = fixture_payload();
         let key = ValidationCheckRecordedPayload::idempotency_key(
-            &ReviewUnitId::new("review-unit:sha256:def"),
+            &RevisionId::new("review-unit:sha256:def"),
             &TrackId::new("agent:codex"),
             payload.validation_check_id.as_str(),
         );

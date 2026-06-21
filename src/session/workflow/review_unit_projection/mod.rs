@@ -104,7 +104,7 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
     let validation_checks = project_validation_checks(ValidationCheckProjectionOptions {
         store_dir: read_store.store_dir(),
         events: &events,
-        review_unit_id: &resolved.review_unit_id,
+        review_unit_id: &resolved.revision_id,
         track_filter: track_id.clone(),
         status_filter: None,
         include_body: options.include_body,
@@ -163,10 +163,10 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
     // unit's view and surface its diagnostics. Liveness is layered by repo-holding
     // callers, never here.
     let commit_range = ReviewUnitCommitRangeProjection::from_events(&events)?
-        .unit(&resolved.review_unit_id)
+        .unit(&resolved.revision_id)
         .cloned()
         .unwrap_or_else(|| ReviewUnitCommitRangeView {
-            review_unit_id: resolved.review_unit_id.clone(),
+            review_unit_id: resolved.revision_id.clone(),
             anchored: false,
             current_commits: Vec::new(),
             current_refs: Vec::new(),
@@ -248,7 +248,7 @@ pub fn show_review_unit(options: ReviewUnitShowOptions) -> Result<ReviewUnitShow
         snapshot,
         removed_snapshot_content_hash,
         filters: ReviewUnitShowFilters {
-            review_unit_id: resolved.review_unit_id,
+            review_unit_id: resolved.revision_id,
             track_id,
             include_body: options.include_body,
         },
@@ -277,7 +277,7 @@ mod tests {
     use super::*;
     use crate::canonical_hash::sha256_json_prefixed;
     use crate::model::{
-        DiffSnapshot, ReviewId, ReviewUnitId, SnapshotId, ValidationCheckId, ValidationStatus,
+        DiffSnapshot, ObjectId, ReviewId, RevisionId, ValidationCheckId, ValidationStatus,
         ValidationTarget, ValidationTrigger,
     };
     use crate::session::event::{
@@ -312,10 +312,10 @@ mod tests {
 
         let result = show_review_unit(ReviewUnitShowOptions::new(repo.path())).unwrap();
 
-        assert_eq!(result.review_unit.id, capture.review_unit_id);
+        assert_eq!(result.review_unit.id, capture.revision_id);
         assert_eq!(result.review_unit.revision_id, capture.revision_id);
-        assert_eq!(result.review_unit.snapshot_id, capture.snapshot_id);
-        assert_eq!(result.filters.review_unit_id, capture.review_unit_id);
+        assert_eq!(result.review_unit.snapshot_id, capture.object_id);
+        assert_eq!(result.filters.review_unit_id, capture.revision_id);
         // Capture event plus the auto-recorded capture-time ref association.
         assert_eq!(result.event_count, 2);
         assert!(result.event_set_hash.starts_with("sha256:"));
@@ -359,7 +359,7 @@ mod tests {
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         record_observation(
             ObservationAddOptions::new(repo.path())
-                .with_review_unit_id(capture.review_unit_id)
+                .with_review_unit_id(capture.revision_id)
                 .with_track("agent:codex")
                 .with_title("Observation"),
         )
@@ -373,18 +373,18 @@ mod tests {
         }));
     }
 
-    fn capture_with_agent_observation() -> (TestRepo, ReviewUnitId) {
+    fn capture_with_agent_observation() -> (TestRepo, RevisionId) {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         record_observation(
             ObservationAddOptions::new(repo.path())
-                .with_review_unit_id(capture.review_unit_id.clone())
+                .with_review_unit_id(capture.revision_id.clone())
                 .with_track("agent:claude-code")
                 .with_actor_id(crate::model::ActorId::new("actor:agent:claude-code"))
                 .with_title("Agent observation"),
         )
         .unwrap();
-        (repo, capture.review_unit_id)
+        (repo, capture.revision_id)
     }
 
     #[test]
@@ -480,13 +480,12 @@ mod tests {
         assert!(error.to_string().contains("multiple captured review units"));
 
         let explicit = show_review_unit(
-            ReviewUnitShowOptions::new(repo.path())
-                .with_review_unit_id(first.review_unit_id.clone()),
+            ReviewUnitShowOptions::new(repo.path()).with_review_unit_id(first.revision_id.clone()),
         )
         .unwrap();
 
-        assert_ne!(first.review_unit_id, second.review_unit_id);
-        assert_eq!(explicit.review_unit.id, first.review_unit_id);
+        assert_ne!(first.revision_id, second.revision_id);
+        assert_eq!(explicit.review_unit.id, first.revision_id);
         // Two worktree captures, each with its auto-recorded ref association.
         assert_eq!(explicit.event_count, 4);
     }
@@ -499,7 +498,7 @@ mod tests {
 
         let result = show_review_unit(ReviewUnitShowOptions::new(repo.path())).unwrap();
 
-        assert_eq!(result.review_unit.id, capture.review_unit_id);
+        assert_eq!(result.review_unit.id, capture.revision_id);
         assert_eq!(
             result.snapshot.files[0].new_path.as_deref(),
             Some("src/lib.rs")
@@ -512,7 +511,7 @@ mod tests {
     fn show_review_unit_rejects_snapshot_artifact_hash_mismatch() {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
-        tamper_snapshot_artifact_snapshot_field(repo.path(), &capture.snapshot_id);
+        tamper_snapshot_artifact_snapshot_field(repo.path(), &capture.object_id);
 
         let error = show_review_unit(ReviewUnitShowOptions::new(repo.path()))
             .expect_err("tampered artifact should fail");
@@ -526,7 +525,7 @@ mod tests {
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         rewrite_capture_event_snapshot_artifact_hash(
             repo.path(),
-            &capture.review_unit_id,
+            &capture.revision_id,
             "sha256:bad",
         );
 
@@ -562,10 +561,10 @@ mod tests {
         let (rows, summary) = build_snapshot_rows(
             &DiffSnapshot::new(
                 ReviewId::new("review:empty"),
-                SnapshotId::new("snap:empty"),
+                ObjectId::new("snap:empty"),
                 Vec::new(),
             ),
-            &ReviewUnitId::new("review-unit:empty"),
+            &RevisionId::new("review-unit:empty"),
         );
 
         assert_eq!(summary.file_count, 0);
@@ -957,23 +956,22 @@ mod tests {
             ReviewUnitCommitAssociatedPayload, build_commit_association_id,
         };
         let commit_association_id =
-            build_commit_association_id(&capture.review_unit_id, commit_oid).unwrap();
-        let mut target = EventTarget::for_review_unit(
-            crate::model::SessionId::new("session:default"),
-            capture.review_unit_id.clone(),
+            build_commit_association_id(&capture.revision_id, commit_oid).unwrap();
+        let mut target = EventTarget::for_revision(
+            crate::model::LedgerId::new("session:default"),
             capture.revision_id.clone(),
-            capture.snapshot_id.clone(),
+            None,
         );
         target.track_id = Some(crate::model::TrackId::new("agent:codex"));
         let event = ShoreEvent::new(
             EventType::ReviewUnitCommitAssociated,
-            ReviewUnitCommitAssociatedPayload::idempotency_key(&capture.review_unit_id, commit_oid),
+            ReviewUnitCommitAssociatedPayload::idempotency_key(&capture.revision_id, commit_oid),
             target,
             Writer::shore_local("0.1.0"),
             ReviewUnitCommitAssociatedPayload {
                 commit_association_id,
-                target: crate::model::ReviewTargetRef::ReviewUnit {
-                    review_unit_id: capture.review_unit_id.clone(),
+                target: crate::model::ReviewTargetRef::Revision {
+                    revision_id: capture.revision_id.clone(),
                 },
                 commit: crate::model::ReviewEndpoint::GitCommit {
                     commit_oid: commit_oid.to_owned(),
@@ -998,11 +996,10 @@ mod tests {
     }
 
     fn record_validation_event(repo: &Path, capture: &CaptureResult, validation_check_id: &str) {
-        let mut target = EventTarget::for_review_unit(
-            crate::model::SessionId::new("session:default"),
-            capture.review_unit_id.clone(),
+        let mut target = EventTarget::for_revision(
+            crate::model::LedgerId::new("session:default"),
             capture.revision_id.clone(),
-            capture.snapshot_id.clone(),
+            None,
         );
         target.track_id = Some(crate::model::TrackId::new("agent:codex"));
         let event = ShoreEvent::new(
@@ -1013,7 +1010,7 @@ mod tests {
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new(validation_check_id),
                 target: ValidationTarget::ReviewUnit {
-                    review_unit_id: capture.review_unit_id.clone(),
+                    review_unit_id: capture.revision_id.clone(),
                 },
                 check_name: "cargo test".to_owned(),
                 command: None,
@@ -1370,7 +1367,7 @@ mod tests {
         crate::git::git_common_dir(repo).unwrap().join("shore")
     }
 
-    fn tamper_snapshot_artifact_snapshot_field(repo: &Path, snapshot_id: &SnapshotId) {
+    fn tamper_snapshot_artifact_snapshot_field(repo: &Path, snapshot_id: &ObjectId) {
         let path = snapshot_artifact_path(repo, snapshot_id);
         let mut json: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).expect("read snapshot artifact"))
@@ -1390,7 +1387,7 @@ mod tests {
 
     fn rewrite_capture_event_snapshot_artifact_hash(
         repo: &Path,
-        review_unit_id: &ReviewUnitId,
+        review_unit_id: &RevisionId,
         hash: &str,
     ) {
         let path = capture_event_path(repo, review_unit_id);
@@ -1398,7 +1395,7 @@ mod tests {
             serde_json::from_slice(&fs::read(&path).expect("read capture event"))
                 .expect("parse capture event json");
 
-        json["payload"]["snapshotArtifactContentHash"] = hash.into();
+        json["payload"]["workObject"]["snapshotArtifactContentHash"] = hash.into();
         json["payloadHash"] = sha256_json_prefixed(&json["payload"])
             .expect("hash rewritten capture event payload")
             .into();
@@ -1414,7 +1411,7 @@ mod tests {
         let event = ShoreEvent::new(
             EventType::ArtifactRemoved,
             ArtifactRemovedPayload::idempotency_key(content_hash),
-            EventTarget::for_artifact_removal(crate::model::SessionId::new("session:default")),
+            EventTarget::for_ledger(crate::model::LedgerId::new("session:default")),
             Writer::shore_local("0.1.0"),
             ArtifactRemovedPayload {
                 content_hash: content_hash.to_owned(),
@@ -1427,7 +1424,7 @@ mod tests {
             .unwrap();
     }
 
-    fn delete_snapshot_blob(repo: &Path, snapshot_id: &SnapshotId) {
+    fn delete_snapshot_blob(repo: &Path, snapshot_id: &ObjectId) {
         let path = snapshot_artifact_path(repo, snapshot_id);
         fs::remove_file(path).expect("delete snapshot blob");
     }
@@ -1437,7 +1434,7 @@ mod tests {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         record_artifact_removed(repo.path(), &capture.snapshot_artifact_content_hash);
-        delete_snapshot_blob(repo.path(), &capture.snapshot_id);
+        delete_snapshot_blob(repo.path(), &capture.object_id);
 
         let result = show_review_unit(ReviewUnitShowOptions::new(repo.path())).unwrap();
 
@@ -1462,7 +1459,7 @@ mod tests {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         // Delete the blob WITHOUT a removal fact: not-yet-synced, not removed.
-        delete_snapshot_blob(repo.path(), &capture.snapshot_id);
+        delete_snapshot_blob(repo.path(), &capture.object_id);
 
         let err = show_review_unit(ReviewUnitShowOptions::new(repo.path())).unwrap_err();
         assert!(
@@ -1471,7 +1468,7 @@ mod tests {
         );
     }
 
-    fn snapshot_artifact_path(repo: &Path, snapshot_id: &SnapshotId) -> PathBuf {
+    fn snapshot_artifact_path(repo: &Path, snapshot_id: &ObjectId) -> PathBuf {
         fs::read_dir(resolved_store_dir(repo).join("artifacts/snapshots"))
             .expect("read snapshot artifacts directory")
             .map(|entry| entry.expect("read snapshot artifact dir entry").path())
@@ -1487,7 +1484,7 @@ mod tests {
             .expect("find snapshot artifact")
     }
 
-    fn capture_event_path(repo: &Path, review_unit_id: &ReviewUnitId) -> PathBuf {
+    fn capture_event_path(repo: &Path, review_unit_id: &RevisionId) -> PathBuf {
         fs::read_dir(resolved_store_dir(repo).join("events"))
             .expect("read events directory")
             .map(|entry| entry.expect("read event dir entry").path())
@@ -1498,8 +1495,8 @@ mod tests {
                 let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
                     return false;
                 };
-                json["eventType"] == "review_unit_captured"
-                    && json["payload"]["reviewUnitId"] == review_unit_id.as_str()
+                json["eventType"] == "work_object_proposed"
+                    && json["payload"]["workObject"]["revision"]["id"] == review_unit_id.as_str()
             })
             .expect("find capture event")
     }

@@ -151,7 +151,7 @@ fn collect_assessment_records<'a>(
         .iter()
         .filter(|event| event.event_type == EventType::ReviewAssessmentRecorded)
     {
-        if event.target.review_unit_id.as_ref() != Some(&resolved.review_unit_id) {
+        if crate::model::subject_revision_id(&event.target.subject) != Some(&resolved.revision_id) {
             continue;
         }
 

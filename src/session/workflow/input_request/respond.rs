@@ -182,27 +182,20 @@ pub fn respond_input_request(
         storage.write_bytes_atomic(Path::new(artifact_path), bytes, Durability::Durable)?;
     }
 
-    let review_unit_id =
-        request_event.target.review_unit_id.clone().ok_or_else(|| {
-            ShoreError::Message("input request event missing review unit".to_owned())
-        })?;
+    let review_unit_id = crate::model::subject_revision_id(&request_event.target.subject)
+        .cloned()
+        .ok_or_else(|| ShoreError::Message("input request event missing review unit".to_owned()))?;
     let mut event = ShoreEvent::new(
         EventType::InputRequestResponded,
         idempotency_key,
-        EventTarget {
-            session_id: request_event.target.session_id.clone(),
-            work_unit_id: None,
-            work_object_id: None,
-            work_object_type: None,
-            review_unit_id: Some(review_unit_id.clone()),
-            revision_id: request_event.target.revision_id.clone(),
-            snapshot_id: request_event.target.snapshot_id.clone(),
-            track_id: request_event.target.track_id.clone(),
-            subject: Some(TargetRef::Review(ReviewTargetRef::InputRequest {
-                review_unit_id,
+        EventTarget::for_subject(
+            request_event.target.ledger_id.clone(),
+            TargetRef::Review(ReviewTargetRef::InputRequest {
+                revision_id: review_unit_id,
                 input_request_id: request_payload.input_request_id.clone(),
-            })),
-        },
+            }),
+            request_event.target.track_id.clone(),
+        ),
         writer,
         InputRequestRespondedPayload {
             input_request_response_id: input_request_response_id.clone(),
@@ -266,8 +259,8 @@ fn reject_task_attempt_input_request(
     {
         let payload = decode_input_request_opened_payload(event.payload.clone())?;
         if &payload.input_request_id == input_request_id
-            && event.target.review_unit_id.is_none()
-            && event.target.work_object_id.is_some()
+            && crate::model::subject_revision_id(&event.target.subject).is_none()
+            && matches!(event.target.subject, crate::model::TargetRef::Task(_))
         {
             return Err(ShoreError::WorkflowInputInvalid {
                 reason: format!(
@@ -309,7 +302,7 @@ mod tests {
     use std::process::Command;
 
     use super::*;
-    use crate::model::{SessionId, TaskTargetRef, WorkObjectId};
+    use crate::model::{LedgerId, TaskTargetRef, WorkObjectId};
     use crate::session::projection::test_support::task_input_request_event_with_target;
 
     #[test]
@@ -318,7 +311,7 @@ mod tests {
         // A task-attempt input request — the agent-resumption domain, authored by
         // the relay/adapter, not by `shore review input-request open`.
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:demo");
+        let session_id = LedgerId::new("session:demo");
         let input_request_id = InputRequestId::new("input-request:sha256:taskreq");
         let request = task_input_request_event_with_target(
             &task_attempt_id,

@@ -1,328 +1,249 @@
 use serde::{Deserialize, Serialize};
 
+use crate::error::{Result, ShoreError};
 use crate::model::{
-    ReviewTargetRef, ReviewUnitId, ReviewUnitLineageId, RevisionId, SessionId, SnapshotId,
-    TargetRef, TrackId, WorkObjectId, WorkObjectType, WorkUnitId,
+    EngagementType, LedgerId, ReviewTargetRef, ReviewUnitLineageId, RevisionId, TargetRef, TrackId,
+    engagement_type_of_subject,
 };
 
+/// The addressed triple every event envelope carries: the ledger it files into,
+/// the non-optional `subject` it addresses, and an optional review track.
+///
+/// `subject` is never absent. Genuinely subject-less carriers (the detached
+/// co-signature carrier and content removal) address their real target by
+/// payload content and ride the fieldless `TargetRef::Ledger`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EventTarget {
-    pub session_id: SessionId,
-    /// Work-unit target used by review-level events that do not yet target a
-    /// captured ReviewUnit, such as initialization and imported review notes.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub work_unit_id: Option<WorkUnitId>,
-    /// Substrate-level work-object identity. Populated by `for_work_object`
-    /// for domains whose work object is not a ReviewUnit. Stays `None` for
-    /// review-domain events so their on-the-wire shape is unchanged.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub work_object_id: Option<WorkObjectId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub work_object_type: Option<WorkObjectType>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub review_unit_id: Option<ReviewUnitId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub revision_id: Option<RevisionId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub snapshot_id: Option<SnapshotId>,
+    pub ledger_id: LedgerId,
+    pub subject: TargetRef,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub track_id: Option<TrackId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub subject: Option<TargetRef>,
 }
 
 impl EventTarget {
-    pub fn new(session_id: SessionId, work_unit_id: WorkUnitId) -> Self {
+    /// Address an explicit subject in a ledger, optionally on a review track.
+    pub fn for_subject(ledger_id: LedgerId, subject: TargetRef, track_id: Option<TrackId>) -> Self {
         Self {
-            session_id,
-            work_unit_id: Some(work_unit_id),
-            work_object_id: None,
-            work_object_type: None,
-            review_unit_id: None,
-            revision_id: None,
-            snapshot_id: None,
-            track_id: None,
-            subject: None,
+            ledger_id,
+            subject,
+            track_id,
         }
     }
 
-    pub fn for_review_unit(
-        session_id: SessionId,
-        review_unit_id: ReviewUnitId,
+    /// Carrier for a genuinely subject-less event: the detached co-signature
+    /// carrier (addresses its target by the payload `target_event_id` /
+    /// `target_event_record_hash`) and content removal (addresses its blob by
+    /// the payload `content_hash`). The envelope files the fact into its ledger
+    /// by `ledger_id`; the target stays addressed by payload content and is
+    /// never duplicated onto the envelope.
+    pub fn for_ledger(ledger_id: LedgerId) -> Self {
+        Self {
+            ledger_id,
+            subject: TargetRef::Ledger,
+            track_id: None,
+        }
+    }
+
+    /// Checked constructor for a generative move: the engagement's activity
+    /// (`EngagementType`) must match the subject's derived domain. A `Review`
+    /// engagement cannot mint a `Task` subject and vice versa — the single
+    /// domain axis enforced at the write boundary rather than asserted as a
+    /// free wire field.
+    pub fn for_generative_move(
+        ledger_id: LedgerId,
+        engagement_type: EngagementType,
+        subject: TargetRef,
+        track_id: Option<TrackId>,
+    ) -> Result<Self> {
+        match engagement_type_of_subject(&subject) {
+            Some(subject_domain) if subject_domain == engagement_type => {
+                Ok(Self::for_subject(ledger_id, subject, track_id))
+            }
+            other => Err(ShoreError::Message(format!(
+                "generative move domain mismatch: a {engagement_type:?} engagement cannot address a {other:?} subject"
+            ))),
+        }
+    }
+
+    /// Convenience for addressing a review-domain revision subject, optionally on
+    /// a track. Sugar over [`Self::for_subject`] with the `Review(Revision)`
+    /// subject — the common review-event target.
+    pub fn for_revision(
+        ledger_id: LedgerId,
         revision_id: RevisionId,
-        snapshot_id: SnapshotId,
+        track_id: Option<TrackId>,
     ) -> Self {
-        Self {
-            session_id,
-            work_unit_id: None,
-            work_object_id: None,
-            work_object_type: None,
-            review_unit_id: Some(review_unit_id.clone()),
-            revision_id: Some(revision_id),
-            snapshot_id: Some(snapshot_id),
-            track_id: None,
-            subject: Some(TargetRef::Review(ReviewTargetRef::ReviewUnit {
-                review_unit_id,
-            })),
-        }
+        Self::for_subject(
+            ledger_id,
+            TargetRef::Review(ReviewTargetRef::Revision { revision_id }),
+            track_id,
+        )
     }
 
-    /// Substrate-shaped constructor: populates only `session_id` and the
-    /// substrate-level identity pair. Domain-specific fields are `None`;
-    /// the domain-specific shape rides on the work-object type's own
-    /// payload when needed (Phase 3 task-supervision events).
-    pub fn for_work_object(
-        session_id: SessionId,
-        work_object_id: WorkObjectId,
-        work_object_type: WorkObjectType,
-    ) -> Self {
-        Self {
-            session_id,
-            work_unit_id: None,
-            work_object_id: Some(work_object_id),
-            work_object_type: Some(work_object_type),
-            review_unit_id: None,
-            revision_id: None,
-            snapshot_id: None,
-            track_id: None,
-            subject: None,
-        }
-    }
-
-    /// Constructor for the detached co-signature carrier. The carrier addresses
-    /// the co-signed event by content identity through its payload
-    /// (`target_event_id` + `target_event_record_hash`), so the envelope target
-    /// carries only `session_id` — keeping the carrier filed into the same
-    /// session store as its target without duplicating the binding key.
-    pub fn for_event_signature(session_id: SessionId) -> Self {
-        Self {
-            session_id,
-            work_unit_id: None,
-            work_object_id: None,
-            work_object_type: None,
-            review_unit_id: None,
-            revision_id: None,
-            snapshot_id: None,
-            track_id: None,
-            subject: None,
-        }
-    }
-
-    /// Constructor for the content-targeted removal carrier. The carrier
-    /// addresses its target blob by content identity through the payload
-    /// `content_hash`, so the envelope target carries only `session_id` —
-    /// filing the fact into the same session store without binding a review
-    /// unit (one blob is shared by many units).
-    pub fn for_artifact_removal(session_id: SessionId) -> Self {
-        Self {
-            session_id,
-            work_unit_id: None,
-            work_object_id: None,
-            work_object_type: None,
-            review_unit_id: None,
-            revision_id: None,
-            snapshot_id: None,
-            track_id: None,
-            subject: None,
-        }
-    }
-
+    /// Convenience for the lineage carrier: addresses a review-domain lineage
+    /// subject. The lineage sub-model is derived; this constructor is retired
+    /// when the lineage variant is removed.
     pub fn for_review_unit_lineage(
-        session_id: SessionId,
+        ledger_id: LedgerId,
         review_unit_lineage_id: ReviewUnitLineageId,
     ) -> Self {
-        Self {
-            session_id,
-            work_unit_id: None,
-            work_object_id: None,
-            work_object_type: None,
-            review_unit_id: None,
-            revision_id: None,
-            snapshot_id: None,
-            track_id: None,
-            subject: Some(TargetRef::Review(ReviewTargetRef::Lineage {
+        Self::for_subject(
+            ledger_id,
+            TargetRef::Review(ReviewTargetRef::Lineage {
                 review_unit_lineage_id,
-            })),
-        }
+            }),
+            None,
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{ObjectId, TaskTargetRef};
 
-    #[test]
-    fn event_target_for_event_signature_populates_session_and_round_trips() {
-        let target = EventTarget::for_event_signature(SessionId::new("session:fixture"));
+    fn ledger_id() -> LedgerId {
+        LedgerId::new("ledger:default")
+    }
 
-        assert_eq!(target.session_id, SessionId::new("session:fixture"));
-
-        let json = serde_json::to_string(&target).unwrap();
-        let parsed: EventTarget = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, target);
-
-        // Path-free: the carrier files into the session store by identity, not path.
-        assert!(!json.contains("/Users/"));
-        assert!(!json.contains("worktreeRoot"));
+    fn revision_ref() -> ReviewTargetRef {
+        ReviewTargetRef::Revision {
+            revision_id: RevisionId::new("rev:sha256:abc"),
+        }
     }
 
     #[test]
-    fn event_target_for_artifact_removal_populates_session_only_and_round_trips() {
-        let target = EventTarget::for_artifact_removal(SessionId::new("session:fixture"));
-        assert_eq!(target.session_id, SessionId::new("session:fixture"));
-        let json = serde_json::to_string(&target).unwrap();
-        let parsed: EventTarget = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, target);
-        // Session-anchored, content-addressed: no review-unit, no path.
-        assert!(!json.contains("reviewUnitId"));
-        assert!(!json.contains("worktreeRoot"));
+    fn event_target_is_the_addressed_triple() {
+        let target = EventTarget::for_subject(ledger_id(), TargetRef::Review(revision_ref()), None);
+
+        assert_eq!(target.ledger_id, ledger_id());
+        assert!(matches!(
+            target.subject,
+            TargetRef::Review(ReviewTargetRef::Revision { .. })
+        ));
+        assert!(target.track_id.is_none());
     }
 
     #[test]
-    fn event_target_for_review_unit_still_serializes_with_session_id() {
-        // Backward-compat guard. The envelope-level identifier renames from
-        // `reviewId` to `sessionId`, but review-domain identity fields keep
-        // their on-the-wire shape.
-        let target = EventTarget::for_review_unit(
-            SessionId::new("session:sha256:r"),
-            ReviewUnitId::new("review-unit:sha256:u"),
-            RevisionId::new("rev:sha256:rev"),
-            SnapshotId::new("snap:sha256:snap"),
-        );
+    fn ledger_carrier_addresses_target_by_payload_not_envelope() {
+        let target = EventTarget::for_ledger(ledger_id());
+
+        assert!(matches!(target.subject, TargetRef::Ledger));
+        assert!(target.track_id.is_none());
+    }
+
+    #[test]
+    fn for_ledger_serializes_subject_as_bare_ledger_tag_and_round_trips() {
+        let target = EventTarget::for_ledger(LedgerId::new("ledger:fixture"));
 
         let json = serde_json::to_value(&target).unwrap();
-
-        let keys: Vec<&str> = json
-            .as_object()
-            .unwrap()
-            .keys()
-            .map(String::as_str)
-            .collect();
-        assert_eq!(
-            keys,
-            vec![
-                "reviewUnitId",
-                "revisionId",
-                "sessionId",
-                "snapshotId",
-                "subject",
-            ]
-        );
-        assert!(json.get("reviewId").is_none());
-        assert!(json.get("workObjectId").is_none());
-        assert!(json.get("workObjectType").is_none());
-    }
-
-    #[test]
-    fn event_target_new_serializes_session_id_and_work_unit_id() {
-        let target = EventTarget::new(
-            SessionId::new("session:default"),
-            WorkUnitId::new("work:default"),
-        );
-
-        let json = serde_json::to_value(&target).unwrap();
-
-        let keys: Vec<&str> = json
-            .as_object()
-            .unwrap()
-            .keys()
-            .map(String::as_str)
-            .collect();
-        assert_eq!(keys, vec!["sessionId", "workUnitId"]);
-        assert!(json.get("reviewId").is_none());
-        assert!(json.get("workObjectId").is_none());
-        assert!(json.get("workObjectType").is_none());
-    }
-
-    #[test]
-    fn event_target_for_work_object_populates_substrate_fields_only() {
-        let target = EventTarget::for_work_object(
-            SessionId::new("session:claude:abc"),
-            WorkObjectId::new("task-attempt:sha256:t"),
-            WorkObjectType::TaskAttempt,
-        );
-
-        let json = serde_json::to_value(&target).unwrap();
-
-        let keys: Vec<&str> = json
-            .as_object()
-            .unwrap()
-            .keys()
-            .map(String::as_str)
-            .collect();
-        assert_eq!(keys, vec!["sessionId", "workObjectId", "workObjectType"]);
-        assert_eq!(json["sessionId"], "session:claude:abc");
-        assert_eq!(json["workObjectId"], "task-attempt:sha256:t");
-        assert_eq!(json["workObjectType"], "task_attempt");
-        // Review-domain and legacy envelope identity fields stay absent.
-        assert!(json.get("reviewId").is_none());
-        assert!(json.get("workUnitId").is_none());
-        assert!(json.get("reviewUnitId").is_none());
-        assert!(json.get("revisionId").is_none());
-        assert!(json.get("snapshotId").is_none());
+        assert_eq!(json["ledgerId"], "ledger:fixture");
+        assert_eq!(json["subject"], "ledger");
         assert!(json.get("trackId").is_none());
-        assert!(json.get("subject").is_none());
-    }
 
-    #[test]
-    fn event_target_for_work_object_round_trips_through_serde() {
-        let target = EventTarget::for_work_object(
-            SessionId::new("session:sha256:r"),
-            WorkObjectId::new("task-attempt:sha256:t"),
-            WorkObjectType::TaskAttempt,
-        );
+        // Path-free: the carrier files into the ledger by identity, not path.
+        let text = json.to_string();
+        assert!(!text.contains("/Users/"));
+        assert!(!text.contains("worktreeRoot"));
 
-        let json = serde_json::to_string(&target).unwrap();
-        let parsed: EventTarget = serde_json::from_str(&json).unwrap();
-
+        let parsed: EventTarget = serde_json::from_value(json).unwrap();
         assert_eq!(parsed, target);
     }
 
     #[test]
-    fn event_target_for_review_unit_subject_serializes_with_review_external_tag() {
-        let target = EventTarget::for_review_unit(
-            SessionId::new("session:default"),
-            ReviewUnitId::new("review-unit:sha256:u"),
-            RevisionId::new("rev:sha256:rev"),
-            SnapshotId::new("snap:sha256:snap"),
-        );
+    fn for_subject_serializes_the_review_subject_with_external_tag() {
+        let target = EventTarget::for_subject(ledger_id(), TargetRef::Review(revision_ref()), None);
 
         let json = serde_json::to_value(&target).unwrap();
-
-        assert_eq!(json["subject"]["review"]["kind"], "review_unit");
-        assert_eq!(
-            json["subject"]["review"]["reviewUnitId"],
-            "review-unit:sha256:u"
-        );
-        assert!(json["subject"].get("kind").is_none());
+        assert_eq!(json["subject"]["review"]["kind"], "revision");
+        assert_eq!(json["subject"]["review"]["revisionId"], "rev:sha256:abc");
+        assert!(json.get("workUnitId").is_none());
+        assert!(json.get("workObjectId").is_none());
+        assert!(json.get("workObjectType").is_none());
+        assert!(json.get("reviewUnitId").is_none());
+        assert!(json.get("snapshotId").is_none());
     }
 
     #[test]
-    fn event_target_rejects_legacy_subject_review_target_ref_shape() {
-        let legacy = r#"{"sessionId":"session:default","reviewUnitId":"u","revisionId":"r","snapshotId":"s","subject":{"kind":"review_unit","reviewUnitId":"u"}}"#;
+    fn the_envelope_has_no_independent_domain_field() {
+        // The domain is derived from the subject variant, never a standalone
+        // wire field.
+        let target = EventTarget::for_subject(ledger_id(), TargetRef::Review(revision_ref()), None);
+        let json = serde_json::to_value(&target).unwrap();
 
-        let result: Result<EventTarget, _> = serde_json::from_str(legacy);
+        assert!(json["subject"].get("workObjectType").is_none());
+        assert!(json.get("workObjectType").is_none());
+        assert!(json.get("domain").is_none());
+        assert_eq!(
+            crate::model::work_object_type_of_subject(&target.subject),
+            Some(crate::model::WorkObjectType::Revision)
+        );
+    }
 
+    #[test]
+    fn a_review_engagement_refuses_a_task_subject() {
+        let err = EventTarget::for_generative_move(
+            ledger_id(),
+            EngagementType::Review,
+            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            None,
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ShoreError::Message(_)));
+    }
+
+    #[test]
+    fn for_generative_move_accepts_a_matching_domain() {
+        let target = EventTarget::for_generative_move(
+            ledger_id(),
+            EngagementType::Review,
+            TargetRef::Review(revision_ref()),
+            None,
+        )
+        .unwrap();
+
+        assert!(matches!(
+            target.subject,
+            TargetRef::Review(ReviewTargetRef::Revision { .. })
+        ));
+    }
+
+    #[test]
+    fn for_generative_move_refuses_a_ledger_subject() {
+        // A `Ledger` carrier has no domain, so it cannot be a generative move.
+        let err = EventTarget::for_generative_move(
+            ledger_id(),
+            EngagementType::Review,
+            TargetRef::Ledger,
+            None,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ShoreError::Message(_)));
+    }
+
+    #[test]
+    fn rejects_legacy_envelope_with_no_subject() {
+        // The old envelope shape (a sessionId/workUnitId pair with no `subject`)
+        // must fail to deserialize: subject is now non-optional.
+        let legacy = r#"{"sessionId":"session:default","workUnitId":"work:default"}"#;
+        let result: Result<EventTarget> = serde_json::from_str(legacy).map_err(Into::into);
         assert!(
             result.is_err(),
-            "legacy untagged subject JSON must not deserialize, got {:?}",
+            "legacy subject-less envelope must not deserialize, got {:?}",
             result.ok()
         );
     }
 
     #[test]
-    fn event_target_rejects_legacy_review_id_shape() {
-        // Shoreline is unreleased; no migration shim is supported. Legacy
-        // event-target JSON that names the envelope identifier `reviewId`
-        // must fail to deserialize once the rename lands.
-        let legacy = r#"{"reviewId":"review:default","workUnitId":"work:default"}"#;
-
-        let result: Result<EventTarget, _> = serde_json::from_str(legacy);
-
+    fn rejects_legacy_envelope_with_review_id() {
+        let _ = ObjectId::new("obj:sha256:unused"); // keep ObjectId import exercised
+        let legacy = r#"{"reviewId":"review:default","subject":"ledger"}"#;
+        let result: Result<EventTarget> = serde_json::from_str(legacy).map_err(Into::into);
         assert!(
             result.is_err(),
-            "legacy reviewId envelope JSON must not deserialize, got {:?}",
+            "legacy reviewId envelope must not deserialize, got {:?}",
             result.ok()
         );
     }

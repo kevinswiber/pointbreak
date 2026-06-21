@@ -46,11 +46,11 @@ pub fn capture_document(result: CaptureResult) -> EventWriteDocument<CaptureBody
         "shore.review-capture",
         CaptureBody {
             review_unit: CaptureReviewUnitDocument {
-                id: result.review_unit_id.as_str().to_owned(),
+                id: result.revision_id.as_str().to_owned(),
                 base: result.base,
                 target: result.target,
                 revision_id: result.revision_id.as_str().to_owned(),
-                snapshot_id: result.snapshot_id.as_str().to_owned(),
+                snapshot_id: result.object_id.as_str().to_owned(),
                 snapshot_artifact_content_hash: result.snapshot_artifact_content_hash,
             },
         },
@@ -70,11 +70,11 @@ pub fn capture_with_lineage_document(
         "shore.review-capture",
         CaptureWithLineageBody {
             review_unit: CaptureReviewUnitDocument {
-                id: capture.review_unit_id.as_str().to_owned(),
+                id: capture.revision_id.as_str().to_owned(),
                 base: capture.base,
                 target: capture.target,
                 revision_id: capture.revision_id.as_str().to_owned(),
-                snapshot_id: capture.snapshot_id.as_str().to_owned(),
+                snapshot_id: capture.object_id.as_str().to_owned(),
                 snapshot_artifact_content_hash: capture.snapshot_artifact_content_hash,
             },
             lineage_attach: CaptureLineageAttachDocument {

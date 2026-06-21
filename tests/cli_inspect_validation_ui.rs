@@ -101,7 +101,8 @@ fn served_app_js_includes_validation_in_lineage_facts() {
 fn lineage_round_join_keys_exist_for_validation_entries() {
     // A two-round lineage with a validation check recorded on the FIRST (now
     // stale) round's unit. This pins the data contract behind the client-side
-    // lineageFactsForRound join (reviewUnitId on both sides + isHead on rounds).
+    // lineageFactsForRound join (the round's reviewUnitId joins the validation
+    // entry's subject revision id, plus isHead on rounds).
     let repo = GitRepo::new();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
     repo.commit_all("base");
@@ -151,7 +152,7 @@ fn lineage_round_join_keys_exist_for_validation_entries() {
     assert_eq!(first_round["isHead"], false);
     assert_eq!(second_round["isHead"], true);
 
-    // Join side B: the validation history entry carries reviewUnitId == first.
+    // Join side B: the validation history entry's subject names the first round.
     let history = inspector.get_json("/api/history");
     let validation = history["entries"]
         .as_array()
@@ -159,7 +160,7 @@ fn lineage_round_join_keys_exist_for_validation_entries() {
         .iter()
         .find(|e| e["eventType"] == "validation_check_recorded")
         .expect("validation entry present");
-    assert_eq!(validation["reviewUnitId"], first.as_str());
+    assert_eq!(validation["subject"]["revisionId"], first.as_str());
 }
 
 #[test]
@@ -294,7 +295,10 @@ fn api_history_carries_typed_validation_summaries() {
         store.review_unit_id.as_str()
     );
     // Top-level joins the UI relies on (timeline track filter, lineage join key).
-    assert_eq!(passed["reviewUnitId"], store.review_unit_id.as_str());
+    assert_eq!(
+        passed["subject"]["revisionId"],
+        store.review_unit_id.as_str()
+    );
     assert_eq!(passed["trackId"], "agent:codex");
 
     let failed = entries

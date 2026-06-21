@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::error::{Result, ShoreError};
-use crate::model::{ReviewUnitId, ReviewUnitLineageId, ReviewUnitLineageRoundId};
+use crate::model::{ReviewUnitLineageId, ReviewUnitLineageRoundId, RevisionId};
 use crate::session::EventStore;
 use crate::session::event::{EventType, ShoreEvent};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
@@ -30,7 +30,7 @@ pub struct LineageShowResult {
     pub event_set_hash: String,
     pub event_count: usize,
     pub lineage_id: ReviewUnitLineageId,
-    pub head_review_unit_id: Option<ReviewUnitId>,
+    pub head_review_unit_id: Option<RevisionId>,
     pub rounds: Vec<LineageRoundView>,
     pub diagnostics: Vec<ProjectionDiagnostic>,
 }
@@ -39,8 +39,8 @@ pub struct LineageShowResult {
 pub struct LineageRoundView {
     pub lineage_id: ReviewUnitLineageId,
     pub round_id: ReviewUnitLineageRoundId,
-    pub review_unit_id: ReviewUnitId,
-    pub predecessor_review_unit_id: Option<ReviewUnitId>,
+    pub review_unit_id: RevisionId,
+    pub predecessor_review_unit_id: Option<RevisionId>,
     pub round_index: Option<usize>,
     pub is_head: bool,
 }
@@ -97,7 +97,7 @@ fn append_stale_by_newer_round_diagnostics(
         .iter()
         .filter(|event| fact_event_can_be_stale(event.event_type))
     {
-        let Some(review_unit_id) = event.target.review_unit_id.as_ref() else {
+        let Some(review_unit_id) = crate::model::subject_revision_id(&event.target.subject) else {
             continue;
         };
         if review_unit_id == head_review_unit_id || !lineage_review_units.contains(review_unit_id) {
@@ -162,12 +162,12 @@ mod tests {
         let first = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         attach_review_unit_to_lineage(
             LineageAttachOptions::new(repo.path(), lineage_id.clone())
-                .with_review_unit_id(first.review_unit_id.clone()),
+                .with_review_unit_id(first.revision_id.clone()),
         )
         .unwrap();
         record_observation(
             ObservationAddOptions::new(repo.path())
-                .with_review_unit_id(first.review_unit_id.clone())
+                .with_review_unit_id(first.revision_id.clone())
                 .with_track("agent:codex")
                 .with_title("old fact")
                 .with_target(ObservationTargetSelector::review_unit()),
@@ -177,8 +177,8 @@ mod tests {
         let second = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         attach_review_unit_to_lineage(
             LineageAttachOptions::new(repo.path(), lineage_id.clone())
-                .with_review_unit_id(second.review_unit_id.clone())
-                .with_predecessor_review_unit_id(first.review_unit_id.clone()),
+                .with_review_unit_id(second.revision_id.clone())
+                .with_predecessor_review_unit_id(first.revision_id.clone()),
         )
         .unwrap();
 
@@ -186,16 +186,15 @@ mod tests {
 
         assert_eq!(
             lineage.head_review_unit_id.as_ref(),
-            Some(&second.review_unit_id)
+            Some(&second.revision_id)
         );
         assert!(lineage.diagnostics.iter().any(|diagnostic| {
             diagnostic.code == "stale_by_newer_round"
-                && diagnostic.message.contains(first.review_unit_id.as_str())
+                && diagnostic.message.contains(first.revision_id.as_str())
         }));
 
         let exact = show_review_unit(
-            ReviewUnitShowOptions::new(repo.path())
-                .with_review_unit_id(first.review_unit_id.clone()),
+            ReviewUnitShowOptions::new(repo.path()).with_review_unit_id(first.revision_id.clone()),
         )
         .unwrap();
         assert!(

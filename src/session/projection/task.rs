@@ -11,13 +11,13 @@ use crate::crypto::EventVerificationStatus;
 use crate::error::Result;
 use crate::model::{
     ActorId, CheckpointId, EventId, InputRequestId, InputRequestResponseId, ObservationId,
-    ReviewTargetRef, TargetRef, TaskTargetRef, WorkObjectId, WorkObjectType,
+    ReviewTargetRef, TargetRef, TaskTargetRef, WorkObjectId,
 };
 use crate::session::event::{
     AssertionMode, EventTarget, EventType, InputRequestOpenedPayload, InputRequestReasonCode,
     InputRequestRespondedPayload, InputRequestResponseOutcome, ShoreEvent, SourceRef,
-    TaskAttemptCapturedPayload, TaskCheckpointCapturedPayload, TaskObservationRecordedPayload,
-    Writer, decode_input_request_opened_payload,
+    TaskCheckpointCapturedPayload, TaskObservationRecordedPayload, WorkObjectProposal,
+    WorkObjectProposedPayload, Writer, decode_input_request_opened_payload,
 };
 use crate::session::{
     DelegationMap, PrincipalPolicy, PrincipalResolution, TrustSet, is_agent_actor_id,
@@ -99,7 +99,7 @@ pub(crate) struct TaskAttemptSummary {
     pub initial_prompt_hash: String,
     pub predecessor: Option<WorkObjectId>,
     /// Opaque fingerprint of the code state at the start of the attempt,
-    /// preserved verbatim from `TaskAttemptCapturedPayload`.
+    /// preserved verbatim from the captured task-attempt fields.
     pub base_snapshot_fingerprint: Option<String>,
     pub latest_checkpoint: Option<TaskCheckpointSummary>,
     pub checkpoints: Vec<TaskCheckpointSummary>,
@@ -107,11 +107,21 @@ pub(crate) struct TaskAttemptSummary {
     pub diagnostics: Vec<TaskProjectionDiagnostic>,
 }
 
-/// Roll up `TaskAttemptCaptured`, `TaskCheckpointCaptured`, and
+/// The captured fields of a task-attempt work object, carried from the
+/// generative-move payload that proposed it.
+struct CapturedTaskAttempt {
+    project_path: String,
+    claude_session_uuid: String,
+    initial_prompt_hash: String,
+    predecessor: Option<WorkObjectId>,
+    base_snapshot_fingerprint: Option<String>,
+}
+
+/// Roll up the task-attempt generative move, `TaskCheckpointCaptured`, and
 /// `TaskObservationRecorded` events for a single `TaskAttempt` into a
 /// human/agent-readable summary.
 ///
-/// Returns `Ok(None)` if no `TaskAttemptCaptured` event for the requested
+/// Returns `Ok(None)` if no generative move proposing the requested
 /// `task_attempt_id` is present.
 #[allow(dead_code)]
 pub(crate) fn task_attempt_summary_from_events(
@@ -119,7 +129,7 @@ pub(crate) fn task_attempt_summary_from_events(
     task_attempt_id: &WorkObjectId,
     reader_actor_id: &ActorId,
 ) -> Result<Option<TaskAttemptSummary>> {
-    let mut attempt: Option<(TaskProjectionEventEnvelope, TaskAttemptCapturedPayload)> = None;
+    let mut attempt: Option<(TaskProjectionEventEnvelope, CapturedTaskAttempt)> = None;
     let mut checkpoint_envelopes: BTreeMap<
         CheckpointId,
         (TaskProjectionEventEnvelope, TaskCheckpointCapturedPayload),
@@ -132,16 +142,35 @@ pub(crate) fn task_attempt_summary_from_events(
     for event in events {
         event.validate_schema_version()?;
 
-        if !targets_task_attempt(event, task_attempt_id) {
+        if !targets_task_attempt(event, task_attempt_id)? {
             continue;
         }
 
         match event.event_type {
-            EventType::TaskAttemptCaptured => {
-                let payload: TaskAttemptCapturedPayload =
+            EventType::WorkObjectProposed => {
+                let payload: WorkObjectProposedPayload =
                     serde_json::from_value(event.payload.clone())?;
-                if payload.task_attempt_id == *task_attempt_id {
-                    attempt = Some((TaskProjectionEventEnvelope::from_event(event), payload));
+                if let WorkObjectProposal::TaskAttempt {
+                    task_attempt_id: id,
+                    project_path,
+                    claude_session_uuid,
+                    initial_prompt_hash,
+                    predecessor,
+                    base_snapshot_fingerprint,
+                    source_speaker: _,
+                } = payload.work_object
+                    && id == *task_attempt_id
+                {
+                    attempt = Some((
+                        TaskProjectionEventEnvelope::from_event(event),
+                        CapturedTaskAttempt {
+                            project_path,
+                            claude_session_uuid,
+                            initial_prompt_hash,
+                            predecessor,
+                            base_snapshot_fingerprint,
+                        },
+                    ));
                 }
             }
             EventType::TaskCheckpointCaptured => {
@@ -256,14 +285,37 @@ pub(crate) fn task_attempt_summary_from_events(
     }))
 }
 
-fn targets_task_attempt(event: &ShoreEvent, task_attempt_id: &WorkObjectId) -> bool {
-    matches!(
-        event.event_type,
-        EventType::TaskAttemptCaptured
-            | EventType::TaskCheckpointCaptured
-            | EventType::TaskObservationRecorded
-    ) && event.target.work_object_id.as_ref() == Some(task_attempt_id)
-        && event.target.work_object_type == Some(WorkObjectType::TaskAttempt)
+/// Whether `event` belongs to the given task attempt. The attempt id is no
+/// longer carried on the envelope, so the rule is: the event addresses a task
+/// subject and its payload references `task_attempt_id`.
+///
+/// A generative move matches when its payload proposes a `TaskAttempt` whose id
+/// equals `task_attempt_id`. A checkpoint matches when its payload's
+/// `parent_task_attempt_id` equals `task_attempt_id`. Observations are kept
+/// broad — any task-subject observation is admitted; the checkpoint bucketing
+/// and diagnostics downstream route or flag each one by its `checkpoint_id`.
+fn targets_task_attempt(event: &ShoreEvent, task_attempt_id: &WorkObjectId) -> Result<bool> {
+    if !matches!(event.target.subject, TargetRef::Task(_)) {
+        return Ok(false);
+    }
+    let matches = match event.event_type {
+        EventType::WorkObjectProposed => {
+            let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
+            matches!(
+                payload.work_object,
+                WorkObjectProposal::TaskAttempt { task_attempt_id: id, .. }
+                    if &id == task_attempt_id
+            )
+        }
+        EventType::TaskCheckpointCaptured => {
+            let payload: TaskCheckpointCapturedPayload =
+                serde_json::from_value(event.payload.clone())?;
+            payload.parent_task_attempt_id == *task_attempt_id
+        }
+        EventType::TaskObservationRecorded => true,
+        _ => false,
+    };
+    Ok(matches)
 }
 
 fn envelope_chronological_order(
@@ -344,12 +396,7 @@ pub(crate) fn open_task_input_requests_from_events(
                 if !envelope_targets_task_attempt(&event.target, task_attempt_id) {
                     continue;
                 }
-                let Some(subject) = event.target.subject.clone() else {
-                    continue;
-                };
-                if !matches!(subject, TargetRef::Task(_)) {
-                    continue;
-                }
+                let subject = event.target.subject.clone();
                 let payload = decode_input_request_opened_payload(event.payload.clone())?;
                 requests.push((
                     TaskProjectionEventEnvelope::from_event(event),
@@ -416,9 +463,12 @@ pub(crate) fn open_task_input_requests_from_events(
     })
 }
 
-fn envelope_targets_task_attempt(target: &EventTarget, task_attempt_id: &WorkObjectId) -> bool {
-    target.work_object_id.as_ref() == Some(task_attempt_id)
-        && target.work_object_type == Some(WorkObjectType::TaskAttempt)
+/// Whether an envelope addresses a task attempt at all. The attempt id is no
+/// longer carried on the envelope, so this admits any task subject; callers that
+/// need the specific attempt narrow further by payload. `task_attempt_id` is
+/// retained for the call signature but no longer disambiguates here.
+fn envelope_targets_task_attempt(target: &EventTarget, _task_attempt_id: &WorkObjectId) -> bool {
+    matches!(target.subject, TargetRef::Task(_))
 }
 
 /// Agent-resumption state. Diagnostic-rich rather than scalar so the caller
@@ -619,7 +669,7 @@ pub(crate) fn agent_resumption_with_principal_policy(
             diagnostics: vec![TaskProjectionDiagnostic {
                 code: "agent_resumption_no_task_attempt".to_owned(),
                 message: format!(
-                    "no TaskAttemptCaptured event for {} — failing closed",
+                    "no captured task attempt for {} — failing closed",
                     task_attempt_id.as_str()
                 ),
                 event_id: None,
@@ -1015,12 +1065,7 @@ fn collect_task_input_request_records(
                 if !envelope_targets_task_attempt(&event.target, task_attempt_id) {
                     continue;
                 }
-                let Some(subject) = event.target.subject.clone() else {
-                    continue;
-                };
-                if !matches!(subject, TargetRef::Task(_)) {
-                    continue;
-                }
+                let subject = event.target.subject.clone();
                 let payload = decode_input_request_opened_payload(event.payload.clone())?;
                 request_views.push(TaskInputRequestView {
                     input_request_id: payload.input_request_id,
@@ -1120,7 +1165,9 @@ fn freshness_for_task_target(
             Some(_) => FreshnessBasis::CheckpointStaleNewerExists,
             None => FreshnessBasis::CheckpointWithoutAttemptCheckpoint,
         },
-        TargetRef::Review(_) => FreshnessBasis::TaskAttemptNoFingerprintCheck,
+        // A non-checkpoint subject carries no checkpoint to compare against, so
+        // there is no fingerprint freshness check to perform.
+        TargetRef::Review(_) | TargetRef::Ledger => FreshnessBasis::TaskAttemptNoFingerprintCheck,
     }
 }
 
@@ -1201,12 +1248,13 @@ mod tests {
     use super::*;
     use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
     use crate::model::{
-        ActorId, CheckpointId, ObservationId, SessionId, TargetRef, TaskTargetRef, WorkObjectId,
+        ActorId, CheckpointId, LedgerId, ObservationId, TargetRef, TaskTargetRef, WorkObjectId,
+        WorkObjectType,
     };
     use crate::session::event::{
         AssertionMode, EventTarget, EventType, IngestProvenance, IngestVia, ShoreEvent, SourceRef,
-        TaskAttemptCapturedPayload, TaskCheckpointCapturedPayload, TaskObservationRecordedPayload,
-        Writer, WriterProducer,
+        TaskCheckpointCapturedPayload, TaskObservationRecordedPayload, WorkObjectProposal,
+        WorkObjectProposedPayload, Writer, WriterProducer,
     };
     use crate::session::event_signature_trust_set;
     use crate::session::projection::cosignature::{CosignatureMember, CosignatureSource};
@@ -1256,7 +1304,7 @@ mod tests {
 
     fn observation_event(
         task_attempt_id: &WorkObjectId,
-        session_id: &SessionId,
+        session_id: &LedgerId,
         checkpoint_id: Option<&CheckpointId>,
         source_id: &str,
         title: &str,
@@ -1266,17 +1314,13 @@ mod tests {
             "obs:sha256:{}",
             sha256_bytes_hex(source_id.as_bytes())
         ));
-        let mut target = EventTarget::for_work_object(
-            session_id.clone(),
-            task_attempt_id.clone(),
-            WorkObjectType::TaskAttempt,
-        );
-        target.subject = Some(match checkpoint_id {
+        let subject = match checkpoint_id {
             Some(checkpoint_id) => TargetRef::Task(TaskTargetRef::Checkpoint {
                 checkpoint_id: checkpoint_id.clone(),
             }),
             None => TargetRef::Task(TaskTargetRef::TaskAttempt),
-        });
+        };
+        let target = EventTarget::for_subject(session_id.clone(), subject, None);
         let payload = TaskObservationRecordedPayload {
             observation_id: observation_id.clone(),
             checkpoint_id: checkpoint_id.cloned(),
@@ -1309,7 +1353,7 @@ mod tests {
     #[test]
     fn task_attempt_summary_rolls_up_one_attempt() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let checkpoint_a = CheckpointId::new("checkpoint:sha256:cp-a");
         let checkpoint_b = CheckpointId::new("checkpoint:sha256:cp-b");
 
@@ -1397,8 +1441,8 @@ mod tests {
     fn task_attempt_summary_ignores_other_task_attempts() {
         let attempt_a = WorkObjectId::new("task-attempt:sha256:a");
         let attempt_b = WorkObjectId::new("task-attempt:sha256:b");
-        let session_a = SessionId::new("session:claude:uuid-a");
-        let session_b = SessionId::new("session:claude:uuid-b");
+        let session_a = LedgerId::new("session:claude:uuid-a");
+        let session_b = LedgerId::new("session:claude:uuid-b");
         let checkpoint_a = CheckpointId::new("checkpoint:sha256:cp-a");
         let checkpoint_b = CheckpointId::new("checkpoint:sha256:cp-b");
 
@@ -1460,7 +1504,7 @@ mod tests {
     #[test]
     fn task_attempt_summary_preserves_envelope_and_payload_fields() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let checkpoint = CheckpointId::new("checkpoint:sha256:cp");
 
         let attempt = task_attempt_event(
@@ -1497,7 +1541,7 @@ mod tests {
 
         let env = &summary.attempt_event;
         assert_eq!(env.event_id, attempt.event_id);
-        assert_eq!(env.event_type, EventType::TaskAttemptCaptured);
+        assert_eq!(env.event_type, EventType::WorkObjectProposed);
         assert_eq!(env.occurred_at, attempt.occurred_at);
         assert_eq!(env.payload_hash, attempt.payload_hash);
         assert_eq!(env.writer, attempt.writer);
@@ -1533,7 +1577,7 @@ mod tests {
     #[test]
     fn task_attempt_summary_orders_latest_checkpoint_and_recent_observations() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let cp_early = CheckpointId::new("checkpoint:sha256:cp-early");
         let cp_late = CheckpointId::new("checkpoint:sha256:cp-late");
 
@@ -1617,7 +1661,7 @@ mod tests {
         // Build inputs as already-written ShoreEvents only. This is a documentation
         // pin: the projection lives downstream of the write seam.
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
 
         let events = vec![task_attempt_event(
             &task_attempt_id,
@@ -1640,7 +1684,7 @@ mod tests {
     fn task_attempt_summary_returns_none_when_attempt_not_present() {
         let other_attempt = WorkObjectId::new("task-attempt:sha256:other");
         let queried_attempt = WorkObjectId::new("task-attempt:sha256:queried");
-        let session_id = SessionId::new("session:claude:uuid-other");
+        let session_id = LedgerId::new("session:claude:uuid-other");
 
         let events = vec![task_attempt_event(
             &other_attempt,
@@ -1657,7 +1701,7 @@ mod tests {
     // -- open_task_input_requests -------------------------------------------
 
     use crate::model::{
-        InputRequestId, InputRequestResponseId, ReviewTargetRef, ReviewUnitId, TrackId,
+        InputRequestId, InputRequestResponseId, ReviewTargetRef, RevisionId, TrackId,
     };
     use crate::session::event::{
         InputRequestOpenedPayload, InputRequestReasonCode, InputRequestRespondedPayload,
@@ -1667,7 +1711,7 @@ mod tests {
     #[allow(clippy::too_many_arguments)]
     fn task_input_request_event(
         task_attempt_id: &WorkObjectId,
-        session_id: &SessionId,
+        session_id: &LedgerId,
         input_request_id: &InputRequestId,
         source_key: &str,
         occurred_at: &str,
@@ -1675,19 +1719,18 @@ mod tests {
         reason_code: InputRequestReasonCode,
         title: &str,
     ) -> ShoreEvent {
-        let mut target = EventTarget::for_work_object(
+        let target = EventTarget::for_subject(
             session_id.clone(),
-            task_attempt_id.clone(),
-            WorkObjectType::TaskAttempt,
+            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            None,
         );
-        target.subject = Some(TargetRef::Task(TaskTargetRef::TaskAttempt));
         // Current `InputRequestOpenedPayload.target` is review-shaped. The
         // task envelope is authoritative; this placeholder is preserved by the
         // projection only as diagnostic evidence.
         let payload = InputRequestOpenedPayload {
             input_request_id: input_request_id.clone(),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: ReviewUnitId::new("review-unit:placeholder"),
+            target: ReviewTargetRef::Revision {
+                revision_id: RevisionId::new("review-unit:placeholder"),
             },
             reason_code,
             title: title.to_owned(),
@@ -1717,16 +1760,16 @@ mod tests {
     }
 
     fn task_input_request_responded_event(
-        task_attempt_id: &WorkObjectId,
-        session_id: &SessionId,
+        _task_attempt_id: &WorkObjectId,
+        session_id: &LedgerId,
         input_request_id: &InputRequestId,
         response_id: &InputRequestResponseId,
         occurred_at: &str,
     ) -> ShoreEvent {
-        let target = EventTarget::for_work_object(
+        let target = EventTarget::for_subject(
             session_id.clone(),
-            task_attempt_id.clone(),
-            WorkObjectType::TaskAttempt,
+            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            None,
         );
         let payload = InputRequestRespondedPayload {
             input_request_response_id: response_id.clone(),
@@ -1752,29 +1795,23 @@ mod tests {
     }
 
     fn review_input_request_event(
-        review_unit_id: &ReviewUnitId,
+        review_unit_id: &RevisionId,
         track_id: &TrackId,
         input_request_id: &InputRequestId,
         source_key: &str,
         occurred_at: &str,
     ) -> ShoreEvent {
-        let target = EventTarget {
-            session_id: SessionId::new("session:review"),
-            work_unit_id: None,
-            work_object_id: None,
-            work_object_type: None,
-            review_unit_id: Some(review_unit_id.clone()),
-            revision_id: None,
-            snapshot_id: None,
-            track_id: Some(track_id.clone()),
-            subject: Some(TargetRef::Review(ReviewTargetRef::ReviewUnit {
-                review_unit_id: review_unit_id.clone(),
-            })),
-        };
+        let target = EventTarget::for_subject(
+            LedgerId::new("session:review"),
+            TargetRef::Review(ReviewTargetRef::Revision {
+                revision_id: review_unit_id.clone(),
+            }),
+            Some(track_id.clone()),
+        );
         let payload = InputRequestOpenedPayload {
             input_request_id: input_request_id.clone(),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: review_unit_id.clone(),
+            target: ReviewTargetRef::Revision {
+                revision_id: review_unit_id.clone(),
             },
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "review-domain".to_owned(),
@@ -1801,7 +1838,7 @@ mod tests {
     #[test]
     fn open_task_input_requests_returns_task_targeted_unresponded_requests() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
 
         let events = vec![task_input_request_event(
@@ -1832,8 +1869,8 @@ mod tests {
         // The payload placeholder is preserved verbatim as evidence.
         assert_eq!(
             view.payload_review_target,
-            ReviewTargetRef::ReviewUnit {
-                review_unit_id: ReviewUnitId::new("review-unit:placeholder"),
+            ReviewTargetRef::Revision {
+                revision_id: RevisionId::new("review-unit:placeholder"),
             }
         );
     }
@@ -1841,7 +1878,7 @@ mod tests {
     #[test]
     fn open_task_input_requests_excludes_responded_input_request_ids() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
         let response_id = InputRequestResponseId::new("input-request-response:sha256:r1");
 
@@ -1879,7 +1916,7 @@ mod tests {
     #[test]
     fn open_task_input_requests_ignores_review_domain_requests() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:u");
+        let review_unit_id = RevisionId::new("review-unit:sha256:u");
         let track_id = TrackId::new("agent:codex");
         let task_input_request_id = InputRequestId::new("input-request:sha256:task");
         let review_input_request_id = InputRequestId::new("input-request:sha256:review");
@@ -1887,7 +1924,7 @@ mod tests {
         let events = vec![
             task_input_request_event(
                 &task_attempt_id,
-                &SessionId::new("session:claude:uuid-1"),
+                &LedgerId::new("session:claude:uuid-1"),
                 &task_input_request_id,
                 "source:task",
                 "2026-05-18T00:00:00Z",
@@ -1921,7 +1958,7 @@ mod tests {
     #[test]
     fn open_task_input_requests_preserves_payload_target_mismatch_as_diagnostic() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
 
         let events = vec![task_input_request_event(
@@ -1954,7 +1991,7 @@ mod tests {
     #[test]
     fn open_task_input_requests_preserves_envelope_policy_fields() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
 
         let request_event = task_input_request_event(
@@ -1998,7 +2035,7 @@ mod tests {
     #[test]
     fn open_task_input_requests_separates_multiple_open_requests() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let a = InputRequestId::new("input-request:sha256:a");
         let b = InputRequestId::new("input-request:sha256:b");
 
@@ -2042,7 +2079,7 @@ mod tests {
     #[test]
     fn open_task_input_requests_derives_mode_from_envelope_assertion_mode() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let advisory_id = InputRequestId::new("input-request:sha256:adv");
         let operative_id = InputRequestId::new("input-request:sha256:op");
 
@@ -2090,7 +2127,7 @@ mod tests {
     #[allow(clippy::too_many_arguments)]
     fn task_input_request_event_with_target_and_assertion_mode(
         task_attempt_id: &WorkObjectId,
-        session_id: &SessionId,
+        session_id: &LedgerId,
         input_request_id: &InputRequestId,
         source_key: &str,
         occurred_at: &str,
@@ -2113,7 +2150,7 @@ mod tests {
 
     fn attempt_with_checkpoints(
         task_attempt_id: &WorkObjectId,
-        session_id: &SessionId,
+        session_id: &LedgerId,
         checkpoints: &[(&CheckpointId, &str, &str)],
     ) -> Vec<ShoreEvent> {
         let mut events = vec![task_attempt_event(
@@ -2138,7 +2175,7 @@ mod tests {
     #[test]
     fn agent_resumption_allows_resume_when_no_task_input_requests_exist() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let checkpoint = CheckpointId::new("checkpoint:sha256:cp");
 
         let events = attempt_with_checkpoints(
@@ -2166,7 +2203,7 @@ mod tests {
     #[test]
     fn agent_resumption_ignores_open_advisory_task_input_request() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let input_request_id = InputRequestId::new("input-request:sha256:adv");
         let mut events = attempt_with_checkpoints(&task_attempt_id, &session_id, &[]);
         events.push(task_input_request_event_with_target_and_assertion_mode(
@@ -2198,7 +2235,7 @@ mod tests {
     #[test]
     fn agent_resumption_ignores_ambiguous_advisory_task_input_request_responses() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let input_request_id = InputRequestId::new("input-request:sha256:adv");
         let r1 = InputRequestResponseId::new("input-request-response:sha256:r1");
         let r2 = InputRequestResponseId::new("input-request-response:sha256:r2");
@@ -2246,7 +2283,7 @@ mod tests {
     #[test]
     fn agent_resumption_ignores_stale_advisory_task_input_request_response() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let cp_a = CheckpointId::new("checkpoint:sha256:cp-a");
         let cp_b = CheckpointId::new("checkpoint:sha256:cp-b");
         let input_request_id = InputRequestId::new("input-request:sha256:adv");
@@ -2298,7 +2335,7 @@ mod tests {
     #[test]
     fn agent_resumption_still_blocks_for_open_operative_task_input_request() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let input_request_id = InputRequestId::new("input-request:sha256:op");
         let mut events = attempt_with_checkpoints(&task_attempt_id, &session_id, &[]);
         events.push(task_input_request_event_with_target_and_assertion_mode(
@@ -2334,7 +2371,7 @@ mod tests {
     #[test]
     fn agent_resumption_pauses_for_open_task_input_request() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let checkpoint = CheckpointId::new("checkpoint:sha256:cp");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
 
@@ -2384,7 +2421,7 @@ mod tests {
     /// is the response, for tests that need to mutate it.
     fn approved_local_response_events() -> (Vec<ShoreEvent>, WorkObjectId) {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let checkpoint = CheckpointId::new("checkpoint:sha256:cp");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
         let response_id = InputRequestResponseId::new("input-request-response:sha256:r");
@@ -3216,7 +3253,7 @@ mod tests {
         // binding in either direction; payload facts are writer-asserted, not
         // verified identity (preserved non-input pin from plan 0059).
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
         let response_id = InputRequestResponseId::new("input-request-response:sha256:r");
 
@@ -3371,7 +3408,7 @@ mod tests {
     #[test]
     fn agent_resumption_fails_closed_for_advisory_response() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
         let response_id = InputRequestResponseId::new("input-request-response:sha256:r");
 
@@ -3409,7 +3446,7 @@ mod tests {
     #[test]
     fn agent_resumption_fails_closed_for_ambiguous_responses() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
         let r1 = InputRequestResponseId::new("input-request-response:sha256:r1");
         let r2 = InputRequestResponseId::new("input-request-response:sha256:r2");
@@ -3463,7 +3500,7 @@ mod tests {
     #[test]
     fn agent_resumption_marks_checkpoint_response_stale_when_newer_checkpoint_exists() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let cp_a = CheckpointId::new("checkpoint:sha256:cp-a");
         let cp_b = CheckpointId::new("checkpoint:sha256:cp-b");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
@@ -3518,7 +3555,7 @@ mod tests {
     #[test]
     fn task_projections_preserve_envelope_payload_and_semantic_ids_across_three_views() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let cp_a = CheckpointId::new("checkpoint:sha256:cp-a");
         let cp_b = CheckpointId::new("checkpoint:sha256:cp-b");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
@@ -3810,10 +3847,10 @@ mod tests {
         reason_byte_size: Option<u64>,
         reason_content_hash: Option<String>,
     ) -> ShoreEvent {
-        let target = EventTarget::for_work_object(
-            SessionId::new("session:claude:uuid-1"),
-            WorkObjectId::new("task-attempt:sha256:ta"),
-            WorkObjectType::TaskAttempt,
+        let target = EventTarget::for_subject(
+            LedgerId::new("session:claude:uuid-1"),
+            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            None,
         );
         let payload = InputRequestRespondedPayload {
             input_request_response_id: response_id.clone(),
@@ -3851,7 +3888,7 @@ mod tests {
     #[test]
     fn task_projections_preserve_input_request_fingerprint_and_response_reason_fields() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
         let response_id = InputRequestResponseId::new("input-request-response:sha256:r");
 
@@ -3908,7 +3945,7 @@ mod tests {
     #[test]
     fn agent_resumption_preserves_response_reason_payload_fields() {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
         let response_id = InputRequestResponseId::new("input-request-response:sha256:r");
 
@@ -3966,7 +4003,7 @@ mod tests {
         // responses. The projection must collapse them and still treat the
         // input request as cleanly responded.
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
         let response_id = InputRequestResponseId::new("input-request-response:sha256:r");
 
@@ -4027,7 +4064,7 @@ mod tests {
         // two different idempotency keys). The projection still collapses by
         // response id and avoids a false Ambiguous classification.
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
         let response_id = InputRequestResponseId::new("input-request-response:sha256:r");
 
@@ -4100,21 +4137,20 @@ mod tests {
 
     fn checkpoint_event_with_fingerprint(
         task_attempt_id: &WorkObjectId,
-        session_id: &SessionId,
+        session_id: &LedgerId,
         checkpoint_id: &CheckpointId,
         assistant_message_id: &str,
         tool_use_ids: Vec<String>,
         occurred_at: &str,
         fingerprint: Option<&str>,
     ) -> ShoreEvent {
-        let mut target = EventTarget::for_work_object(
+        let target = EventTarget::for_subject(
             session_id.clone(),
-            task_attempt_id.clone(),
-            WorkObjectType::TaskAttempt,
+            TargetRef::Task(TaskTargetRef::Checkpoint {
+                checkpoint_id: checkpoint_id.clone(),
+            }),
+            None,
         );
-        target.subject = Some(TargetRef::Task(TaskTargetRef::Checkpoint {
-            checkpoint_id: checkpoint_id.clone(),
-        }));
         let payload = TaskCheckpointCapturedPayload {
             checkpoint_id: checkpoint_id.clone(),
             parent_task_attempt_id: task_attempt_id.clone(),
@@ -4148,7 +4184,7 @@ mod tests {
     #[allow(clippy::too_many_arguments)]
     fn task_input_request_event_with_target_and_fingerprint(
         task_attempt_id: &WorkObjectId,
-        session_id: &SessionId,
+        session_id: &LedgerId,
         input_request_id: &InputRequestId,
         source_key: &str,
         occurred_at: &str,
@@ -4156,16 +4192,11 @@ mod tests {
         title: &str,
         target_fingerprint: Option<&str>,
     ) -> ShoreEvent {
-        let mut target = EventTarget::for_work_object(
-            session_id.clone(),
-            task_attempt_id.clone(),
-            WorkObjectType::TaskAttempt,
-        );
-        target.subject = Some(subject);
+        let target = EventTarget::for_subject(session_id.clone(), subject, None);
         let payload = InputRequestOpenedPayload {
             input_request_id: input_request_id.clone(),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: ReviewUnitId::new("review-unit:placeholder"),
+            target: ReviewTargetRef::Revision {
+                revision_id: RevisionId::new("review-unit:placeholder"),
             },
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: title.to_owned(),
@@ -4203,10 +4234,10 @@ mod tests {
         occurred_at: &str,
         target_fingerprint: Option<&str>,
     ) -> ShoreEvent {
-        let target = EventTarget::for_work_object(
-            SessionId::new("session:claude:uuid-1"),
-            WorkObjectId::new("task-attempt:sha256:ta"),
-            WorkObjectType::TaskAttempt,
+        let target = EventTarget::for_subject(
+            LedgerId::new("session:claude:uuid-1"),
+            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            None,
         );
         let payload = InputRequestRespondedPayload {
             input_request_response_id: response_id.clone(),
@@ -4249,7 +4280,7 @@ mod tests {
         // The projection must flag the response stale on the fingerprint
         // disagreement -- not on identity alone.
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let cp_a = CheckpointId::new("checkpoint:sha256:cp-a");
         let cp_b = CheckpointId::new("checkpoint:sha256:cp-b");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
@@ -4342,7 +4373,7 @@ mod tests {
         // F1; the responder acts on the F1 state. Both identity and fingerprint
         // agree, so the response is fresh.
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let cp_a = CheckpointId::new("checkpoint:sha256:cp-a");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
         let response_id = InputRequestResponseId::new("input-request-response:sha256:r");
@@ -4418,7 +4449,7 @@ mod tests {
         // accidentally let the projection pick one response and call the
         // other stale.
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let cp_a = CheckpointId::new("checkpoint:sha256:cp-a");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
         let r1 = InputRequestResponseId::new("input-request-response:sha256:r1");
@@ -4507,7 +4538,7 @@ mod tests {
         // the projection would mis-read this as `CheckpointStaleNewerExists`
         // and block resumption.
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let cp_older = CheckpointId::new("checkpoint:sha256:cp-older");
         let cp_latest = CheckpointId::new("checkpoint:sha256:cp-latest");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
@@ -4593,7 +4624,7 @@ mod tests {
         // fingerprint field to a distinct opaque string and confirm each
         // surfaces verbatim on its intended view.
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let cp_a = CheckpointId::new("checkpoint:sha256:cp-a");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
 
@@ -4662,32 +4693,35 @@ mod tests {
 
     fn task_attempt_event_with_base_snapshot_fingerprint(
         task_attempt_id: &WorkObjectId,
-        session_id: &SessionId,
+        session_id: &LedgerId,
         claude_session_uuid: &str,
         occurred_at: &str,
         base_snapshot_fingerprint: Option<&str>,
     ) -> ShoreEvent {
-        let target = EventTarget::for_work_object(
+        let target = EventTarget::for_subject(
             session_id.clone(),
-            task_attempt_id.clone(),
-            WorkObjectType::TaskAttempt,
+            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            None,
         );
-        let payload = TaskAttemptCapturedPayload {
-            task_attempt_id: task_attempt_id.clone(),
-            project_path: "/repo".to_owned(),
-            claude_session_uuid: claude_session_uuid.to_owned(),
-            initial_prompt_hash: "sha256:prompt".to_owned(),
-            predecessor: None,
-            base_snapshot_fingerprint: base_snapshot_fingerprint.map(str::to_owned),
-            source_speaker: None,
+        let engagement_id = crate::model::EngagementId::new(format!(
+            "engagement:sha256:{}",
+            sha256_bytes_hex(task_attempt_id.as_str().as_bytes())
+        ));
+        let payload = WorkObjectProposedPayload {
+            engagement_id,
+            work_object: WorkObjectProposal::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+                project_path: "/repo".to_owned(),
+                claude_session_uuid: claude_session_uuid.to_owned(),
+                initial_prompt_hash: "sha256:prompt".to_owned(),
+                predecessor: None,
+                base_snapshot_fingerprint: base_snapshot_fingerprint.map(str::to_owned),
+                source_speaker: None,
+            },
         };
-        let idempotency_key = TaskAttemptCapturedPayload::idempotency_key_for_work_object(
-            task_attempt_id,
-            WorkObjectType::TaskAttempt,
-            claude_session_uuid,
-        );
+        let idempotency_key = format!("work_object_proposed:{}", task_attempt_id.as_str());
         let mut event = ShoreEvent::new(
-            EventType::TaskAttemptCaptured,
+            EventType::WorkObjectProposed,
             idempotency_key,
             target,
             writer_user(),

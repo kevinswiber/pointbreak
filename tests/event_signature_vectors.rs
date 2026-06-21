@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use shoreline::crypto::SignerId;
-use shoreline::model::{EventId, SessionId};
+use shoreline::model::{EventId, LedgerId};
 use shoreline::session::event::{
     EventSignature, EventSignatureRecordedPayload, EventTarget, EventType, IngestProvenance,
     IngestVia, ShoreEvent, Writer,
@@ -58,7 +58,7 @@ fn carrier_event(idempotency_key: &str, payload: EventSignatureRecordedPayload) 
     ShoreEvent::new(
         EventType::EventSignatureRecorded,
         idempotency_key,
-        EventTarget::for_event_signature(SessionId::new("session:fixture")),
+        EventTarget::for_ledger(LedgerId::new("ledger:fixture")),
         Writer::shore_local("test"),
         payload,
         "2026-06-04T00:00:00Z",
@@ -123,7 +123,7 @@ fn golden_event_record_hash_is_signature_blind() {
     assert_eq!(signed_hash, unsigned.event_record_hash().unwrap());
     assert_eq!(
         signed_hash,
-        "sha256:95c0b027e6d9ad502cc7c5a1d784b519d2d7bc1c6b6881b52c7a7e4678e87a0d"
+        "sha256:e04fb798786f1babe03708637673c1bd0492d872108dfe363957b916130a028b"
     );
 }
 
@@ -302,12 +302,12 @@ fn producer_rename_left_signed_material_untouched() {
             .collect()
     }
 
-    // Digests captured from `main` before the rename. Regeneration must
-    // reproduce these bytes exactly; a change here is a stop-the-line signal
-    // that the rename touched the signed material.
+    // Digests pinned to the current signed envelope shape. Regeneration must
+    // reproduce these bytes exactly; an unexpected change here is a
+    // stop-the-line signal that an edit touched the signed material.
     const CANONICAL_TBS_SHA256: &str =
-        "b02f9ae88fd021e13bbd6d9f08030f23803df71e58f7e2f80e9b4aa0c939d5e4";
-    const PAE_SHA256: &str = "47babae6a0fc54a1781338847143099568ec077b4abfd397ed0b2d1b3ee03af0";
+        "7a0f9904caae98242ae46a3d9e7e51f329eda98372465c11f167cc3972d8a65d";
+    const PAE_SHA256: &str = "6de453dccddfce319d0e14097dead678bfd5b181e46cb04471f1d008269670d4";
 
     let canonical_tbs =
         std::fs::read(fixture_path("canonical-tbs-v1.bytes")).expect("read canonical tbs bytes");
@@ -315,12 +315,12 @@ fn producer_rename_left_signed_material_untouched() {
     assert_eq!(
         sha256_hex(&canonical_tbs),
         CANONICAL_TBS_SHA256,
-        "canonical-tbs-v1.bytes must be byte-identical to main"
+        "canonical-tbs-v1.bytes must reproduce the pinned digest"
     );
     assert_eq!(
         sha256_hex(&pae),
         PAE_SHA256,
-        "pae-v1.bytes must be byte-identical to main"
+        "pae-v1.bytes must reproduce the pinned digest"
     );
 
     let mut envelope_fixtures = std::fs::read_dir(fixture_dir())

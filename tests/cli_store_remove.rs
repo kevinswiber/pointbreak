@@ -94,14 +94,14 @@ fn store_remove_by_snapshot_emits_removed_document() {
 
 #[test]
 fn store_remove_by_review_unit_reports_co_referencing_units() {
-    // Two worktrees capturing the same committed range share one snapshot content
-    // hash under distinct review unit ids (the cross-worktree coexistence case).
+    // Two worktrees capturing the SAME working-tree change share one snapshot
+    // content hash under distinct review unit ids: the working-tree target carries
+    // each worktree's own root, so the two captures stay distinct even though their
+    // snapshot bytes are identical (the cross-worktree coexistence case).
     // Both worktrees write through to the shared common-dir store by default.
     let main = GitRepo::new();
     main.write("README.md", "base\n");
     main.commit_all("base");
-    main.write("README.md", "change\n");
-    main.commit_all("change");
 
     let parent = tempfile::tempdir().unwrap();
     let wt1 = parent.path().join("wt1");
@@ -109,8 +109,12 @@ fn store_remove_by_review_unit_reports_co_referencing_units() {
     add_worktree(main.path(), &wt1, "wt1");
     add_worktree(main.path(), &wt2, "wt2");
 
-    let cap1 = capture_range(&wt1);
-    let cap2 = capture_range(&wt2);
+    // The same uncommitted change in each worktree yields byte-identical snapshots.
+    std::fs::write(wt1.join("README.md"), "change\n").unwrap();
+    std::fs::write(wt2.join("README.md"), "change\n").unwrap();
+
+    let cap1 = capture_worktree(&wt1);
+    let cap2 = capture_worktree(&wt2);
 
     let unit1 = cap1["reviewUnit"]["id"].as_str().unwrap();
     let unit2 = cap2["reviewUnit"]["id"].as_str().unwrap().to_owned();
@@ -122,7 +126,7 @@ fn store_remove_by_review_unit_reports_co_referencing_units() {
         .unwrap();
     assert_eq!(
         hash1, hash2,
-        "the same range yields one shared content hash"
+        "the same change yields one shared content hash"
     );
 
     let output = shore([
@@ -369,18 +373,11 @@ fn store_remove_signs_the_event_when_a_sign_key_is_given() {
     assert!(event.get("signer").is_some());
 }
 
-fn capture_range(repo: &Path) -> Value {
-    let output = shore([
-        "review",
-        "capture",
-        "--repo",
-        repo.to_str().unwrap(),
-        "--base",
-        "HEAD~1",
-    ]);
+fn capture_worktree(repo: &Path) -> Value {
+    let output = shore(["review", "capture", "--repo", repo.to_str().unwrap()]);
     assert!(
         output.status.success(),
-        "range capture stderr:\n{}",
+        "working-tree capture stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
     parse_json(&output.stdout)

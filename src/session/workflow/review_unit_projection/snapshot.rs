@@ -41,9 +41,9 @@ pub(super) fn load_bound_snapshot_artifact(
     review_unit: &ReviewUnitProjectionIdentity,
 ) -> Result<DiffSnapshot> {
     let artifact = read_snapshot_artifact(repo, &review_unit.snapshot_id)?;
-    // INV-3: bind via the namespace-independent snapshot_id + content_hash only.
-    // Identity (review_unit_id/source/base/target) lives in the ReviewUnitCaptured
-    // event/projection, never the content-addressed artifact body.
+    // Bind via the namespace-independent snapshot_id + content_hash only. Identity
+    // (review_unit_id/source/base/target) lives in the capture event/projection,
+    // never the content-addressed artifact body.
     if artifact.snapshot.snapshot_id != review_unit.snapshot_id {
         return Err(ShoreError::Message(format!(
             "snapshot artifact metadata mismatch for {}",
@@ -68,7 +68,7 @@ mod tests {
     use std::process::Command;
 
     use super::*;
-    use crate::model::{ReviewEndpoint, ReviewUnitId};
+    use crate::model::{ReviewEndpoint, RevisionId};
     use crate::session::event::EventType;
     use crate::session::{
         CaptureOptions, CaptureResult, CommitRangeSpec, EventStore, capture_review,
@@ -88,14 +88,14 @@ mod tests {
         // review_unit_id and a different worktree target also binds — identity is
         // not read from the artifact body (INV-3).
         let other = ReviewUnitProjectionIdentity {
-            id: ReviewUnitId::new("review-unit:sha256:other-worktree"),
+            id: RevisionId::new("review-unit:sha256:other-worktree"),
             target: ReviewEndpoint::GitWorkingTree {
                 worktree_root: "/some/other/worktree".to_owned(),
             },
             ..authentic.clone()
         };
         let snapshot = load_bound_snapshot_artifact(repo.path(), &other).unwrap();
-        assert_eq!(snapshot.snapshot_id, captured.snapshot_id);
+        assert_eq!(snapshot.snapshot_id, captured.object_id);
     }
 
     #[test]
@@ -125,18 +125,19 @@ mod tests {
         let event = events
             .iter()
             .find(|event| {
-                event.event_type == EventType::ReviewUnitCaptured
-                    && event.payload["reviewUnitId"] == captured.review_unit_id.as_str()
+                event.event_type == EventType::WorkObjectProposed
+                    && event.payload["workObject"]["revision"]["id"]
+                        == captured.revision_id.as_str()
             })
             .expect("capture event");
         ReviewUnitProjectionIdentity {
-            id: captured.review_unit_id.clone(),
-            session_id: captured.session_id.clone(),
+            id: captured.revision_id.clone(),
+            session_id: captured.ledger_id.clone(),
             source: captured.source.clone(),
             base: captured.base.clone(),
             target: captured.target.clone(),
             revision_id: captured.revision_id.clone(),
-            snapshot_id: captured.snapshot_id.clone(),
+            snapshot_id: captured.object_id.clone(),
             snapshot_artifact_content_hash: captured.snapshot_artifact_content_hash.clone(),
             capture_event_id: event.event_id.clone(),
         }

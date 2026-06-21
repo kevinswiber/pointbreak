@@ -3,11 +3,11 @@ use std::path::Path;
 use crate::error::{Result, ShoreError};
 use crate::git::git_head_ref;
 use crate::model::{
-    ReviewEndpoint, ReviewTargetRef, ReviewUnitId, ReviewUnitLineageId, RevisionId, SessionId,
-    Side, SnapshotId,
+    LedgerId, ObjectId, ReviewEndpoint, ReviewTargetRef, ReviewUnitLineageId, RevisionId, Side,
 };
 use crate::session::event::{
-    EventType, ReviewUnitCapturedPayload, ReviewUnitRefAssociatedPayload, ShoreEvent,
+    EventType, ReviewUnitRefAssociatedPayload, Revision, ShoreEvent, WorkObjectProposal,
+    WorkObjectProposedPayload,
 };
 use crate::session::projection::commit_range::review_unit_of;
 use crate::session::projection::lineage::ReviewUnitLineageProjection;
@@ -16,22 +16,21 @@ use crate::session::store::fingerprint::normalized_worktree_root;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedReviewUnit {
-    pub session_id: SessionId,
-    pub review_unit_id: ReviewUnitId,
+    pub ledger_id: LedgerId,
     pub revision_id: RevisionId,
-    pub snapshot_id: SnapshotId,
+    pub object_id: ObjectId,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ReviewUnitSelection<'a> {
     Current,
-    Exact(&'a ReviewUnitId),
+    Exact(&'a RevisionId),
     LineageHead(&'a ReviewUnitLineageId),
 }
 
 impl<'a> ReviewUnitSelection<'a> {
     pub(crate) fn from_review_unit_or_lineage(
-        review_unit_id: Option<&'a ReviewUnitId>,
+        review_unit_id: Option<&'a RevisionId>,
         lineage_id: Option<&'a ReviewUnitLineageId>,
     ) -> Result<Self> {
         match (review_unit_id, lineage_id) {
@@ -163,22 +162,23 @@ pub(crate) fn resolve_review_unit(
     let mut captured = Vec::new();
     for event in events
         .iter()
-        .filter(|event| event.event_type == EventType::ReviewUnitCaptured)
+        .filter(|event| event.event_type == EventType::WorkObjectProposed)
     {
-        let payload: ReviewUnitCapturedPayload = serde_json::from_value(event.payload.clone())?;
-        let resolved = ResolvedReviewUnit {
-            session_id: event.target.session_id.clone(),
-            review_unit_id: payload.review_unit_id.clone(),
-            revision_id: payload.revision_id.clone(),
-            snapshot_id: payload.snapshot_id.clone(),
+        let Some(revision) = revision_from_capture_event(event)? else {
+            continue;
         };
-        if matches!(selection, ReviewUnitSelection::Exact(requested) if requested == &resolved.review_unit_id)
+        let resolved = ResolvedReviewUnit {
+            ledger_id: event.target.ledger_id.clone(),
+            revision_id: revision.id.clone(),
+            object_id: revision.object_id.clone(),
+        };
+        if matches!(selection, ReviewUnitSelection::Exact(requested) if requested == &resolved.revision_id)
         {
             return Ok(resolved);
         }
         if matches!(selection, ReviewUnitSelection::Current)
             && scoped
-            && !capture_matches_current_worktree(events, event, &payload, context)?
+            && !capture_matches_current_worktree(events, event, &revision, context)?
         {
             continue;
         }
@@ -216,17 +216,31 @@ pub(crate) fn resolve_review_unit(
 fn capture_matches_current_worktree(
     events: &[ShoreEvent],
     capture_event: &ShoreEvent,
-    payload: &ReviewUnitCapturedPayload,
+    revision: &Revision,
     context: &CurrentReviewUnitContext,
 ) -> Result<bool> {
-    if capture_has_worktree_identity_match(events, payload, context)? {
+    if capture_has_worktree_identity_match(events, revision, context)? {
         return Ok(true);
     }
 
-    let signal_less_range = matches!(payload.target, ReviewEndpoint::GitCommit { .. })
-        && !capture_has_any_ref_association(events, &payload.review_unit_id)?;
+    let target_is_git_commit = matches!(
+        revision.git_provenance.as_ref().map(|p| &p.target),
+        Some(ReviewEndpoint::GitCommit { .. })
+    );
+    let signal_less_range =
+        target_is_git_commit && !capture_has_any_ref_association(events, &revision.id)?;
     let is_ingested = capture_event.ingest.is_some();
     Ok(signal_less_range || is_ingested)
+}
+
+/// Decode the captured revision from a generative move, or `None` if the move is
+/// not a review-domain revision proposal.
+fn revision_from_capture_event(event: &ShoreEvent) -> Result<Option<Revision>> {
+    let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
+    Ok(match payload.work_object {
+        WorkObjectProposal::Revision { revision, .. } => Some(revision),
+        WorkObjectProposal::TaskAttempt { .. } => None,
+    })
 }
 
 /// The positive worktree-identity half of [`capture_matches_current_worktree`]:
@@ -236,17 +250,18 @@ fn capture_matches_current_worktree(
 /// explicit worktree read selector scopes by.
 pub(crate) fn capture_has_worktree_identity_match(
     events: &[ShoreEvent],
-    payload: &ReviewUnitCapturedPayload,
+    revision: &Revision,
     context: &CurrentReviewUnitContext,
 ) -> Result<bool> {
-    if let ReviewEndpoint::GitWorkingTree { worktree_root } = &payload.target
+    if let Some(ReviewEndpoint::GitWorkingTree { worktree_root }) =
+        revision.git_provenance.as_ref().map(|p| &p.target)
         && worktree_root == &context.worktree_root
     {
         return Ok(true);
     }
 
     if let Some(head_ref) = context.head_ref.as_deref()
-        && capture_has_ref_association(events, &payload.review_unit_id, head_ref)?
+        && capture_has_ref_association(events, &revision.id, head_ref)?
     {
         return Ok(true);
     }
@@ -254,21 +269,23 @@ pub(crate) fn capture_has_worktree_identity_match(
     Ok(false)
 }
 
-/// The review-unit ids whose `ReviewUnitCaptured` event has a positive
+/// The review-unit ids whose `WorkObjectProposed` event has a positive
 /// worktree-identity match against `context`. Shared by the explicit worktree read
 /// selector on the list surfaces (the strict identity match, no fail-open).
 pub(crate) fn review_unit_ids_in_worktree(
     events: &[ShoreEvent],
     context: &CurrentReviewUnitContext,
-) -> Result<std::collections::BTreeSet<ReviewUnitId>> {
+) -> Result<std::collections::BTreeSet<RevisionId>> {
     let mut ids = std::collections::BTreeSet::new();
     for event in events
         .iter()
-        .filter(|event| event.event_type == EventType::ReviewUnitCaptured)
+        .filter(|event| event.event_type == EventType::WorkObjectProposed)
     {
-        let payload: ReviewUnitCapturedPayload = serde_json::from_value(event.payload.clone())?;
-        if capture_has_worktree_identity_match(events, &payload, context)? {
-            ids.insert(payload.review_unit_id);
+        let Some(revision) = revision_from_capture_event(event)? else {
+            continue;
+        };
+        if capture_has_worktree_identity_match(events, &revision, context)? {
+            ids.insert(revision.id);
         }
     }
     Ok(ids)
@@ -278,7 +295,7 @@ pub(crate) fn review_unit_ids_in_worktree(
 /// naming `head_ref` (the full ref, matching `git_head_ref`'s spelling).
 fn capture_has_ref_association(
     events: &[ShoreEvent],
-    review_unit_id: &ReviewUnitId,
+    review_unit_id: &RevisionId,
     head_ref: &str,
 ) -> Result<bool> {
     for event in events
@@ -300,7 +317,7 @@ fn capture_has_ref_association(
 /// `review_unit_id`, regardless of which ref it names.
 fn capture_has_any_ref_association(
     events: &[ShoreEvent],
-    review_unit_id: &ReviewUnitId,
+    review_unit_id: &RevisionId,
 ) -> Result<bool> {
     for event in events
         .iter()
@@ -326,12 +343,12 @@ pub(crate) fn resolve_observation_target(
                 reason: "file is required when selecting observation lines".to_owned(),
             });
         }
-        return Ok(ReviewTargetRef::ReviewUnit {
-            review_unit_id: resolved.review_unit_id.clone(),
+        return Ok(ReviewTargetRef::Revision {
+            revision_id: resolved.revision_id.clone(),
         });
     };
 
-    let artifact = read_snapshot_artifact_for_write_validation(repo, &resolved.snapshot_id)?;
+    let artifact = read_snapshot_artifact_for_write_validation(repo, &resolved.object_id)?;
     if !artifact.snapshot.files.iter().any(|file| {
         file.new_path.as_deref() == Some(file_path) || file.old_path.as_deref() == Some(file_path)
     }) {
@@ -354,7 +371,7 @@ pub(crate) fn resolve_observation_target(
                 });
             }
             Ok(ReviewTargetRef::Range {
-                review_unit_id: resolved.review_unit_id.clone(),
+                revision_id: resolved.revision_id.clone(),
                 file_path: file_path.to_owned(),
                 side: selector.side,
                 start_line,
@@ -368,7 +385,7 @@ pub(crate) fn resolve_observation_target(
                 });
             }
             Ok(ReviewTargetRef::File {
-                review_unit_id: resolved.review_unit_id.clone(),
+                revision_id: resolved.revision_id.clone(),
                 file_path: file_path.to_owned(),
             })
         }
@@ -381,38 +398,39 @@ mod scope_tests {
 
     use super::*;
     use crate::model::{
-        CommitRangeCaptureMode, ReviewEndpoint, ReviewUnitId, ReviewUnitSource, RevisionId,
-        SessionId, SnapshotId, WorktreeCaptureMode,
+        CommitRangeCaptureMode, EngagementId, LedgerId, ObjectId, ReviewEndpoint, ReviewUnitSource,
+        RevisionId, WorktreeCaptureMode,
     };
-    use crate::session::event::{
-        EventTarget, IngestProvenance, IngestVia, ReviewUnitCapturedPayload, Writer,
-    };
+    use crate::session::event::{EventTarget, GitProvenance, IngestProvenance, IngestVia, Writer};
 
     fn capture_event(suffix: &str, source: ReviewUnitSource, target: ReviewEndpoint) -> ShoreEvent {
-        let review_unit_id = ReviewUnitId::new(format!("review-unit:sha256:{suffix}"));
-        let revision_id = RevisionId::new(format!("rev:{suffix}"));
-        let snapshot_id = SnapshotId::new(format!("snap:{suffix}"));
+        let revision_id = RevisionId::new(format!("review-unit:sha256:{suffix}"));
+        let object_id = ObjectId::new(format!("snap:{suffix}"));
         ShoreEvent::new(
-            EventType::ReviewUnitCaptured,
-            format!("review_unit_captured:{}", review_unit_id.as_str()),
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                review_unit_id.clone(),
-                revision_id.clone(),
-                snapshot_id.clone(),
-            ),
+            EventType::WorkObjectProposed,
+            format!("work_object_proposed:{}", revision_id.as_str()),
+            EventTarget::for_revision(LedgerId::new("ledger:default"), revision_id.clone(), None),
             Writer::shore_local("test"),
-            ReviewUnitCapturedPayload {
-                review_unit_id,
-                source,
-                base: ReviewEndpoint::GitCommit {
-                    commit_oid: "base".to_owned(),
-                    tree_oid: "base-tree".to_owned(),
+            WorkObjectProposedPayload {
+                engagement_id: EngagementId::new(format!(
+                    "engagement:sha256:{}",
+                    crate::canonical_hash::sha256_bytes_hex(revision_id.as_str().as_bytes())
+                )),
+                work_object: WorkObjectProposal::Revision {
+                    revision: Revision {
+                        id: revision_id,
+                        object_id,
+                        git_provenance: Some(GitProvenance {
+                            source,
+                            base: ReviewEndpoint::GitCommit {
+                                commit_oid: format!("base-oid:{suffix}"),
+                                tree_oid: format!("base-tree:{suffix}"),
+                            },
+                            target,
+                        }),
+                    },
+                    snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
                 },
-                target,
-                revision_id,
-                snapshot_id,
-                snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
             },
             "2026-05-12T00:00:00Z",
         )
@@ -461,10 +479,8 @@ mod scope_tests {
     /// A capture-time branch ref association for a given unit + full ref.
     fn ref_association(unit_suffix: &str, ref_name: &str) -> ShoreEvent {
         crate::session::workflow::association::build_ref_association_event(
-            &SessionId::new("session:default"),
-            &ReviewUnitId::new(format!("review-unit:sha256:{unit_suffix}")),
-            &RevisionId::new(format!("rev:{unit_suffix}")),
-            &SnapshotId::new(format!("snap:{unit_suffix}")),
+            &LedgerId::new("ledger:default"),
+            &RevisionId::new(format!("review-unit:sha256:{unit_suffix}")),
             ref_name,
             &"0".repeat(40),
             None,
@@ -502,7 +518,7 @@ mod scope_tests {
             ReviewUnitScope::CurrentWorktree,
         )
         .expect("worktree a resolves its own capture");
-        assert_eq!(resolved_a.review_unit_id.as_str(), "review-unit:sha256:a");
+        assert_eq!(resolved_a.revision_id.as_str(), "review-unit:sha256:a");
 
         let resolved_b = current(
             &events,
@@ -510,7 +526,7 @@ mod scope_tests {
             ReviewUnitScope::CurrentWorktree,
         )
         .expect("worktree b resolves its own capture");
-        assert_eq!(resolved_b.review_unit_id.as_str(), "review-unit:sha256:b");
+        assert_eq!(resolved_b.revision_id.as_str(), "review-unit:sha256:b");
     }
 
     #[test]
@@ -549,7 +565,7 @@ mod scope_tests {
             ReviewUnitScope::CurrentWorktree,
         )
         .expect("ref association scopes the range capture into the current branch context");
-        assert_eq!(resolved.review_unit_id.as_str(), "review-unit:sha256:r");
+        assert_eq!(resolved.revision_id.as_str(), "review-unit:sha256:r");
     }
 
     #[test]
@@ -580,7 +596,7 @@ mod scope_tests {
             worktree_capture("a", "/wt/a"),
             worktree_capture("b", "/wt/b"),
         ];
-        let requested = ReviewUnitId::new("review-unit:sha256:b");
+        let requested = RevisionId::new("review-unit:sha256:b");
 
         let resolved = resolve_review_unit(
             &events,
@@ -589,7 +605,7 @@ mod scope_tests {
             ReviewUnitScope::CurrentWorktree,
         )
         .expect("exact selection is context-independent");
-        assert_eq!(resolved.review_unit_id.as_str(), "review-unit:sha256:b");
+        assert_eq!(resolved.revision_id.as_str(), "review-unit:sha256:b");
     }
 
     #[test]
@@ -597,7 +613,7 @@ mod scope_tests {
         let one = [worktree_capture("b", "/wt/b")];
         let resolved = current(&one, &ctx("/wt/a", None), ReviewUnitScope::All)
             .expect("widening to the whole store resolves a single capture");
-        assert_eq!(resolved.review_unit_id.as_str(), "review-unit:sha256:b");
+        assert_eq!(resolved.revision_id.as_str(), "review-unit:sha256:b");
 
         let two = [
             worktree_capture("b", "/wt/b"),
@@ -640,7 +656,7 @@ mod scope_tests {
             ReviewUnitScope::CurrentWorktree,
         )
         .expect("a signal-less range capture fails open to the current worktree");
-        assert_eq!(resolved.review_unit_id.as_str(), "review-unit:sha256:r");
+        assert_eq!(resolved.revision_id.as_str(), "review-unit:sha256:r");
     }
 
     #[test]
@@ -671,7 +687,7 @@ mod scope_tests {
             ReviewUnitScope::CurrentWorktree,
         )
         .expect("an ingested capture fails open into the destination worktree");
-        assert_eq!(resolved.review_unit_id.as_str(), "review-unit:sha256:i");
+        assert_eq!(resolved.revision_id.as_str(), "review-unit:sha256:i");
     }
 
     #[test]
@@ -707,8 +723,8 @@ mod scope_tests {
 
         let ids = review_unit_ids_in_worktree(&events, &ctx("/wt/a", None)).unwrap();
 
-        assert!(ids.contains(&ReviewUnitId::new("review-unit:sha256:here")));
-        assert!(!ids.contains(&ReviewUnitId::new("review-unit:sha256:there")));
-        assert!(!ids.contains(&ReviewUnitId::new("review-unit:sha256:floaty")));
+        assert!(ids.contains(&RevisionId::new("review-unit:sha256:here")));
+        assert!(!ids.contains(&RevisionId::new("review-unit:sha256:there")));
+        assert!(!ids.contains(&RevisionId::new("review-unit:sha256:floaty")));
     }
 }

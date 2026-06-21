@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{AssessmentId, EventId, InputRequestId, ObservationId, ReviewUnitId, Side};
+use super::{AssessmentId, EventId, InputRequestId, ObservationId, RevisionId, Side};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(
@@ -59,37 +59,37 @@ pub enum CommitRangeCaptureMode {
     rename_all_fields = "camelCase"
 )]
 pub enum ReviewTargetRef {
-    ReviewUnit {
-        review_unit_id: ReviewUnitId,
+    Revision {
+        revision_id: RevisionId,
     },
     Lineage {
         review_unit_lineage_id: super::ReviewUnitLineageId,
     },
     File {
-        review_unit_id: ReviewUnitId,
+        revision_id: RevisionId,
         file_path: String,
     },
     Range {
-        review_unit_id: ReviewUnitId,
+        revision_id: RevisionId,
         file_path: String,
         side: Side,
         start_line: u32,
         end_line: u32,
     },
     Observation {
-        review_unit_id: ReviewUnitId,
+        revision_id: RevisionId,
         observation_id: ObservationId,
     },
     InputRequest {
-        review_unit_id: ReviewUnitId,
+        revision_id: RevisionId,
         input_request_id: InputRequestId,
     },
     Assessment {
-        review_unit_id: ReviewUnitId,
+        revision_id: RevisionId,
         assessment_id: AssessmentId,
     },
     Event {
-        review_unit_id: ReviewUnitId,
+        revision_id: RevisionId,
         event_id: EventId,
     },
 }
@@ -171,22 +171,22 @@ mod tests {
 
     #[test]
     fn review_target_can_represent_review_wide_and_range_scope() {
-        let review_wide = ReviewTargetRef::ReviewUnit {
-            review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
+        let review_wide = ReviewTargetRef::Revision {
+            revision_id: RevisionId::new("rev:sha256:abc"),
         };
         let range = ReviewTargetRef::Range {
-            review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
+            revision_id: RevisionId::new("rev:sha256:abc"),
             file_path: "src/lib.rs".to_owned(),
             side: Side::New,
             start_line: 10,
             end_line: 12,
         };
         let file = ReviewTargetRef::File {
-            review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
+            revision_id: RevisionId::new("rev:sha256:abc"),
             file_path: "src/main.rs".to_owned(),
         };
         let event = ReviewTargetRef::Event {
-            review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
+            revision_id: RevisionId::new("rev:sha256:abc"),
             event_id: EventId::new("evt:sha256:def"),
         };
 
@@ -195,30 +195,30 @@ mod tests {
         let file = serde_json::to_value(file).unwrap();
         let event = serde_json::to_value(event).unwrap();
 
-        assert_eq!(review_wide["kind"], "review_unit");
-        assert_eq!(review_wide["reviewUnitId"], "review-unit:sha256:abc");
+        assert_eq!(review_wide["kind"], "revision");
+        assert_eq!(review_wide["revisionId"], "rev:sha256:abc");
         assert_eq!(range["kind"], "range");
-        assert_eq!(range["reviewUnitId"], "review-unit:sha256:abc");
+        assert_eq!(range["revisionId"], "rev:sha256:abc");
         assert_eq!(range["filePath"], "src/lib.rs");
         assert_eq!(range["side"], "new");
         assert_eq!(range["startLine"], 10);
         assert_eq!(range["endLine"], 12);
         assert_eq!(file["kind"], "file");
-        assert_eq!(file["reviewUnitId"], "review-unit:sha256:abc");
+        assert_eq!(file["revisionId"], "rev:sha256:abc");
         assert_eq!(file["filePath"], "src/main.rs");
         assert_eq!(event["kind"], "event");
-        assert_eq!(event["reviewUnitId"], "review-unit:sha256:abc");
+        assert_eq!(event["revisionId"], "rev:sha256:abc");
         assert_eq!(event["eventId"], "evt:sha256:def");
     }
 
     #[test]
     fn review_target_can_represent_observation_and_input_request_scope() {
         let observation = ReviewTargetRef::Observation {
-            review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
+            revision_id: RevisionId::new("rev:sha256:abc"),
             observation_id: ObservationId::new("obs:sha256:def"),
         };
         let input_request = ReviewTargetRef::InputRequest {
-            review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
+            revision_id: RevisionId::new("rev:sha256:abc"),
             input_request_id: InputRequestId::new("input-request:sha256:ghi"),
         };
 
@@ -240,14 +240,14 @@ mod tests {
     #[test]
     fn review_target_ref_input_request_variant_wire_shape_is_kind_input_request() {
         let target = ReviewTargetRef::InputRequest {
-            review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+            revision_id: RevisionId::new("rev:sha256:one"),
             input_request_id: InputRequestId::new("input-request:sha256:one"),
         };
 
         let json = serde_json::to_value(&target).unwrap();
 
         assert_eq!(json["kind"], "input_request");
-        assert_eq!(json["reviewUnitId"], "review-unit:sha256:one");
+        assert_eq!(json["revisionId"], "rev:sha256:one");
         assert_eq!(json["inputRequestId"], "input-request:sha256:one");
         assert!(json.get("interventionId").is_none());
 
@@ -259,7 +259,7 @@ mod tests {
     fn review_target_ref_legacy_intervention_kind_fails_to_decode() {
         let legacy = serde_json::json!({
             "kind": "intervention",
-            "reviewUnitId": "review-unit:sha256:one",
+            "revisionId": "rev:sha256:one",
             "inputRequestId": "input-request:sha256:one"
         });
 
@@ -273,14 +273,14 @@ mod tests {
     #[test]
     fn review_target_ref_assessment_variant_wire_shape_is_kind_assessment_with_assessment_id() {
         let target = ReviewTargetRef::Assessment {
-            review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+            revision_id: RevisionId::new("rev:sha256:one"),
             assessment_id: AssessmentId::new("assess:sha256:one"),
         };
 
         let json = serde_json::to_value(&target).unwrap();
 
         assert_eq!(json["kind"], "assessment");
-        assert_eq!(json["reviewUnitId"], "review-unit:sha256:one");
+        assert_eq!(json["revisionId"], "rev:sha256:one");
         assert_eq!(json["assessmentId"], "assess:sha256:one");
 
         let round_tripped: ReviewTargetRef = serde_json::from_value(json).unwrap();

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 use shoreline::documents::{validation_add_document, validation_list_document};
-use shoreline::model::{ReviewUnitId, ReviewUnitLineageId, ValidationStatus, ValidationTrigger};
+use shoreline::model::{ReviewUnitLineageId, RevisionId, ValidationStatus, ValidationTrigger};
 use shoreline::session::{
     ValidationAddOptions, ValidationListOptions, list_validation_checks, record_validation_check,
 };
@@ -189,7 +189,7 @@ fn validation_add_options(
         .with_trigger(args.trigger.into());
 
     if let Some(review_unit) = args.review_unit {
-        options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+        options = options.with_review_unit_id(RevisionId::new(review_unit));
     }
     if let Some(lineage) = args.lineage {
         options = options.with_lineage_id(ReviewUnitLineageId::new(lineage));
@@ -233,7 +233,7 @@ fn validation_add_options(
 fn validation_list_options(args: ValidationListArgs) -> ValidationListOptions {
     let mut options = ValidationListOptions::new(&args.repo).with_include_body(args.include_body);
     if let Some(review_unit) = args.review_unit {
-        options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+        options = options.with_review_unit_id(RevisionId::new(review_unit));
     }
     if let Some(lineage) = args.lineage {
         options = options.with_lineage_id(ReviewUnitLineageId::new(lineage));

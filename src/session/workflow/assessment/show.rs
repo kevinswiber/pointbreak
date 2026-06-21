@@ -4,7 +4,7 @@ use super::{
     AssessmentProjectionOptions, AssessmentView, CurrentAssessmentView, project_assessments,
 };
 use crate::error::Result;
-use crate::model::{ReviewUnitId, ReviewUnitLineageId, TrackId};
+use crate::model::{ReviewUnitLineageId, RevisionId, TrackId};
 use crate::session::EventStore;
 use crate::session::observation::{
     CurrentReviewUnitContext, ReviewUnitScope, ReviewUnitSelection, resolve_review_unit,
@@ -16,7 +16,7 @@ use crate::session::store::resolution::resolve_read_store;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssessmentShowOptions {
     pub(super) repo: PathBuf,
-    pub(super) review_unit_id: Option<ReviewUnitId>,
+    pub(super) review_unit_id: Option<RevisionId>,
     pub(super) lineage_id: Option<ReviewUnitLineageId>,
     pub(super) track: Option<String>,
     pub(super) include_summary: bool,
@@ -35,7 +35,7 @@ impl AssessmentShowOptions {
         }
     }
 
-    pub fn with_review_unit_id(mut self, id: ReviewUnitId) -> Self {
+    pub fn with_review_unit_id(mut self, id: RevisionId) -> Self {
         self.review_unit_id = Some(id);
         self
     }
@@ -63,7 +63,7 @@ impl AssessmentShowOptions {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssessmentShowResult {
-    pub review_unit_id: ReviewUnitId,
+    pub review_unit_id: RevisionId,
     pub filters: AssessmentShowFilters,
     pub current: CurrentAssessmentView,
     pub assessments: Vec<AssessmentView>,
@@ -106,7 +106,7 @@ pub fn show_assessments(options: AssessmentShowOptions) -> Result<AssessmentShow
     let diagnostics = SessionState::from_events(&events)?.diagnostics;
 
     Ok(AssessmentShowResult {
-        review_unit_id: resolved.review_unit_id,
+        review_unit_id: resolved.revision_id,
         filters: AssessmentShowFilters {
             track_id: track_filter,
             include_summary: options.include_summary,

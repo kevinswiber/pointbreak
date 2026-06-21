@@ -1,8 +1,8 @@
 // Parser for Claude Code session JSONL files.
 //
-// `SessionId` convention: `session:claude:<claude-session-uuid>` where the
+// `LedgerId` convention: `session:claude:<claude-session-uuid>` where the
 // UUID is the hyphenated value Claude Code records under `sessionId` on every
-// line. Each JSONL file maps to its own `SessionId`; cross-rollout continuity
+// line. Each JSONL file maps to its own `LedgerId`; cross-rollout continuity
 // (`--resume`, parentUuid chains) is the explicit `predecessor` concern
 // deferred to a later phase.
 //
@@ -17,7 +17,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::error::{Result, ShoreError};
-use crate::model::SessionId;
+use crate::model::LedgerId;
 
 /// Decode a Claude Code session JSONL into a typed [`ParsedSession`].
 ///
@@ -80,7 +80,7 @@ pub fn parse_session(path: &Path) -> Result<ParsedSession> {
     }
 
     let claude_session_uuid = session_uuid.unwrap_or_default();
-    let session_id = SessionId::new(format!("session:claude:{claude_session_uuid}"));
+    let session_id = LedgerId::new(format!("session:claude:{claude_session_uuid}"));
     let project_path = first_cwd.unwrap_or(parent_dir_path);
 
     pair_tool_uses_with_results(&mut messages);
@@ -113,7 +113,7 @@ const KNOWN_METADATA_TYPES: &[&str] = &[
 
 #[derive(Debug, Clone)]
 pub struct ParsedSession {
-    pub session_id: SessionId,
+    pub session_id: LedgerId,
     pub claude_session_uuid: String,
     pub project_path: String,
     pub messages: Vec<ParsedMessage>,
@@ -443,7 +443,7 @@ mod tests {
     use std::io::Write;
 
     use super::*;
-    use crate::model::SessionId;
+    use crate::model::LedgerId;
 
     fn fixture_path() -> std::path::PathBuf {
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -490,7 +490,7 @@ mod tests {
 
         assert_eq!(
             parsed.session_id,
-            SessionId::new(format!("session:claude:{FIXTURE_UUID}"))
+            LedgerId::new(format!("session:claude:{FIXTURE_UUID}"))
         );
         assert_eq!(parsed.claude_session_uuid, FIXTURE_UUID);
         assert_eq!(parsed.messages.len(), 44);
@@ -690,7 +690,7 @@ mod tests {
 
         assert_eq!(
             parsed.session_id,
-            SessionId::new(format!("session:claude:{uuid}"))
+            LedgerId::new(format!("session:claude:{uuid}"))
         );
         assert_eq!(parsed.claude_session_uuid, uuid);
     }

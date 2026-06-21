@@ -10,8 +10,8 @@ use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::crypto::EventSigner;
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    ActorId, AssessmentId, EventId, InputRequestId, ObservationId, ReviewTargetRef, ReviewUnitId,
-    ReviewUnitLineageId, TargetRef, TrackId,
+    ActorId, AssessmentId, EventId, InputRequestId, ObservationId, ReviewTargetRef,
+    ReviewUnitLineageId, RevisionId, TargetRef, TrackId,
 };
 use crate::session::event::{
     EventTarget, EventType, ReviewAssessment, ReviewAssessmentRecordedPayload,
@@ -34,7 +34,7 @@ use crate::storage::{Durability, LocalStorage};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssessmentAddOptions {
     repo: PathBuf,
-    review_unit_id: Option<ReviewUnitId>,
+    review_unit_id: Option<RevisionId>,
     lineage_id: Option<ReviewUnitLineageId>,
     track: Option<String>,
     assessment: Option<ReviewAssessment>,
@@ -77,7 +77,7 @@ impl AssessmentAddOptions {
         self
     }
 
-    pub fn with_review_unit_id(mut self, id: ReviewUnitId) -> Self {
+    pub fn with_review_unit_id(mut self, id: RevisionId) -> Self {
         self.review_unit_id = Some(id);
         self
     }
@@ -151,7 +151,7 @@ impl AssessmentAddOptions {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssessmentAddResult {
-    pub review_unit_id: ReviewUnitId,
+    pub review_unit_id: RevisionId,
     pub assessment_id: AssessmentId,
     pub event_id: EventId,
     pub track_id: TrackId,
@@ -209,7 +209,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
 
     validate_assessment_relationships(
         &validation_events,
-        &resolved.review_unit_id,
+        &resolved.revision_id,
         &options.replaces_assessment_ids,
         &options.related_observation_ids,
         &options.related_input_request_ids,
@@ -226,7 +226,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
     let related_observation_ids = sorted_unique(options.related_observation_ids);
     let related_input_request_ids = sorted_unique(options.related_input_request_ids);
     let assessment_id = build_assessment_id(AssessmentIdMaterial {
-        review_unit_id: &resolved.review_unit_id,
+        review_unit_id: &resolved.revision_id,
         track_id: &track_id,
         target: &target,
         assessment,
@@ -241,7 +241,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
         .as_deref()
         .unwrap_or_else(|| assessment_id.as_str());
     let idempotency_key = ReviewAssessmentRecordedPayload::idempotency_key(
-        &resolved.review_unit_id,
+        &resolved.revision_id,
         &track_id,
         source_key,
     );
@@ -258,17 +258,11 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
     let mut event = ShoreEvent::new(
         EventType::ReviewAssessmentRecorded,
         idempotency_key,
-        EventTarget {
-            session_id: resolved.session_id,
-            work_unit_id: None,
-            work_object_id: None,
-            work_object_type: None,
-            review_unit_id: Some(resolved.review_unit_id.clone()),
-            revision_id: Some(resolved.revision_id),
-            snapshot_id: Some(resolved.snapshot_id),
-            track_id: Some(track_id.clone()),
-            subject: Some(TargetRef::Review(target.clone())),
-        },
+        EventTarget::for_subject(
+            resolved.ledger_id,
+            TargetRef::Review(target.clone()),
+            Some(track_id.clone()),
+        ),
         writer,
         ReviewAssessmentRecordedPayload {
             assessment_id: assessment_id.clone(),
@@ -305,7 +299,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
     )?;
 
     let result = AssessmentAddResult {
-        review_unit_id: resolved.review_unit_id,
+        review_unit_id: resolved.revision_id,
         assessment_id,
         event_id,
         track_id,
@@ -322,7 +316,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
 
 fn validate_assessment_relationships(
     events: &[ShoreEvent],
-    review_unit_id: &ReviewUnitId,
+    review_unit_id: &RevisionId,
     replaces_assessment_ids: &[AssessmentId],
     related_observation_ids: &[ObservationId],
     related_input_request_ids: &[InputRequestId],
@@ -356,14 +350,14 @@ fn validate_assessment_relationships(
 
 fn has_assessment(
     events: &[ShoreEvent],
-    review_unit_id: &ReviewUnitId,
+    review_unit_id: &RevisionId,
     assessment_id: &AssessmentId,
 ) -> Result<bool> {
     for event in events
         .iter()
         .filter(|event| event.event_type == EventType::ReviewAssessmentRecorded)
     {
-        if event.target.review_unit_id.as_ref() != Some(review_unit_id) {
+        if crate::model::subject_revision_id(&event.target.subject) != Some(review_unit_id) {
             continue;
         }
         let payload: ReviewAssessmentRecordedPayload =
@@ -377,14 +371,14 @@ fn has_assessment(
 
 fn has_observation(
     events: &[ShoreEvent],
-    review_unit_id: &ReviewUnitId,
+    review_unit_id: &RevisionId,
     observation_id: &ObservationId,
 ) -> Result<bool> {
     for event in events
         .iter()
         .filter(|event| event.event_type == EventType::ReviewObservationRecorded)
     {
-        if event.target.review_unit_id.as_ref() != Some(review_unit_id) {
+        if crate::model::subject_revision_id(&event.target.subject) != Some(review_unit_id) {
             continue;
         }
         let payload: ReviewObservationRecordedPayload =
@@ -398,14 +392,14 @@ fn has_observation(
 
 fn has_input_request(
     events: &[ShoreEvent],
-    review_unit_id: &ReviewUnitId,
+    review_unit_id: &RevisionId,
     input_request_id: &InputRequestId,
 ) -> Result<bool> {
     for event in events
         .iter()
         .filter(|event| event.event_type == EventType::InputRequestOpened)
     {
-        if event.target.review_unit_id.as_ref() != Some(review_unit_id) {
+        if crate::model::subject_revision_id(&event.target.subject) != Some(review_unit_id) {
             continue;
         }
         let payload = decode_input_request_opened_payload(event.payload.clone())?;
@@ -417,7 +411,7 @@ fn has_input_request(
 }
 
 struct AssessmentIdMaterial<'a> {
-    review_unit_id: &'a ReviewUnitId,
+    review_unit_id: &'a RevisionId,
     track_id: &'a TrackId,
     target: &'a ReviewTargetRef,
     assessment: ReviewAssessment,
@@ -469,12 +463,12 @@ mod tests {
     #[test]
     fn build_assessment_id_uses_stable_material_digest() {
         const EXPECTED_ASSESSMENT_ID_FOR_FIXTURE: &str =
-            "assess:sha256:f02af88089d4bc49951febbc53dce26f79f4557f5cd3c8b73c86b212712ebdcd";
+            "assess:sha256:608bbfbc30dddfe7af8fbbf5cc8bacb12671f79d19f5464511c722577d53e74d";
 
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
+        let review_unit_id = RevisionId::new("review-unit:sha256:one");
         let track_id = TrackId::new("human:kevin");
-        let target = ReviewTargetRef::ReviewUnit {
-            review_unit_id: review_unit_id.clone(),
+        let target = ReviewTargetRef::Revision {
+            revision_id: review_unit_id.clone(),
         };
 
         let assessment_id = build_assessment_id(AssessmentIdMaterial {

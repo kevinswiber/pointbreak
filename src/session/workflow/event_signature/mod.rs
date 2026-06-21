@@ -229,7 +229,7 @@ pub(crate) fn assemble_and_record_cosignature(
     let carrier = ShoreEvent::new(
         EventType::EventSignatureRecorded,
         idempotency_key,
-        EventTarget::for_event_signature(target.target.session_id.clone()),
+        EventTarget::for_ledger(target.target.ledger_id.clone()),
         writer,
         payload.clone(),
         occurred_at,
@@ -273,7 +273,7 @@ mod tests {
             .unwrap();
         events
             .iter()
-            .find(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .find(|event| event.event_type == EventType::WorkObjectProposed)
             .expect("captured review unit event present")
             .event_id
             .clone()

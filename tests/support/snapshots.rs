@@ -46,8 +46,8 @@ pub fn normalize_path(path: impl AsRef<std::path::Path>) -> String {
 #[cfg(test)]
 mod tests {
     use shoreline::model::{
-        FileId, FileStatus, LineRange, ResolutionStatus, ReviewId, ReviewNoteId, ReviewRow,
-        ReviewRowKind, ReviewStream, RowId, SnapshotId,
+        FileId, FileStatus, LineRange, ObjectId, ResolutionStatus, ReviewId, ReviewNoteId,
+        ReviewRow, ReviewRowKind, ReviewStream, RowId,
     };
 
     use super::*;
@@ -55,7 +55,7 @@ mod tests {
     #[test]
     fn stream_summary_counts_stale_note_rows() {
         let review_id = ReviewId::new("review:test");
-        let snapshot_id = SnapshotId::new("snapshot:test");
+        let snapshot_id = ObjectId::new("snapshot:test");
         let stream = ReviewStream {
             review_id,
             snapshot_id,

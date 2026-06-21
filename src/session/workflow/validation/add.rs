@@ -11,7 +11,7 @@ use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::crypto::EventSigner;
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    ActorId, EventId, ReviewTargetRef, ReviewUnitId, ReviewUnitLineageId, TargetRef, TrackId,
+    ActorId, EventId, ReviewTargetRef, ReviewUnitLineageId, RevisionId, TargetRef, TrackId,
     ValidationCheckId, ValidationStatus, ValidationTarget, ValidationTrigger,
 };
 use crate::session::event::{EventTarget, EventType, ShoreEvent, ValidationCheckRecordedPayload};
@@ -28,7 +28,7 @@ use crate::storage::{Durability, LocalStorage};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidationAddOptions {
     repo: PathBuf,
-    review_unit_id: Option<ReviewUnitId>,
+    review_unit_id: Option<RevisionId>,
     lineage_id: Option<ReviewUnitLineageId>,
     track: Option<String>,
     check_name: Option<String>,
@@ -74,7 +74,7 @@ impl ValidationAddOptions {
         self
     }
 
-    pub fn with_review_unit_id(mut self, id: ReviewUnitId) -> Self {
+    pub fn with_review_unit_id(mut self, id: RevisionId) -> Self {
         self.review_unit_id = Some(id);
         self
     }
@@ -163,7 +163,7 @@ impl ValidationAddOptions {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidationAddResult {
-    pub review_unit_id: ReviewUnitId,
+    pub review_unit_id: RevisionId,
     pub validation_check_id: ValidationCheckId,
     pub event_id: EventId,
     pub track_id: TrackId,
@@ -262,10 +262,10 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
     log_artifact_content_hashes.sort();
     log_artifact_content_hashes.dedup();
     let target = ValidationTarget::ReviewUnit {
-        review_unit_id: input.resolved.review_unit_id.clone(),
+        review_unit_id: input.resolved.revision_id.clone(),
     };
     let validation_check_id = build_validation_check_id(ValidationCheckIdMaterial {
-        review_unit_id: &input.resolved.review_unit_id,
+        review_unit_id: &input.resolved.revision_id,
         track_id: &track_id,
         target: &target,
         check_name: &input.check_name,
@@ -285,7 +285,7 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
         .as_deref()
         .unwrap_or_else(|| validation_check_id.as_str());
     let idempotency_key = ValidationCheckRecordedPayload::idempotency_key(
-        &input.resolved.review_unit_id,
+        &input.resolved.revision_id,
         &track_id,
         source_key,
     );
@@ -299,16 +299,15 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
         storage.write_bytes_atomic(Path::new(artifact_path), bytes, Durability::Durable)?;
     }
 
-    let mut event_target = EventTarget::for_review_unit(
-        input.resolved.session_id,
-        input.resolved.review_unit_id.clone(),
-        input.resolved.revision_id,
-        input.resolved.snapshot_id,
+    let mut event_target = EventTarget::for_revision(
+        input.resolved.ledger_id,
+        input.resolved.revision_id.clone(),
+        None,
     );
     event_target.track_id = Some(track_id.clone());
-    event_target.subject = Some(TargetRef::Review(ReviewTargetRef::ReviewUnit {
-        review_unit_id: input.resolved.review_unit_id.clone(),
-    }));
+    event_target.subject = TargetRef::Review(ReviewTargetRef::Revision {
+        revision_id: input.resolved.revision_id.clone(),
+    });
 
     let mut event = ShoreEvent::new(
         EventType::ValidationCheckRecorded,
@@ -355,7 +354,7 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
     )?;
 
     Ok(ValidationAddResult {
-        review_unit_id: input.resolved.review_unit_id,
+        review_unit_id: input.resolved.revision_id,
         validation_check_id,
         event_id,
         track_id,
@@ -370,7 +369,7 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
 }
 
 pub(super) struct ValidationCheckIdMaterial<'a> {
-    pub review_unit_id: &'a ReviewUnitId,
+    pub review_unit_id: &'a RevisionId,
     pub track_id: &'a TrackId,
     pub target: &'a ValidationTarget,
     pub check_name: &'a str,

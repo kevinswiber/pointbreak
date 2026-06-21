@@ -2,7 +2,7 @@ use super::ReviewUnitProjectionSummary;
 use super::adapter_notes::AdapterNoteView;
 use crate::model::{
     AssessmentId, DiffFile, DiffSnapshot, InputRequestId, ObservationId, ReviewTargetRef,
-    ReviewUnitId, RowId, ValidationCheckId, ValidationTarget,
+    RevisionId, RowId, ValidationCheckId, ValidationTarget,
 };
 use crate::session::assessment::AssessmentView;
 use crate::session::input_request::InputRequestView;
@@ -99,7 +99,7 @@ pub struct SnapshotOrder {
 
 pub(super) fn build_snapshot_rows(
     snapshot: &DiffSnapshot,
-    review_unit_id: &ReviewUnitId,
+    review_unit_id: &RevisionId,
 ) -> (Vec<ReviewUnitProjectionRow>, ReviewUnitProjectionSummary) {
     let mut rows = Vec::new();
 
@@ -119,7 +119,7 @@ pub(super) fn build_snapshot_rows(
         let file_path = snapshot_file_path(file);
         let old_path = file.old_path.clone();
         let file_target = file_path.as_ref().map(|file_path| ReviewTargetRef::File {
-            review_unit_id: review_unit_id.clone(),
+            revision_id: review_unit_id.clone(),
             file_path: file_path.clone(),
         });
         rows.push(snapshot_row(
@@ -311,14 +311,14 @@ pub(super) fn build_validation_rows(
 
 pub(super) fn build_adapter_note_rows(
     adapter_notes: &[AdapterNoteView],
-    review_unit_id: &ReviewUnitId,
+    review_unit_id: &RevisionId,
 ) -> Vec<ReviewUnitProjectionRow> {
     adapter_notes
         .iter()
         .enumerate()
         .map(|(index, note)| {
             let target = note.target.as_ref().map(|target| ReviewTargetRef::Range {
-                review_unit_id: review_unit_id.clone(),
+                revision_id: review_unit_id.clone(),
                 file_path: note.file_path.clone(),
                 side: target.side,
                 start_line: target.start_line,
@@ -385,7 +385,7 @@ pub(super) fn target_paths(target: &ReviewTargetRef) -> (Option<String>, Option<
         ReviewTargetRef::File { file_path, .. } | ReviewTargetRef::Range { file_path, .. } => {
             (Some(file_path.clone()), None)
         }
-        ReviewTargetRef::ReviewUnit { .. }
+        ReviewTargetRef::Revision { .. }
         | ReviewTargetRef::Lineage { .. }
         | ReviewTargetRef::Observation { .. }
         | ReviewTargetRef::InputRequest { .. }
@@ -396,8 +396,8 @@ pub(super) fn target_paths(target: &ReviewTargetRef) -> (Option<String>, Option<
 
 fn validation_target_to_review_target(target: &ValidationTarget) -> ReviewTargetRef {
     match target {
-        ValidationTarget::ReviewUnit { review_unit_id } => ReviewTargetRef::ReviewUnit {
-            review_unit_id: review_unit_id.clone(),
+        ValidationTarget::ReviewUnit { review_unit_id } => ReviewTargetRef::Revision {
+            revision_id: review_unit_id.clone(),
         },
     }
 }

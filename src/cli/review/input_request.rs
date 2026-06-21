@@ -6,7 +6,7 @@ use shoreline::documents::{
     input_request_fetch_document, input_request_list_document, input_request_open_document,
     input_request_respond_document,
 };
-use shoreline::model::{InputRequestId, ObservationId, ReviewUnitId, ReviewUnitLineageId};
+use shoreline::model::{InputRequestId, ObservationId, ReviewUnitLineageId, RevisionId};
 use shoreline::session::event::{
     AssertionMode, InputRequestReasonCode, InputRequestResponseOutcome,
 };
@@ -311,7 +311,7 @@ fn input_request_open_options(
         .with_target(target);
 
     if let Some(review_unit) = args.review_unit {
-        options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+        options = options.with_review_unit_id(RevisionId::new(review_unit));
     }
     if let Some(lineage) = args.lineage {
         options = options.with_lineage_id(ReviewUnitLineageId::new(lineage));
@@ -339,7 +339,7 @@ fn input_request_list_options(args: InputRequestListArgs) -> InputRequestListOpt
         .with_status(args.status.into())
         .with_include_body(args.include_body);
     if let Some(review_unit) = args.review_unit {
-        options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+        options = options.with_review_unit_id(RevisionId::new(review_unit));
     }
     if let Some(lineage) = args.lineage {
         options = options.with_lineage_id(ReviewUnitLineageId::new(lineage));

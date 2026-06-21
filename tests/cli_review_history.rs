@@ -31,9 +31,9 @@ fn review_history_emits_v1_json_with_freshness_metadata() {
     );
     assert_eq!(json["eventCount"], 2);
     assert_eq!(json["historyCount"], 2);
-    assert_eq!(json["entries"][0]["eventType"], "review_unit_captured");
+    assert_eq!(json["entries"][0]["eventType"], "work_object_proposed");
     assert_eq!(
-        json["entries"][0]["reviewUnitId"],
+        json["entries"][0]["subject"]["revisionId"],
         capture["reviewUnit"]["id"]
     );
     assert!(json.get("statePath").is_none());
@@ -54,12 +54,10 @@ fn history_entries_serialize_writer_without_role() {
     );
     assert!(writer["actorId"].is_string());
     assert!(writer["producer"]["name"].is_string());
-    // The derived act label comes from the event type, surfaced as the
-    // summary's kind tag.
-    assert_eq!(
-        json["entries"][0]["summary"]["kind"],
-        json["entries"][0]["eventType"]
-    );
+    // The capture entry carries the envelope event type alongside a
+    // domain-named summary kind for the same act.
+    assert_eq!(json["entries"][0]["eventType"], "work_object_proposed");
+    assert_eq!(json["entries"][0]["summary"]["kind"], "revision_captured");
 }
 
 #[test]
@@ -279,7 +277,7 @@ fn review_history_filters_by_review_unit() {
         "--review-unit",
         first["reviewUnit"]["id"].as_str().unwrap(),
         "--event-type",
-        "review-unit-captured",
+        "revision-captured",
     ]);
     let json = parse_json(&output.stdout);
 
@@ -287,7 +285,7 @@ fn review_history_filters_by_review_unit() {
     assert_eq!(json["eventCount"], 4);
     assert_eq!(json["historyCount"], 1);
     assert_eq!(
-        json["entries"][0]["reviewUnitId"],
+        json["entries"][0]["subject"]["revisionId"],
         first["reviewUnit"]["id"]
     );
 }
@@ -402,7 +400,7 @@ fn history_renders_verification_status_for_a_signed_capture() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|e| e["eventType"] == "review_unit_captured")
+        .find(|e| e["eventType"] == "work_object_proposed")
         .expect("a captured entry");
     // BEFORE this task: the CLI sets no policy, so the field is absent.
     assert_eq!(captured["verificationStatus"], "untrusted_key");
@@ -468,7 +466,7 @@ fn captured_event_id(repo_path: &std::path::Path) -> String {
     shoreline::session::read_events(repo_path)
         .unwrap()
         .iter()
-        .find(|e| e.event_type == shoreline::session::event::EventType::ReviewUnitCaptured)
+        .find(|e| e.event_type == shoreline::session::event::EventType::WorkObjectProposed)
         .expect("a captured review unit event")
         .event_id
         .as_str()

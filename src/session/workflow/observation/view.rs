@@ -61,7 +61,9 @@ pub(crate) fn project_observations(
         .iter()
         .filter(|event| event.event_type == EventType::ReviewObservationRecorded)
     {
-        if event.target.review_unit_id.as_ref() != Some(&options.resolved.review_unit_id) {
+        if crate::model::subject_revision_id(&event.target.subject)
+            != Some(&options.resolved.revision_id)
+        {
             continue;
         }
 
@@ -153,7 +155,7 @@ pub(crate) fn target_matches_file(target: &ReviewTargetRef, file: &str) -> bool 
         ReviewTargetRef::File { file_path, .. } | ReviewTargetRef::Range { file_path, .. } => {
             file_path == file
         }
-        ReviewTargetRef::ReviewUnit { .. }
+        ReviewTargetRef::Revision { .. }
         | ReviewTargetRef::Lineage { .. }
         | ReviewTargetRef::Observation { .. }
         | ReviewTargetRef::InputRequest { .. }

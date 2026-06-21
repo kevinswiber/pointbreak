@@ -24,7 +24,7 @@ pub use self::view::{
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 #[cfg(test)]
 use crate::model::{
-    EventId, InputRequestId, InputRequestResponseId, ReviewUnitId, SessionId, TrackId,
+    EventId, InputRequestId, InputRequestResponseId, LedgerId, RevisionId, TrackId,
 };
 #[cfg(test)]
 use crate::session::current_timestamp;
@@ -190,7 +190,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.review_unit_id, capture.review_unit_id);
+        assert_eq!(result.review_unit_id, capture.revision_id);
         assert!(
             result
                 .input_request_id
@@ -444,13 +444,13 @@ mod tests {
 
         let explicit = open_input_request(
             InputRequestOpenOptions::new(repo.path())
-                .with_review_unit_id(first.review_unit_id.clone())
+                .with_review_unit_id(first.revision_id.clone())
                 .with_track("human:kevin")
                 .with_title("Need approval")
                 .with_reason_code(InputRequestReasonCode::ManualDecisionRequired),
         )
         .unwrap();
-        assert_eq!(explicit.review_unit_id, first.review_unit_id);
+        assert_eq!(explicit.review_unit_id, first.revision_id);
     }
 
     #[test]
@@ -509,7 +509,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.review_unit_id, capture.review_unit_id);
+        assert_eq!(result.review_unit_id, capture.revision_id);
         assert!(matches!(
             result.target,
             ReviewTargetRef::Range { start_line: 2, .. }
@@ -541,7 +541,7 @@ mod tests {
         assert_eq!(
             result.target,
             ReviewTargetRef::Observation {
-                review_unit_id: capture.review_unit_id,
+                revision_id: capture.revision_id,
                 observation_id: observation.observation_id,
             }
         );
@@ -953,8 +953,8 @@ mod tests {
 
     #[test]
     fn collect_input_request_projection_records_is_order_independent_and_collapses_duplicates() {
-        let session_id = SessionId::new("session:default");
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:test");
+        let session_id = LedgerId::new("session:default");
+        let review_unit_id = RevisionId::new("review-unit:sha256:test");
         let track_id = TrackId::new("human:kevin");
         let input_request_id = InputRequestId::new("input-request:sha256:alpha");
         let approve_response_id =
@@ -1271,20 +1271,14 @@ mod tests {
         let event = ShoreEvent::new(
             EventType::InputRequestResponded,
             InputRequestRespondedPayload::idempotency_key(&requested.input_request_id, source_key),
-            EventTarget {
-                session_id: SessionId::new("session:default"),
-                work_unit_id: None,
-                work_object_id: None,
-                work_object_type: None,
-                review_unit_id: Some(requested.review_unit_id.clone()),
-                revision_id: None,
-                snapshot_id: None,
-                track_id: Some(requested.track_id.clone()),
-                subject: Some(TargetRef::Review(ReviewTargetRef::InputRequest {
-                    review_unit_id: requested.review_unit_id.clone(),
+            EventTarget::for_subject(
+                LedgerId::new("session:default"),
+                TargetRef::Review(ReviewTargetRef::InputRequest {
+                    revision_id: requested.review_unit_id.clone(),
                     input_request_id: requested.input_request_id.clone(),
-                })),
-            },
+                }),
+                Some(requested.track_id.clone()),
+            ),
             Writer::shore_local("test"),
             payload,
             current_timestamp(),
@@ -1322,8 +1316,8 @@ mod tests {
     }
 
     fn projection_request_event(
-        session_id: &SessionId,
-        review_unit_id: &ReviewUnitId,
+        session_id: &LedgerId,
+        review_unit_id: &RevisionId,
         track_id: &TrackId,
         input_request_id: &InputRequestId,
         source_key: &str,
@@ -1331,8 +1325,8 @@ mod tests {
     ) -> ShoreEvent {
         let payload = InputRequestOpenedPayload {
             input_request_id: input_request_id.clone(),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: review_unit_id.clone(),
+            target: ReviewTargetRef::Revision {
+                revision_id: review_unit_id.clone(),
             },
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "projection".to_owned(),
@@ -1345,19 +1339,13 @@ mod tests {
         ShoreEvent::new(
             EventType::InputRequestOpened,
             InputRequestOpenedPayload::idempotency_key(review_unit_id, track_id, source_key),
-            EventTarget {
-                session_id: session_id.clone(),
-                work_unit_id: None,
-                work_object_id: None,
-                work_object_type: None,
-                review_unit_id: Some(review_unit_id.clone()),
-                revision_id: None,
-                snapshot_id: None,
-                track_id: Some(track_id.clone()),
-                subject: Some(TargetRef::Review(ReviewTargetRef::ReviewUnit {
-                    review_unit_id: review_unit_id.clone(),
-                })),
-            },
+            EventTarget::for_subject(
+                session_id.clone(),
+                TargetRef::Review(ReviewTargetRef::Revision {
+                    revision_id: review_unit_id.clone(),
+                }),
+                Some(track_id.clone()),
+            ),
             Writer::shore_local("test"),
             payload,
             occurred_at.to_owned(),
@@ -1366,8 +1354,8 @@ mod tests {
     }
 
     fn projection_response_event(
-        session_id: &SessionId,
-        review_unit_id: &ReviewUnitId,
+        session_id: &LedgerId,
+        review_unit_id: &RevisionId,
         track_id: &TrackId,
         input_request_id: &InputRequestId,
         response_id: &InputRequestResponseId,
@@ -1387,20 +1375,14 @@ mod tests {
         ShoreEvent::new(
             EventType::InputRequestResponded,
             InputRequestRespondedPayload::idempotency_key(input_request_id, source_key),
-            EventTarget {
-                session_id: session_id.clone(),
-                work_unit_id: None,
-                work_object_id: None,
-                work_object_type: None,
-                review_unit_id: Some(review_unit_id.clone()),
-                revision_id: None,
-                snapshot_id: None,
-                track_id: Some(track_id.clone()),
-                subject: Some(TargetRef::Review(ReviewTargetRef::InputRequest {
-                    review_unit_id: review_unit_id.clone(),
+            EventTarget::for_subject(
+                session_id.clone(),
+                TargetRef::Review(ReviewTargetRef::InputRequest {
+                    revision_id: review_unit_id.clone(),
                     input_request_id: input_request_id.clone(),
-                })),
-            },
+                }),
+                Some(track_id.clone()),
+            ),
             Writer::shore_local("test"),
             payload,
             occurred_at.to_owned(),
@@ -1426,12 +1408,14 @@ mod tests {
         event_id: &str,
         created_at: &str,
     ) -> InputRequestView {
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
+        let review_unit_id = RevisionId::new("review-unit:sha256:one");
         InputRequestView {
             id: InputRequestId::new(input_request_id),
             event_id: EventId::new(event_id),
             track_id: TrackId::new("agent:codex"),
-            target: ReviewTargetRef::ReviewUnit { review_unit_id },
+            target: ReviewTargetRef::Revision {
+                revision_id: review_unit_id,
+            },
             mode: AssertionMode::Operative,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "sort".to_owned(),

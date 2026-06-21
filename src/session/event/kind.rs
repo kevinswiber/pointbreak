@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
     ReviewInitialized,
-    ReviewUnitCaptured,
+    WorkObjectProposed,
     ReviewObservationRecorded,
     ReviewAssessmentRecorded,
     InputRequestOpened,
@@ -17,7 +17,6 @@ pub enum EventType {
     ReviewUnitCommitAssociated,
     ReviewUnitCommitWithdrawn,
     ValidationCheckRecorded,
-    TaskAttemptCaptured,
     TaskCheckpointCaptured,
     TaskObservationRecorded,
     EventSignatureRecorded,
@@ -30,7 +29,7 @@ impl EventType {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ReviewInitialized => "review_initialized",
-            Self::ReviewUnitCaptured => "review_unit_captured",
+            Self::WorkObjectProposed => "work_object_proposed",
             Self::ReviewObservationRecorded => "review_observation_recorded",
             Self::ReviewAssessmentRecorded => "review_assessment_recorded",
             Self::InputRequestOpened => "input_request_opened",
@@ -43,7 +42,6 @@ impl EventType {
             Self::ReviewUnitCommitAssociated => "review_unit_commit_associated",
             Self::ReviewUnitCommitWithdrawn => "review_unit_commit_withdrawn",
             Self::ValidationCheckRecorded => "validation_check_recorded",
-            Self::TaskAttemptCaptured => "task_attempt_captured",
             Self::TaskCheckpointCaptured => "task_checkpoint_captured",
             Self::TaskObservationRecorded => "task_observation_recorded",
             Self::EventSignatureRecorded => "event_signature_recorded",
@@ -60,7 +58,7 @@ mod tests {
     fn as_str_matches_serde_wire_string_for_every_variant() {
         for variant in [
             EventType::ReviewInitialized,
-            EventType::ReviewUnitCaptured,
+            EventType::WorkObjectProposed,
             EventType::ReviewObservationRecorded,
             EventType::ReviewAssessmentRecorded,
             EventType::InputRequestOpened,
@@ -73,7 +71,6 @@ mod tests {
             EventType::ReviewUnitCommitAssociated,
             EventType::ReviewUnitCommitWithdrawn,
             EventType::ValidationCheckRecorded,
-            EventType::TaskAttemptCaptured,
             EventType::TaskCheckpointCaptured,
             EventType::TaskObservationRecorded,
             EventType::EventSignatureRecorded,
@@ -143,10 +140,6 @@ mod tests {
     #[test]
     fn task_event_types_serialize_as_snake_case() {
         assert_eq!(
-            serde_json::to_string(&EventType::TaskAttemptCaptured).unwrap(),
-            "\"task_attempt_captured\""
-        );
-        assert_eq!(
             serde_json::to_string(&EventType::TaskCheckpointCaptured).unwrap(),
             "\"task_checkpoint_captured\""
         );
@@ -159,7 +152,6 @@ mod tests {
     #[test]
     fn task_event_types_round_trip_through_serde() {
         for variant in [
-            EventType::TaskAttemptCaptured,
             EventType::TaskCheckpointCaptured,
             EventType::TaskObservationRecorded,
         ] {
@@ -173,7 +165,6 @@ mod tests {
     fn task_event_types_are_distinct_from_review_event_types() {
         let review_domain = [
             EventType::ReviewInitialized,
-            EventType::ReviewUnitCaptured,
             EventType::ReviewObservationRecorded,
             EventType::ReviewAssessmentRecorded,
             EventType::InputRequestOpened,
@@ -183,7 +174,6 @@ mod tests {
             EventType::ReviewUnitLineageRoundRecorded,
         ];
         let task_domain = [
-            EventType::TaskAttemptCaptured,
             EventType::TaskCheckpointCaptured,
             EventType::TaskObservationRecorded,
         ];
@@ -197,6 +187,29 @@ mod tests {
                     "review variant {review:?} and task variant {task:?} collide on the wire"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn work_object_proposed_event_type_serializes_as_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&EventType::WorkObjectProposed).unwrap(),
+            "\"work_object_proposed\""
+        );
+        assert_eq!(
+            EventType::WorkObjectProposed.as_str(),
+            "work_object_proposed"
+        );
+    }
+
+    #[test]
+    fn collapsed_capture_event_types_no_longer_decode() {
+        for legacy in ["review_unit_captured", "task_attempt_captured"] {
+            let result: Result<EventType, _> = serde_json::from_str(&format!("\"{legacy}\""));
+            assert!(
+                result.is_err(),
+                "{legacy} must not decode after the generative-move collapse"
+            );
         }
     }
 

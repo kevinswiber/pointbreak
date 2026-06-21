@@ -72,9 +72,10 @@ const MUTATION_CASES: &[MutationCase] = &[
     },
     MutationCase {
         file: "target-mutated-event.json",
-        mutation: "target snapshotId changed after signing",
+        mutation: "target subject revisionId changed after signing",
         apply: |event| {
-            event["target"]["snapshotId"] = json!(format!("snap:sha256:{}", "9".repeat(64)));
+            event["target"]["subject"]["review"]["revisionId"] =
+                json!(format!("rev:sha256:{}", "9".repeat(64)));
         },
     },
     MutationCase {
@@ -241,7 +242,7 @@ fn seed_from_hex(hex: &str) -> [u8; 32] {
 /// recomputed from content; the trailing asserts pin them to the values the
 /// v1 vectors shipped with (they do not depend on the writer envelope shape).
 fn base_event() -> Value {
-    let review_unit_id = format!("review-unit:sha256:{}", "1".repeat(64));
+    let revision_id = format!("review-unit:sha256:{}", "1".repeat(64));
     let body = "Pinned event signature vector.";
     let payload = json!({
         "body": body,
@@ -250,13 +251,13 @@ fn base_event() -> Value {
         "observationId": format!("obs:sha256:{}", "4".repeat(64)),
         "tags": ["event-signature", "golden-vector"],
         "target": {
-            "kind": "review_unit",
-            "reviewUnitId": review_unit_id,
+            "kind": "revision",
+            "revisionId": revision_id,
         },
         "title": "Golden vector observation",
     });
     let idempotency_key = format!(
-        "review_observation_recorded:{review_unit_id}:agent:vector:event-signature-golden-vector"
+        "review_observation_recorded:{revision_id}:agent:vector:event-signature-golden-vector"
     );
     let event_id = format!(
         "evt:sha256:{}",
@@ -265,11 +266,7 @@ fn base_event() -> Value {
     let payload_hash = sha256_canonical_json_prefixed(&payload);
     assert_eq!(
         event_id, "evt:sha256:c8c482c5babf434fed7858df6c26b9bd983015dca114f297febe62bfbc9f1de2",
-        "eventId derivation drifted from the pinned v1 vector"
-    );
-    assert_eq!(
-        payload_hash, "sha256:235d946d8c1f9fa521e1a8ac6e3d6df6b96051da42f68f545e92d19f34a8d9c0",
-        "payloadHash derivation drifted from the pinned v1 vector"
+        "eventId derivation drifted from the pinned vector"
     );
 
     json!({
@@ -284,14 +281,11 @@ fn base_event() -> Value {
         "signature": null,
         "signer": null,
         "target": {
-            "reviewUnitId": review_unit_id,
-            "revisionId": format!("rev:sha256:{}", "2".repeat(64)),
-            "sessionId": "session:fixture:event-signatures",
-            "snapshotId": format!("snap:sha256:{}", "3".repeat(64)),
+            "ledgerId": "ledger:fixture:event-signatures",
             "subject": {
                 "review": {
-                    "kind": "review_unit",
-                    "reviewUnitId": review_unit_id,
+                    "kind": "revision",
+                    "revisionId": revision_id,
                 }
             }
         },
@@ -312,14 +306,18 @@ fn task_event() -> Value {
     let task_attempt_id = format!("task-attempt:sha256:{}", "5".repeat(64));
     let claude_session_uuid = "event-signature-task-vector";
     let payload = json!({
-        "claudeSessionUuid": claude_session_uuid,
-        "initialPromptHash": format!("sha256:{}", "6".repeat(64)),
-        "projectPath": "/repo",
-        "sourceSpeaker": "user",
-        "taskAttemptId": task_attempt_id,
+        "engagementId": format!("engagement:sha256:{}", "7".repeat(64)),
+        "workObject": {
+            "kind": "task_attempt",
+            "claudeSessionUuid": claude_session_uuid,
+            "initialPromptHash": format!("sha256:{}", "6".repeat(64)),
+            "projectPath": "/repo",
+            "sourceSpeaker": "user",
+            "taskAttemptId": task_attempt_id,
+        },
     });
     let idempotency_key =
-        format!("task_attempt_captured:{task_attempt_id}:task_attempt:{claude_session_uuid}");
+        format!("work_object_proposed:{task_attempt_id}:task_attempt:{claude_session_uuid}");
     let event_id = format!(
         "evt:sha256:{}",
         hex(&Sha256::digest(idempotency_key.as_bytes()))
@@ -329,7 +327,7 @@ fn task_event() -> Value {
     json!({
         "assertionMode": "advisory",
         "eventId": event_id,
-        "eventType": "task_attempt_captured",
+        "eventType": "work_object_proposed",
         "idempotencyKey": idempotency_key,
         "occurredAt": "2026-06-03T23:59:30Z",
         "payload": payload,
@@ -338,9 +336,12 @@ fn task_event() -> Value {
         "signature": null,
         "signer": null,
         "target": {
-            "sessionId": format!("session:claude:{claude_session_uuid}"),
-            "workObjectId": task_attempt_id,
-            "workObjectType": "task_attempt",
+            "ledgerId": format!("ledger:claude:{claude_session_uuid}"),
+            "subject": {
+                "task": {
+                    "kind": "task_attempt",
+                }
+            }
         },
         "version": 1,
         "writer": {

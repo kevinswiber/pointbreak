@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::{ArgGroup, Args, Subcommand, ValueEnum};
-use shoreline::model::{ReviewUnitId, SnapshotId};
+use shoreline::model::{ObjectId, RevisionId};
 use shoreline::session::{
     CompactOptions, CompactResult, MigrateToCommonDirOptions, MigrateToCommonDirResult,
     RemoveOptions, RemoveResult, RemoveSelector, RemovedContent, StoreMode, StoreModeSource,
@@ -303,9 +303,9 @@ fn selector_from_args(
     args: &StoreRemoveArgs,
 ) -> Result<RemoveSelector, Box<dyn std::error::Error>> {
     if let Some(id) = &args.snapshot {
-        Ok(RemoveSelector::Snapshot(SnapshotId::new(id.clone())))
+        Ok(RemoveSelector::Snapshot(ObjectId::new(id.clone())))
     } else if let Some(id) = &args.review_unit {
-        Ok(RemoveSelector::ReviewUnit(ReviewUnitId::new(id.clone())))
+        Ok(RemoveSelector::ReviewUnit(RevisionId::new(id.clone())))
     } else if let Some(reference) = &args.r#ref {
         Ok(RemoveSelector::Ref(reference.clone()))
     } else if let Some(range) = &args.range {

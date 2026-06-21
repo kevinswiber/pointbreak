@@ -2,10 +2,11 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::error::{Result, ShoreError};
-use crate::model::{ReviewUnitId, ReviewUnitLineageBasisV1, ReviewUnitLineageId};
+use crate::model::{ReviewUnitLineageBasisV1, ReviewUnitLineageId, RevisionId};
 use crate::session::event::{
-    EventTarget, EventType, ReviewUnitCapturedPayload, ReviewUnitLineageDeclaredPayload,
-    ReviewUnitLineageRoundRecordedPayload, ShoreEvent,
+    EventTarget, EventType, GitProvenance, ReviewUnitLineageDeclaredPayload,
+    ReviewUnitLineageRoundRecordedPayload, ShoreEvent, WorkObjectProposal,
+    WorkObjectProposedPayload,
 };
 use crate::session::projection::lineage::ReviewUnitLineageProjection;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
@@ -19,8 +20,8 @@ use crate::storage::{Durability, LocalStorage};
 pub struct LineageAttachOptions {
     repo: PathBuf,
     lineage_id: ReviewUnitLineageId,
-    review_unit_id: Option<ReviewUnitId>,
-    predecessor_review_unit_id: Option<ReviewUnitId>,
+    review_unit_id: Option<RevisionId>,
+    predecessor_review_unit_id: Option<RevisionId>,
     change_id: Option<String>,
 }
 
@@ -35,12 +36,12 @@ impl LineageAttachOptions {
         }
     }
 
-    pub fn with_review_unit_id(mut self, review_unit_id: ReviewUnitId) -> Self {
+    pub fn with_review_unit_id(mut self, review_unit_id: RevisionId) -> Self {
         self.review_unit_id = Some(review_unit_id);
         self
     }
 
-    pub fn with_predecessor_review_unit_id(mut self, review_unit_id: ReviewUnitId) -> Self {
+    pub fn with_predecessor_review_unit_id(mut self, review_unit_id: RevisionId) -> Self {
         self.predecessor_review_unit_id = Some(review_unit_id);
         self
     }
@@ -54,7 +55,7 @@ impl LineageAttachOptions {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LineageAttachResult {
     pub lineage_id: ReviewUnitLineageId,
-    pub head_review_unit_id: Option<ReviewUnitId>,
+    pub head_review_unit_id: Option<RevisionId>,
     pub events_created: usize,
     pub events_existing: usize,
     pub events_created_by_type: BTreeMap<String, usize>,
@@ -163,15 +164,20 @@ pub fn attach_review_unit_to_lineage(options: LineageAttachOptions) -> Result<Li
 
 fn stored_capture_payload(
     events: &[ShoreEvent],
-    review_unit_id: &ReviewUnitId,
-) -> Result<ReviewUnitCapturedPayload> {
+    review_unit_id: &RevisionId,
+) -> Result<GitProvenance> {
     events
         .iter()
-        .filter(|event| event.event_type == EventType::ReviewUnitCaptured)
+        .filter(|event| event.event_type == EventType::WorkObjectProposed)
         .find_map(|event| {
-            let payload: ReviewUnitCapturedPayload =
+            let payload: WorkObjectProposedPayload =
                 serde_json::from_value(event.payload.clone()).ok()?;
-            (payload.review_unit_id == *review_unit_id).then_some(payload)
+            let WorkObjectProposal::Revision { revision, .. } = payload.work_object else {
+                return None;
+            };
+            (revision.id == *review_unit_id)
+                .then_some(revision.git_provenance)
+                .flatten()
         })
         .ok_or_else(|| {
             ShoreError::Message(format!("unknown review unit: {}", review_unit_id.as_str()))
@@ -180,15 +186,18 @@ fn stored_capture_payload(
 
 fn capture_session_id(
     events: &[ShoreEvent],
-    review_unit_id: &ReviewUnitId,
-) -> Result<crate::model::SessionId> {
+    review_unit_id: &RevisionId,
+) -> Result<crate::model::LedgerId> {
     events
         .iter()
-        .filter(|event| event.event_type == EventType::ReviewUnitCaptured)
+        .filter(|event| event.event_type == EventType::WorkObjectProposed)
         .find_map(|event| {
-            let payload: ReviewUnitCapturedPayload =
+            let payload: WorkObjectProposedPayload =
                 serde_json::from_value(event.payload.clone()).ok()?;
-            (payload.review_unit_id == *review_unit_id).then_some(event.target.session_id.clone())
+            let WorkObjectProposal::Revision { revision, .. } = payload.work_object else {
+                return None;
+            };
+            (revision.id == *review_unit_id).then_some(event.target.ledger_id.clone())
         })
         .ok_or_else(|| {
             ShoreError::Message(format!("unknown review unit: {}", review_unit_id.as_str()))
@@ -227,7 +236,7 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
 
-    use crate::model::{ReviewUnitId, ReviewUnitLineageId};
+    use crate::model::{ReviewUnitLineageId, RevisionId};
     use crate::session::{
         CaptureOptions, LineageAttachOptions, attach_review_unit_to_lineage,
         capture_worktree_review,
@@ -241,12 +250,12 @@ mod tests {
 
         let result = attach_review_unit_to_lineage(
             LineageAttachOptions::new(repo.path(), lineage_id.clone())
-                .with_review_unit_id(capture.review_unit_id.clone()),
+                .with_review_unit_id(capture.revision_id.clone()),
         )
         .unwrap();
 
         assert_eq!(result.lineage_id, lineage_id);
-        assert_eq!(result.head_review_unit_id, Some(capture.review_unit_id));
+        assert_eq!(result.head_review_unit_id, Some(capture.revision_id));
         assert_eq!(
             result.events_created_by_type["review_unit_lineage_declared"],
             1
@@ -262,7 +271,7 @@ mod tests {
         let repo = modified_repo();
         let error = attach_review_unit_to_lineage(
             LineageAttachOptions::new(repo.path(), review_unit_lineage_id())
-                .with_review_unit_id(ReviewUnitId::new("review-unit:sha256:missing")),
+                .with_review_unit_id(RevisionId::new("review-unit:sha256:missing")),
         )
         .unwrap_err();
 
@@ -274,7 +283,7 @@ mod tests {
         let repo = modified_repo();
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let options = LineageAttachOptions::new(repo.path(), review_unit_lineage_id())
-            .with_review_unit_id(capture.review_unit_id);
+            .with_review_unit_id(capture.revision_id);
 
         let first = attach_review_unit_to_lineage(options.clone()).unwrap();
         let second = attach_review_unit_to_lineage(options).unwrap();
@@ -291,7 +300,7 @@ mod tests {
         let lineage_id = review_unit_lineage_id();
         attach_review_unit_to_lineage(
             LineageAttachOptions::new(repo.path(), lineage_id.clone())
-                .with_review_unit_id(first.review_unit_id.clone()),
+                .with_review_unit_id(first.revision_id.clone()),
         )
         .unwrap();
 
@@ -299,8 +308,8 @@ mod tests {
         let second = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         attach_review_unit_to_lineage(
             LineageAttachOptions::new(repo.path(), lineage_id.clone())
-                .with_review_unit_id(second.review_unit_id)
-                .with_predecessor_review_unit_id(first.review_unit_id.clone()),
+                .with_review_unit_id(second.revision_id)
+                .with_predecessor_review_unit_id(first.revision_id.clone()),
         )
         .unwrap();
 
@@ -308,8 +317,8 @@ mod tests {
         let third = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         let result = attach_review_unit_to_lineage(
             LineageAttachOptions::new(repo.path(), lineage_id)
-                .with_review_unit_id(third.review_unit_id)
-                .with_predecessor_review_unit_id(first.review_unit_id),
+                .with_review_unit_id(third.revision_id)
+                .with_predecessor_review_unit_id(first.revision_id),
         )
         .unwrap();
 
@@ -338,14 +347,14 @@ mod tests {
 
         attach_review_unit_to_lineage(
             LineageAttachOptions::new(repo.path(), lineage_id.clone())
-                .with_review_unit_id(second.review_unit_id.clone())
-                .with_predecessor_review_unit_id(first.review_unit_id.clone()),
+                .with_review_unit_id(second.revision_id.clone())
+                .with_predecessor_review_unit_id(first.revision_id.clone()),
         )
         .unwrap();
 
         let error = attach_review_unit_to_lineage(
             LineageAttachOptions::new(repo.path(), lineage_id)
-                .with_review_unit_id(second.review_unit_id),
+                .with_review_unit_id(second.revision_id),
         )
         .unwrap_err();
 

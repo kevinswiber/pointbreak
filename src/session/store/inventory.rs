@@ -35,9 +35,9 @@ pub(crate) struct ArtifactInventoryEntry {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ReviewUnitSnapshotInventory {
     /// The review units that captured this snapshot, sorted and deduped. Under
-    /// the snapshot-scoped artifact (INV-1) one artifact may be shared by several
-    /// units, so identity is joined from the `ReviewUnitCaptured` events keyed by
-    /// `snapshot_id`, never read from the artifact body.
+    /// the snapshot-scoped artifact one artifact may be shared by several units, so
+    /// identity is joined from the capture events keyed by `snapshot_id`, never
+    /// read from the artifact body.
     pub review_unit_ids: Vec<String>,
     pub snapshot_id: String,
     pub artifact_ref: String,
@@ -147,10 +147,10 @@ fn scan_snapshot_artifacts(
     Ok((count, bytes))
 }
 
-/// Join `snapshot_id → {review_unit_ids}` from the `ReviewUnitCaptured` events.
-/// Identity lives in the event log (INV-3), so this is the inventory's only
-/// source for the capturing units of a snapshot artifact. A `BTreeSet` keeps the
-/// ids sorted and deduped for deterministic output.
+/// Join `snapshot_id → {review_unit_ids}` from the capture events. Identity lives
+/// in the event log, so this is the inventory's only source for the capturing
+/// units of a snapshot artifact. A `BTreeSet` keeps the ids sorted and deduped for
+/// deterministic output.
 fn capture_owners_by_snapshot(events_dir: &Path) -> Result<BTreeMap<String, BTreeSet<String>>> {
     let mut owners: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for path in list_files(events_dir)? {
@@ -160,13 +160,15 @@ fn capture_owners_by_snapshot(events_dir: &Path) -> Result<BTreeMap<String, BTre
         let contents =
             fs::read(&path).map_err(|error| io_error("read event file", &path, error))?;
         let event: ShoreEvent = serde_json::from_slice(&contents)?;
-        if event.event_type != EventType::ReviewUnitCaptured {
+        if event.event_type != EventType::WorkObjectProposed {
             continue;
         }
-        let (Some(snapshot_id), Some(review_unit_id)) = (
-            event.payload["snapshotId"].as_str(),
-            event.payload["reviewUnitId"].as_str(),
-        ) else {
+        // The captured revision and its content object id ride the payload's
+        // tagged work object; the snapshot artifact is joined by the object id.
+        let revision = &event.payload["workObject"]["revision"];
+        let (Some(snapshot_id), Some(review_unit_id)) =
+            (revision["objectId"].as_str(), revision["id"].as_str())
+        else {
             continue;
         };
         owners
@@ -289,8 +291,11 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::model::{ReviewUnitId, RevisionId, SessionId};
-    use crate::session::event::{EventTarget, EventType, ReviewUnitCapturedPayload, Writer};
+    use crate::model::{EngagementId, LedgerId, RevisionId};
+    use crate::session::event::{
+        EventTarget, EventType, GitProvenance, Revision, WorkObjectProposal,
+        WorkObjectProposedPayload, Writer,
+    };
     use crate::session::store::resolution::resolve_store;
     use crate::session::{
         CaptureOptions, CaptureResult, EventStore, ObservationAddOptions, capture_worktree_review,
@@ -317,12 +322,12 @@ mod tests {
         let entry = inventory
             .review_unit_snapshots
             .iter()
-            .find(|snapshot| snapshot.snapshot_id == capture.snapshot_id.as_str())
+            .find(|snapshot| snapshot.snapshot_id == capture.object_id.as_str())
             .expect("snapshot inventory entry");
         assert!(
             entry
                 .review_unit_ids
-                .contains(&capture.review_unit_id.as_str().to_owned())
+                .contains(&capture.revision_id.as_str().to_owned())
         );
         assert!(
             entry
@@ -332,30 +337,36 @@ mod tests {
         assert!(entry.review_unit_ids.windows(2).all(|w| w[0] <= w[1])); // sorted
     }
 
-    /// Build and record a minimal `ReviewUnitCaptured` event referencing
-    /// `capture`'s snapshot id under a different review unit id and idempotency
-    /// key, mirroring a second worktree capturing the same range.
+    /// Build and record a minimal capture event referencing `capture`'s snapshot
+    /// id under a different review unit id and idempotency key, mirroring a second
+    /// worktree capturing the same range.
     fn write_second_capture_event_for_same_snapshot(store_dir: &Path, capture: &CaptureResult) {
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:second-worktree");
-        let revision_id = RevisionId::new("revision:sha256:second-worktree");
+        // The envelope subject and the payload revision carry the same minted id,
+        // as a real capture stamps both; the inventory join reads the revision id
+        // from the payload.
+        let revision_id = RevisionId::new("review-unit:sha256:second-worktree");
         let event = ShoreEvent::new(
-            EventType::ReviewUnitCaptured,
-            format!("review_unit_captured:{}", review_unit_id.as_str()),
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                review_unit_id.clone(),
-                revision_id.clone(),
-                capture.snapshot_id.clone(),
-            ),
+            EventType::WorkObjectProposed,
+            format!("work_object_proposed:{}", revision_id.as_str()),
+            EventTarget::for_revision(LedgerId::new("session:default"), revision_id.clone(), None),
             Writer::shore_local("0.1.0"),
-            ReviewUnitCapturedPayload {
-                review_unit_id,
-                source: capture.source.clone(),
-                base: capture.base.clone(),
-                target: capture.target.clone(),
-                revision_id,
-                snapshot_id: capture.snapshot_id.clone(),
-                snapshot_artifact_content_hash: capture.snapshot_artifact_content_hash.clone(),
+            WorkObjectProposedPayload {
+                engagement_id: EngagementId::new(format!(
+                    "engagement:sha256:{}",
+                    crate::canonical_hash::sha256_bytes_hex(revision_id.as_str().as_bytes())
+                )),
+                work_object: WorkObjectProposal::Revision {
+                    revision: Revision {
+                        id: revision_id.clone(),
+                        object_id: capture.object_id.clone(),
+                        git_provenance: Some(GitProvenance {
+                            source: capture.source.clone(),
+                            base: capture.base.clone(),
+                            target: capture.target.clone(),
+                        }),
+                    },
+                    snapshot_artifact_content_hash: capture.snapshot_artifact_content_hash.clone(),
+                },
             },
             "2026-01-01T00:00:00Z",
         )
@@ -408,8 +419,8 @@ mod tests {
         assert!(inventory.review_unit_snapshots.iter().any(|snapshot| {
             snapshot
                 .review_unit_ids
-                .contains(&capture.review_unit_id.as_str().to_owned())
-                && snapshot.snapshot_id == capture.snapshot_id.as_str()
+                .contains(&capture.revision_id.as_str().to_owned())
+                && snapshot.snapshot_id == capture.object_id.as_str()
                 && snapshot.byte_size > 0
         }));
     }

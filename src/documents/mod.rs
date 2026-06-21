@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn lineage_show_document_serializes_head_and_rounds_without_paths() {
         use crate::documents::lineage_show_document;
-        use crate::model::{ReviewUnitId, ReviewUnitLineageId, ReviewUnitLineageRoundId};
+        use crate::model::{ReviewUnitLineageId, ReviewUnitLineageRoundId, RevisionId};
         use crate::session::{LineageRoundView, LineageShowResult};
 
         let lineage_id = ReviewUnitLineageId::new("review-unit-lineage:sha256:abc");
@@ -199,12 +199,12 @@ mod tests {
             event_set_hash: "sha256:events".to_owned(),
             event_count: 4,
             lineage_id: lineage_id.clone(),
-            head_review_unit_id: Some(ReviewUnitId::new("review-unit:sha256:two")),
+            head_review_unit_id: Some(RevisionId::new("review-unit:sha256:two")),
             rounds: vec![LineageRoundView {
                 lineage_id,
                 round_id: ReviewUnitLineageRoundId::new("review-unit-lineage-round:sha256:two"),
-                review_unit_id: ReviewUnitId::new("review-unit:sha256:two"),
-                predecessor_review_unit_id: Some(ReviewUnitId::new("review-unit:sha256:one")),
+                review_unit_id: RevisionId::new("review-unit:sha256:two"),
+                predecessor_review_unit_id: Some(RevisionId::new("review-unit:sha256:one")),
                 round_index: Some(1),
                 is_head: true,
             }],
@@ -224,17 +224,17 @@ mod tests {
     fn capture_with_lineage_document_nests_attach_counts() {
         use crate::documents::capture_with_lineage_document;
         use crate::model::{
-            ReviewEndpoint, ReviewUnitId, ReviewUnitLineageId, ReviewUnitSource, RevisionId,
-            SessionId, SnapshotId, WorktreeCaptureMode,
+            EngagementId, LedgerId, ObjectId, ReviewEndpoint, ReviewUnitLineageId,
+            ReviewUnitSource, RevisionId, WorktreeCaptureMode,
         };
         use crate::session::{CaptureResult, LineageAttachResult};
 
         let document = capture_with_lineage_document(
             CaptureResult {
-                session_id: SessionId::new("session:default"),
-                review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+                ledger_id: LedgerId::new("ledger:default"),
                 revision_id: RevisionId::new("rev:sha256:one"),
-                snapshot_id: SnapshotId::new("snapshot:sha256:one"),
+                object_id: ObjectId::new("snapshot:sha256:one"),
+                engagement_id: EngagementId::new("engagement:sha256:one"),
                 source: ReviewUnitSource::GitWorktree {
                     mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
                     include_untracked: true,
@@ -249,12 +249,12 @@ mod tests {
                 snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
                 events_created: 1,
                 events_existing: 0,
-                events_created_by_type: BTreeMap::from([("review_unit_captured".to_owned(), 1)]),
+                events_created_by_type: BTreeMap::from([("work_object_proposed".to_owned(), 1)]),
                 diagnostics: Vec::new(),
             },
             LineageAttachResult {
                 lineage_id: ReviewUnitLineageId::new("review-unit-lineage:sha256:abc"),
-                head_review_unit_id: Some(ReviewUnitId::new("review-unit:sha256:one")),
+                head_review_unit_id: Some(RevisionId::new("review-unit:sha256:one")),
                 events_created: 2,
                 events_existing: 0,
                 events_created_by_type: BTreeMap::from([
@@ -275,11 +275,11 @@ mod tests {
     fn validation_add_document_serializes_advisory_validation_add_schema() {
         use crate::documents::validation_add_document;
         use crate::model::{
-            EventId, ReviewUnitId, TrackId, ValidationCheckId, ValidationStatus, ValidationTarget,
+            EventId, RevisionId, TrackId, ValidationCheckId, ValidationStatus, ValidationTarget,
         };
         use crate::session::ValidationAddResult;
 
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
+        let review_unit_id = RevisionId::new("review-unit:sha256:one");
         let doc = validation_add_document(ValidationAddResult {
             review_unit_id: review_unit_id.clone(),
             validation_check_id: ValidationCheckId::new("validation:sha256:one"),
@@ -401,7 +401,7 @@ mod tests {
         let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
         record_validation_check(
             ValidationAddOptions::new(repo.path())
-                .with_review_unit_id(capture.review_unit_id.clone())
+                .with_review_unit_id(capture.revision_id.clone())
                 .with_track("agent:codex")
                 .with_check_name("cargo test")
                 .with_status(ValidationStatus::Passed),
@@ -410,7 +410,7 @@ mod tests {
 
         let result = show_review_unit(
             ReviewUnitShowOptions::new(repo.path())
-                .with_review_unit_id(capture.review_unit_id)
+                .with_review_unit_id(capture.revision_id)
                 .with_include_body(true),
         )
         .unwrap();
@@ -432,12 +432,12 @@ mod tests {
 
     fn validation_view() -> crate::session::ValidationCheckView {
         use crate::model::{
-            EventId, ReviewUnitId, TrackId, ValidationCheckId, ValidationStatus, ValidationTarget,
+            EventId, RevisionId, TrackId, ValidationCheckId, ValidationStatus, ValidationTarget,
             ValidationTrigger,
         };
         use crate::session::event::Writer;
 
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
+        let review_unit_id = RevisionId::new("review-unit:sha256:one");
         crate::session::ValidationCheckView {
             id: ValidationCheckId::new("validation:sha256:one"),
             event_id: EventId::new("evt:sha256:one"),

@@ -21,10 +21,11 @@ use std::path::{Path, PathBuf};
 use crate::canonical_hash::sha256_bytes_hex;
 use crate::error::{Result, ShoreError};
 use crate::git::{git_rev_list_range, git_rev_parse_commit_oid};
-use crate::model::{ActorId, ReviewUnitId, SessionId, SnapshotId};
+use crate::model::{ActorId, LedgerId, ObjectId, RevisionId};
 use crate::session::body_artifact::note_body_content_hash_from_path;
 use crate::session::event::{
-    ArtifactRemovedPayload, EventTarget, EventType, ReviewUnitCapturedPayload, ShoreEvent,
+    ArtifactRemovedPayload, EventTarget, EventType, ShoreEvent, WorkObjectProposal,
+    WorkObjectProposedPayload,
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::{prepare_write_landing, resolve_write_store};
@@ -40,9 +41,9 @@ use crate::storage::{Durability, LocalStorage, RemoveOutcome};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RemoveSelector {
     /// A single snapshot's bound artifact content hash.
-    Snapshot(SnapshotId),
+    Snapshot(ObjectId),
     /// Every content hash a review unit references.
-    ReviewUnit(ReviewUnitId),
+    ReviewUnit(RevisionId),
     /// Content hashes of units anchored on the commit a ref resolves to.
     Ref(String),
     /// Content hashes of units anchored on a commit in the `<a>..<b>` range.
@@ -107,7 +108,7 @@ pub struct RemovedContent {
     /// `false` when the `artifact_removed` fact already existed (re-removal).
     pub created: bool,
     /// Other review units that still name this hash (the shared-content report).
-    pub co_referencing_units: Vec<ReviewUnitId>,
+    pub co_referencing_units: Vec<RevisionId>,
 }
 
 /// The outcome of a [`remove_content`] call.
@@ -137,7 +138,7 @@ pub fn remove_content(options: RemoveOptions) -> Result<RemoveResult> {
     let resolved = resolve_selector(&options.selector, &events, &options.repo, &index)?;
 
     // One ArtifactRemoved per resolved hash, session-anchored and idempotent.
-    let session_id = SessionId::new("session:default");
+    let session_id = LedgerId::new("session:default");
     let writer = writer_from_options(&worktree_root, options.actor_id.as_ref());
 
     let mut removed = Vec::new();
@@ -147,7 +148,7 @@ pub fn remove_content(options: RemoveOptions) -> Result<RemoveResult> {
         let mut event = ShoreEvent::new(
             EventType::ArtifactRemoved,
             ArtifactRemovedPayload::idempotency_key(content_hash),
-            EventTarget::for_artifact_removal(session_id.clone()),
+            EventTarget::for_ledger(session_id.clone()),
             writer.clone(),
             ArtifactRemovedPayload {
                 content_hash: content_hash.clone(),
@@ -199,7 +200,7 @@ pub fn remove_content(options: RemoveOptions) -> Result<RemoveResult> {
 /// the still-referencing units of each hash).
 struct ResolvedSelection {
     content_hashes: BTreeSet<String>,
-    targeted_units: BTreeSet<ReviewUnitId>,
+    targeted_units: BTreeSet<RevisionId>,
 }
 
 /// Map every referenced `content_hash` to the review units that name it, built
@@ -209,10 +210,10 @@ struct ResolvedSelection {
 /// target.
 fn content_hash_unit_index(
     events: &[ShoreEvent],
-) -> Result<BTreeMap<String, BTreeSet<ReviewUnitId>>> {
-    let mut index: BTreeMap<String, BTreeSet<ReviewUnitId>> = BTreeMap::new();
+) -> Result<BTreeMap<String, BTreeSet<RevisionId>>> {
+    let mut index: BTreeMap<String, BTreeSet<RevisionId>> = BTreeMap::new();
     for event in events {
-        let Some(unit) = event.target.review_unit_id.clone() else {
+        let Some(unit) = crate::model::subject_revision_id(&event.target.subject).cloned() else {
             continue;
         };
         for artifact in referenced_artifacts(std::slice::from_ref(event))? {
@@ -226,10 +227,10 @@ fn content_hash_unit_index(
 }
 
 fn co_referencing_units(
-    index: &BTreeMap<String, BTreeSet<ReviewUnitId>>,
+    index: &BTreeMap<String, BTreeSet<RevisionId>>,
     content_hash: &str,
-    targeted_units: &BTreeSet<ReviewUnitId>,
-) -> Vec<ReviewUnitId> {
+    targeted_units: &BTreeSet<RevisionId>,
+) -> Vec<RevisionId> {
     index
         .get(content_hash)
         .map(|units| {
@@ -246,7 +247,7 @@ fn resolve_selector(
     selector: &RemoveSelector,
     events: &[ShoreEvent],
     repo: &Path,
-    index: &BTreeMap<String, BTreeSet<ReviewUnitId>>,
+    index: &BTreeMap<String, BTreeSet<RevisionId>>,
 ) -> Result<ResolvedSelection> {
     match selector {
         RemoveSelector::Snapshot(snapshot_id) => {
@@ -285,8 +286,8 @@ fn resolve_selector(
 
 /// The content hashes naming any of `targeted_units`, paired with those units.
 fn selection_for_units(
-    targeted_units: BTreeSet<ReviewUnitId>,
-    index: &BTreeMap<String, BTreeSet<ReviewUnitId>>,
+    targeted_units: BTreeSet<RevisionId>,
+    index: &BTreeMap<String, BTreeSet<RevisionId>>,
 ) -> ResolvedSelection {
     let content_hashes = index
         .iter()
@@ -303,18 +304,22 @@ fn selection_for_units(
 /// `snapshot_id`.
 fn capture_bound_to_snapshot(
     events: &[ShoreEvent],
-    snapshot_id: &SnapshotId,
-) -> Result<(ReviewUnitId, String)> {
+    snapshot_id: &ObjectId,
+) -> Result<(RevisionId, String)> {
     for event in events {
-        if event.event_type != EventType::ReviewUnitCaptured {
+        if event.event_type != EventType::WorkObjectProposed {
             continue;
         }
-        let payload: ReviewUnitCapturedPayload = serde_json::from_value(event.payload.clone())?;
-        if &payload.snapshot_id == snapshot_id {
-            return Ok((
-                payload.review_unit_id,
-                payload.snapshot_artifact_content_hash,
-            ));
+        let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
+        let WorkObjectProposal::Revision {
+            revision,
+            snapshot_artifact_content_hash,
+        } = payload.work_object
+        else {
+            continue;
+        };
+        if &revision.object_id == snapshot_id {
+            return Ok((revision.id, snapshot_artifact_content_hash));
         }
     }
     Err(ShoreError::Message(format!(
@@ -327,7 +332,7 @@ fn capture_bound_to_snapshot(
 fn units_anchored_on_oids(
     events: &[ShoreEvent],
     oids: &BTreeSet<String>,
-) -> Result<BTreeSet<ReviewUnitId>> {
+) -> Result<BTreeSet<RevisionId>> {
     let projection = ReviewUnitCommitRangeProjection::from_events(events)?;
     Ok(projection
         .units
@@ -345,7 +350,7 @@ fn units_anchored_on_oids(
 /// reaches it). A floating unit (no commit anchor) is never orphaned; a unit
 /// whose reachability cannot be determined (a git error) degrades to unknown and
 /// is skipped rather than removed.
-fn orphaned_anchored_units(events: &[ShoreEvent], repo: &Path) -> Result<BTreeSet<ReviewUnitId>> {
+fn orphaned_anchored_units(events: &[ShoreEvent], repo: &Path) -> Result<BTreeSet<RevisionId>> {
     let projection = ReviewUnitCommitRangeProjection::from_events(events)?;
     let mut units = BTreeSet::new();
     for (id, view) in projection.units {
@@ -471,7 +476,7 @@ struct OnDiskBlob {
 /// Enumerate every content-addressed blob under `artifacts/snapshots` and
 /// `artifacts/notes`, mapping each on-disk file to its `content_hash`. A snapshot
 /// file name is `sha256(snapshotId)` — *not* the content hash — so it is resolved
-/// through the `ReviewUnitCaptured` payloads; a note file name stem *is* the
+/// through the `WorkObjectProposed` payloads; a note file name stem *is* the
 /// content-hash hex.
 fn on_disk_blobs(storage: &LocalStorage, events: &[ShoreEvent]) -> Result<Vec<OnDiskBlob>> {
     let snapshot_hash_by_stem = snapshot_content_hash_by_file_stem(events)?;
@@ -510,12 +515,19 @@ fn on_disk_blobs(storage: &LocalStorage, events: &[ShoreEvent]) -> Result<Vec<On
 fn snapshot_content_hash_by_file_stem(events: &[ShoreEvent]) -> Result<BTreeMap<String, String>> {
     let mut by_stem = BTreeMap::new();
     for event in events {
-        if event.event_type != EventType::ReviewUnitCaptured {
+        if event.event_type != EventType::WorkObjectProposed {
             continue;
         }
-        let payload: ReviewUnitCapturedPayload = serde_json::from_value(event.payload.clone())?;
-        let stem = sha256_bytes_hex(payload.snapshot_id.as_str().as_bytes());
-        by_stem.insert(stem, payload.snapshot_artifact_content_hash);
+        let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
+        let WorkObjectProposal::Revision {
+            revision,
+            snapshot_artifact_content_hash,
+        } = payload.work_object
+        else {
+            continue;
+        };
+        let stem = sha256_bytes_hex(revision.object_id.as_str().as_bytes());
+        by_stem.insert(stem, snapshot_artifact_content_hash);
     }
     Ok(by_stem)
 }
@@ -527,8 +539,10 @@ mod tests {
     use std::process::Command;
 
     use super::*;
+    use crate::model::EngagementId;
     use crate::session::event::{
-        EventTarget, EventType, ReviewUnitCapturedPayload, ShoreEvent, Writer, WriterProducer,
+        EventTarget, EventType, GitProvenance, Revision, ShoreEvent, WorkObjectProposal,
+        WorkObjectProposedPayload, Writer, WriterProducer,
     };
     use crate::session::{
         ArtifactRemovalProjection, CaptureOptions, CommitRangeSpec, EventStore,
@@ -622,27 +636,20 @@ mod tests {
         }
     }
 
-    /// Record a fabricated sibling `ReviewUnitCaptured` event that binds the same
+    /// Record a fabricated sibling `WorkObjectProposed` event that binds the same
     /// snapshot content hash under a different review unit — the cross-worktree
     /// coexistence case (one shared blob, two capture events). Returns the
     /// sibling unit id.
     fn fabricate_sibling_capture(
         repo: &TestRepo,
         original: &crate::session::CaptureResult,
-    ) -> ReviewUnitId {
-        let sibling_unit =
-            ReviewUnitId::new(format!("{}-sibling", original.review_unit_id.as_str()));
-        let sibling_snapshot =
-            SnapshotId::new(format!("{}-sibling", original.snapshot_id.as_str()));
+    ) -> RevisionId {
+        let sibling_unit = RevisionId::new(format!("{}-sibling", original.revision_id.as_str()));
+        let sibling_snapshot = ObjectId::new(format!("{}-sibling", original.object_id.as_str()));
         let event = ShoreEvent::new(
-            EventType::ReviewUnitCaptured,
-            format!("review_unit_captured:{}", sibling_unit.as_str()),
-            EventTarget::for_review_unit(
-                original.session_id.clone(),
-                sibling_unit.clone(),
-                original.revision_id.clone(),
-                sibling_snapshot.clone(),
-            ),
+            EventType::WorkObjectProposed,
+            format!("work_object_proposed:{}", sibling_unit.as_str()),
+            EventTarget::for_revision(original.ledger_id.clone(), sibling_unit.clone(), None),
             Writer {
                 actor_id: ActorId::new("actor:sibling"),
                 producer: WriterProducer {
@@ -650,14 +657,25 @@ mod tests {
                     version: "test".to_owned(),
                 },
             },
-            ReviewUnitCapturedPayload {
-                review_unit_id: sibling_unit.clone(),
-                source: original.source.clone(),
-                base: original.base.clone(),
-                target: original.target.clone(),
-                revision_id: original.revision_id.clone(),
-                snapshot_id: sibling_snapshot,
-                snapshot_artifact_content_hash: original.snapshot_artifact_content_hash.clone(),
+            WorkObjectProposedPayload {
+                engagement_id: EngagementId::new(format!(
+                    "engagement:sha256:{}",
+                    crate::canonical_hash::sha256_bytes_hex(
+                        (original.revision_id.clone()).as_str().as_bytes()
+                    )
+                )),
+                work_object: WorkObjectProposal::Revision {
+                    revision: Revision {
+                        id: original.revision_id.clone(),
+                        object_id: sibling_snapshot,
+                        git_provenance: Some(GitProvenance {
+                            source: original.source.clone(),
+                            base: original.base.clone(),
+                            target: original.target.clone(),
+                        }),
+                    },
+                    snapshot_artifact_content_hash: original.snapshot_artifact_content_hash.clone(),
+                },
             },
             "2026-06-19T00:00:00Z",
         )
@@ -676,7 +694,7 @@ mod tests {
 
         let result = remove_content(RemoveOptions::new(
             repo.path(),
-            RemoveSelector::Snapshot(capture.snapshot_id.clone()),
+            RemoveSelector::Snapshot(capture.object_id.clone()),
         ))
         .unwrap();
 
@@ -697,7 +715,7 @@ mod tests {
         let big_body = "x".repeat(5000);
         let observation = record_observation(
             ObservationAddOptions::new(repo.path())
-                .with_review_unit_id(capture.review_unit_id.clone())
+                .with_review_unit_id(capture.revision_id.clone())
                 .with_track("agent:tester")
                 .with_title("a large observation")
                 .with_body(big_body),
@@ -709,7 +727,7 @@ mod tests {
 
         let result = remove_content(RemoveOptions::new(
             repo.path(),
-            RemoveSelector::ReviewUnit(capture.review_unit_id.clone()),
+            RemoveSelector::ReviewUnit(capture.revision_id.clone()),
         ))
         .unwrap();
 
@@ -734,7 +752,7 @@ mod tests {
 
         let result = remove_content(RemoveOptions::new(
             repo.path(),
-            RemoveSelector::ReviewUnit(capture.review_unit_id.clone()),
+            RemoveSelector::ReviewUnit(capture.revision_id.clone()),
         ))
         .unwrap();
 
@@ -861,7 +879,7 @@ mod tests {
     fn re_removing_a_hash_dedups_to_existing() {
         let repo = TestRepo::init();
         let capture = capture_worktree(&repo);
-        let selector = RemoveSelector::Snapshot(capture.snapshot_id.clone());
+        let selector = RemoveSelector::Snapshot(capture.object_id.clone());
 
         let first = remove_content(RemoveOptions::new(repo.path(), selector.clone())).unwrap();
         assert_eq!(first.events_created, 1);
@@ -885,7 +903,7 @@ mod tests {
 
         remove_content(RemoveOptions::new(
             repo.path(),
-            RemoveSelector::Snapshot(capture.snapshot_id.clone()),
+            RemoveSelector::Snapshot(capture.object_id.clone()),
         ))
         .unwrap();
 
@@ -901,9 +919,13 @@ mod tests {
             .map(String::as_str)
             .collect();
         assert_eq!(keys, vec!["contentHash"]);
-        // The envelope is session-only: no review unit, no snapshot binding.
-        assert!(event.target.review_unit_id.is_none());
-        assert!(event.target.snapshot_id.is_none());
+        // The envelope is ledger-only: no review unit, no snapshot binding — it
+        // rides the subject-less ledger carrier.
+        assert!(crate::model::subject_revision_id(&event.target.subject).is_none());
+        assert!(matches!(
+            event.target.subject,
+            crate::model::TargetRef::Ledger
+        ));
     }
 
     #[test]
@@ -914,7 +936,7 @@ mod tests {
 
         remove_content(RemoveOptions::new(
             repo.path(),
-            RemoveSelector::Snapshot(capture.snapshot_id.clone()),
+            RemoveSelector::Snapshot(capture.object_id.clone()),
         ))
         .unwrap();
         let result = compact_store(CompactOptions::new(repo.path())).unwrap();
@@ -933,7 +955,7 @@ mod tests {
         assert!(
             list_events(&repo)
                 .iter()
-                .any(|event| event.event_type == EventType::ReviewUnitCaptured)
+                .any(|event| event.event_type == EventType::WorkObjectProposed)
         );
         assert!(resolved_store_dir(repo.path()).join("state.json").exists());
     }
@@ -944,7 +966,7 @@ mod tests {
         let capture = capture_worktree(&repo);
         remove_content(RemoveOptions::new(
             repo.path(),
-            RemoveSelector::Snapshot(capture.snapshot_id.clone()),
+            RemoveSelector::Snapshot(capture.object_id.clone()),
         ))
         .unwrap();
 
@@ -974,7 +996,7 @@ mod tests {
 
         remove_content(RemoveOptions::new(
             repo.path(),
-            RemoveSelector::Snapshot(removed_unit.snapshot_id.clone()),
+            RemoveSelector::Snapshot(removed_unit.object_id.clone()),
         ))
         .unwrap();
         compact_store(CompactOptions::new(repo.path())).unwrap();
@@ -990,7 +1012,7 @@ mod tests {
         let capture = capture_worktree(&repo);
         remove_content(RemoveOptions::new(
             repo.path(),
-            RemoveSelector::Snapshot(capture.snapshot_id.clone()),
+            RemoveSelector::Snapshot(capture.object_id.clone()),
         ))
         .unwrap();
 
@@ -1014,7 +1036,7 @@ mod tests {
         let big_body = "y".repeat(5000);
         let observation = record_observation(
             ObservationAddOptions::new(repo.path())
-                .with_review_unit_id(capture.review_unit_id.clone())
+                .with_review_unit_id(capture.revision_id.clone())
                 .with_track("agent:tester")
                 .with_title("a large observation")
                 .with_body(big_body),
@@ -1027,7 +1049,7 @@ mod tests {
 
         remove_content(RemoveOptions::new(
             repo.path(),
-            RemoveSelector::ReviewUnit(capture.review_unit_id.clone()),
+            RemoveSelector::ReviewUnit(capture.revision_id.clone()),
         ))
         .unwrap();
         let result = compact_store(CompactOptions::new(repo.path())).unwrap();

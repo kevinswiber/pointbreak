@@ -8,7 +8,7 @@ use super::view::{
     ValidationCheckProjectionOptions, ValidationCheckView, project_validation_checks,
 };
 use crate::error::Result;
-use crate::model::{ReviewUnitId, ReviewUnitLineageId, TrackId, ValidationStatus};
+use crate::model::{ReviewUnitLineageId, RevisionId, TrackId, ValidationStatus};
 use crate::session::EventStore;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::resolve_read_store;
@@ -16,7 +16,7 @@ use crate::session::store::resolution::resolve_read_store;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidationListOptions {
     repo: PathBuf,
-    review_unit_id: Option<ReviewUnitId>,
+    review_unit_id: Option<RevisionId>,
     lineage_id: Option<ReviewUnitLineageId>,
     track: Option<String>,
     status: Option<ValidationStatus>,
@@ -35,7 +35,7 @@ impl ValidationListOptions {
         }
     }
 
-    pub fn with_review_unit_id(mut self, id: ReviewUnitId) -> Self {
+    pub fn with_review_unit_id(mut self, id: RevisionId) -> Self {
         self.review_unit_id = Some(id);
         self
     }
@@ -70,7 +70,7 @@ pub struct ValidationListFilters {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidationListResult {
-    pub review_unit_id: ReviewUnitId,
+    pub review_unit_id: RevisionId,
     pub filters: ValidationListFilters,
     pub validation_checks: Vec<ValidationCheckView>,
     pub diagnostics: Vec<ProjectionDiagnostic>,
@@ -98,7 +98,7 @@ pub fn list_validation_checks(options: ValidationListOptions) -> Result<Validati
     let validation_checks = project_validation_checks(ValidationCheckProjectionOptions {
         store_dir,
         events: &events,
-        review_unit_id: &resolved.review_unit_id,
+        review_unit_id: &resolved.revision_id,
         track_filter: track_filter.clone(),
         status_filter: options.status,
         include_body: options.include_body,
@@ -106,7 +106,7 @@ pub fn list_validation_checks(options: ValidationListOptions) -> Result<Validati
     let diagnostics = SessionState::from_events(&events)?.diagnostics;
 
     Ok(ValidationListResult {
-        review_unit_id: resolved.review_unit_id,
+        review_unit_id: resolved.revision_id,
         filters: ValidationListFilters {
             track_id: track_filter,
             status: options.status,

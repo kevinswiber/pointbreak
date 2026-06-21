@@ -594,7 +594,7 @@ fn captured_event_id(repo_path: &std::path::Path) -> String {
     shoreline::session::read_events(repo_path)
         .unwrap()
         .iter()
-        .find(|e| e.event_type == shoreline::session::event::EventType::ReviewUnitCaptured)
+        .find(|e| e.event_type == shoreline::session::event::EventType::WorkObjectProposed)
         .expect("a captured review unit event")
         .event_id
         .as_str()

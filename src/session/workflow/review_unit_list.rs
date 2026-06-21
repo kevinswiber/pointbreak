@@ -4,10 +4,8 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::error::Result;
-use crate::model::{
-    ReviewEndpoint, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId, SnapshotId,
-};
-use crate::session::event::{EventType, ReviewUnitCapturedPayload, ShoreEvent};
+use crate::model::{ObjectId, ReviewEndpoint, ReviewUnitSource, RevisionId};
+use crate::session::event::{EventType, ShoreEvent, WorkObjectProposal, WorkObjectProposedPayload};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::resolve_read_store;
 use crate::session::workflow::association::normalize_ref;
@@ -103,11 +101,10 @@ impl ReviewUnitListOptions {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewUnitListEntry {
-    pub review_unit_id: ReviewUnitId,
-    pub session_id: SessionId,
+    pub review_unit_id: RevisionId,
     pub captured_at: String,
     pub revision_id: RevisionId,
-    pub snapshot_id: SnapshotId,
+    pub snapshot_id: ObjectId,
     pub source: ReviewUnitSource,
     pub base: ReviewEndpoint,
     pub target: ReviewEndpoint,
@@ -125,7 +122,7 @@ pub struct ReviewUnitListEntry {
     /// captures (e.g. the same range captured in two worktrees, which mint distinct
     /// ids), this lists every member. The representative `review_unit_id` is the
     /// lexicographically smallest member, so the choice is deterministic and re-ID-free.
-    pub grouped_review_unit_ids: Vec<ReviewUnitId>,
+    pub grouped_review_unit_ids: Vec<RevisionId>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -282,7 +279,7 @@ fn group_entries(
     entries: Vec<ReviewUnitListEntry>,
     grouping: &CommitOidGroupingProjection,
 ) -> Vec<ReviewUnitListEntry> {
-    let by_id: BTreeMap<ReviewUnitId, ReviewUnitListEntry> = entries
+    let by_id: BTreeMap<RevisionId, ReviewUnitListEntry> = entries
         .into_iter()
         .map(|entry| (entry.review_unit_id.clone(), entry))
         .collect();
@@ -328,11 +325,11 @@ fn group_entries(
 /// grouping names that are not entries in this view (filtered out upstream) are
 /// ignored — a group whose only surviving member matched collapses to a singleton.
 fn connected_components(
-    by_id: &BTreeMap<ReviewUnitId, ReviewUnitListEntry>,
+    by_id: &BTreeMap<RevisionId, ReviewUnitListEntry>,
     grouping: &CommitOidGroupingProjection,
-) -> Vec<BTreeSet<ReviewUnitId>> {
+) -> Vec<BTreeSet<RevisionId>> {
     // id → component index, seeded one-per-entry.
-    let mut component_of: BTreeMap<ReviewUnitId, usize> = by_id
+    let mut component_of: BTreeMap<RevisionId, usize> = by_id
         .keys()
         .cloned()
         .enumerate()
@@ -340,7 +337,7 @@ fn connected_components(
         .collect();
 
     for members in grouping.groups.values() {
-        let known: Vec<ReviewUnitId> = members
+        let known: Vec<RevisionId> = members
             .iter()
             .filter(|id| component_of.contains_key(*id))
             .cloned()
@@ -361,7 +358,7 @@ fn connected_components(
         }
     }
 
-    let mut buckets: BTreeMap<usize, BTreeSet<ReviewUnitId>> = BTreeMap::new();
+    let mut buckets: BTreeMap<usize, BTreeSet<RevisionId>> = BTreeMap::new();
     for (id, index) in component_of {
         buckets.entry(index).or_default().insert(id);
     }
@@ -387,7 +384,7 @@ pub(crate) fn review_units_matching_ref(
     name: &str,
     mode: RefFilterMode,
     repo: &Path,
-) -> Result<BTreeSet<ReviewUnitId>> {
+) -> Result<BTreeSet<RevisionId>> {
     let normalized_ref = normalize_ref(name);
     match mode {
         RefFilterMode::Label => Ok(projection
@@ -425,8 +422,8 @@ fn list_from_events(
 
     let mut entries = events
         .iter()
-        .filter(|event| event.event_type == EventType::ReviewUnitCaptured)
-        .map(|event| entry_from_event(event, projection))
+        .filter(|event| event.event_type == EventType::WorkObjectProposed)
+        .filter_map(|event| entry_from_event(event, projection).transpose())
         .collect::<Result<Vec<_>>>()?;
 
     entries.sort_by(|left, right| {
@@ -449,33 +446,46 @@ fn list_from_events(
 fn entry_from_event(
     event: &ShoreEvent,
     projection: &ReviewUnitCommitRangeProjection,
-) -> Result<ReviewUnitListEntry> {
-    let payload: ReviewUnitCapturedPayload = serde_json::from_value(event.payload.clone())?;
+) -> Result<Option<ReviewUnitListEntry>> {
+    let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
+    let WorkObjectProposal::Revision {
+        revision,
+        snapshot_artifact_content_hash,
+    } = payload.work_object
+    else {
+        // A generative move proposing a task attempt is not a review revision;
+        // the review listing skips task-domain proposals rather than failing.
+        return Ok(None);
+    };
+    let provenance = revision.git_provenance.ok_or_else(|| {
+        crate::error::ShoreError::Message(
+            "review unit listing requires git provenance for a captured revision".to_owned(),
+        )
+    })?;
     let commit_range = projection
-        .unit(&payload.review_unit_id)
+        .unit(&revision.id)
         .cloned()
-        .unwrap_or_else(|| empty_view(payload.review_unit_id.clone()));
-    let review_unit_id = payload.review_unit_id;
-    Ok(ReviewUnitListEntry {
+        .unwrap_or_else(|| empty_view(revision.id.clone()));
+    let review_unit_id = revision.id;
+    Ok(Some(ReviewUnitListEntry {
         review_unit_id: review_unit_id.clone(),
-        session_id: event.target.session_id.clone(),
         captured_at: event.occurred_at.clone(),
-        revision_id: payload.revision_id,
-        snapshot_id: payload.snapshot_id,
-        source: payload.source,
-        base: payload.base,
-        target: payload.target,
-        snapshot_artifact_content_hash: payload.snapshot_artifact_content_hash,
+        revision_id: review_unit_id.clone(),
+        snapshot_id: revision.object_id,
+        source: provenance.source,
+        base: provenance.base,
+        target: provenance.target,
+        snapshot_artifact_content_hash,
         commit_range,
         // Filled by `attach_merge_status` after the visibility filter.
         merge_status: String::new(),
         // Every entry starts standing only for itself; the grouping pass rewrites this
         // for entries whose current commit OID is shared by sibling captures.
         grouped_review_unit_ids: vec![review_unit_id],
-    })
+    }))
 }
 
-fn empty_view(review_unit_id: ReviewUnitId) -> ReviewUnitCommitRangeView {
+fn empty_view(review_unit_id: RevisionId) -> ReviewUnitCommitRangeView {
     ReviewUnitCommitRangeView {
         review_unit_id,
         anchored: false,
@@ -490,8 +500,11 @@ fn empty_view(review_unit_id: ReviewUnitId) -> ReviewUnitCommitRangeView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{ReviewEndpoint, ReviewUnitSource, WorktreeCaptureMode};
-    use crate::session::event::{EventTarget, Writer};
+    use crate::model::{
+        EngagementId, LedgerId, ReviewEndpoint, ReviewUnitSource, TargetRef, TaskTargetRef,
+        WorkObjectId, WorktreeCaptureMode,
+    };
+    use crate::session::event::{EventTarget, GitProvenance, Revision, Writer};
 
     #[test]
     fn empty_event_set_returns_no_entries() {
@@ -568,40 +581,96 @@ mod tests {
     }
 
     fn captured_event(suffix: &str, occurred_at: &str) -> ShoreEvent {
-        let review_unit_id = ReviewUnitId::new(format!("review-unit:sha256:{suffix}"));
-        let revision_id = RevisionId::new(format!("rev:sha256:{suffix}"));
-        let snapshot_id = SnapshotId::new(format!("snap:sha256:{suffix}"));
-        let payload = ReviewUnitCapturedPayload {
-            review_unit_id: review_unit_id.clone(),
-            source: ReviewUnitSource::GitWorktree {
-                mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
-                include_untracked: true,
+        // A real capture stamps the envelope subject and the payload revision with
+        // one minted id; the listing reads the revision from the payload, so both
+        // carry the same id here.
+        let revision_id = RevisionId::new(format!("review-unit:sha256:{suffix}"));
+        let snapshot_id = ObjectId::new(format!("obj:sha256:{suffix}"));
+        let payload = WorkObjectProposedPayload {
+            engagement_id: EngagementId::new(format!(
+                "engagement:sha256:{}",
+                crate::canonical_hash::sha256_bytes_hex((revision_id.clone()).as_str().as_bytes())
+            )),
+            work_object: WorkObjectProposal::Revision {
+                revision: Revision {
+                    id: revision_id.clone(),
+                    object_id: snapshot_id.clone(),
+                    git_provenance: Some(GitProvenance {
+                        source: ReviewUnitSource::GitWorktree {
+                            mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                            include_untracked: true,
+                        },
+                        base: ReviewEndpoint::GitCommit {
+                            commit_oid: format!("base:{suffix}"),
+                            tree_oid: format!("base-tree:{suffix}"),
+                        },
+                        target: ReviewEndpoint::GitWorkingTree {
+                            worktree_root: "/repo".to_owned(),
+                        },
+                    }),
+                },
+                snapshot_artifact_content_hash: format!("sha256:artifact:{suffix}"),
             },
-            base: ReviewEndpoint::GitCommit {
-                commit_oid: format!("base:{suffix}"),
-                tree_oid: format!("base-tree:{suffix}"),
-            },
-            target: ReviewEndpoint::GitWorkingTree {
-                worktree_root: "/repo".to_owned(),
-            },
-            revision_id: revision_id.clone(),
-            snapshot_id: snapshot_id.clone(),
-            snapshot_artifact_content_hash: format!("sha256:artifact:{suffix}"),
         };
         ShoreEvent::new(
-            EventType::ReviewUnitCaptured,
+            EventType::WorkObjectProposed,
             format!("capture:{suffix}"),
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                review_unit_id,
-                revision_id,
-                snapshot_id,
+            EventTarget::for_revision(LedgerId::new("session:default"), revision_id, None),
+            Writer::shore_local("test"),
+            payload,
+            occurred_at,
+        )
+        .unwrap()
+    }
+
+    /// A generative move that proposes a task attempt rather than a review
+    /// revision: it carries a Task subject and the TaskAttempt payload arm. A
+    /// review listing must skip it, not fail to decode it as a revision.
+    fn task_attempt_event(suffix: &str, occurred_at: &str) -> ShoreEvent {
+        let payload = WorkObjectProposedPayload {
+            engagement_id: EngagementId::new(format!("engagement:sha256:{suffix}")),
+            work_object: WorkObjectProposal::TaskAttempt {
+                task_attempt_id: WorkObjectId::new(format!("task-attempt:sha256:{suffix}")),
+                project_path: "/repo".to_owned(),
+                claude_session_uuid: format!("uuid-{suffix}"),
+                initial_prompt_hash: format!("sha256:prompt:{suffix}"),
+                predecessor: None,
+                base_snapshot_fingerprint: None,
+                source_speaker: None,
+            },
+        };
+        ShoreEvent::new(
+            EventType::WorkObjectProposed,
+            format!("task-capture:{suffix}"),
+            EventTarget::for_subject(
+                LedgerId::new("ledger:default"),
+                TargetRef::Task(TaskTargetRef::TaskAttempt),
+                None,
             ),
             Writer::shore_local("test"),
             payload,
             occurred_at,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn skips_task_attempt_proposals_in_a_mixed_store() {
+        // One event type now carries both review and task generative moves. The
+        // review listing surfaces only the review revisions and never errors on a
+        // task-attempt proposal sharing the store.
+        let review = captured_event("rev", "2026-05-13T10:00:00Z");
+        let task = task_attempt_event("task", "2026-05-13T10:00:01Z");
+        let events = [review, task];
+        let projection = ReviewUnitCommitRangeProjection::from_events(&events).unwrap();
+
+        let result = list_from_events(&events, &projection).unwrap();
+
+        assert_eq!(result.review_unit_count, 1);
+        assert_eq!(
+            result.entries[0].review_unit_id.as_str(),
+            "review-unit:sha256:rev"
+        );
     }
 
     use std::path::Path;
@@ -703,35 +772,39 @@ mod tests {
     /// A commit-range capture anchored to `commit_oid` (a `GitCommit` target, which
     /// seeds the unit's `current_commits`).
     fn range_captured_event(suffix: &str, occurred_at: &str, commit_oid: &str) -> ShoreEvent {
-        let review_unit_id = ReviewUnitId::new(format!("review-unit:sha256:{suffix}"));
-        let revision_id = RevisionId::new(format!("rev:sha256:{suffix}"));
-        let snapshot_id = SnapshotId::new(format!("snap:sha256:{suffix}"));
-        let payload = ReviewUnitCapturedPayload {
-            review_unit_id: review_unit_id.clone(),
-            source: ReviewUnitSource::GitCommitRange {
-                mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
+        // One minted id stamps both the envelope subject and the payload revision.
+        let revision_id = RevisionId::new(format!("review-unit:sha256:{suffix}"));
+        let snapshot_id = ObjectId::new(format!("obj:sha256:{suffix}"));
+        let payload = WorkObjectProposedPayload {
+            engagement_id: EngagementId::new(format!(
+                "engagement:sha256:{}",
+                crate::canonical_hash::sha256_bytes_hex((revision_id.clone()).as_str().as_bytes())
+            )),
+            work_object: WorkObjectProposal::Revision {
+                revision: Revision {
+                    id: revision_id.clone(),
+                    object_id: snapshot_id.clone(),
+                    git_provenance: Some(GitProvenance {
+                        source: ReviewUnitSource::GitCommitRange {
+                            mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
+                        },
+                        base: ReviewEndpoint::GitCommit {
+                            commit_oid: format!("base:{suffix}"),
+                            tree_oid: format!("base-tree:{suffix}"),
+                        },
+                        target: ReviewEndpoint::GitCommit {
+                            commit_oid: commit_oid.to_owned(),
+                            tree_oid: format!("{commit_oid}-tree"),
+                        },
+                    }),
+                },
+                snapshot_artifact_content_hash: format!("sha256:artifact:{suffix}"),
             },
-            base: ReviewEndpoint::GitCommit {
-                commit_oid: format!("base:{suffix}"),
-                tree_oid: format!("base-tree:{suffix}"),
-            },
-            target: ReviewEndpoint::GitCommit {
-                commit_oid: commit_oid.to_owned(),
-                tree_oid: format!("{commit_oid}-tree"),
-            },
-            revision_id: revision_id.clone(),
-            snapshot_id: snapshot_id.clone(),
-            snapshot_artifact_content_hash: format!("sha256:artifact:{suffix}"),
         };
         ShoreEvent::new(
-            EventType::ReviewUnitCaptured,
+            EventType::WorkObjectProposed,
             format!("capture:{suffix}"),
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                review_unit_id,
-                revision_id,
-                snapshot_id,
-            ),
+            EventTarget::for_revision(LedgerId::new("session:default"), revision_id, None),
             Writer::shore_local("test"),
             payload,
             occurred_at,
@@ -741,13 +814,13 @@ mod tests {
 
     /// Adds a second current commit to an existing unit via a commit association.
     fn commit_associated_event(suffix: &str, commit_oid: &str) -> ShoreEvent {
-        let review_unit_id = ReviewUnitId::new(format!("review-unit:sha256:{suffix}"));
+        let revision_id = RevisionId::new(format!("review-unit:sha256:{suffix}"));
         let payload = ReviewUnitCommitAssociatedPayload {
             commit_association_id: CommitAssociationId::new(format!(
                 "commit-association:sha256:{suffix}:{commit_oid}"
             )),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: review_unit_id.clone(),
+            target: ReviewTargetRef::Revision {
+                revision_id: revision_id.clone(),
             },
             commit: ReviewEndpoint::GitCommit {
                 commit_oid: commit_oid.to_owned(),
@@ -756,13 +829,8 @@ mod tests {
         };
         ShoreEvent::new(
             EventType::ReviewUnitCommitAssociated,
-            ReviewUnitCommitAssociatedPayload::idempotency_key(&review_unit_id, commit_oid),
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                review_unit_id,
-                RevisionId::new(format!("rev:sha256:{suffix}")),
-                SnapshotId::new(format!("snap:sha256:{suffix}")),
-            ),
+            ReviewUnitCommitAssociatedPayload::idempotency_key(&revision_id, commit_oid),
+            EventTarget::for_revision(LedgerId::new("ledger:default"), revision_id, None),
             Writer::shore_local("test"),
             payload,
             "2026-05-13T10:00:09Z",
@@ -993,35 +1061,41 @@ mod tests {
 
     /// A worktree capture (floating until a commit is associated) for an explicit id,
     /// so tests can mint the distinct ids two worktrees would produce for one range.
-    fn worktree_capture_for(unit: &ReviewUnitId, occurred_at: &str) -> ShoreEvent {
-        let revision_id = RevisionId::new(format!("rev:{}", unit.as_str()));
-        let snapshot_id = SnapshotId::new(format!("snap:{}", unit.as_str()));
-        let payload = ReviewUnitCapturedPayload {
-            review_unit_id: unit.clone(),
-            source: ReviewUnitSource::GitWorktree {
-                mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
-                include_untracked: true,
+    fn worktree_capture_for(unit: &RevisionId, occurred_at: &str) -> ShoreEvent {
+        // The envelope subject and the payload revision carry the same minted id, so
+        // the listing keys this capture by `unit` (its associations target `unit` too).
+        let revision_id = unit.clone();
+        let snapshot_id = ObjectId::new(format!("obj:{}", unit.as_str()));
+        let payload = WorkObjectProposedPayload {
+            engagement_id: EngagementId::new(format!(
+                "engagement:sha256:{}",
+                crate::canonical_hash::sha256_bytes_hex((revision_id.clone()).as_str().as_bytes())
+            )),
+            work_object: WorkObjectProposal::Revision {
+                revision: Revision {
+                    id: revision_id.clone(),
+                    object_id: snapshot_id.clone(),
+                    git_provenance: Some(GitProvenance {
+                        source: ReviewUnitSource::GitWorktree {
+                            mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                            include_untracked: true,
+                        },
+                        base: ReviewEndpoint::GitCommit {
+                            commit_oid: format!("base:{}", unit.as_str()),
+                            tree_oid: format!("base-tree:{}", unit.as_str()),
+                        },
+                        target: ReviewEndpoint::GitWorkingTree {
+                            worktree_root: "/repo".to_owned(),
+                        },
+                    }),
+                },
+                snapshot_artifact_content_hash: format!("sha256:artifact:{}", unit.as_str()),
             },
-            base: ReviewEndpoint::GitCommit {
-                commit_oid: format!("base:{}", unit.as_str()),
-                tree_oid: format!("base-tree:{}", unit.as_str()),
-            },
-            target: ReviewEndpoint::GitWorkingTree {
-                worktree_root: "/repo".to_owned(),
-            },
-            revision_id: revision_id.clone(),
-            snapshot_id: snapshot_id.clone(),
-            snapshot_artifact_content_hash: format!("sha256:artifact:{}", unit.as_str()),
         };
         ShoreEvent::new(
-            EventType::ReviewUnitCaptured,
+            EventType::WorkObjectProposed,
             format!("capture:{}", unit.as_str()),
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                unit.clone(),
-                revision_id,
-                snapshot_id,
-            ),
+            EventTarget::for_revision(LedgerId::new("session:default"), unit.clone(), None),
             Writer::shore_local("test"),
             payload,
             occurred_at,
@@ -1030,14 +1104,14 @@ mod tests {
     }
 
     /// Associate `commit_oid` onto an existing unit (adds it to the unit's current set).
-    fn commit_associated_for(unit: &ReviewUnitId, commit_oid: &str) -> ShoreEvent {
+    fn commit_associated_for(unit: &RevisionId, commit_oid: &str) -> ShoreEvent {
         let payload = ReviewUnitCommitAssociatedPayload {
             commit_association_id: CommitAssociationId::new(format!(
                 "commit-association:sha256:{}:{commit_oid}",
                 unit.as_str()
             )),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: unit.clone(),
+            target: ReviewTargetRef::Revision {
+                revision_id: unit.clone(),
             },
             commit: ReviewEndpoint::GitCommit {
                 commit_oid: commit_oid.to_owned(),
@@ -1047,12 +1121,7 @@ mod tests {
         ShoreEvent::new(
             EventType::ReviewUnitCommitAssociated,
             ReviewUnitCommitAssociatedPayload::idempotency_key(unit, commit_oid),
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                unit.clone(),
-                RevisionId::new(format!("rev:{}", unit.as_str())),
-                SnapshotId::new(format!("snap:{}", unit.as_str())),
-            ),
+            EventTarget::for_revision(LedgerId::new("ledger:default"), unit.clone(), None),
             Writer::shore_local("test"),
             payload,
             "2026-06-19T00:00:09Z",
@@ -1066,8 +1135,8 @@ mod tests {
         // current commit sets both contain the same OID collapse into ONE list entry
         // that exposes BOTH ids in its grouped-member set. One shared artifact, two
         // capture events — no re-ID.
-        let unit_a = ReviewUnitId::new("review-unit:sha256:a");
-        let unit_b = ReviewUnitId::new("review-unit:sha256:b");
+        let unit_a = RevisionId::new("review-unit:sha256:a");
+        let unit_b = RevisionId::new("review-unit:sha256:b");
         let events = [
             worktree_capture_for(&unit_a, "2026-06-19T00:00:00Z"),
             commit_associated_for(&unit_a, "shared"),
@@ -1095,9 +1164,9 @@ mod tests {
     fn ungrouped_units_are_unaffected() {
         // Two captures on DIFFERENT oids (and one floating) each stay their own entry,
         // with a single-member grouped set (the entry's own id).
-        let unit_a = ReviewUnitId::new("review-unit:sha256:a");
-        let unit_b = ReviewUnitId::new("review-unit:sha256:b");
-        let unit_floating = ReviewUnitId::new("review-unit:sha256:f");
+        let unit_a = RevisionId::new("review-unit:sha256:a");
+        let unit_b = RevisionId::new("review-unit:sha256:b");
+        let unit_floating = RevisionId::new("review-unit:sha256:f");
         let events = [
             worktree_capture_for(&unit_a, "2026-06-19T00:00:00Z"),
             commit_associated_for(&unit_a, "oidA"),

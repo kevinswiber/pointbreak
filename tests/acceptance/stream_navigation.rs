@@ -1,8 +1,8 @@
 use shoreline::model::{
     Anchor, DiffFile, DiffRow, DiffRowKind, DiffSnapshot, FileId, FileMetadataKind,
-    FileMetadataRow, FileStatus, HunkId, LineRange, ResolutionStatus, ReviewHunk, ReviewId,
-    ReviewNote, ReviewNoteId, ReviewNoteSource, ReviewRow, ReviewRowKind, ReviewStream, RowId,
-    Side, SnapshotId,
+    FileMetadataRow, FileStatus, HunkId, LineRange, ObjectId, ResolutionStatus, ReviewHunk,
+    ReviewId, ReviewNote, ReviewNoteId, ReviewNoteSource, ReviewRow, ReviewRowKind, ReviewStream,
+    RowId, Side,
 };
 use shoreline::sidecar::{
     DiagnosticLevel, ReviewNotesDiagnosticCode, ReviewNotesFile, ReviewNotesSidecar,
@@ -33,7 +33,7 @@ fn review_stream_emits_deterministic_rows_for_diff_metadata_and_notes() {
     };
     let snapshot = DiffSnapshot::new(
         ReviewId::new("review-1"),
-        SnapshotId::new("snapshot-1"),
+        ObjectId::new("snapshot-1"),
         vec![text_file(hunk), metadata_file()],
     );
 
@@ -135,14 +135,14 @@ fn review_stream_emits_deterministic_rows_for_diff_metadata_and_notes() {
 fn review_stream_emits_empty_state_when_snapshot_has_no_changes() {
     let snapshot = DiffSnapshot::new(
         ReviewId::new("review-1"),
-        SnapshotId::new("snapshot-1"),
+        ObjectId::new("snapshot-1"),
         Vec::new(),
     );
 
     let stream = ReviewStream::from_snapshot_with_resolved_notes(&snapshot, &[]);
 
     assert_eq!(stream.review_id, ReviewId::new("review-1"));
-    assert_eq!(stream.snapshot_id, SnapshotId::new("snapshot-1"));
+    assert_eq!(stream.snapshot_id, ObjectId::new("snapshot-1"));
     assert_eq!(stream.rows.len(), 1);
     assert_eq!(stream.rows[0].id, RowId::new("row:0000"));
     assert_eq!(stream.rows[0].ordinal, 0);
@@ -158,7 +158,7 @@ fn review_stream_emits_empty_state_when_snapshot_has_no_changes() {
 fn review_stream_from_review_notes_applies_order_and_dedupes_stale_path_diagnostics() {
     let snapshot = DiffSnapshot::new(
         ReviewId::new("review-1"),
-        SnapshotId::new("snapshot-1"),
+        ObjectId::new("snapshot-1"),
         vec![modified_file("src/a.rs"), modified_file("src/b.rs")],
     );
     let sidecar = ReviewNotesSidecar {
@@ -343,7 +343,7 @@ fn navigation_stream() -> ReviewStream {
     ];
     let snapshot = DiffSnapshot::new(
         ReviewId::new("review-1"),
-        SnapshotId::new("snapshot-1"),
+        ObjectId::new("snapshot-1"),
         vec![DiffFile {
             id: FileId::new("src/lib.rs"),
             status: FileStatus::Modified,

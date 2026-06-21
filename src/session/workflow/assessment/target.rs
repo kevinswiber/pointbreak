@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    AssessmentId, InputRequestId, ObservationId, ReviewTargetRef, ReviewUnitId, Side,
+    AssessmentId, InputRequestId, ObservationId, ReviewTargetRef, RevisionId, Side,
 };
 use crate::session::event::{
     EventType, ReviewAssessmentRecordedPayload, ReviewObservationRecordedPayload, ShoreEvent,
@@ -109,7 +109,7 @@ pub(crate) fn resolve_assessment_target(
             resolve_assessment_ref(events, resolved, assessment_id)?
         }
         AssessmentTargetSelector::Direct(target) => {
-            validate_direct_target(&resolved.review_unit_id, target)?;
+            validate_direct_target(&resolved.revision_id, target)?;
             target.clone()
         }
     };
@@ -117,7 +117,7 @@ pub(crate) fn resolve_assessment_target(
     Ok(target)
 }
 
-fn validate_direct_target(review_unit_id: &ReviewUnitId, target: &ReviewTargetRef) -> Result<()> {
+fn validate_direct_target(review_unit_id: &RevisionId, target: &ReviewTargetRef) -> Result<()> {
     let target_review_unit_id = review_unit_id_for_target(target);
     if target_review_unit_id != review_unit_id {
         return Err(ShoreError::WorkflowInputInvalid {
@@ -136,7 +136,7 @@ fn resolve_observation_ref(
         .iter()
         .filter(|event| event.event_type == EventType::ReviewObservationRecorded)
     {
-        if event.target.review_unit_id.as_ref() != Some(&resolved.review_unit_id) {
+        if crate::model::subject_revision_id(&event.target.subject) != Some(&resolved.revision_id) {
             continue;
         }
 
@@ -144,7 +144,7 @@ fn resolve_observation_ref(
             serde_json::from_value(event.payload.clone())?;
         if &payload.observation_id == observation_id {
             return Ok(ReviewTargetRef::Observation {
-                review_unit_id: resolved.review_unit_id.clone(),
+                revision_id: resolved.revision_id.clone(),
                 observation_id: observation_id.clone(),
             });
         }
@@ -165,14 +165,14 @@ fn resolve_input_request_ref(
         .iter()
         .filter(|event| event.event_type == EventType::InputRequestOpened)
     {
-        if event.target.review_unit_id.as_ref() != Some(&resolved.review_unit_id) {
+        if crate::model::subject_revision_id(&event.target.subject) != Some(&resolved.revision_id) {
             continue;
         }
 
         let payload = decode_input_request_opened_payload(event.payload.clone())?;
         if &payload.input_request_id == input_request_id {
             return Ok(ReviewTargetRef::InputRequest {
-                review_unit_id: resolved.review_unit_id.clone(),
+                revision_id: resolved.revision_id.clone(),
                 input_request_id: input_request_id.clone(),
             });
         }
@@ -193,7 +193,7 @@ fn resolve_assessment_ref(
         .iter()
         .filter(|event| event.event_type == EventType::ReviewAssessmentRecorded)
     {
-        if event.target.review_unit_id.as_ref() != Some(&resolved.review_unit_id) {
+        if crate::model::subject_revision_id(&event.target.subject) != Some(&resolved.revision_id) {
             continue;
         }
 
@@ -201,7 +201,7 @@ fn resolve_assessment_ref(
             serde_json::from_value(event.payload.clone())?;
         if &payload.assessment_id == assessment_id {
             return Ok(ReviewTargetRef::Assessment {
-                review_unit_id: resolved.review_unit_id.clone(),
+                revision_id: resolved.revision_id.clone(),
                 assessment_id: assessment_id.clone(),
             });
         }
@@ -213,17 +213,17 @@ fn resolve_assessment_ref(
     )))
 }
 
-pub(crate) fn review_unit_id_for_target(target: &ReviewTargetRef) -> &ReviewUnitId {
+pub(crate) fn review_unit_id_for_target(target: &ReviewTargetRef) -> &RevisionId {
     match target {
-        ReviewTargetRef::ReviewUnit { review_unit_id }
-        | ReviewTargetRef::File { review_unit_id, .. }
-        | ReviewTargetRef::Range { review_unit_id, .. }
-        | ReviewTargetRef::Observation { review_unit_id, .. }
-        | ReviewTargetRef::InputRequest { review_unit_id, .. }
-        | ReviewTargetRef::Assessment { review_unit_id, .. }
-        | ReviewTargetRef::Event { review_unit_id, .. } => review_unit_id,
+        ReviewTargetRef::Revision { revision_id }
+        | ReviewTargetRef::File { revision_id, .. }
+        | ReviewTargetRef::Range { revision_id, .. }
+        | ReviewTargetRef::Observation { revision_id, .. }
+        | ReviewTargetRef::InputRequest { revision_id, .. }
+        | ReviewTargetRef::Assessment { revision_id, .. }
+        | ReviewTargetRef::Event { revision_id, .. } => revision_id,
         ReviewTargetRef::Lineage { .. } => {
-            unreachable!("lineage targets do not identify an exact ReviewUnit")
+            unreachable!("lineage targets do not identify an exact revision")
         }
     }
 }

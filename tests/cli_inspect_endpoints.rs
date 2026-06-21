@@ -15,7 +15,7 @@ fn captured_event_id(repo: &std::path::Path) -> String {
     shoreline::session::read_events(repo)
         .unwrap()
         .iter()
-        .find(|e| e.event_type == shoreline::session::event::EventType::ReviewUnitCaptured)
+        .find(|e| e.event_type == shoreline::session::event::EventType::WorkObjectProposed)
         .expect("a captured review unit")
         .event_id
         .as_str()
@@ -66,7 +66,7 @@ fn inspector_harness_serves_history_for_minimal_store() {
         .filter_map(|entry| entry["eventType"].as_str())
         .collect();
     assert!(
-        event_types.contains(&"review_unit_captured"),
+        event_types.contains(&"work_object_proposed"),
         "{event_types:?}"
     );
     assert!(
@@ -117,8 +117,14 @@ fn api_history_returns_chronological_typed_summaries() {
                 .unwrap()
                 .starts_with("actor:")
         );
-        // The summary is kind-tagged and the tag matches the event type.
-        assert_eq!(entry["summary"]["kind"], entry["eventType"]);
+        // The summary is kind-tagged. The capture event carries a domain-named
+        // kind distinct from its envelope event type; every other event's tag
+        // matches its event type.
+        if entry["eventType"] == "work_object_proposed" {
+            assert_eq!(entry["summary"]["kind"], "revision_captured");
+        } else {
+            assert_eq!(entry["summary"]["kind"], entry["eventType"]);
+        }
     }
 
     // The observation summary carries its title and range target.
@@ -131,7 +137,7 @@ fn api_history_returns_chronological_typed_summaries() {
     assert_eq!(obs["summary"]["target"]["startLine"], 2);
     assert_eq!(obs["summary"]["target"]["endLine"], 2);
     assert_eq!(obs["trackId"], "agent:codex");
-    assert_eq!(obs["reviewUnitId"], store.review_unit_id.as_str());
+    assert_eq!(obs["subject"]["revisionId"], store.review_unit_id.as_str());
 }
 
 #[test]

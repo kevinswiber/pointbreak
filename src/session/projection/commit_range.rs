@@ -1,6 +1,6 @@
 //! Git-free projection of a ReviewUnit's commit-range lifecycle.
 //!
-//! Folds `ReviewUnitCaptured` plus the four association/withdrawal events into a
+//! Folds `WorkObjectProposed` plus the four association/withdrawal events into a
 //! per-unit view of which commits and refs the unit currently claims. Every
 //! status is derived: `current = capture_target_seed ∪ (associated − withdrawn)`.
 //! A commit-range capture seeds one anchored commit that is never withdrawable;
@@ -17,12 +17,12 @@ use serde::Serialize;
 use crate::error::Result;
 use crate::model::{
     CommitAssociationId, CommitWithdrawalId, RefAssociationId, RefWithdrawalId, ReviewEndpoint,
-    ReviewTargetRef, ReviewUnitId,
+    ReviewTargetRef, RevisionId,
 };
 use crate::session::event::{
-    EventType, ReviewUnitCapturedPayload, ReviewUnitCommitAssociatedPayload,
-    ReviewUnitCommitWithdrawnPayload, ReviewUnitRefAssociatedPayload,
-    ReviewUnitRefWithdrawnPayload, ShoreEvent,
+    EventType, GitProvenance, ReviewUnitCommitAssociatedPayload, ReviewUnitCommitWithdrawnPayload,
+    ReviewUnitRefAssociatedPayload, ReviewUnitRefWithdrawnPayload, ShoreEvent, WorkObjectProposal,
+    WorkObjectProposedPayload,
 };
 use crate::session::state::ProjectionDiagnostic;
 
@@ -38,13 +38,13 @@ pub const RETRACTION_TARGET_MISSING_CODE: &str = "retraction_target_missing";
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewUnitCommitRangeProjection {
-    pub units: BTreeMap<ReviewUnitId, ReviewUnitCommitRangeView>,
+    pub units: BTreeMap<RevisionId, ReviewUnitCommitRangeView>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewUnitCommitRangeView {
-    pub review_unit_id: ReviewUnitId,
+    pub review_unit_id: RevisionId,
     pub anchored: bool,
     pub current_commits: Vec<CurrentCommitAssociation>,
     pub current_refs: Vec<CurrentRefAssociation>,
@@ -101,20 +101,26 @@ pub struct WithdrawnRefAssociation {
 
 impl ReviewUnitCommitRangeProjection {
     pub fn from_events(events: &[ShoreEvent]) -> Result<Self> {
-        let mut builders = BTreeMap::<ReviewUnitId, CommitRangeBuilder>::new();
+        let mut builders = BTreeMap::<RevisionId, CommitRangeBuilder>::new();
 
         for event in events {
             match event.event_type {
-                EventType::ReviewUnitCaptured => {
-                    let payload: ReviewUnitCapturedPayload =
+                EventType::WorkObjectProposed => {
+                    let payload: WorkObjectProposedPayload =
                         serde_json::from_value(event.payload.clone())?;
-                    let builder = builders.entry(payload.review_unit_id.clone()).or_default();
-                    if let ReviewEndpoint::GitCommit {
-                        commit_oid,
-                        tree_oid,
-                    } = payload.target
-                    {
-                        builder.capture_target = Some((commit_oid, tree_oid));
+                    if let WorkObjectProposal::Revision { revision, .. } = payload.work_object {
+                        let builder = builders.entry(revision.id.clone()).or_default();
+                        if let Some(GitProvenance {
+                            target:
+                                ReviewEndpoint::GitCommit {
+                                    commit_oid,
+                                    tree_oid,
+                                },
+                            ..
+                        }) = revision.git_provenance
+                        {
+                            builder.capture_target = Some((commit_oid, tree_oid));
+                        }
                     }
                 }
                 EventType::ReviewUnitCommitAssociated => {
@@ -186,7 +192,7 @@ impl ReviewUnitCommitRangeProjection {
         Ok(Self { units })
     }
 
-    pub fn unit(&self, review_unit_id: &ReviewUnitId) -> Option<&ReviewUnitCommitRangeView> {
+    pub fn unit(&self, review_unit_id: &RevisionId) -> Option<&ReviewUnitCommitRangeView> {
         self.units.get(review_unit_id)
     }
 
@@ -206,9 +212,9 @@ impl ReviewUnitCommitRangeProjection {
 
 /// The review-unit subject of an association payload, if it is the expected
 /// `ReviewUnit` target shape.
-pub(crate) fn review_unit_of(target: &ReviewTargetRef) -> Option<ReviewUnitId> {
+pub(crate) fn review_unit_of(target: &ReviewTargetRef) -> Option<RevisionId> {
     match target {
-        ReviewTargetRef::ReviewUnit { review_unit_id } => Some(review_unit_id.clone()),
+        ReviewTargetRef::Revision { revision_id } => Some(revision_id.clone()),
         _ => None,
     }
 }
@@ -223,7 +229,7 @@ struct CommitRangeBuilder {
 }
 
 impl CommitRangeBuilder {
-    fn finish(self, review_unit_id: ReviewUnitId) -> ReviewUnitCommitRangeView {
+    fn finish(self, review_unit_id: RevisionId) -> ReviewUnitCommitRangeView {
         let mut diagnostics = Vec::new();
 
         let commit_axis = partition_axis(self.associated_commits, self.withdrawn_commits);
@@ -391,54 +397,61 @@ fn diagnostic(code: &str, message: String) -> ProjectionDiagnostic {
 mod tests {
     use super::*;
     use crate::model::{
-        ReviewEndpoint, ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId,
-        SnapshotId, WorktreeCaptureMode,
+        EngagementId, LedgerId, ObjectId, ReviewEndpoint, ReviewTargetRef, ReviewUnitSource,
+        RevisionId, WorktreeCaptureMode,
     };
     use crate::session::event::{
-        EventTarget, EventType, ReviewUnitCapturedPayload, ReviewUnitCommitAssociatedPayload,
-        ReviewUnitCommitWithdrawnPayload, ReviewUnitRefAssociatedPayload, ShoreEvent, Writer,
-        build_commit_association_id, build_commit_withdrawal_id, build_ref_association_id,
+        EventTarget, EventType, GitProvenance, ReviewUnitCommitAssociatedPayload,
+        ReviewUnitCommitWithdrawnPayload, ReviewUnitRefAssociatedPayload, Revision, ShoreEvent,
+        WorkObjectProposal, WorkObjectProposedPayload, Writer, build_commit_association_id,
+        build_commit_withdrawal_id, build_ref_association_id,
     };
 
-    fn review_unit_id() -> ReviewUnitId {
-        ReviewUnitId::new("review-unit:sha256:unit")
+    fn review_unit_id() -> RevisionId {
+        RevisionId::new("rev:git:sha256:def")
     }
 
     fn target() -> ReviewTargetRef {
-        ReviewTargetRef::ReviewUnit {
-            review_unit_id: review_unit_id(),
+        ReviewTargetRef::Revision {
+            revision_id: review_unit_id(),
         }
     }
 
     fn envelope() -> EventTarget {
-        EventTarget::for_review_unit(
-            SessionId::new("session:default"),
-            review_unit_id(),
-            RevisionId::new("rev:git:sha256:def"),
-            SnapshotId::new("snap:git:sha256:ghi"),
-        )
+        EventTarget::for_revision(LedgerId::new("session:default"), review_unit_id(), None)
     }
 
     fn capture(target_endpoint: ReviewEndpoint) -> ShoreEvent {
         ShoreEvent::new(
-            EventType::ReviewUnitCaptured,
-            format!("review_unit_captured:{}", review_unit_id().as_str()),
+            EventType::WorkObjectProposed,
+            format!("work_object_proposed:{}", review_unit_id().as_str()),
             envelope(),
             Writer::shore_local("test"),
-            ReviewUnitCapturedPayload {
-                review_unit_id: review_unit_id(),
-                source: ReviewUnitSource::GitWorktree {
-                    mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
-                    include_untracked: true,
+            WorkObjectProposedPayload {
+                engagement_id: EngagementId::new(format!(
+                    "engagement:sha256:{}",
+                    crate::canonical_hash::sha256_bytes_hex(
+                        (RevisionId::new("rev:git:sha256:def")).as_str().as_bytes()
+                    )
+                )),
+                work_object: WorkObjectProposal::Revision {
+                    revision: Revision {
+                        id: review_unit_id(),
+                        object_id: ObjectId::new("snap:git:sha256:ghi"),
+                        git_provenance: Some(GitProvenance {
+                            source: ReviewUnitSource::GitWorktree {
+                                mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                                include_untracked: true,
+                            },
+                            base: ReviewEndpoint::GitCommit {
+                                commit_oid: "base".to_owned(),
+                                tree_oid: "base-tree".to_owned(),
+                            },
+                            target: target_endpoint,
+                        }),
+                    },
+                    snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
                 },
-                base: ReviewEndpoint::GitCommit {
-                    commit_oid: "base".to_owned(),
-                    tree_oid: "base-tree".to_owned(),
-                },
-                target: target_endpoint,
-                revision_id: RevisionId::new("rev:git:sha256:def"),
-                snapshot_id: SnapshotId::new("snap:git:sha256:ghi"),
-                snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
             },
             "2026-06-19T00:00:00Z",
         )

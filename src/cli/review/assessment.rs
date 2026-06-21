@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use clap::{Args, Subcommand, ValueEnum};
 use shoreline::documents::{assessment_add_document, assessment_show_document};
 use shoreline::model::{
-    AssessmentId, InputRequestId, ObservationId, ReviewUnitId, ReviewUnitLineageId,
+    AssessmentId, InputRequestId, ObservationId, ReviewUnitLineageId, RevisionId,
 };
 use shoreline::session::event::ReviewAssessment;
 use shoreline::session::{
@@ -230,7 +230,7 @@ pub(super) fn assessment_add_options(
         .with_target_selector(target);
 
     if let Some(review_unit) = args.review_unit {
-        options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+        options = options.with_review_unit_id(RevisionId::new(review_unit));
     }
     if let Some(lineage) = args.lineage {
         options = options.with_lineage_id(ReviewUnitLineageId::new(lineage));
@@ -267,7 +267,7 @@ pub(super) fn assessment_show_options(args: AssessmentShowArgs) -> AssessmentSho
         .with_all(args.all)
         .with_include_summary(args.include_summary);
     if let Some(review_unit) = args.review_unit {
-        options = options.with_review_unit_id(ReviewUnitId::new(review_unit));
+        options = options.with_review_unit_id(RevisionId::new(review_unit));
     }
     if let Some(lineage) = args.lineage {
         options = options.with_lineage_id(ReviewUnitLineageId::new(lineage));

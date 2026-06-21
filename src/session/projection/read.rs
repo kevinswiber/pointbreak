@@ -169,7 +169,7 @@ mod tests {
     use std::process::Command;
 
     use super::*;
-    use crate::model::{SessionId, Side, WorkUnitId};
+    use crate::model::{LedgerId, Side};
     use crate::session::event::{
         EventTarget, ImportedNoteTarget, ReviewInitializedPayload, ShoreEvent, SidecarSource,
         Writer,
@@ -360,10 +360,7 @@ mod tests {
         ShoreEvent::new(
             EventType::ReviewInitialized,
             "review_initialized:session:default:work:default",
-            EventTarget::new(
-                SessionId::new("session:default"),
-                WorkUnitId::new("work:default"),
-            ),
+            EventTarget::for_ledger(LedgerId::new("session:default")),
             Writer::shore_local("0.1.0"),
             ReviewInitializedPayload {},
             "2026-05-10T00:00:00Z",

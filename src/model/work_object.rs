@@ -1,26 +1,36 @@
 use serde::{Deserialize, Serialize};
 
-use super::CheckpointId;
 use super::review_unit::ReviewTargetRef;
+use super::{CheckpointId, RevisionId};
 
-/// Substrate-level discriminator for which domain a work object belongs to.
-///
-/// Used alongside `WorkObjectId` to give substrate-shaped events polymorphic
-/// identity without forcing every domain to share a serialization layout.
+/// The kind of work object a subject addresses, derived from the subject's
+/// domain variant rather than asserted as a standalone field. `Revision` is the
+/// review-domain work object (the captured, fact-carrying unit); `TaskAttempt`
+/// is the task-domain work object.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkObjectType {
-    ReviewUnit,
+    Revision,
     TaskAttempt,
+}
+
+/// The activity a ledger engagement carries. The single domain axis: a
+/// `Review` engagement addresses `Revision` work objects, a `Task` engagement
+/// addresses `TaskAttempt` work objects. The subject's domain is derived from /
+/// type-checked against this, never an independently asserted wire field.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EngagementType {
+    Review,
+    Task,
 }
 
 /// Within-task-attempt sub-target reference.
 ///
 /// `Checkpoint` is a sub-target of the parent `TaskAttempt`, not a peer
-/// `WorkObjectType` variant: the envelope's `work_object_id` and
-/// `work_object_type` continue to identify the `TaskAttempt`, and the
-/// checkpoint identity lives here. Analogous to how `ReviewTargetRef::Range`
-/// addresses a span inside a `ReviewUnit`.
+/// `WorkObjectType` variant: the addressed work object stays the `TaskAttempt`,
+/// and the checkpoint identity lives here. Analogous to how
+/// `ReviewTargetRef::Range` addresses a span inside a `Revision`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -32,21 +42,64 @@ pub enum TaskTargetRef {
     Checkpoint { checkpoint_id: CheckpointId },
 }
 
-/// Substrate-level target reference. Externally tagged so that each domain's
-/// own internal shape (e.g., `ReviewTargetRef`'s `kind` discriminator) is
-/// preserved unchanged inside the variant payload.
+/// The single shared subject identity carried by every event envelope. The
+/// outer variant is the *domain* (= the engagement type); the inner is the
+/// *work object*. `Ledger` is the fieldless carrier for genuinely subject-less
+/// events (the detached co-signature carrier, content removal, and pre-revision
+/// ledger events), which address their real target by payload content.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TargetRef {
+    Ledger,
     Review(ReviewTargetRef),
     Task(TaskTargetRef),
 }
 
+/// The engagement domain a subject belongs to, derived from its variant.
+/// `Ledger` carriers have no domain.
+pub fn engagement_type_of_subject(subject: &TargetRef) -> Option<EngagementType> {
+    match subject {
+        TargetRef::Ledger => None,
+        TargetRef::Review(_) => Some(EngagementType::Review),
+        TargetRef::Task(_) => Some(EngagementType::Task),
+    }
+}
+
+/// The work-object kind a subject addresses, derived from its variant. `Ledger`
+/// carriers address no work object.
+pub fn work_object_type_of_subject(subject: &TargetRef) -> Option<WorkObjectType> {
+    match subject {
+        TargetRef::Ledger => None,
+        TargetRef::Review(_) => Some(WorkObjectType::Revision),
+        TargetRef::Task(_) => Some(WorkObjectType::TaskAttempt),
+    }
+}
+
+/// The revision a subject addresses, if any. Every review-domain variant keys on
+/// a `revision_id`; the ledger carrier, task subjects, and the lineage variant
+/// address no revision.
+pub fn subject_revision_id(subject: &TargetRef) -> Option<&RevisionId> {
+    match subject {
+        TargetRef::Review(review) => match review {
+            ReviewTargetRef::Revision { revision_id }
+            | ReviewTargetRef::File { revision_id, .. }
+            | ReviewTargetRef::Range { revision_id, .. }
+            | ReviewTargetRef::Observation { revision_id, .. }
+            | ReviewTargetRef::InputRequest { revision_id, .. }
+            | ReviewTargetRef::Assessment { revision_id, .. }
+            | ReviewTargetRef::Event { revision_id, .. } => Some(revision_id),
+            ReviewTargetRef::Lineage { .. } => None,
+        },
+        TargetRef::Task(_) | TargetRef::Ledger => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::model::work_object::{engagement_type_of_subject, work_object_type_of_subject};
     use crate::model::{
-        CheckpointId, ReviewTargetRef, ReviewUnitId, TargetRef, TaskTargetRef, WorkObjectId,
-        WorkObjectType,
+        CheckpointId, EngagementType, ReviewTargetRef, RevisionId, TargetRef, TaskTargetRef,
+        WorkObjectId, WorkObjectType,
     };
 
     #[test]
@@ -63,16 +116,55 @@ mod tests {
 
     #[test]
     fn work_object_type_serializes_with_snake_case_kind() {
-        let review = serde_json::to_string(&WorkObjectType::ReviewUnit).unwrap();
+        let revision = serde_json::to_string(&WorkObjectType::Revision).unwrap();
         let task = serde_json::to_string(&WorkObjectType::TaskAttempt).unwrap();
 
-        assert_eq!(review, "\"review_unit\"");
+        assert_eq!(revision, "\"revision\"");
         assert_eq!(task, "\"task_attempt\"");
 
-        let parsed_review: WorkObjectType = serde_json::from_str(&review).unwrap();
+        let parsed_revision: WorkObjectType = serde_json::from_str(&revision).unwrap();
         let parsed_task: WorkObjectType = serde_json::from_str(&task).unwrap();
-        assert_eq!(parsed_review, WorkObjectType::ReviewUnit);
+        assert_eq!(parsed_revision, WorkObjectType::Revision);
         assert_eq!(parsed_task, WorkObjectType::TaskAttempt);
+    }
+
+    #[test]
+    fn engagement_type_serializes_with_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&EngagementType::Review).unwrap(),
+            "\"review\""
+        );
+        assert_eq!(
+            serde_json::to_string(&EngagementType::Task).unwrap(),
+            "\"task\""
+        );
+    }
+
+    #[test]
+    fn domain_and_work_object_kind_derive_from_the_subject_variant() {
+        let review = TargetRef::Review(ReviewTargetRef::Revision {
+            revision_id: RevisionId::new("rev:sha256:abc"),
+        });
+        let task = TargetRef::Task(TaskTargetRef::TaskAttempt);
+
+        assert_eq!(
+            engagement_type_of_subject(&review),
+            Some(EngagementType::Review)
+        );
+        assert_eq!(
+            work_object_type_of_subject(&review),
+            Some(WorkObjectType::Revision)
+        );
+        assert_eq!(
+            engagement_type_of_subject(&task),
+            Some(EngagementType::Task)
+        );
+        assert_eq!(
+            work_object_type_of_subject(&task),
+            Some(WorkObjectType::TaskAttempt)
+        );
+        assert_eq!(engagement_type_of_subject(&TargetRef::Ledger), None);
+        assert_eq!(work_object_type_of_subject(&TargetRef::Ledger), None);
     }
 
     #[test]
@@ -107,14 +199,14 @@ mod tests {
 
     #[test]
     fn target_ref_review_wraps_review_target_ref_externally_tagged() {
-        let target = TargetRef::Review(ReviewTargetRef::ReviewUnit {
-            review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
+        let target = TargetRef::Review(ReviewTargetRef::Revision {
+            revision_id: RevisionId::new("rev:sha256:abc"),
         });
 
         let json = serde_json::to_value(&target).unwrap();
 
-        assert_eq!(json["review"]["kind"], "review_unit");
-        assert_eq!(json["review"]["reviewUnitId"], "review-unit:sha256:abc");
+        assert_eq!(json["review"]["kind"], "revision");
+        assert_eq!(json["review"]["revisionId"], "rev:sha256:abc");
         assert!(json.get("task").is_none());
     }
 
@@ -132,10 +224,21 @@ mod tests {
     }
 
     #[test]
+    fn target_ref_ledger_carrier_serializes_as_a_bare_tag() {
+        let target = TargetRef::Ledger;
+
+        let json = serde_json::to_value(&target).unwrap();
+        assert_eq!(json, serde_json::json!("ledger"));
+
+        let parsed: TargetRef = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed, TargetRef::Ledger);
+    }
+
+    #[test]
     fn task_target_ref_checkpoint_is_not_a_work_object_type_variant() {
         assert_eq!(
-            serde_json::to_string(&WorkObjectType::ReviewUnit).unwrap(),
-            "\"review_unit\""
+            serde_json::to_string(&WorkObjectType::Revision).unwrap(),
+            "\"revision\""
         );
         assert_eq!(
             serde_json::to_string(&WorkObjectType::TaskAttempt).unwrap(),

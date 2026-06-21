@@ -1,28 +1,36 @@
 {
   "assertionMode": "advisory",
-  "eventId": "evt:sha256:6405e57668e137a64ca47144900f021a7667c2f20d0bc01ff144945221d76c66",
-  "eventType": "task_attempt_captured",
-  "idempotencyKey": "task_attempt_captured:task-attempt:sha256:5555555555555555555555555555555555555555555555555555555555555555:task_attempt:event-signature-task-vector",
+  "eventId": "evt:sha256:9f1675cbd114516ff64928ee1b42ed34a2bb66aa93d161af38925f965e5027ab",
+  "eventType": "work_object_proposed",
+  "idempotencyKey": "work_object_proposed:task-attempt:sha256:5555555555555555555555555555555555555555555555555555555555555555:task_attempt:event-signature-task-vector",
   "occurredAt": "2026-06-03T23:59:30Z",
   "payload": {
-    "claudeSessionUuid": "event-signature-task-vector",
-    "initialPromptHash": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
-    "projectPath": "/repo",
+    "engagementId": "engagement:sha256:7777777777777777777777777777777777777777777777777777777777777777",
     "sourceSpeaker": "agent",
-    "taskAttemptId": "task-attempt:sha256:5555555555555555555555555555555555555555555555555555555555555555"
+    "workObject": {
+      "claudeSessionUuid": "event-signature-task-vector",
+      "initialPromptHash": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+      "kind": "task_attempt",
+      "projectPath": "/repo",
+      "sourceSpeaker": "user",
+      "taskAttemptId": "task-attempt:sha256:5555555555555555555555555555555555555555555555555555555555555555"
+    }
   },
-  "payloadHash": "sha256:8fa7a75dd2dba597859eb27a7c336c57a50b1c0134828062107f34cc15d6abe3",
+  "payloadHash": "sha256:8cdc499c5b03de6500dde38624df9940d91435a9c202cadd70d4fb8b1992dc88",
   "schema": "shore.event",
   "signature": {
     "alg": "ed25519",
-    "sig": "Tv8x2AS6AaRlEJY2jFkTVyIf2w0XwuAMn22R+FVJrCuTllO6lEQ3LonkhXs7Qgbzqgmdw5pnE9OpOV5KxUCBDQ==",
+    "sig": "QPiELl8YcCpyRGfEWznDAOTBp1jxRK2BA2Q108Q/vq+320LT5a0fQbZiz1BApj05+45IaWHnoGy7SudgUV2eCA==",
     "sigVersion": 1
   },
   "signer": "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
   "target": {
-    "sessionId": "session:claude:event-signature-task-vector",
-    "workObjectId": "task-attempt:sha256:5555555555555555555555555555555555555555555555555555555555555555",
-    "workObjectType": "task_attempt"
+    "ledgerId": "ledger:claude:event-signature-task-vector",
+    "subject": {
+      "task": {
+        "kind": "task_attempt"
+      }
+    }
   },
   "version": 1,
   "writer": {

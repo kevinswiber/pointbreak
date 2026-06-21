@@ -273,8 +273,8 @@ mod tests {
     use super::*;
     use crate::model::{
         Anchor, DiffFile, DiffRow, DiffRowKind, DiffSnapshot, FileId, FileStatus, HunkId,
-        LineRange, ResolutionStatus, ReviewHunk, ReviewId, ReviewNote, ReviewNoteId,
-        ReviewNoteSource, ReviewRowKind, Side, SnapshotId,
+        LineRange, ObjectId, ResolutionStatus, ReviewHunk, ReviewId, ReviewNote, ReviewNoteId,
+        ReviewNoteSource, ReviewRowKind, Side,
     };
 
     #[test]
@@ -412,7 +412,7 @@ mod tests {
 
     fn snapshot_with_one_file_one_hunk() -> DiffSnapshot {
         let review_id = ReviewId::new("review:test");
-        let snapshot_id = SnapshotId::new("snapshot:test");
+        let snapshot_id = ObjectId::new("snapshot:test");
         let file_id = FileId::new("src/lib.rs");
         let hunk = ReviewHunk {
             id: HunkId::new("src/lib.rs:1:1"),
@@ -454,7 +454,7 @@ mod tests {
     fn empty_snapshot() -> DiffSnapshot {
         DiffSnapshot::new(
             ReviewId::new("review:test"),
-            SnapshotId::new("snapshot:test"),
+            ObjectId::new("snapshot:test"),
             Vec::new(),
         )
     }

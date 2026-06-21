@@ -197,7 +197,7 @@ mod tests {
 
     use super::*;
     use crate::git::git_common_dir;
-    use crate::model::{SessionId, WorkUnitId};
+    use crate::model::LedgerId;
     use crate::session::event::{
         EventTarget, EventType, ReviewInitializedPayload, ShoreEvent, Writer,
     };
@@ -411,7 +411,7 @@ mod tests {
         ShoreEvent::new(
             EventType::ReviewInitialized,
             format!("review_initialized:{session}:work:default"),
-            EventTarget::new(SessionId::new(session), WorkUnitId::new("work:default")),
+            EventTarget::for_ledger(LedgerId::new(session)),
             Writer::shore_local("0.1.0"),
             ReviewInitializedPayload {},
             "2026-05-10T00:00:00Z",

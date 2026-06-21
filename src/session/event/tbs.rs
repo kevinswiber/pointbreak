@@ -262,7 +262,7 @@ mod tests {
 
         [
             EventType::ReviewInitialized,
-            EventType::ReviewUnitCaptured,
+            EventType::WorkObjectProposed,
             EventType::ReviewObservationRecorded,
             EventType::ReviewAssessmentRecorded,
             EventType::InputRequestOpened,
@@ -275,7 +275,6 @@ mod tests {
             EventType::ReviewUnitCommitAssociated,
             EventType::ReviewUnitCommitWithdrawn,
             EventType::ValidationCheckRecorded,
-            EventType::TaskAttemptCaptured,
             EventType::TaskCheckpointCaptured,
             EventType::TaskObservationRecorded,
             EventType::EventSignatureRecorded,

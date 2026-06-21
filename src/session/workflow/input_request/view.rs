@@ -107,7 +107,9 @@ pub(crate) fn project_input_requests(
 
     for record in request_records.into_values() {
         let event = record.event;
-        if event.target.review_unit_id.as_ref() != Some(&options.resolved.review_unit_id) {
+        if crate::model::subject_revision_id(&event.target.subject)
+            != Some(&options.resolved.revision_id)
+        {
             continue;
         }
 

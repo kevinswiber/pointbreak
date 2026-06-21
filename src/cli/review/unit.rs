@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 use shoreline::documents::{unit_list_document, unit_show_document};
-use shoreline::model::{ReviewUnitId, ReviewUnitLineageId};
+use shoreline::model::{ReviewUnitLineageId, RevisionId};
 use shoreline::session::{
     EventVerificationPolicy, OrphanVisibility, RefFilterMode, ReviewUnitListOptions,
     ReviewUnitShowOptions, enrich_liveness, list_review_units, show_review_unit,
@@ -188,7 +188,7 @@ fn review_unit_show_command(
 fn review_unit_show_options(args: &UnitShowArgs) -> ReviewUnitShowOptions {
     let mut options = ReviewUnitShowOptions::new(&args.repo).with_include_body(args.include_body);
     if let Some(review_unit) = &args.review_unit {
-        options = options.with_review_unit_id(ReviewUnitId::new(review_unit.clone()));
+        options = options.with_review_unit_id(RevisionId::new(review_unit.clone()));
     }
     if let Some(lineage) = &args.lineage {
         options = options.with_lineage_id(ReviewUnitLineageId::new(lineage.clone()));

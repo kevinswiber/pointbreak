@@ -232,7 +232,7 @@ fn review_history_can_include_verification_status_without_artifact_availability_
     let capture_entry = history
         .entries
         .iter()
-        .find(|entry| entry.event_type == EventType::ReviewUnitCaptured)
+        .find(|entry| entry.event_type == EventType::WorkObjectProposed)
         .expect("capture event is present in history");
     assert_eq!(
         capture_entry.verification_status,

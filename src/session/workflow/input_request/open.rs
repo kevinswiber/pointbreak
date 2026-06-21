@@ -8,8 +8,8 @@ use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::crypto::EventSigner;
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    ActorId, EventId, InputRequestId, ReviewTargetRef, ReviewUnitId, ReviewUnitLineageId,
-    TargetRef, TrackId,
+    ActorId, EventId, InputRequestId, ReviewTargetRef, ReviewUnitLineageId, RevisionId, TargetRef,
+    TrackId,
 };
 use crate::session::event::{
     AssertionMode, EventTarget, EventType, InputRequestOpenedPayload, InputRequestReasonCode,
@@ -32,7 +32,7 @@ use crate::storage::{Durability, LocalStorage};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputRequestOpenOptions {
     repo: PathBuf,
-    review_unit_id: Option<ReviewUnitId>,
+    review_unit_id: Option<RevisionId>,
     lineage_id: Option<ReviewUnitLineageId>,
     track: Option<String>,
     title: Option<String>,
@@ -73,7 +73,7 @@ impl InputRequestOpenOptions {
         self
     }
 
-    pub fn with_review_unit_id(mut self, id: ReviewUnitId) -> Self {
+    pub fn with_review_unit_id(mut self, id: RevisionId) -> Self {
         self.review_unit_id = Some(id);
         self
     }
@@ -137,7 +137,7 @@ impl InputRequestOpenOptions {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputRequestOpenResult {
-    pub review_unit_id: ReviewUnitId,
+    pub review_unit_id: RevisionId,
     pub input_request_id: InputRequestId,
     pub event_id: EventId,
     pub track_id: TrackId,
@@ -201,7 +201,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
     let (body, body_artifact_path, body_artifact_bytes, body_byte_size) =
         staged_body(options.body.as_deref())?;
     let input_request_id = build_input_request_id(InputRequestIdMaterial {
-        review_unit_id: &resolved.review_unit_id,
+        review_unit_id: &resolved.revision_id,
         track_id: &track_id,
         target: &target,
         assertion_mode: options.assertion_mode,
@@ -215,7 +215,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
         .as_deref()
         .unwrap_or_else(|| input_request_id.as_str());
     let idempotency_key =
-        InputRequestOpenedPayload::idempotency_key(&resolved.review_unit_id, &track_id, source_key);
+        InputRequestOpenedPayload::idempotency_key(&resolved.revision_id, &track_id, source_key);
 
     if !event_store.event_exists(&idempotency_key)?
         && let (Some(artifact_path), Some(bytes)) =
@@ -229,17 +229,11 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
     let mut event = ShoreEvent::new(
         EventType::InputRequestOpened,
         idempotency_key,
-        EventTarget {
-            session_id: resolved.session_id,
-            work_unit_id: None,
-            work_object_id: None,
-            work_object_type: None,
-            review_unit_id: Some(resolved.review_unit_id.clone()),
-            revision_id: Some(resolved.revision_id),
-            snapshot_id: Some(resolved.snapshot_id),
-            track_id: Some(track_id.clone()),
-            subject: Some(TargetRef::Review(target.clone())),
-        },
+        EventTarget::for_subject(
+            resolved.ledger_id,
+            TargetRef::Review(target.clone()),
+            Some(track_id.clone()),
+        ),
         writer,
         InputRequestOpenedPayload {
             input_request_id: input_request_id.clone(),
@@ -276,7 +270,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
     )?;
 
     let result = InputRequestOpenResult {
-        review_unit_id: resolved.review_unit_id,
+        review_unit_id: resolved.revision_id,
         input_request_id,
         event_id,
         track_id,
@@ -293,7 +287,7 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
 }
 
 struct InputRequestIdMaterial<'a> {
-    review_unit_id: &'a ReviewUnitId,
+    review_unit_id: &'a RevisionId,
     track_id: &'a TrackId,
     target: &'a ReviewTargetRef,
     assertion_mode: AssertionMode,

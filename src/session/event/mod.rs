@@ -24,6 +24,7 @@ mod target;
 mod task;
 mod tbs;
 mod validation;
+mod work_object_proposed;
 mod writer;
 
 pub use artifact_removal::ArtifactRemovedPayload;
@@ -51,21 +52,20 @@ pub(crate) use provenance::stamp_ingest_provenance;
 pub use provenance::{IngestProvenance, IngestVia};
 pub use record_hash::EventRecordView;
 pub use review::{
-    ImportedNoteTarget, ReviewInitializedPayload, ReviewNoteImportedPayload,
-    ReviewUnitCapturedPayload, SidecarSource,
+    ImportedNoteTarget, ReviewInitializedPayload, ReviewNoteImportedPayload, SidecarSource,
 };
 pub use signature::{EffectiveSignerError, EventSignature, resolve_effective_signer};
 pub use source::SourceRef;
 pub use target::EventTarget;
-pub use task::{
-    SourceSpeaker, TaskAttemptCapturedPayload, TaskCheckpointCapturedPayload,
-    TaskObservationRecordedPayload,
-};
+pub use task::{SourceSpeaker, TaskCheckpointCapturedPayload, TaskObservationRecordedPayload};
 pub use tbs::{
     EVENT_TO_BE_SIGNED_V1_PAYLOAD_TYPE, EventToBeSigned,
     event_signature_pre_authentication_encoding, event_to_be_signed, pre_authentication_encoding,
 };
 pub use validation::ValidationCheckRecordedPayload;
+pub use work_object_proposed::{
+    GitProvenance, Revision, WorkObjectProposal, WorkObjectProposedPayload,
+};
 pub use writer::{Writer, WriterProducer};
 
 const EVENT_SCHEMA: &str = "shore.event";
@@ -208,9 +208,9 @@ mod tests {
     use super::*;
     use crate::error::ShoreError;
     use crate::model::{
-        AssessmentId, InputRequestId, InputRequestResponseId, ObservationId, ReviewEndpoint,
-        ReviewTargetRef, ReviewUnitId, ReviewUnitSource, RevisionId, SessionId, Side, SnapshotId,
-        TargetRef, TrackId, WorkUnitId, WorktreeCaptureMode,
+        AssessmentId, EngagementId, InputRequestId, InputRequestResponseId, LedgerId, ObjectId,
+        ObservationId, ReviewEndpoint, ReviewTargetRef, ReviewUnitSource, RevisionId, Side,
+        TargetRef, TrackId, WorktreeCaptureMode,
     };
 
     #[test]
@@ -221,10 +221,10 @@ mod tests {
 
         assert_eq!(json["schema"], "shore.event");
         assert_eq!(json["version"], 1);
-        assert_eq!(json["eventType"], "review_unit_captured");
+        assert_eq!(json["eventType"], "work_object_proposed");
         assert_eq!(
             json["idempotencyKey"],
-            "review_unit_captured:review-unit:sha256:abc"
+            "work_object_proposed:review-unit:sha256:abc"
         );
         assert!(json["eventId"].as_str().unwrap().starts_with("evt:sha256:"));
         assert!(json["payloadHash"].as_str().unwrap().starts_with("sha256:"));
@@ -235,10 +235,7 @@ mod tests {
         let error = ShoreEvent::new(
             EventType::ReviewInitialized,
             "",
-            EventTarget::new(
-                SessionId::new("session:default"),
-                WorkUnitId::new("work:default"),
-            ),
+            EventTarget::for_ledger(LedgerId::new("ledger:default")),
             Writer::shore_local("0.1.0"),
             ReviewInitializedPayload {},
             FixedClock::at("2026-05-09T20:42:45Z"),
@@ -264,7 +261,7 @@ mod tests {
         let first = valid_review_unit_captured_event();
         let second = review_unit_captured_event(
             "sha256:different-artifact",
-            "review_unit_captured:review-unit:sha256:abc",
+            "work_object_proposed:review-unit:sha256:abc",
         );
 
         assert_eq!(second.event_id, first.event_id);
@@ -318,33 +315,43 @@ mod tests {
 
     #[test]
     fn review_unit_captured_event_serializes_target_and_payload() {
-        let target = EventTarget::for_review_unit(
-            SessionId::new("session:default"),
-            ReviewUnitId::new("review-unit:sha256:abc"),
-            RevisionId::new("rev:git:sha256:def"),
-            SnapshotId::new("snap:git:sha256:ghi"),
+        let target = EventTarget::for_revision(
+            LedgerId::new("session:default"),
+            RevisionId::new("review-unit:sha256:abc"),
+            None,
         );
-        let payload = ReviewUnitCapturedPayload {
-            review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
-            source: ReviewUnitSource::GitWorktree {
-                mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
-                include_untracked: true,
+        let payload = WorkObjectProposedPayload {
+            engagement_id: EngagementId::new(format!(
+                "engagement:sha256:{}",
+                crate::canonical_hash::sha256_bytes_hex(
+                    (RevisionId::new("rev:git:sha256:def")).as_str().as_bytes()
+                )
+            )),
+            work_object: WorkObjectProposal::Revision {
+                revision: Revision {
+                    id: RevisionId::new("rev:git:sha256:def"),
+                    object_id: ObjectId::new("snap:git:sha256:ghi"),
+                    git_provenance: Some(GitProvenance {
+                        source: ReviewUnitSource::GitWorktree {
+                            mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                            include_untracked: true,
+                        },
+                        base: ReviewEndpoint::GitCommit {
+                            commit_oid: "abc".to_owned(),
+                            tree_oid: "def".to_owned(),
+                        },
+                        target: ReviewEndpoint::GitWorkingTree {
+                            worktree_root: "/repo".to_owned(),
+                        },
+                    }),
+                },
+                snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
             },
-            base: ReviewEndpoint::GitCommit {
-                commit_oid: "abc".to_owned(),
-                tree_oid: "def".to_owned(),
-            },
-            target: ReviewEndpoint::GitWorkingTree {
-                worktree_root: "/repo".to_owned(),
-            },
-            revision_id: RevisionId::new("rev:git:sha256:def"),
-            snapshot_id: SnapshotId::new("snap:git:sha256:ghi"),
-            snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
         };
 
         let event = ShoreEvent::new(
-            EventType::ReviewUnitCaptured,
-            "review_unit_captured:review-unit:sha256:abc",
+            EventType::WorkObjectProposed,
+            "work_object_proposed:review-unit:sha256:abc",
             target,
             Writer::shore_local("test"),
             payload,
@@ -353,18 +360,37 @@ mod tests {
         .unwrap();
 
         let json = serde_json::to_value(event).unwrap();
-        assert_eq!(json["eventType"], "review_unit_captured");
-        assert_eq!(json["target"]["sessionId"], "session:default");
-        assert!(json["target"].get("reviewId").is_none());
-        assert_eq!(json["target"]["reviewUnitId"], "review-unit:sha256:abc");
-        assert_eq!(json["target"]["revisionId"], "rev:git:sha256:def");
-        assert_eq!(json["target"]["snapshotId"], "snap:git:sha256:ghi");
+        assert_eq!(json["eventType"], "work_object_proposed");
+        assert_eq!(json["target"]["ledgerId"], "session:default");
+        assert_eq!(json["target"]["subject"]["review"]["kind"], "revision");
+        assert_eq!(
+            json["target"]["subject"]["review"]["revisionId"],
+            "review-unit:sha256:abc"
+        );
         assert!(json["target"].get("trackId").is_none());
         assert!(json["target"].get("workUnitId").is_none());
-        assert_eq!(json["payload"]["base"]["commitOid"], "abc");
-        assert_eq!(json["payload"]["target"]["worktreeRoot"], "/repo");
+        assert!(json["target"].get("snapshotId").is_none());
+        assert!(json["target"].get("reviewUnitId").is_none());
+        // The revision's content object id and git provenance ride the payload,
+        // not the envelope.
         assert_eq!(
-            json["payload"]["snapshotArtifactContentHash"],
+            json["payload"]["workObject"]["revision"]["id"],
+            "rev:git:sha256:def"
+        );
+        assert_eq!(
+            json["payload"]["workObject"]["revision"]["objectId"],
+            "snap:git:sha256:ghi"
+        );
+        assert_eq!(
+            json["payload"]["workObject"]["revision"]["gitProvenance"]["base"]["commitOid"],
+            "abc"
+        );
+        assert_eq!(
+            json["payload"]["workObject"]["revision"]["gitProvenance"]["target"]["worktreeRoot"],
+            "/repo"
+        );
+        assert_eq!(
+            json["payload"]["workObject"]["snapshotArtifactContentHash"],
             "sha256:artifact"
         );
     }
@@ -393,8 +419,8 @@ mod tests {
     fn input_request_opened_payload_round_trips_and_has_stable_key() {
         let payload = InputRequestOpenedPayload {
             input_request_id: InputRequestId::new("input-request:sha256:abc"),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: ReviewUnitId::new("review-unit:sha256:unit"),
+            target: ReviewTargetRef::Revision {
+                revision_id: RevisionId::new("review-unit:sha256:unit"),
             },
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "Need a decision".to_owned(),
@@ -411,7 +437,7 @@ mod tests {
         assert_eq!(round, payload);
         assert_eq!(
             InputRequestOpenedPayload::idempotency_key(
-                &ReviewUnitId::new("review-unit:sha256:unit"),
+                &RevisionId::new("review-unit:sha256:unit"),
                 &TrackId::new("agent:codex"),
                 "input-request:sha256:abc"
             ),
@@ -451,8 +477,8 @@ mod tests {
     fn input_request_opened_payload_uses_expected_wire_keys() {
         let payload = InputRequestOpenedPayload {
             input_request_id: InputRequestId::new("input-request:sha256:abc"),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: ReviewUnitId::new("review-unit:sha256:unit"),
+            target: ReviewTargetRef::Revision {
+                revision_id: RevisionId::new("review-unit:sha256:unit"),
             },
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "Need a decision".to_owned(),
@@ -466,7 +492,7 @@ mod tests {
         let json = serde_json::to_value(&payload).unwrap();
 
         assert_eq!(json["inputRequestId"], "input-request:sha256:abc");
-        assert_eq!(json["target"]["kind"], "review_unit");
+        assert_eq!(json["target"]["kind"], "revision");
         assert!(json.get("mode").is_none());
         assert_eq!(json["reasonCode"], "manual_decision_required");
         assert!(json.get("interventionId").is_none());
@@ -476,31 +502,41 @@ mod tests {
         snapshot_artifact_content_hash: &str,
     ) -> ShoreEvent {
         ShoreEvent::new(
-            EventType::ReviewUnitCaptured,
-            format!("review_unit_captured:review-unit:sha256:abc:{snapshot_artifact_content_hash}"),
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                ReviewUnitId::new("review-unit:sha256:abc"),
-                RevisionId::new("rev:git:sha256:def"),
-                SnapshotId::new("snap:git:sha256:ghi"),
+            EventType::WorkObjectProposed,
+            format!("work_object_proposed:review-unit:sha256:abc:{snapshot_artifact_content_hash}"),
+            EventTarget::for_revision(
+                LedgerId::new("session:default"),
+                RevisionId::new("review-unit:sha256:abc"),
+                None,
             ),
             Writer::shore_local("test"),
-            ReviewUnitCapturedPayload {
-                review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
-                source: ReviewUnitSource::GitWorktree {
-                    mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
-                    include_untracked: true,
+            WorkObjectProposedPayload {
+                engagement_id: EngagementId::new(format!(
+                    "engagement:sha256:{}",
+                    crate::canonical_hash::sha256_bytes_hex(
+                        (RevisionId::new("rev:git:sha256:def")).as_str().as_bytes()
+                    )
+                )),
+                work_object: WorkObjectProposal::Revision {
+                    revision: Revision {
+                        id: RevisionId::new("rev:git:sha256:def"),
+                        object_id: ObjectId::new("snap:git:sha256:ghi"),
+                        git_provenance: Some(GitProvenance {
+                            source: ReviewUnitSource::GitWorktree {
+                                mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                                include_untracked: true,
+                            },
+                            base: ReviewEndpoint::GitCommit {
+                                commit_oid: "abc".to_owned(),
+                                tree_oid: "def".to_owned(),
+                            },
+                            target: ReviewEndpoint::GitWorkingTree {
+                                worktree_root: "/repo".to_owned(),
+                            },
+                        }),
+                    },
+                    snapshot_artifact_content_hash: snapshot_artifact_content_hash.to_owned(),
                 },
-                base: ReviewEndpoint::GitCommit {
-                    commit_oid: "abc".to_owned(),
-                    tree_oid: "def".to_owned(),
-                },
-                target: ReviewEndpoint::GitWorkingTree {
-                    worktree_root: "/repo".to_owned(),
-                },
-                revision_id: RevisionId::new("rev:git:sha256:def"),
-                snapshot_id: SnapshotId::new("snap:git:sha256:ghi"),
-                snapshot_artifact_content_hash: snapshot_artifact_content_hash.to_owned(),
             },
             FixedClock::at("2026-05-12T00:00:00Z"),
         )
@@ -509,25 +545,19 @@ mod tests {
 
     #[test]
     fn review_observation_recorded_event_serializes_target_track_and_payload() {
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:abc");
+        let revision_id = RevisionId::new("review-unit:sha256:abc");
         let target_ref = ReviewTargetRef::Range {
-            review_unit_id: review_unit_id.clone(),
+            revision_id: revision_id.clone(),
             file_path: "src/lib.rs".to_owned(),
             side: Side::New,
             start_line: 4,
             end_line: 5,
         };
-        let target = EventTarget {
-            session_id: SessionId::new("session:default"),
-            work_unit_id: None,
-            work_object_id: None,
-            work_object_type: None,
-            review_unit_id: Some(review_unit_id.clone()),
-            revision_id: Some(RevisionId::new("rev:git:sha256:def")),
-            snapshot_id: Some(SnapshotId::new("snap:git:sha256:ghi")),
-            track_id: Some(TrackId::new("agent:codex")),
-            subject: Some(TargetRef::Review(target_ref.clone())),
-        };
+        let target = EventTarget::for_subject(
+            LedgerId::new("session:default"),
+            TargetRef::Review(target_ref.clone()),
+            Some(TrackId::new("agent:codex")),
+        );
 
         let event = ShoreEvent::new(
             EventType::ReviewObservationRecorded,
@@ -570,27 +600,21 @@ mod tests {
     }
 
     fn review_observation_recorded_event_with_body_hash(body_content_hash: &str) -> ShoreEvent {
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:abc");
-        let target_ref = ReviewTargetRef::ReviewUnit {
-            review_unit_id: review_unit_id.clone(),
+        let revision_id = RevisionId::new("review-unit:sha256:abc");
+        let target_ref = ReviewTargetRef::Revision {
+            revision_id: revision_id.clone(),
         };
         ShoreEvent::new(
             EventType::ReviewObservationRecorded,
             format!(
                 "review_observation_recorded:{}:agent:codex:obs:sha256:abc",
-                review_unit_id.as_str()
+                revision_id.as_str()
             ),
-            EventTarget {
-                session_id: SessionId::new("session:default"),
-                work_unit_id: None,
-                work_object_id: None,
-                work_object_type: None,
-                review_unit_id: Some(review_unit_id.clone()),
-                revision_id: Some(RevisionId::new("rev:git:sha256:def")),
-                snapshot_id: Some(SnapshotId::new("snap:git:sha256:ghi")),
-                track_id: Some(TrackId::new("agent:codex")),
-                subject: Some(TargetRef::Review(target_ref.clone())),
-            },
+            EventTarget::for_subject(
+                LedgerId::new("session:default"),
+                TargetRef::Review(target_ref.clone()),
+                Some(TrackId::new("agent:codex")),
+            ),
             Writer::shore_local("test"),
             ReviewObservationRecordedPayload {
                 observation_id: ObservationId::new("obs:sha256:abc"),
@@ -610,31 +634,25 @@ mod tests {
     }
 
     fn valid_review_assessment_recorded_event() -> ShoreEvent {
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:assessment");
+        let revision_id = RevisionId::new("review-unit:sha256:assessment");
         let track_id = TrackId::new("human:kevin");
         let assessment_id = AssessmentId::new("assess:sha256:one");
-        let target_ref = ReviewTargetRef::ReviewUnit {
-            review_unit_id: review_unit_id.clone(),
+        let target_ref = ReviewTargetRef::Revision {
+            revision_id: revision_id.clone(),
         };
 
         ShoreEvent::new(
             EventType::ReviewAssessmentRecorded,
             ReviewAssessmentRecordedPayload::idempotency_key(
-                &review_unit_id,
+                &revision_id,
                 &track_id,
                 assessment_id.as_str(),
             ),
-            EventTarget {
-                session_id: SessionId::new("session:default"),
-                work_unit_id: None,
-                work_object_id: None,
-                work_object_type: None,
-                review_unit_id: Some(review_unit_id.clone()),
-                revision_id: Some(RevisionId::new("rev:git:sha256:one")),
-                snapshot_id: Some(SnapshotId::new("snap:git:sha256:one")),
-                track_id: Some(track_id),
-                subject: Some(TargetRef::Review(target_ref.clone())),
-            },
+            EventTarget::for_subject(
+                LedgerId::new("session:default"),
+                TargetRef::Review(target_ref.clone()),
+                Some(track_id),
+            ),
             Writer::shore_local("test"),
             ReviewAssessmentRecordedPayload {
                 assessment_id,
@@ -658,10 +676,7 @@ mod tests {
         let event = ShoreEvent::new(
             EventType::ReviewNoteImported,
             "review_note_imported:review_notes:work:default:note:abc",
-            EventTarget::new(
-                SessionId::new("session:default"),
-                WorkUnitId::new("work:default"),
-            ),
+            EventTarget::for_ledger(LedgerId::new("ledger:default")),
             Writer::shore_local("0.1.0"),
             ReviewNoteImportedPayload {
                 sidecar_source: SidecarSource::ReviewNotes,
@@ -700,10 +715,7 @@ mod tests {
         let event = ShoreEvent::new(
             EventType::ReviewNoteImported,
             "review_note_imported:review_notes:work:default:note:abc",
-            EventTarget::new(
-                SessionId::new("session:default"),
-                WorkUnitId::new("work:default"),
-            ),
+            EventTarget::for_ledger(LedgerId::new("ledger:default")),
             Writer::shore_local("0.1.0"),
             ReviewNoteImportedPayload {
                 sidecar_source: SidecarSource::ReviewNotes,
@@ -947,7 +959,7 @@ mod tests {
     fn valid_review_unit_captured_event() -> ShoreEvent {
         review_unit_captured_event(
             "sha256:artifact",
-            "review_unit_captured:review-unit:sha256:abc",
+            "work_object_proposed:review-unit:sha256:abc",
         )
     }
 
@@ -956,31 +968,41 @@ mod tests {
         idempotency_key: &str,
     ) -> ShoreEvent {
         ShoreEvent::new(
-            EventType::ReviewUnitCaptured,
+            EventType::WorkObjectProposed,
             idempotency_key,
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                ReviewUnitId::new("review-unit:sha256:abc"),
-                RevisionId::new("rev:git:sha256:def"),
-                SnapshotId::new("snap:git:sha256:ghi"),
+            EventTarget::for_revision(
+                LedgerId::new("session:default"),
+                RevisionId::new("review-unit:sha256:abc"),
+                None,
             ),
             Writer::shore_local("0.1.0"),
-            ReviewUnitCapturedPayload {
-                review_unit_id: ReviewUnitId::new("review-unit:sha256:abc"),
-                source: ReviewUnitSource::GitWorktree {
-                    mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
-                    include_untracked: true,
+            WorkObjectProposedPayload {
+                engagement_id: EngagementId::new(format!(
+                    "engagement:sha256:{}",
+                    crate::canonical_hash::sha256_bytes_hex(
+                        (RevisionId::new("rev:git:sha256:def")).as_str().as_bytes()
+                    )
+                )),
+                work_object: WorkObjectProposal::Revision {
+                    revision: Revision {
+                        id: RevisionId::new("rev:git:sha256:def"),
+                        object_id: ObjectId::new("snap:git:sha256:ghi"),
+                        git_provenance: Some(GitProvenance {
+                            source: ReviewUnitSource::GitWorktree {
+                                mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                                include_untracked: true,
+                            },
+                            base: ReviewEndpoint::GitCommit {
+                                commit_oid: "abc".to_owned(),
+                                tree_oid: "def".to_owned(),
+                            },
+                            target: ReviewEndpoint::GitWorkingTree {
+                                worktree_root: "/repo".to_owned(),
+                            },
+                        }),
+                    },
+                    snapshot_artifact_content_hash: snapshot_artifact_content_hash.to_owned(),
                 },
-                base: ReviewEndpoint::GitCommit {
-                    commit_oid: "abc".to_owned(),
-                    tree_oid: "def".to_owned(),
-                },
-                target: ReviewEndpoint::GitWorkingTree {
-                    worktree_root: "/repo".to_owned(),
-                },
-                revision_id: RevisionId::new("rev:git:sha256:def"),
-                snapshot_id: SnapshotId::new("snap:git:sha256:ghi"),
-                snapshot_artifact_content_hash: snapshot_artifact_content_hash.to_owned(),
             },
             FixedClock::at("2026-05-09T20:42:45Z"),
         )

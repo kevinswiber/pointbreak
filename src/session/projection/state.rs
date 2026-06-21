@@ -5,13 +5,13 @@ use serde::{Deserialize, Serialize};
 use super::freshness::event_set_hash_for_events;
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    AssessmentId, EventId, InputRequestId, InputRequestResponseId, ObservationId, ReviewUnitId,
-    RevisionId, SessionId, SnapshotId, ValidationCheckId, WorkUnitId,
+    AssessmentId, EventId, InputRequestId, InputRequestResponseId, LedgerId, ObjectId,
+    ObservationId, RevisionId, ValidationCheckId,
 };
 use crate::session::event::{
     AssertionMode, EventType, InputRequestRespondedPayload, ReviewAssessmentRecordedPayload,
-    ReviewObservationRecordedPayload, ReviewUnitCapturedPayload, ShoreEvent,
-    ValidationCheckRecordedPayload, decode_input_request_opened_payload,
+    ReviewObservationRecordedPayload, ShoreEvent, ValidationCheckRecordedPayload,
+    WorkObjectProposal, WorkObjectProposedPayload, decode_input_request_opened_payload,
 };
 
 const STATE_SCHEMA: &str = "shore.state";
@@ -30,14 +30,13 @@ const DUPLICATE_SEMANTIC_DIAGNOSTIC_EVENT_LIMIT: usize = 5;
 pub struct SessionState {
     pub schema: String,
     pub version: u32,
-    pub session_id: SessionId,
-    pub work_unit_id: WorkUnitId,
+    pub ledger_id: LedgerId,
     pub current_revision_id: Option<RevisionId>,
-    pub current_snapshot_id: Option<SnapshotId>,
+    pub current_snapshot_id: Option<ObjectId>,
     #[serde(default)]
     pub review_unit_count: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub current_review_unit_id: Option<ReviewUnitId>,
+    pub current_review_unit_id: Option<RevisionId>,
     pub event_count: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event_set_hash: Option<String>,
@@ -97,9 +96,8 @@ pub struct ProjectionDiagnostic {
 
 #[derive(Debug)]
 struct StateReducer {
-    session_id: SessionId,
-    work_unit_id: WorkUnitId,
-    captured_review_units: BTreeMap<ReviewUnitId, (RevisionId, SnapshotId)>,
+    ledger_id: LedgerId,
+    captured_revisions: BTreeMap<RevisionId, ObjectId>,
     note_count: usize,
     observation_events: BTreeMap<ObservationId, BTreeSet<EventId>>,
     assessment_events: BTreeMap<AssessmentId, BTreeSet<EventId>>,
@@ -113,9 +111,8 @@ struct StateReducer {
 impl Default for StateReducer {
     fn default() -> Self {
         Self {
-            session_id: SessionId::new("session:default"),
-            work_unit_id: WorkUnitId::new("work:default"),
-            captured_review_units: BTreeMap::new(),
+            ledger_id: LedgerId::new("ledger:default"),
+            captured_revisions: BTreeMap::new(),
             note_count: 0,
             observation_events: BTreeMap::new(),
             assessment_events: BTreeMap::new(),
@@ -133,10 +130,7 @@ impl StateReducer {
         event.validate_schema_version()?;
 
         if event.event_type == EventType::ReviewInitialized {
-            self.session_id = event.target.session_id.clone();
-            if let Some(work_unit_id) = &event.target.work_unit_id {
-                self.work_unit_id = work_unit_id.clone();
-            }
+            self.ledger_id = event.target.ledger_id.clone();
             return Ok(());
         }
 
@@ -144,7 +138,7 @@ impl StateReducer {
 
         match event.event_type {
             EventType::ReviewInitialized => {}
-            EventType::ReviewUnitCaptured => self.apply_review_unit_captured(event)?,
+            EventType::WorkObjectProposed => self.apply_work_object_proposed(event)?,
             EventType::ReviewObservationRecorded => self.apply_observation_recorded(event)?,
             EventType::ReviewAssessmentRecorded => self.apply_assessment_recorded(event)?,
             EventType::InputRequestOpened => self.apply_input_request_opened(event)?,
@@ -163,9 +157,7 @@ impl StateReducer {
                 // these events do not change session state.
             }
             EventType::ValidationCheckRecorded => self.apply_validation_check_recorded(event)?,
-            EventType::TaskAttemptCaptured
-            | EventType::TaskCheckpointCaptured
-            | EventType::TaskObservationRecorded => {
+            EventType::TaskCheckpointCaptured | EventType::TaskObservationRecorded => {
                 // Task-domain events do not contribute to review-session state.
             }
             EventType::EventSignatureRecorded => {
@@ -182,22 +174,17 @@ impl StateReducer {
     }
 
     fn set_identity_from_event_if_default(&mut self, event: &ShoreEvent) {
-        if self.session_id.as_str() == "session:default" {
-            self.session_id = event.target.session_id.clone();
-        }
-        if self.work_unit_id.as_str() == "work:default"
-            && let Some(work_unit_id) = &event.target.work_unit_id
-        {
-            self.work_unit_id = work_unit_id.clone();
+        if self.ledger_id.as_str() == "ledger:default" {
+            self.ledger_id = event.target.ledger_id.clone();
         }
     }
 
-    fn apply_review_unit_captured(&mut self, event: &ShoreEvent) -> Result<()> {
-        let payload: ReviewUnitCapturedPayload = serde_json::from_value(event.payload.clone())?;
-        self.captured_review_units.insert(
-            payload.review_unit_id,
-            (payload.revision_id, payload.snapshot_id),
-        );
+    fn apply_work_object_proposed(&mut self, event: &ShoreEvent) -> Result<()> {
+        let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
+        if let WorkObjectProposal::Revision { revision, .. } = payload.work_object {
+            self.captured_revisions
+                .insert(revision.id, revision.object_id);
+        }
         Ok(())
     }
 
@@ -257,17 +244,13 @@ impl StateReducer {
 
     fn finish(self, event_count: usize, event_set_hash: String) -> Result<SessionState> {
         let mut diagnostics = Vec::new();
-        let current_review_unit = match self.captured_review_units.len() {
+        let current_revision = match self.captured_revisions.len() {
             0 => None,
-            1 => self.captured_review_units.iter().next(),
+            1 => self.captured_revisions.iter().next(),
             _ => None,
         };
-        let current_review_unit_id =
-            current_review_unit.map(|(review_unit_id, _)| review_unit_id.clone());
-        let current_revision_id =
-            current_review_unit.map(|(_, (revision_id, _))| revision_id.clone());
-        let current_snapshot_id =
-            current_review_unit.map(|(_, (_, snapshot_id))| snapshot_id.clone());
+        let current_revision_id = current_revision.map(|(revision_id, _)| revision_id.clone());
+        let current_snapshot_id = current_revision.map(|(_, object_id)| object_id.clone());
         let open_input_request_count = self
             .input_request_modes
             .keys()
@@ -327,12 +310,11 @@ impl StateReducer {
         Ok(SessionState {
             schema: STATE_SCHEMA.to_owned(),
             version: STATE_VERSION,
-            session_id: self.session_id,
-            work_unit_id: self.work_unit_id,
-            current_revision_id,
+            ledger_id: self.ledger_id,
+            current_revision_id: current_revision_id.clone(),
             current_snapshot_id,
-            review_unit_count: self.captured_review_units.len(),
-            current_review_unit_id,
+            review_unit_count: self.captured_revisions.len(),
+            current_review_unit_id: current_revision_id,
             event_count,
             event_set_hash: Some(event_set_hash),
             note_count: self.note_count,
@@ -381,13 +363,15 @@ mod tests {
 
     use super::*;
     use crate::model::{
-        AssessmentId, ReviewEndpoint, ReviewTargetRef, ReviewUnitSource, ValidationCheckId,
-        ValidationStatus, ValidationTarget, ValidationTrigger, WorktreeCaptureMode,
+        AssessmentId, EngagementId, ReviewEndpoint, ReviewTargetRef, ReviewUnitSource, TargetRef,
+        TaskTargetRef, ValidationCheckId, ValidationStatus, ValidationTarget, ValidationTrigger,
+        WorkObjectId, WorktreeCaptureMode,
     };
     use crate::session::event::{
-        AssertionMode, EventTarget, InputRequestOpenedPayload, InputRequestReasonCode,
-        InputRequestResponseOutcome, ReviewAssessment, ReviewAssessmentRecordedPayload,
-        ReviewObservationRecordedPayload, ValidationCheckRecordedPayload, Writer,
+        AssertionMode, EventTarget, GitProvenance, InputRequestOpenedPayload,
+        InputRequestReasonCode, InputRequestResponseOutcome, ReviewAssessment,
+        ReviewAssessmentRecordedPayload, ReviewObservationRecordedPayload, Revision,
+        ValidationCheckRecordedPayload, Writer,
     };
 
     #[test]
@@ -456,7 +440,7 @@ mod tests {
 
         assert_eq!(
             state.current_review_unit_id.as_ref().unwrap().as_str(),
-            "review-unit:sha256:one"
+            "rev:one"
         );
         assert_eq!(
             state.current_revision_id.as_ref().unwrap().as_str(),
@@ -490,27 +474,33 @@ mod tests {
     }
 
     #[test]
-    fn session_state_reducer_ignores_task_attempt_captured_event() {
-        let event = ShoreEvent {
-            schema: "shore.event".to_owned(),
-            version: 1,
-            event_id: EventId::new("evt:sha256:task-1"),
-            event_type: EventType::TaskAttemptCaptured,
-            idempotency_key: "task_attempt_captured:task-1".to_owned(),
-            target: EventTarget::new(
-                SessionId::new("session:claude:abc"),
-                WorkUnitId::new("work:default"),
+    fn session_state_reducer_ignores_task_attempt_work_object() {
+        // A generative move proposing a task-attempt work object carries no review
+        // revision, so the reducer applies it as a no-op for the review counts.
+        let event = ShoreEvent::new(
+            EventType::WorkObjectProposed,
+            "work_object_proposed:task-1",
+            EventTarget::for_subject(
+                LedgerId::new("ledger:claude:abc"),
+                TargetRef::Task(TaskTargetRef::TaskAttempt),
+                None,
             ),
-            writer: Writer::shore_local("test"),
-            occurred_at: "2026-05-18T00:00:00Z".to_owned(),
-            payload_hash: "sha256:placeholder".to_owned(),
-            assertion_mode: AssertionMode::Advisory,
-            signer: None,
-            signature: None,
-            source_ref: None,
-            ingest: None,
-            payload: serde_json::Value::Null,
-        };
+            Writer::shore_local("test"),
+            WorkObjectProposedPayload {
+                engagement_id: EngagementId::new("engagement:sha256:task-1"),
+                work_object: WorkObjectProposal::TaskAttempt {
+                    task_attempt_id: WorkObjectId::new("task-attempt:sha256:task-1"),
+                    project_path: "/repo".to_owned(),
+                    claude_session_uuid: "uuid-1".to_owned(),
+                    initial_prompt_hash: "sha256:prompt".to_owned(),
+                    predecessor: None,
+                    base_snapshot_fingerprint: None,
+                    source_speaker: None,
+                },
+            },
+            "2026-05-18T00:00:00Z",
+        )
+        .unwrap();
 
         let state = SessionState::from_events(&[event]).expect("task event applies as no-op");
 
@@ -803,8 +793,7 @@ mod tests {
         let json = json!({
             "schema": "shore.state",
             "version": 1,
-            "sessionId": "session:default",
-            "workUnitId": "work:default",
+            "ledgerId": "ledger:default",
             "currentRevisionId": null,
             "currentSnapshotId": null,
             "eventCount": 0,
@@ -827,32 +816,45 @@ mod tests {
         revision_id: &str,
         snapshot_id: &str,
     ) -> ShoreEvent {
+        // The envelope subject addresses the same revision the payload proposes,
+        // mirroring how a real capture stamps both from one minted revision id.
+        let _ = review_unit_id;
         ShoreEvent::new(
-            EventType::ReviewUnitCaptured,
-            format!("review_unit_captured:{review_unit_id}"),
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                ReviewUnitId::new(review_unit_id),
+            EventType::WorkObjectProposed,
+            format!("work_object_proposed:{revision_id}"),
+            EventTarget::for_revision(
+                LedgerId::new("ledger:default"),
                 RevisionId::new(revision_id),
-                SnapshotId::new(snapshot_id),
+                None,
             ),
             Writer::shore_local("0.1.0"),
-            ReviewUnitCapturedPayload {
-                review_unit_id: ReviewUnitId::new(review_unit_id),
-                source: ReviewUnitSource::GitWorktree {
-                    mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
-                    include_untracked: true,
+            WorkObjectProposedPayload {
+                engagement_id: EngagementId::new(format!(
+                    "engagement:sha256:{}",
+                    crate::canonical_hash::sha256_bytes_hex(
+                        (RevisionId::new(revision_id)).as_str().as_bytes()
+                    )
+                )),
+                work_object: WorkObjectProposal::Revision {
+                    revision: Revision {
+                        id: RevisionId::new(revision_id),
+                        object_id: ObjectId::new(snapshot_id),
+                        git_provenance: Some(GitProvenance {
+                            source: ReviewUnitSource::GitWorktree {
+                                mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                                include_untracked: true,
+                            },
+                            base: ReviewEndpoint::GitCommit {
+                                commit_oid: "base".to_owned(),
+                                tree_oid: "base-tree".to_owned(),
+                            },
+                            target: ReviewEndpoint::GitWorkingTree {
+                                worktree_root: "/tmp/repo".to_owned(),
+                            },
+                        }),
+                    },
+                    snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
                 },
-                base: ReviewEndpoint::GitCommit {
-                    commit_oid: "base".to_owned(),
-                    tree_oid: "base-tree".to_owned(),
-                },
-                target: ReviewEndpoint::GitWorkingTree {
-                    worktree_root: "/tmp/repo".to_owned(),
-                },
-                revision_id: RevisionId::new(revision_id),
-                snapshot_id: SnapshotId::new(snapshot_id),
-                snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
             },
             "2026-05-10T00:00:00Z",
         )
@@ -863,17 +865,16 @@ mod tests {
         ShoreEvent::new(
             EventType::ReviewObservationRecorded,
             format!("review_observation_recorded:{source_key}"),
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                ReviewUnitId::new("review-unit:sha256:one"),
-                RevisionId::new("rev:one"),
-                SnapshotId::new("snap:one"),
+            EventTarget::for_revision(
+                LedgerId::new("session:default"),
+                RevisionId::new("review-unit:sha256:one"),
+                None,
             ),
             Writer::shore_local("0.1.0"),
             ReviewObservationRecordedPayload {
                 observation_id: ObservationId::new(observation_id),
-                target: ReviewTargetRef::ReviewUnit {
-                    review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+                target: ReviewTargetRef::Revision {
+                    revision_id: RevisionId::new("review-unit:sha256:one"),
                 },
                 title: "Observation".to_owned(),
                 body: None,
@@ -897,17 +898,16 @@ mod tests {
         ShoreEvent::new(
             EventType::ReviewAssessmentRecorded,
             format!("review_assessment_recorded:{source_key}"),
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                ReviewUnitId::new("review-unit:sha256:one"),
-                RevisionId::new("rev:one"),
-                SnapshotId::new("snap:one"),
+            EventTarget::for_revision(
+                LedgerId::new("session:default"),
+                RevisionId::new("review-unit:sha256:one"),
+                None,
             ),
             Writer::shore_local("0.1.0"),
             ReviewAssessmentRecordedPayload {
                 assessment_id: AssessmentId::new(assessment_id),
-                target: ReviewTargetRef::ReviewUnit {
-                    review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+                target: ReviewTargetRef::Revision {
+                    revision_id: RevisionId::new("review-unit:sha256:one"),
                 },
                 assessment: ReviewAssessment::Accepted,
                 summary: None,
@@ -927,17 +927,16 @@ mod tests {
         ShoreEvent::new(
             EventType::ValidationCheckRecorded,
             format!("validation_check_recorded:{source_key}"),
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                ReviewUnitId::new("review-unit:sha256:one"),
-                RevisionId::new("rev:one"),
-                SnapshotId::new("snap:one"),
+            EventTarget::for_revision(
+                LedgerId::new("session:default"),
+                RevisionId::new("review-unit:sha256:one"),
+                None,
             ),
             Writer::shore_local("0.1.0"),
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new(validation_check_id),
                 target: ValidationTarget::ReviewUnit {
-                    review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+                    review_unit_id: RevisionId::new("review-unit:sha256:one"),
                 },
                 check_name: "cargo test".to_owned(),
                 command: None,
@@ -963,11 +962,10 @@ mod tests {
         input_request_id: &str,
         assertion_mode: AssertionMode,
     ) -> ShoreEvent {
-        let mut target = EventTarget::for_review_unit(
-            SessionId::new("session:default"),
-            ReviewUnitId::new("review-unit:sha256:one"),
-            RevisionId::new("rev:one"),
-            SnapshotId::new("snap:one"),
+        let mut target = EventTarget::for_revision(
+            LedgerId::new("session:default"),
+            RevisionId::new("review-unit:sha256:one"),
+            None,
         );
         target.track_id = Some(crate::model::TrackId::new("agent:codex"));
         ShoreEvent::new(
@@ -977,8 +975,8 @@ mod tests {
             Writer::shore_local("0.1.0"),
             InputRequestOpenedPayload {
                 input_request_id: InputRequestId::new(input_request_id),
-                target: ReviewTargetRef::ReviewUnit {
-                    review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+                target: ReviewTargetRef::Revision {
+                    revision_id: RevisionId::new("review-unit:sha256:one"),
                 },
                 reason_code: InputRequestReasonCode::ManualDecisionRequired,
                 title: "Need input".to_owned(),
@@ -999,18 +997,15 @@ mod tests {
         input_request_response_id: &str,
         input_request_id: &str,
     ) -> ShoreEvent {
-        let mut target = EventTarget::for_review_unit(
-            SessionId::new("session:default"),
-            ReviewUnitId::new("review-unit:sha256:one"),
-            RevisionId::new("rev:one"),
-            SnapshotId::new("snap:one"),
+        let mut target = EventTarget::for_revision(
+            LedgerId::new("session:default"),
+            RevisionId::new("review-unit:sha256:one"),
+            None,
         );
-        target.subject = Some(crate::model::TargetRef::Review(
-            ReviewTargetRef::InputRequest {
-                review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
-                input_request_id: InputRequestId::new(input_request_id),
-            },
-        ));
+        target.subject = crate::model::TargetRef::Review(ReviewTargetRef::InputRequest {
+            revision_id: RevisionId::new("review-unit:sha256:one"),
+            input_request_id: InputRequestId::new(input_request_id),
+        });
         ShoreEvent::new(
             EventType::InputRequestResponded,
             format!("input_request_responded:{source_key}"),

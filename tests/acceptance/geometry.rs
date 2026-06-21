@@ -1,5 +1,5 @@
 use shoreline::model::{
-    DiffRow, DiffRowKind, ReviewId, ReviewRow, ReviewRowKind, ReviewStream, RowId, SnapshotId,
+    DiffRow, DiffRowKind, ObjectId, ReviewId, ReviewRow, ReviewRowKind, ReviewStream, RowId,
 };
 use shoreline::stream::{LayoutSnapshot, ViewportSpec};
 
@@ -56,7 +56,7 @@ fn horizontal_overflow_does_not_change_vertical_geometry() {
 fn geometry_stream() -> ReviewStream {
     ReviewStream {
         review_id: ReviewId::new("review-1"),
-        snapshot_id: SnapshotId::new("snapshot-1"),
+        snapshot_id: ObjectId::new("snapshot-1"),
         rows: vec![
             row(
                 0,

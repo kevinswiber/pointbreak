@@ -334,8 +334,9 @@ fn each_worktree_unit_show_resolves_its_own_capture() {
 }
 
 // 6. Two worktrees capture the SAME commit range: both succeed sharing one
-//    snapshot artifact (no re-identification), and the read surface presents them
-//    as ONE grouped unit exposing both ids in `groupedReviewUnitIds`.
+//    snapshot artifact, and because commit-range provenance carries no worktree
+//    path the two captures converge on ONE revision id. The read surface presents
+//    them as ONE grouped unit exposing that id in `groupedReviewUnitIds`.
 #[test]
 fn two_worktrees_capturing_the_same_range_group_into_one_unit() {
     let main = GitRepo::new();
@@ -369,8 +370,9 @@ fn two_worktrees_capturing_the_same_range_group_into_one_unit() {
 
     let a_id = a["reviewUnit"]["id"].as_str().unwrap().to_owned();
     let b_id = b["reviewUnit"]["id"].as_str().unwrap().to_owned();
-    // Distinct review-unit ids: no re-identification across worktrees.
-    assert_ne!(a_id, b_id);
+    // Same commit range, no worktree path in the provenance: the two captures
+    // converge on one revision id.
+    assert_eq!(a_id, b_id);
     // One shared snapshot artifact: byte-identical content hashes.
     assert_eq!(
         a["reviewUnit"]["snapshotArtifactContentHash"],

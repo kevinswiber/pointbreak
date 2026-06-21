@@ -87,7 +87,7 @@ impl EventPayload for EventSignatureRecordedPayload {
 #[cfg(test)]
 mod tests {
     use crate::crypto::SignerId;
-    use crate::model::{EventId, SessionId};
+    use crate::model::{EventId, LedgerId};
     use crate::session::event::{
         EventPayload, EventSignature, EventSignatureRecordedPayload, EventTarget, EventType,
         InclusionProof, ShoreEvent, Writer,
@@ -99,7 +99,7 @@ mod tests {
         ShoreEvent::new(
             EventType::EventSignatureRecorded,
             idempotency_key,
-            EventTarget::for_event_signature(SessionId::new("session:fixture")),
+            EventTarget::for_ledger(LedgerId::new("session:fixture")),
             Writer::shore_local("test"),
             payload,
             "2026-06-04T00:00:00Z",

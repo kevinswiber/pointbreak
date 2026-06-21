@@ -59,7 +59,7 @@ mod tests {
 #[cfg(test)]
 mod convergence_tests {
     use super::*;
-    use crate::model::{ActorId, SessionId};
+    use crate::model::{ActorId, LedgerId};
     use crate::session::event::{EventTarget, EventType, ShoreEvent, Writer, WriterProducer};
     use crate::session::projection::freshness::event_set_hash_for_events;
     use crate::session::{EventStore, EventWriteOutcome};
@@ -83,7 +83,7 @@ mod convergence_tests {
         ShoreEvent::new(
             EventType::ArtifactRemoved,
             ArtifactRemovedPayload::idempotency_key(content_hash),
-            EventTarget::for_artifact_removal(SessionId::new(format!("session:{session}"))),
+            EventTarget::for_ledger(LedgerId::new(format!("session:{session}"))),
             writer_for(writer),
             ArtifactRemovedPayload {
                 content_hash: content_hash.to_owned(),

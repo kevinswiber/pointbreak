@@ -8,7 +8,7 @@
 
 use super::parse::{AssistantMessage, ParsedMessage, ParsedSession, ToolUse, UserMessage};
 use crate::canonical_hash::sha256_bytes_hex;
-use crate::model::{ActorId, CheckpointId, SessionId, TargetRef, TaskTargetRef, WorkObjectId};
+use crate::model::{ActorId, CheckpointId, LedgerId, TargetRef, TaskTargetRef, WorkObjectId};
 use crate::session::event::{AssertionMode, SourceRef, SourceSpeaker, Writer, WriterProducer};
 
 const SOURCE_SYSTEM_CLAUDE_CODE: &str = "claude_code";
@@ -125,7 +125,7 @@ pub fn translate_session(parsed: &ParsedSession) -> Vec<AdapterIntent> {
 pub enum AdapterIntent {
     TaskAttemptCaptured {
         task_attempt_id: WorkObjectId,
-        session_id: SessionId,
+        session_id: LedgerId,
         source_ref: Option<SourceRef>,
         assertion_mode: AssertionMode,
         writer: Writer,
@@ -140,7 +140,7 @@ pub enum AdapterIntent {
         checkpoint_id: CheckpointId,
         parent_task_attempt_id: WorkObjectId,
         target: TargetRef,
-        session_id: SessionId,
+        session_id: LedgerId,
         source_ref: Option<SourceRef>,
         assertion_mode: AssertionMode,
         writer: Writer,
@@ -152,7 +152,7 @@ pub enum AdapterIntent {
     ObservationRecorded {
         parent_task_attempt_id: WorkObjectId,
         target: TargetRef,
-        session_id: SessionId,
+        session_id: LedgerId,
         source_ref: Option<SourceRef>,
         assertion_mode: AssertionMode,
         writer: Writer,
@@ -303,7 +303,7 @@ mod tests {
                 assert_eq!(task_attempt_id, &expected_id);
                 assert_eq!(
                     session_id,
-                    &SessionId::new(format!("session:claude:{FIXTURE_UUID}"))
+                    &LedgerId::new(format!("session:claude:{FIXTURE_UUID}"))
                 );
                 assert_eq!(
                     source_ref,

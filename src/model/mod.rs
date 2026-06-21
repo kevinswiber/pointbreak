@@ -21,11 +21,11 @@ pub use cursor::CursorState;
 pub use file::{DiffFile, FileStatus};
 pub use hunk::ReviewHunk;
 pub use ids::{
-    ActorId, AssessmentId, CheckpointId, CommitAssociationId, CommitWithdrawalId, EventId, FileId,
-    HunkId, InputRequestId, InputRequestResponseId, ObservationId, RefAssociationId,
-    RefWithdrawalId, ReviewId, ReviewNoteId, ReviewUnitId, ReviewUnitLineageId,
-    ReviewUnitLineageRoundId, RevisionId, RowId, SessionId, SnapshotId, TrackId, ValidationCheckId,
-    WorkObjectId, WorkUnitId,
+    ActorId, AssessmentId, CheckpointId, CommitAssociationId, CommitWithdrawalId, EngagementId,
+    EventId, FileId, HunkId, InputRequestId, InputRequestResponseId, LedgerId, ObjectId,
+    ObservationId, RefAssociationId, RefWithdrawalId, ReviewId, ReviewNoteId, ReviewUnitLineageId,
+    ReviewUnitLineageRoundId, RevisionId, RowId, TrackId, ValidationCheckId, WorkObjectId,
+    WorkUnitId,
 };
 pub use lineage::ReviewUnitLineageBasisV1;
 pub use review::{DiffSnapshot, Review, ReviewStream};
@@ -39,4 +39,7 @@ pub use review_unit::{
 };
 pub use row::{DiffRow, DiffRowKind, FileMetadataKind, FileMetadataRow, ReviewRow, ReviewRowKind};
 pub use validation::{ValidationStatus, ValidationTarget, ValidationTrigger};
-pub use work_object::{TargetRef, TaskTargetRef, WorkObjectType};
+pub use work_object::{
+    EngagementType, TargetRef, TaskTargetRef, WorkObjectType, engagement_type_of_subject,
+    subject_revision_id, work_object_type_of_subject,
+};

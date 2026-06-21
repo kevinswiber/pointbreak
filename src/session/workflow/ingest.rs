@@ -474,7 +474,7 @@ mod tests {
     use crate::canonical_hash::sha256_json_prefixed;
     use crate::crypto::{EventSignatureBytes, EventSigner, EventVerificationStatus};
     use crate::model::{
-        ActorId, InputRequestId, InputRequestResponseId, SessionId, TargetRef, TaskTargetRef,
+        ActorId, InputRequestId, InputRequestResponseId, LedgerId, TargetRef, TaskTargetRef,
         WorkObjectId,
     };
     use crate::session::event::{
@@ -646,7 +646,7 @@ mod tests {
             .list_events()
             .unwrap()
             .into_iter()
-            .find(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .find(|event| event.event_type == EventType::WorkObjectProposed)
             .unwrap();
 
         (event, signer, actor)
@@ -665,7 +665,7 @@ mod tests {
         let (_origin, events) = origin_events();
         events
             .into_iter()
-            .find(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .find(|event| event.event_type == EventType::WorkObjectProposed)
             .unwrap()
     }
 
@@ -867,7 +867,7 @@ mod tests {
             .list_events()
             .unwrap()
             .into_iter()
-            .find(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .find(|event| event.event_type == EventType::WorkObjectProposed)
             .unwrap();
         record_event_signature(EventSignatureRecordOptions::new(
             repo.path(),
@@ -920,7 +920,7 @@ mod tests {
             .unwrap();
         let stored_target = stored
             .iter()
-            .find(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .find(|event| event.event_type == EventType::WorkObjectProposed)
             .unwrap();
         assert_eq!(stored_target.signer.as_ref().unwrap(), signer_a.signer_id());
     }
@@ -1173,7 +1173,7 @@ mod tests {
                 .unwrap();
             let mut signers: Vec<String> = Vec::new();
             for event in &stored {
-                if event.event_type == EventType::ReviewUnitCaptured
+                if event.event_type == EventType::WorkObjectProposed
                     && let Some(signer) = &event.signer
                 {
                     signers.push(signer.as_str().to_owned());
@@ -1600,14 +1600,14 @@ mod tests {
         let (_origin, events) = origin_events();
         let captured = events
             .iter()
-            .find(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .find(|event| event.event_type == EventType::WorkObjectProposed)
             .unwrap()
             .clone();
         let dest = dest_repo();
 
         let result = import_event(ImportEventOptions::new(dest.path(), captured.clone())).unwrap();
         assert_eq!(result.events_created, 1);
-        assert_eq!(result.events_created_by_type["review_unit_captured"], 1);
+        assert_eq!(result.events_created_by_type["work_object_proposed"], 1);
 
         let again = import_event(ImportEventOptions::new(dest.path(), captured)).unwrap();
         assert_eq!(again.events_created, 0);
@@ -1656,7 +1656,7 @@ mod tests {
 
         let captured = events
             .iter()
-            .find(|event| event.event_type == EventType::ReviewUnitCaptured)
+            .find(|event| event.event_type == EventType::WorkObjectProposed)
             .unwrap()
             .clone();
 
@@ -1681,7 +1681,7 @@ mod tests {
     /// request + operative Approved response (last element).
     fn task_resumption_events() -> (Vec<ShoreEvent>, WorkObjectId) {
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
-        let session_id = SessionId::new("session:claude:uuid-1");
+        let session_id = LedgerId::new("session:claude:uuid-1");
         let input_request_id = InputRequestId::new("input-request:sha256:1");
         let response_id = InputRequestResponseId::new("input-request-response:sha256:r");
 

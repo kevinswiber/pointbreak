@@ -4,11 +4,11 @@ use serde::Serialize;
 
 use crate::error::Result;
 use crate::model::{
-    ReviewUnitId, ReviewUnitLineageBasisV1, ReviewUnitLineageId, ReviewUnitLineageRoundId,
+    ReviewUnitLineageBasisV1, ReviewUnitLineageId, ReviewUnitLineageRoundId, RevisionId,
 };
 use crate::session::event::{
-    EventType, ReviewUnitCapturedPayload, ReviewUnitLineageDeclaredPayload,
-    ReviewUnitLineageRoundRecordedPayload, ShoreEvent,
+    EventType, ReviewUnitLineageDeclaredPayload, ReviewUnitLineageRoundRecordedPayload, ShoreEvent,
+    WorkObjectProposal, WorkObjectProposedPayload,
 };
 use crate::session::state::ProjectionDiagnostic;
 
@@ -30,7 +30,7 @@ pub struct ReviewUnitLineageProjection {
 pub struct ReviewUnitLineageView {
     pub lineage_id: ReviewUnitLineageId,
     pub basis: Option<ReviewUnitLineageBasisV1>,
-    pub head_review_unit_id: Option<ReviewUnitId>,
+    pub head_review_unit_id: Option<RevisionId>,
     pub rounds: Vec<ReviewUnitLineageRoundView>,
     pub diagnostics: Vec<ProjectionDiagnostic>,
 }
@@ -40,9 +40,9 @@ pub struct ReviewUnitLineageView {
 pub struct ReviewUnitLineageRoundView {
     pub lineage_id: ReviewUnitLineageId,
     pub round_id: ReviewUnitLineageRoundId,
-    pub review_unit_id: ReviewUnitId,
+    pub review_unit_id: RevisionId,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub predecessor_review_unit_id: Option<ReviewUnitId>,
+    pub predecessor_review_unit_id: Option<RevisionId>,
     pub round_index: Option<usize>,
     pub is_head: bool,
 }
@@ -54,10 +54,12 @@ impl ReviewUnitLineageProjection {
 
         for event in events {
             match event.event_type {
-                EventType::ReviewUnitCaptured => {
-                    let payload: ReviewUnitCapturedPayload =
+                EventType::WorkObjectProposed => {
+                    let payload: WorkObjectProposedPayload =
                         serde_json::from_value(event.payload.clone())?;
-                    captured.insert(payload.review_unit_id);
+                    if let WorkObjectProposal::Revision { revision, .. } = payload.work_object {
+                        captured.insert(revision.id);
+                    }
                 }
                 EventType::ReviewUnitLineageDeclared => {
                     let payload: ReviewUnitLineageDeclaredPayload =
@@ -100,8 +102,8 @@ impl ReviewUnitLineageProjection {
 struct LineageBuilder {
     lineage_id: ReviewUnitLineageId,
     basis: Option<ReviewUnitLineageBasisV1>,
-    rounds: BTreeMap<ReviewUnitId, ReviewUnitLineageRoundRecordedPayload>,
-    duplicate_rounds: BTreeSet<ReviewUnitId>,
+    rounds: BTreeMap<RevisionId, ReviewUnitLineageRoundRecordedPayload>,
+    duplicate_rounds: BTreeSet<RevisionId>,
 }
 
 impl LineageBuilder {
@@ -125,7 +127,7 @@ impl LineageBuilder {
         }
     }
 
-    fn finish(self, captured: &BTreeSet<ReviewUnitId>) -> ReviewUnitLineageView {
+    fn finish(self, captured: &BTreeSet<RevisionId>) -> ReviewUnitLineageView {
         let mut diagnostics = Vec::new();
         for duplicate in &self.duplicate_rounds {
             diagnostics.push(diagnostic(
@@ -152,7 +154,7 @@ impl LineageBuilder {
         }
 
         let round_ids = self.rounds.keys().cloned().collect::<BTreeSet<_>>();
-        let mut successors = BTreeMap::<ReviewUnitId, Vec<ReviewUnitId>>::new();
+        let mut successors = BTreeMap::<RevisionId, Vec<RevisionId>>::new();
         for round in self.rounds.values() {
             if let Some(predecessor) = &round.predecessor_review_unit_id {
                 if !round_ids.contains(predecessor) {
@@ -249,9 +251,9 @@ impl LineageBuilder {
 }
 
 fn round_indexes(
-    rounds: &BTreeMap<ReviewUnitId, ReviewUnitLineageRoundRecordedPayload>,
-    successors: &BTreeMap<ReviewUnitId, Vec<ReviewUnitId>>,
-) -> BTreeMap<ReviewUnitId, usize> {
+    rounds: &BTreeMap<RevisionId, ReviewUnitLineageRoundRecordedPayload>,
+    successors: &BTreeMap<RevisionId, Vec<RevisionId>>,
+) -> BTreeMap<RevisionId, usize> {
     let roots = rounds
         .values()
         .filter(|round| round.predecessor_review_unit_id.is_none())
@@ -265,10 +267,10 @@ fn round_indexes(
 }
 
 fn assign_round_indexes(
-    review_unit_id: &ReviewUnitId,
+    review_unit_id: &RevisionId,
     index: usize,
-    successors: &BTreeMap<ReviewUnitId, Vec<ReviewUnitId>>,
-    indexes: &mut BTreeMap<ReviewUnitId, usize>,
+    successors: &BTreeMap<RevisionId, Vec<RevisionId>>,
+    indexes: &mut BTreeMap<RevisionId, usize>,
 ) {
     if indexes.insert(review_unit_id.clone(), index).is_some() {
         return;
@@ -290,12 +292,13 @@ fn diagnostic(code: &str, message: String) -> ProjectionDiagnostic {
 #[cfg(test)]
 mod tests {
     use crate::model::{
-        ReviewEndpoint, ReviewUnitId, ReviewUnitLineageBasisV1, ReviewUnitLineageId,
-        ReviewUnitLineageRoundId, ReviewUnitSource, SessionId, WorktreeCaptureMode,
+        EngagementId, LedgerId, ReviewEndpoint, ReviewUnitLineageBasisV1, ReviewUnitLineageId,
+        ReviewUnitLineageRoundId, ReviewUnitSource, RevisionId, WorktreeCaptureMode,
     };
     use crate::session::event::{
-        EventTarget, EventType, ReviewUnitCapturedPayload, ReviewUnitLineageDeclaredPayload,
-        ReviewUnitLineageRoundRecordedPayload, ShoreEvent, Writer,
+        EventTarget, EventType, GitProvenance, ReviewUnitLineageDeclaredPayload,
+        ReviewUnitLineageRoundRecordedPayload, Revision, ShoreEvent, WorkObjectProposal,
+        WorkObjectProposedPayload, Writer,
     };
     use crate::session::projection::lineage::ReviewUnitLineageProjection;
 
@@ -469,35 +472,41 @@ mod tests {
     }
 
     fn review_unit_captured(suffix: &str) -> ShoreEvent {
-        let review_unit_id = review_unit_id(suffix);
-        let revision_id = crate::model::RevisionId::new(format!("rev:sha256:{suffix}"));
-        let snapshot_id = crate::model::SnapshotId::new(format!("snap:sha256:{suffix}"));
+        // A real capture stamps the envelope subject and the payload revision with
+        // one minted id; the projection reads the captured revision from the
+        // payload, so both must carry the same id here.
+        let revision_id = review_unit_id(suffix);
+        let snapshot_id = crate::model::ObjectId::new(format!("obj:sha256:{suffix}"));
         ShoreEvent::new(
-            EventType::ReviewUnitCaptured,
-            format!("review_unit_captured:{}", review_unit_id.as_str()),
-            EventTarget::for_review_unit(
-                SessionId::new("session:default"),
-                review_unit_id.clone(),
-                revision_id.clone(),
-                snapshot_id.clone(),
-            ),
+            EventType::WorkObjectProposed,
+            format!("work_object_proposed:{}", revision_id.as_str()),
+            EventTarget::for_revision(LedgerId::new("ledger:default"), revision_id.clone(), None),
             Writer::shore_local("test"),
-            ReviewUnitCapturedPayload {
-                review_unit_id,
-                source: ReviewUnitSource::GitWorktree {
-                    mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
-                    include_untracked: true,
+            WorkObjectProposedPayload {
+                engagement_id: EngagementId::new(format!(
+                    "engagement:sha256:{}",
+                    crate::canonical_hash::sha256_bytes_hex(revision_id.as_str().as_bytes())
+                )),
+                work_object: WorkObjectProposal::Revision {
+                    revision: Revision {
+                        id: revision_id.clone(),
+                        object_id: snapshot_id.clone(),
+                        git_provenance: Some(GitProvenance {
+                            source: ReviewUnitSource::GitWorktree {
+                                mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                                include_untracked: true,
+                            },
+                            base: ReviewEndpoint::GitCommit {
+                                commit_oid: "base".to_owned(),
+                                tree_oid: "base-tree".to_owned(),
+                            },
+                            target: ReviewEndpoint::GitWorkingTree {
+                                worktree_root: "/repo".to_owned(),
+                            },
+                        }),
+                    },
+                    snapshot_artifact_content_hash: format!("sha256:artifact:{suffix}"),
                 },
-                base: ReviewEndpoint::GitCommit {
-                    commit_oid: "base".to_owned(),
-                    tree_oid: "base-tree".to_owned(),
-                },
-                target: ReviewEndpoint::GitWorkingTree {
-                    worktree_root: "/repo".to_owned(),
-                },
-                revision_id,
-                snapshot_id,
-                snapshot_artifact_content_hash: format!("sha256:artifact:{suffix}"),
             },
             "2026-06-04T00:00:00Z",
         )
@@ -510,7 +519,7 @@ mod tests {
             EventType::ReviewUnitLineageDeclared,
             ReviewUnitLineageDeclaredPayload::idempotency_key(&lineage_id),
             EventTarget::for_review_unit_lineage(
-                SessionId::new("session:default"),
+                LedgerId::new("session:default"),
                 lineage_id.clone(),
             ),
             Writer::shore_local("test"),
@@ -543,7 +552,7 @@ mod tests {
             EventType::ReviewUnitLineageRoundRecorded,
             ReviewUnitLineageRoundRecordedPayload::idempotency_key(&lineage_id, &unit_id),
             EventTarget::for_review_unit_lineage(
-                SessionId::new("session:default"),
+                LedgerId::new("session:default"),
                 lineage_id.clone(),
             ),
             Writer::shore_local("test"),
@@ -561,8 +570,8 @@ mod tests {
         .unwrap()
     }
 
-    fn review_unit_id(suffix: &str) -> ReviewUnitId {
-        ReviewUnitId::new(format!("review-unit:sha256:{suffix}"))
+    fn review_unit_id(suffix: &str) -> RevisionId {
+        RevisionId::new(format!("review-unit:sha256:{suffix}"))
     }
 
     fn review_unit_lineage_id(suffix: &str) -> ReviewUnitLineageId {

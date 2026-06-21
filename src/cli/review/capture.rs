@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use clap::Args;
 use shoreline::documents::{capture_document, capture_with_lineage_document};
-use shoreline::model::{ReviewUnitId, ReviewUnitLineageId};
+use shoreline::model::{ReviewUnitLineageId, RevisionId};
 use shoreline::session::{
     CaptureOptions, CommitRangeSpec, LineageAttachOptions, attach_review_unit_to_lineage,
     capture_review,
@@ -72,7 +72,7 @@ pub(super) fn run(
     let attach = attach_review_unit_to_lineage(capture_lineage_attach_options(
         &args,
         lineage,
-        &capture.review_unit_id,
+        &capture.revision_id,
     ))?;
     let document = capture_with_lineage_document(capture, attach);
     json::write_json(stdout, &document, false)
@@ -116,13 +116,13 @@ fn commit_range_spec(args: &CaptureArgs) -> Option<CommitRangeSpec> {
 fn capture_lineage_attach_options(
     args: &CaptureArgs,
     lineage: &str,
-    review_unit_id: &ReviewUnitId,
+    review_unit_id: &RevisionId,
 ) -> LineageAttachOptions {
     let mut options =
         LineageAttachOptions::new(&args.repo, ReviewUnitLineageId::new(lineage.to_owned()))
             .with_review_unit_id(review_unit_id.clone());
     if let Some(predecessor) = &args.predecessor {
-        options = options.with_predecessor_review_unit_id(ReviewUnitId::new(predecessor.clone()));
+        options = options.with_predecessor_review_unit_id(RevisionId::new(predecessor.clone()));
     }
     if let Some(change_id) = &args.change_id {
         options = options.with_change_id(change_id.clone());

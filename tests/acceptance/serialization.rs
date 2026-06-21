@@ -2,8 +2,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use shoreline::model::{
     Anchor, CursorState, DiffFile, DiffRow, DiffRowKind, DiffSnapshot, FileId, FileMetadataKind,
-    FileMetadataRow, FileStatus, HunkId, LineRange, ResolutionStatus, Review, ReviewHunk, ReviewId,
-    ReviewNote, ReviewNoteId, ReviewNoteSource, ReviewStream, RowId, Side, SnapshotId,
+    FileMetadataRow, FileStatus, HunkId, LineRange, ObjectId, ResolutionStatus, Review, ReviewHunk,
+    ReviewId, ReviewNote, ReviewNoteId, ReviewNoteSource, ReviewStream, RowId, Side,
 };
 use shoreline::stream::{LayoutSnapshot, ViewportSpec};
 
@@ -39,7 +39,7 @@ struct DurableIds {
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct SnapshotLocalIds {
-    snapshot_id: SnapshotId,
+    snapshot_id: ObjectId,
     hunk_id: HunkId,
     row_id: RowId,
 }
@@ -52,7 +52,7 @@ fn durable_and_snapshot_local_ids_round_trip_as_distinct_types() {
         review_note_id: ReviewNoteId::new("note-1"),
     };
     let snapshot_local = SnapshotLocalIds {
-        snapshot_id: SnapshotId::new("snapshot-1"),
+        snapshot_id: ObjectId::new("snapshot-1"),
         hunk_id: HunkId::new("hunk-1"),
         row_id: RowId::new("row-1"),
     };
@@ -163,10 +163,7 @@ fn core_review_state_round_trips_with_notes_cursor_and_layout() {
 
     assert_eq!(decoded_review, review);
     assert_eq!(decoded_snapshot.review_id, review.id);
-    assert_eq!(
-        decoded_snapshot.snapshot_id,
-        SnapshotId::new("snapshot-full")
-    );
+    assert_eq!(decoded_snapshot.snapshot_id, ObjectId::new("snapshot-full"));
     assert_eq!(decoded_notes[0].id, ReviewNoteId::new("note-1"));
     assert_eq!(decoded_notes[0].anchor.file_id, FileId::new("src/lib.rs"));
     assert_eq!(decoded_stream, stream);
@@ -202,7 +199,7 @@ fn row_ids(stream: &ReviewStream) -> Vec<RowId> {
 fn snapshot_with_diff(review_id: ReviewId) -> DiffSnapshot {
     DiffSnapshot::new(
         review_id,
-        SnapshotId::new("snapshot-full"),
+        ObjectId::new("snapshot-full"),
         vec![DiffFile {
             id: FileId::new("src/lib.rs"),
             status: FileStatus::Modified,

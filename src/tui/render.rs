@@ -267,8 +267,8 @@ mod tests {
     use shoreline::dump::{DumpDocument, DumpInputSource, DumpInputSummary};
     use shoreline::model::{
         Anchor, DiffFile, DiffRow, DiffRowKind, DiffSnapshot, FileId, FileStatus, HunkId,
-        LineRange, ResolutionStatus, ReviewHunk, ReviewId, ReviewNote, ReviewNoteId,
-        ReviewNoteSource, ReviewRow, ReviewRowKind, ReviewStream, RowId, Side, SnapshotId,
+        LineRange, ObjectId, ResolutionStatus, ReviewHunk, ReviewId, ReviewNote, ReviewNoteId,
+        ReviewNoteSource, ReviewRow, ReviewRowKind, ReviewStream, RowId, Side,
     };
     use shoreline::sidecar::{DiagnosticLevel, ReviewNotesDiagnostic, ReviewNotesDiagnosticCode};
     use shoreline::stream::ViewportSpec;
@@ -462,7 +462,7 @@ mod tests {
 
     fn document_with_note(diagnostics: Vec<ReviewNotesDiagnostic>) -> DumpDocument {
         let review_id = ReviewId::new("review:test");
-        let snapshot_id = SnapshotId::new("snapshot:test");
+        let snapshot_id = ObjectId::new("snapshot:test");
         let file_id = FileId::new("src/lib.rs");
         let hunk_id = HunkId::new("hunk:0000");
         let note_id = ReviewNoteId::new("note:test");

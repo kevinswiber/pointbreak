@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    EventId, ReviewUnitId, TrackId, ValidationCheckId, ValidationStatus, ValidationTarget,
+    EventId, RevisionId, TrackId, ValidationCheckId, ValidationStatus, ValidationTarget,
     ValidationTrigger,
 };
 use crate::session::body_artifact::load_body_artifact;
@@ -20,7 +20,7 @@ struct ValidationEventRecord<'a> {
 pub struct ValidationCheckProjectionOptions<'a> {
     pub store_dir: &'a Path,
     pub events: &'a [ShoreEvent],
-    pub review_unit_id: &'a ReviewUnitId,
+    pub review_unit_id: &'a RevisionId,
     pub track_filter: Option<TrackId>,
     pub status_filter: Option<ValidationStatus>,
     pub include_body: bool,
@@ -67,7 +67,8 @@ pub fn project_validation_checks(
         .iter()
         .filter(|event| event.event_type == EventType::ValidationCheckRecorded)
     {
-        if event.target.review_unit_id.as_ref() != Some(options.review_unit_id) {
+        if crate::model::subject_revision_id(&event.target.subject) != Some(options.review_unit_id)
+        {
             continue;
         }
 
@@ -176,8 +177,8 @@ mod tests {
 
     use super::*;
     use crate::model::{
-        EventId, ReviewUnitId, RevisionId, SessionId, SnapshotId, TrackId, ValidationCheckId,
-        ValidationStatus, ValidationTarget, ValidationTrigger,
+        EventId, LedgerId, RevisionId, TrackId, ValidationCheckId, ValidationStatus,
+        ValidationTarget, ValidationTrigger,
     };
     use crate::session::event::{
         EventTarget, EventType, ShoreEvent, ValidationCheckRecordedPayload, Writer,
@@ -206,7 +207,7 @@ mod tests {
         let views = project_validation_checks(ValidationCheckProjectionOptions {
             store_dir: dir.path(),
             events: &events,
-            review_unit_id: &ReviewUnitId::new("review-unit:sha256:one"),
+            review_unit_id: &RevisionId::new("review-unit:sha256:one"),
             track_filter: None,
             status_filter: None,
             include_body: false,
@@ -240,7 +241,7 @@ mod tests {
         let views = project_validation_checks(ValidationCheckProjectionOptions {
             store_dir: dir.path(),
             events: &events,
-            review_unit_id: &ReviewUnitId::new("review-unit:sha256:one"),
+            review_unit_id: &RevisionId::new("review-unit:sha256:one"),
             track_filter: None,
             status_filter: None,
             include_body: false,
@@ -281,7 +282,7 @@ mod tests {
         let views = project_validation_checks(ValidationCheckProjectionOptions {
             store_dir: dir.path(),
             events: &events,
-            review_unit_id: &ReviewUnitId::new("review-unit:sha256:one"),
+            review_unit_id: &RevisionId::new("review-unit:sha256:one"),
             track_filter: None,
             status_filter: None,
             include_body: false,
@@ -318,7 +319,7 @@ mod tests {
             "validation:sha256:one",
             artifact_path,
         )];
-        let review_unit_id = ReviewUnitId::new("review-unit:sha256:one");
+        let review_unit_id = RevisionId::new("review-unit:sha256:one");
         let options = |include_body| ValidationCheckProjectionOptions {
             store_dir: dir.path(),
             events: &events,
@@ -348,7 +349,7 @@ mod tests {
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new(validation_check_id),
                 target: ValidationTarget::ReviewUnit {
-                    review_unit_id: ReviewUnitId::new(review_unit_id),
+                    review_unit_id: RevisionId::new(review_unit_id),
                 },
                 check_name: "cargo test".to_owned(),
                 command: None,
@@ -380,7 +381,7 @@ mod tests {
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new(validation_check_id),
                 target: ValidationTarget::ReviewUnit {
-                    review_unit_id: ReviewUnitId::new(review_unit_id),
+                    review_unit_id: RevisionId::new(review_unit_id),
                 },
                 check_name: "cargo test".to_owned(),
                 command: None,
@@ -406,11 +407,10 @@ mod tests {
         payload: ValidationCheckRecordedPayload,
         occurred_at: &str,
     ) -> ShoreEvent {
-        let mut target = EventTarget::for_review_unit(
-            SessionId::new("session:default"),
-            ReviewUnitId::new(review_unit_id),
-            RevisionId::new("rev:one"),
-            SnapshotId::new("snap:one"),
+        let mut target = EventTarget::for_revision(
+            LedgerId::new("session:default"),
+            RevisionId::new(review_unit_id),
+            None,
         );
         target.track_id = Some(TrackId::new("agent:codex"));
         let mut event = ShoreEvent::new(

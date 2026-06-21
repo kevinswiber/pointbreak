@@ -17,48 +17,6 @@ pub enum SourceSpeaker {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TaskAttemptCapturedPayload {
-    pub task_attempt_id: WorkObjectId,
-    pub project_path: String,
-    pub claude_session_uuid: String,
-    pub initial_prompt_hash: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub predecessor: Option<WorkObjectId>,
-    /// Opaque fingerprint of the code state at which this attempt began.
-    /// Carries no semantics beyond `==` equality and is compared as a string.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub base_snapshot_fingerprint: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_speaker: Option<SourceSpeaker>,
-}
-
-impl TaskAttemptCapturedPayload {
-    pub fn idempotency_key_for_work_object(
-        work_object_id: &WorkObjectId,
-        work_object_type: WorkObjectType,
-        source_key: &str,
-    ) -> String {
-        let kind = match work_object_type {
-            WorkObjectType::ReviewUnit => "review_unit",
-            WorkObjectType::TaskAttempt => "task_attempt",
-        };
-        format!(
-            "task_attempt_captured:{}:{}:{}",
-            work_object_id.as_str(),
-            kind,
-            source_key
-        )
-    }
-}
-
-impl EventPayload for TaskAttemptCapturedPayload {
-    fn event_type(&self) -> EventType {
-        EventType::TaskAttemptCaptured
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TaskCheckpointCapturedPayload {
     pub checkpoint_id: CheckpointId,
     pub parent_task_attempt_id: WorkObjectId,
@@ -81,7 +39,7 @@ impl TaskCheckpointCapturedPayload {
         source_key: &str,
     ) -> String {
         let kind = match work_object_type {
-            WorkObjectType::ReviewUnit => "review_unit",
+            WorkObjectType::Revision => "revision",
             WorkObjectType::TaskAttempt => "task_attempt",
         };
         format!(
@@ -125,7 +83,7 @@ impl TaskObservationRecordedPayload {
         source_key: &str,
     ) -> String {
         let kind = match work_object_type {
-            WorkObjectType::ReviewUnit => "review_unit",
+            WorkObjectType::Revision => "revision",
             WorkObjectType::TaskAttempt => "task_attempt",
         };
         format!(
@@ -147,134 +105,15 @@ impl EventPayload for TaskObservationRecordedPayload {
 mod tests {
     use super::*;
     use crate::model::{
-        CheckpointId, ObservationId, ReviewUnitId, SessionId, TrackId, WorkObjectId, WorkObjectType,
+        CheckpointId, LedgerId, ObservationId, RevisionId, TargetRef, TaskTargetRef, TrackId,
+        WorkObjectId, WorkObjectType,
     };
     use crate::session::event::{
-        AssertionMode, EventPayload, EventTarget, EventType, InputRequestOpenedPayload,
-        ReviewObservationRecordedPayload, ShoreEvent, Writer,
+        EventPayload, EventTarget, EventType, ReviewObservationRecordedPayload, ShoreEvent, Writer,
     };
 
-    fn sample_payload() -> TaskAttemptCapturedPayload {
-        TaskAttemptCapturedPayload {
-            task_attempt_id: WorkObjectId::new("task-attempt:sha256:abc"),
-            project_path: "/repo".to_owned(),
-            claude_session_uuid: "uuid-1".to_owned(),
-            initial_prompt_hash: "sha256:prompt".to_owned(),
-            predecessor: None,
-            base_snapshot_fingerprint: None,
-            source_speaker: None,
-        }
-    }
-
-    #[test]
-    fn task_attempt_captured_payload_round_trips_through_serde() {
-        let payload = sample_payload();
-        let json = serde_json::to_string(&payload).unwrap();
-        let round: TaskAttemptCapturedPayload = serde_json::from_str(&json).unwrap();
-        assert_eq!(round, payload);
-    }
-
-    #[test]
-    fn task_attempt_captured_payload_serializes_camel_case_fields() {
-        let json = serde_json::to_value(sample_payload()).unwrap();
-
-        assert_eq!(json["taskAttemptId"], "task-attempt:sha256:abc");
-        assert_eq!(json["projectPath"], "/repo");
-        assert_eq!(json["claudeSessionUuid"], "uuid-1");
-        assert_eq!(json["initialPromptHash"], "sha256:prompt");
-        assert!(json.get("predecessor").is_none());
-        assert!(json.get("baseSnapshotFingerprint").is_none());
-        assert!(json.get("assertionMode").is_none());
-        assert!(json.get("sourceRef").is_none());
-        assert!(json.get("submissionId").is_none());
-    }
-
-    #[test]
-    fn task_attempt_captured_payload_round_trips_base_snapshot_fingerprint() {
-        let payload = TaskAttemptCapturedPayload {
-            base_snapshot_fingerprint: Some(
-                "sha256:000000000000000000000000000000000000000000000000000000000000000a"
-                    .to_owned(),
-            ),
-            ..sample_payload()
-        };
-        let json = serde_json::to_value(&payload).unwrap();
-        assert_eq!(
-            json["baseSnapshotFingerprint"],
-            "sha256:000000000000000000000000000000000000000000000000000000000000000a"
-        );
-        let round: TaskAttemptCapturedPayload = serde_json::from_value(json).unwrap();
-        assert_eq!(round, payload);
-    }
-
-    #[test]
-    fn task_attempt_captured_idempotency_key_for_work_object_uses_substrate_form() {
-        let key = TaskAttemptCapturedPayload::idempotency_key_for_work_object(
-            &WorkObjectId::new("task-attempt:sha256:abc"),
-            WorkObjectType::TaskAttempt,
-            "source-1",
-        );
-        assert_eq!(
-            key,
-            "task_attempt_captured:task-attempt:sha256:abc:task_attempt:source-1"
-        );
-    }
-
-    #[test]
-    fn task_attempt_captured_idempotency_key_does_not_collide_with_input_request_form() {
-        let task_key = TaskAttemptCapturedPayload::idempotency_key_for_work_object(
-            &WorkObjectId::new("shared"),
-            WorkObjectType::TaskAttempt,
-            "source-1",
-        );
-        let input_request_key = InputRequestOpenedPayload::idempotency_key_for_work_object(
-            &WorkObjectId::new("shared"),
-            WorkObjectType::TaskAttempt,
-            "source-1",
-        );
-        assert_ne!(task_key, input_request_key);
-    }
-
-    #[test]
-    fn task_attempt_captured_payload_reports_matching_event_type() {
-        assert_eq!(
-            sample_payload().event_type(),
-            EventType::TaskAttemptCaptured
-        );
-    }
-
-    #[test]
-    fn task_attempt_captured_event_builds_through_shore_event_new() {
-        let target = EventTarget::for_work_object(
-            SessionId::new("session:claude:uuid-1"),
-            WorkObjectId::new("task-attempt:sha256:abc"),
-            WorkObjectType::TaskAttempt,
-        );
-        let idempotency_key = TaskAttemptCapturedPayload::idempotency_key_for_work_object(
-            &WorkObjectId::new("task-attempt:sha256:abc"),
-            WorkObjectType::TaskAttempt,
-            "uuid-1",
-        );
-
-        let event = ShoreEvent::new(
-            EventType::TaskAttemptCaptured,
-            idempotency_key,
-            target,
-            Writer::shore_local("test"),
-            sample_payload(),
-            "2026-05-18T00:00:00Z",
-        )
-        .unwrap();
-
-        assert_eq!(event.event_type, EventType::TaskAttemptCaptured);
-        assert_eq!(event.assertion_mode, AssertionMode::Advisory);
-        assert!(event.source_ref.is_none());
-
-        let json = serde_json::to_value(&event).unwrap();
-        assert_eq!(json["target"]["workObjectId"], "task-attempt:sha256:abc");
-        assert_eq!(json["target"]["workObjectType"], "task_attempt");
-        assert_eq!(json["target"]["sessionId"], "session:claude:uuid-1");
-        assert!(json["target"].get("reviewUnitId").is_none());
+    fn task_attempt_subject() -> TargetRef {
+        TargetRef::Task(TaskTargetRef::TaskAttempt)
     }
 
     fn sample_checkpoint_payload() -> TaskCheckpointCapturedPayload {
@@ -357,18 +196,18 @@ mod tests {
     }
 
     #[test]
-    fn task_checkpoint_captured_idempotency_key_does_not_collide_with_task_attempt_captured() {
+    fn task_checkpoint_captured_idempotency_key_does_not_collide_with_observation() {
         let checkpoint_key = TaskCheckpointCapturedPayload::idempotency_key_for_work_object(
             &WorkObjectId::new("shared"),
             WorkObjectType::TaskAttempt,
             "source-1",
         );
-        let attempt_key = TaskAttemptCapturedPayload::idempotency_key_for_work_object(
+        let observation_key = TaskObservationRecordedPayload::idempotency_key_for_work_object(
             &WorkObjectId::new("shared"),
             WorkObjectType::TaskAttempt,
             "source-1",
         );
-        assert_ne!(checkpoint_key, attempt_key);
+        assert_ne!(checkpoint_key, observation_key);
     }
 
     #[test]
@@ -381,10 +220,10 @@ mod tests {
 
     #[test]
     fn task_checkpoint_captured_event_builds_with_envelope_checkpoint_target() {
-        let target = EventTarget::for_work_object(
-            SessionId::new("session:claude:uuid-1"),
-            WorkObjectId::new("task-attempt:sha256:ta"),
-            WorkObjectType::TaskAttempt,
+        let target = EventTarget::for_subject(
+            LedgerId::new("ledger:claude:uuid-1"),
+            task_attempt_subject(),
+            None,
         );
         let idempotency_key = TaskCheckpointCapturedPayload::idempotency_key_for_work_object(
             &WorkObjectId::new("task-attempt:sha256:ta"),
@@ -403,7 +242,7 @@ mod tests {
         .unwrap();
 
         let json = serde_json::to_value(&event).unwrap();
-        assert_eq!(json["target"]["workObjectId"], "task-attempt:sha256:ta");
+        assert_eq!(json["target"]["subject"]["task"]["kind"], "task_attempt");
         assert_eq!(json["payload"]["checkpointId"], "checkpoint:sha256:cp");
         assert_eq!(
             json["payload"]["parentTaskAttemptId"],
@@ -505,7 +344,7 @@ mod tests {
             "shared-source",
         );
         let review_key = ReviewObservationRecordedPayload::idempotency_key(
-            &ReviewUnitId::new("shared"),
+            &RevisionId::new("shared"),
             &TrackId::new("agent:codex"),
             "shared-source",
         );
@@ -532,12 +371,6 @@ mod tests {
 
     #[test]
     fn task_payloads_round_trip_source_speaker() {
-        let attempt = TaskAttemptCapturedPayload {
-            source_speaker: Some(SourceSpeaker::User),
-            ..sample_payload()
-        };
-        assert_source_speaker_round_trip(&attempt, "user");
-
         let checkpoint = TaskCheckpointCapturedPayload {
             source_speaker: Some(SourceSpeaker::Agent),
             ..sample_checkpoint_payload()
@@ -572,10 +405,10 @@ mod tests {
 
     #[test]
     fn task_observation_recorded_event_builds_through_shore_event_new() {
-        let target = EventTarget::for_work_object(
-            SessionId::new("session:claude:uuid-1"),
-            WorkObjectId::new("task-attempt:sha256:ta"),
-            WorkObjectType::TaskAttempt,
+        let target = EventTarget::for_subject(
+            LedgerId::new("ledger:claude:uuid-1"),
+            task_attempt_subject(),
+            None,
         );
         let idempotency_key = TaskObservationRecordedPayload::idempotency_key_for_work_object(
             &WorkObjectId::new("task-attempt:sha256:ta"),
@@ -595,8 +428,7 @@ mod tests {
 
         let json = serde_json::to_value(&event).unwrap();
         assert_eq!(json["eventType"], "task_observation_recorded");
-        assert_eq!(json["target"]["workObjectId"], "task-attempt:sha256:ta");
-        assert_eq!(json["target"]["workObjectType"], "task_attempt");
+        assert_eq!(json["target"]["subject"]["task"]["kind"], "task_attempt");
         assert_eq!(json["payload"]["observationId"], "obs:sha256:o1");
     }
 }

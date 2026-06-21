@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::kind::EventType;
 use super::payload::EventPayload;
 use crate::model::{
-    AssessmentId, InputRequestId, ObservationId, ReviewTargetRef, ReviewUnitId, TrackId,
+    AssessmentId, InputRequestId, ObservationId, ReviewTargetRef, RevisionId, TrackId,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -39,7 +39,7 @@ pub struct ReviewAssessmentRecordedPayload {
 
 impl ReviewAssessmentRecordedPayload {
     pub fn idempotency_key(
-        review_unit_id: &ReviewUnitId,
+        review_unit_id: &RevisionId,
         track_id: &TrackId,
         source_key: &str,
     ) -> String {
@@ -61,7 +61,7 @@ impl EventPayload for ReviewAssessmentRecordedPayload {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{ReviewTargetRef, ReviewUnitId};
+    use crate::model::{ReviewTargetRef, RevisionId};
     use crate::session::event::EventType;
 
     #[test]
@@ -94,8 +94,8 @@ mod tests {
     fn review_assessment_recorded_payload_serializes_with_expected_wire_keys() {
         let payload = ReviewAssessmentRecordedPayload {
             assessment_id: AssessmentId::new("assess:sha256:one"),
-            target: ReviewTargetRef::ReviewUnit {
-                review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+            target: ReviewTargetRef::Revision {
+                revision_id: RevisionId::new("review-unit:sha256:one"),
             },
             assessment: ReviewAssessment::Accepted,
             summary: Some("ship it".to_owned()),
@@ -111,7 +111,7 @@ mod tests {
 
         assert_eq!(json["assessmentId"], "assess:sha256:one");
         assert_eq!(json["assessment"], "accepted");
-        assert_eq!(json["target"]["kind"], "review_unit");
+        assert_eq!(json["target"]["kind"], "revision");
         assert!(
             json.get("replacesAssessmentIds").is_none(),
             "empty Vec must be omitted"
@@ -127,7 +127,7 @@ mod tests {
         let payload = ReviewAssessmentRecordedPayload {
             assessment_id: AssessmentId::new("assess:sha256:one"),
             target: ReviewTargetRef::InputRequest {
-                review_unit_id: ReviewUnitId::new("review-unit:sha256:one"),
+                revision_id: RevisionId::new("review-unit:sha256:one"),
                 input_request_id: InputRequestId::new("input-request:sha256:one"),
             },
             assessment: ReviewAssessment::NeedsClarification,
@@ -152,7 +152,7 @@ mod tests {
     #[test]
     fn review_assessment_recorded_payload_idempotency_key_prefix() {
         let key = ReviewAssessmentRecordedPayload::idempotency_key(
-            &ReviewUnitId::new("review-unit:sha256:one"),
+            &RevisionId::new("review-unit:sha256:one"),
             &TrackId::new("human:kevin"),
             "source-key",
         );

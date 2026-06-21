@@ -14,24 +14,21 @@
       "golden-vector"
     ],
     "target": {
-      "kind": "review_unit",
-      "reviewUnitId": "review-unit:sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      "kind": "revision",
+      "revisionId": "review-unit:sha256:1111111111111111111111111111111111111111111111111111111111111111"
     },
     "title": "Golden vector observation"
   },
-  "payloadHash": "sha256:235d946d8c1f9fa521e1a8ac6e3d6df6b96051da42f68f545e92d19f34a8d9c0",
+  "payloadHash": "sha256:2c3e5b61d7b2aeebdc46b7ab9e858941d39b549f680aa455db8da8f0163693ea",
   "schema": "shore.event",
   "signature": null,
   "signer": null,
   "target": {
-    "reviewUnitId": "review-unit:sha256:1111111111111111111111111111111111111111111111111111111111111111",
-    "revisionId": "rev:sha256:2222222222222222222222222222222222222222222222222222222222222222",
-    "sessionId": "session:fixture:event-signatures",
-    "snapshotId": "snap:sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "ledgerId": "ledger:fixture:event-signatures",
     "subject": {
       "review": {
-        "kind": "review_unit",
-        "reviewUnitId": "review-unit:sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        "kind": "revision",
+        "revisionId": "review-unit:sha256:1111111111111111111111111111111111111111111111111111111111111111"
       }
     }
   },

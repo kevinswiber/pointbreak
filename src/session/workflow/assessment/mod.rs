@@ -42,7 +42,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.review_unit_id, capture.review_unit_id);
+        assert_eq!(result.review_unit_id, capture.revision_id);
         assert!(result.assessment_id.as_str().starts_with("assess:sha256:"));
         assert_eq!(result.track_id.as_str(), "human:kevin");
         assert_eq!(result.assessment, ReviewAssessment::Accepted);
@@ -221,7 +221,7 @@ mod tests {
                 .with_assessment(ReviewAssessment::AcceptedWithFollowUp)
                 .with_summary("accepted with follow-up")
                 .with_target(ReviewTargetRef::Assessment {
-                    review_unit_id: capture.review_unit_id,
+                    revision_id: capture.revision_id,
                     assessment_id: first.assessment_id.clone(),
                 }),
         )

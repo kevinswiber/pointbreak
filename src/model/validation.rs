@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::ReviewUnitId;
+use super::RevisionId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -26,7 +26,7 @@ pub enum ValidationTrigger {
     rename_all_fields = "camelCase"
 )]
 pub enum ValidationTarget {
-    ReviewUnit { review_unit_id: ReviewUnitId },
+    ReviewUnit { review_unit_id: RevisionId },
 }
 
 #[cfg(test)]
@@ -66,7 +66,7 @@ mod tests {
     #[test]
     fn validation_target_review_unit_round_trips_with_kind_tag_and_is_path_free() {
         let target = ValidationTarget::ReviewUnit {
-            review_unit_id: ReviewUnitId::new("review-unit:sha256:def"),
+            review_unit_id: RevisionId::new("review-unit:sha256:def"),
         };
 
         let value = serde_json::to_value(&target).unwrap();

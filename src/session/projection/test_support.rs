@@ -1,15 +1,28 @@
 //! Shared task-domain event builders for in-crate unit tests, used by the
 //! task projection suite and the seam-level end-to-end resumption tests.
 
+use crate::canonical_hash::sha256_bytes_hex;
 use crate::model::{
-    ActorId, CheckpointId, InputRequestId, InputRequestResponseId, ReviewTargetRef, ReviewUnitId,
-    SessionId, TargetRef, WorkObjectId, WorkObjectType,
+    ActorId, CheckpointId, EngagementId, InputRequestId, InputRequestResponseId, LedgerId,
+    ReviewTargetRef, RevisionId, TargetRef, TaskTargetRef, WorkObjectId, WorkObjectType,
 };
 use crate::session::event::{
     AssertionMode, EventTarget, EventType, InputRequestOpenedPayload, InputRequestReasonCode,
     InputRequestRespondedPayload, InputRequestResponseOutcome, ShoreEvent, SourceRef,
-    TaskAttemptCapturedPayload, TaskCheckpointCapturedPayload, Writer, WriterProducer,
+    TaskCheckpointCapturedPayload, WorkObjectProposal, WorkObjectProposedPayload, Writer,
+    WriterProducer,
 };
+
+fn task_attempt_subject() -> TargetRef {
+    TargetRef::Task(TaskTargetRef::TaskAttempt)
+}
+
+fn task_engagement_id(task_attempt_id: &WorkObjectId) -> EngagementId {
+    EngagementId::new(format!(
+        "engagement:sha256:{}",
+        sha256_bytes_hex(task_attempt_id.as_str().as_bytes())
+    ))
+}
 
 pub(crate) fn writer_user() -> Writer {
     Writer {
@@ -27,31 +40,26 @@ pub(crate) fn reader_actor() -> ActorId {
 
 pub(crate) fn task_attempt_event(
     task_attempt_id: &WorkObjectId,
-    session_id: &SessionId,
+    session_id: &LedgerId,
     claude_session_uuid: &str,
     occurred_at: &str,
 ) -> ShoreEvent {
-    let target = EventTarget::for_work_object(
-        session_id.clone(),
-        task_attempt_id.clone(),
-        WorkObjectType::TaskAttempt,
-    );
-    let payload = TaskAttemptCapturedPayload {
-        task_attempt_id: task_attempt_id.clone(),
-        project_path: "/repo".to_owned(),
-        claude_session_uuid: claude_session_uuid.to_owned(),
-        initial_prompt_hash: "sha256:prompt".to_owned(),
-        predecessor: None,
-        base_snapshot_fingerprint: None,
-        source_speaker: None,
+    let target = EventTarget::for_subject(session_id.clone(), task_attempt_subject(), None);
+    let payload = WorkObjectProposedPayload {
+        engagement_id: task_engagement_id(task_attempt_id),
+        work_object: WorkObjectProposal::TaskAttempt {
+            task_attempt_id: task_attempt_id.clone(),
+            project_path: "/repo".to_owned(),
+            claude_session_uuid: claude_session_uuid.to_owned(),
+            initial_prompt_hash: "sha256:prompt".to_owned(),
+            predecessor: None,
+            base_snapshot_fingerprint: None,
+            source_speaker: None,
+        },
     };
-    let idempotency_key = TaskAttemptCapturedPayload::idempotency_key_for_work_object(
-        task_attempt_id,
-        WorkObjectType::TaskAttempt,
-        claude_session_uuid,
-    );
+    let idempotency_key = format!("work_object_proposed:{}", task_attempt_id.as_str());
     let mut event = ShoreEvent::new(
-        EventType::TaskAttemptCaptured,
+        EventType::WorkObjectProposed,
         idempotency_key,
         target,
         writer_user(),
@@ -66,20 +74,16 @@ pub(crate) fn task_attempt_event(
 
 pub(crate) fn checkpoint_event(
     task_attempt_id: &WorkObjectId,
-    session_id: &SessionId,
+    session_id: &LedgerId,
     checkpoint_id: &CheckpointId,
     assistant_message_id: &str,
     tool_use_ids: Vec<String>,
     occurred_at: &str,
 ) -> ShoreEvent {
-    let mut target = EventTarget::for_work_object(
-        session_id.clone(),
-        task_attempt_id.clone(),
-        WorkObjectType::TaskAttempt,
-    );
-    target.subject = Some(TargetRef::Task(crate::model::TaskTargetRef::Checkpoint {
+    let mut target = EventTarget::for_subject(session_id.clone(), task_attempt_subject(), None);
+    target.subject = TargetRef::Task(TaskTargetRef::Checkpoint {
         checkpoint_id: checkpoint_id.clone(),
-    }));
+    });
     let payload = TaskCheckpointCapturedPayload {
         checkpoint_id: checkpoint_id.clone(),
         parent_task_attempt_id: task_attempt_id.clone(),
@@ -113,23 +117,19 @@ pub(crate) fn checkpoint_event(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn task_input_request_event_with_target(
     task_attempt_id: &WorkObjectId,
-    session_id: &SessionId,
+    session_id: &LedgerId,
     input_request_id: &InputRequestId,
     source_key: &str,
     occurred_at: &str,
     subject: TargetRef,
     title: &str,
 ) -> ShoreEvent {
-    let mut target = EventTarget::for_work_object(
-        session_id.clone(),
-        task_attempt_id.clone(),
-        WorkObjectType::TaskAttempt,
-    );
-    target.subject = Some(subject);
+    let mut target = EventTarget::for_subject(session_id.clone(), task_attempt_subject(), None);
+    target.subject = subject;
     let payload = InputRequestOpenedPayload {
         input_request_id: input_request_id.clone(),
-        target: ReviewTargetRef::ReviewUnit {
-            review_unit_id: ReviewUnitId::new("review-unit:placeholder"),
+        target: ReviewTargetRef::Revision {
+            revision_id: RevisionId::new("review-unit:placeholder"),
         },
         reason_code: InputRequestReasonCode::ManualDecisionRequired,
         title: title.to_owned(),
@@ -165,10 +165,10 @@ pub(crate) fn user_response_event(
     assertion_mode: AssertionMode,
     occurred_at: &str,
 ) -> ShoreEvent {
-    let target = EventTarget::for_work_object(
-        SessionId::new("session:claude:uuid-1"),
-        WorkObjectId::new("task-attempt:sha256:ta"),
-        WorkObjectType::TaskAttempt,
+    let target = EventTarget::for_subject(
+        LedgerId::new("ledger:claude:uuid-1"),
+        task_attempt_subject(),
+        None,
     );
     let payload = InputRequestRespondedPayload {
         input_request_response_id: response_id.clone(),

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::canonical_hash::sha256_json_prefixed;
 use crate::error::{Result, ShoreError};
-use crate::model::{DiffSnapshot, SnapshotId};
+use crate::model::{DiffSnapshot, ObjectId};
 use crate::session::store::resolution::resolve_read_store;
 use crate::session::{ReviewUnitFingerprint, ShoreStorePaths};
 use crate::storage::{CreateFileOutcome, Durability, LocalStorage};
@@ -16,7 +16,7 @@ const SNAPSHOT_ARTIFACT_VERSION: u32 = 2;
 /// independent content, so two worktrees capturing the same `snapshot_id`
 /// produce **byte-identical** artifacts that dedup. ReviewUnit identity and
 /// endpoints (`review_unit_id`/`source`/`base`/`target`) live in the
-/// `ReviewUnitCaptured` event/projection, never here (INV-1/INV-3).
+/// `WorkObjectProposed` event/projection, never here (INV-1/INV-3).
 ///
 /// New writes are v2. Pre-existing v1 artifacts — whose body also embedded the
 /// identity/endpoint fields — stay readable via [`decode_and_validate_snapshot_artifact`]
@@ -105,7 +105,7 @@ pub(crate) fn build_snapshot_artifact_v2(snapshot: DiffSnapshot) -> Result<Snaps
 /// is ephemeral.
 pub fn read_snapshot_artifact(
     repo: impl AsRef<Path>,
-    snapshot_id: &SnapshotId,
+    snapshot_id: &ObjectId,
 ) -> Result<SnapshotArtifact> {
     let bytes = read_snapshot_artifact_bytes(repo, snapshot_id)?;
     decode_and_validate_snapshot_artifact(&bytes)
@@ -113,7 +113,7 @@ pub fn read_snapshot_artifact(
 
 pub(crate) fn read_snapshot_artifact_bytes(
     repo: impl AsRef<Path>,
-    snapshot_id: &SnapshotId,
+    snapshot_id: &ObjectId,
 ) -> Result<Vec<u8>> {
     let read_store = resolve_read_store(repo.as_ref())?;
     let path = snapshot_artifact_path(read_store.store_dir(), snapshot_id);
@@ -130,7 +130,7 @@ pub(crate) fn read_snapshot_artifact_bytes(
 /// file target could not resolve its artifact from a different store.
 pub(crate) fn read_snapshot_artifact_for_write_validation(
     repo: impl AsRef<Path>,
-    snapshot_id: &SnapshotId,
+    snapshot_id: &ObjectId,
 ) -> Result<SnapshotArtifact> {
     let bytes = read_snapshot_artifact_bytes_with_local_fallback(repo, snapshot_id)?;
     decode_and_validate_snapshot_artifact(&bytes)
@@ -138,7 +138,7 @@ pub(crate) fn read_snapshot_artifact_for_write_validation(
 
 fn read_snapshot_artifact_bytes_with_local_fallback(
     repo: impl AsRef<Path>,
-    snapshot_id: &SnapshotId,
+    snapshot_id: &ObjectId,
 ) -> Result<Vec<u8>> {
     let read_store = resolve_read_store(repo.as_ref())?;
     let resolved_path = snapshot_artifact_path(read_store.store_dir(), snapshot_id);
@@ -163,7 +163,7 @@ fn read_snapshot_artifact_bytes_with_local_fallback(
 /// differ only in whether a `NotFound` triggers the local fallback before this.
 fn missing_artifact_or_io(
     error: std::io::Error,
-    snapshot_id: &SnapshotId,
+    snapshot_id: &ObjectId,
     path: &Path,
 ) -> ShoreError {
     if error.kind() == std::io::ErrorKind::NotFound {
@@ -183,7 +183,7 @@ fn missing_artifact_or_io(
 /// body) — so this accepts and validates **both** v1 and v2 (the dual-read escape
 /// hatch). A v1 artifact's extra identity fields are ignored on deserialize, and
 /// the returned struct's `content_hash` is whatever was stored, so the
-/// `ReviewUnitCaptured` event that bound it still matches (INV-3).
+/// `WorkObjectProposed` event that bound it still matches (INV-3).
 ///
 /// TODO(remove-dual-read): once every affected repo has converged to v2 (no v1
 /// artifacts remain), drop the raw/version-agnostic branch and restore a strict
@@ -249,7 +249,7 @@ fn snapshot_artifact_content_hash(artifact: &SnapshotArtifact) -> Result<String>
     sha256_json_prefixed(&material)
 }
 
-pub(crate) fn snapshot_artifact_path(store_dir: &Path, snapshot_id: &SnapshotId) -> PathBuf {
+pub(crate) fn snapshot_artifact_path(store_dir: &Path, snapshot_id: &ObjectId) -> PathBuf {
     store_dir
         .join("artifacts/snapshots")
         .join(format!("{}.json", artifact_file_stem(snapshot_id.as_str())))
@@ -317,8 +317,11 @@ mod tests {
         let a = capture_range(&repo_a, "HEAD~1");
         let b = capture_range(&repo_b, "HEAD~1");
 
-        assert_eq!(a.snapshot_id, b.snapshot_id);
-        assert_ne!(a.review_unit_id, b.review_unit_id); // identity namespace unchanged (0011 B2)
+        assert_eq!(a.object_id, b.object_id);
+        // A commit-range revision keys off the content object plus the commit/tree
+        // provenance, both of which a real clone preserves, so the revision id
+        // converges across the two repos (the local repo path never enters it).
+        assert_eq!(a.revision_id, b.revision_id);
         assert_eq!(
             a.snapshot_artifact_content_hash,
             b.snapshot_artifact_content_hash
@@ -326,12 +329,12 @@ mod tests {
 
         let bytes_a = fs::read(snapshot_artifact_path(
             &resolved_store_dir(repo_a.path()),
-            &a.snapshot_id,
+            &a.object_id,
         ))
         .unwrap();
         let bytes_b = fs::read(snapshot_artifact_path(
             &resolved_store_dir(repo_b.path()),
-            &b.snapshot_id,
+            &b.object_id,
         ))
         .unwrap();
         assert_eq!(

@@ -6,7 +6,7 @@ use super::target::{
 use super::util::validated_track_id;
 use super::view::{ObservationProjectionOptions, ObservationView, project_observations};
 use crate::error::Result;
-use crate::model::{ReviewUnitId, ReviewUnitLineageId, TrackId};
+use crate::model::{ReviewUnitLineageId, RevisionId, TrackId};
 use crate::session::EventStore;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::resolve_read_store;
@@ -14,7 +14,7 @@ use crate::session::store::resolution::resolve_read_store;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObservationListOptions {
     repo: PathBuf,
-    review_unit_id: Option<ReviewUnitId>,
+    review_unit_id: Option<RevisionId>,
     lineage_id: Option<ReviewUnitLineageId>,
     track: Option<String>,
     file: Option<String>,
@@ -35,7 +35,7 @@ impl ObservationListOptions {
         }
     }
 
-    pub fn with_review_unit_id(mut self, id: ReviewUnitId) -> Self {
+    pub fn with_review_unit_id(mut self, id: RevisionId) -> Self {
         self.review_unit_id = Some(id);
         self
     }
@@ -76,7 +76,7 @@ pub struct ObservationListFilters {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObservationListResult {
-    pub review_unit_id: ReviewUnitId,
+    pub review_unit_id: RevisionId,
     pub filters: ObservationListFilters,
     pub observations: Vec<ObservationView>,
     pub diagnostics: Vec<ProjectionDiagnostic>,
@@ -113,7 +113,7 @@ pub fn list_observations(options: ObservationListOptions) -> Result<ObservationL
     let diagnostics = SessionState::from_events(&events)?.diagnostics;
 
     Ok(ObservationListResult {
-        review_unit_id: resolved.review_unit_id,
+        review_unit_id: resolved.revision_id,
         filters: ObservationListFilters {
             track_id: track_filter,
             file: options.file,

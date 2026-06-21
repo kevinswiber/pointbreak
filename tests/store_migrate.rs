@@ -1,6 +1,6 @@
 mod support;
 
-use shoreline::model::{SessionId, WorkUnitId};
+use shoreline::model::LedgerId;
 use shoreline::session::event::{
     EventTarget, EventType, ReviewInitializedPayload, ShoreEvent, Writer,
 };
@@ -15,11 +15,8 @@ use support::git_repo::GitRepo;
 fn legacy_event_file(i: usize) -> (String, String) {
     let event = ShoreEvent::new(
         EventType::ReviewInitialized,
-        format!("review_initialized:session:{i}:work:default"),
-        EventTarget::new(
-            SessionId::new(format!("session:{i}")),
-            WorkUnitId::new("work:default"),
-        ),
+        format!("review_initialized:ledger:{i}"),
+        EventTarget::for_ledger(LedgerId::new(format!("ledger:{i}"))),
         Writer::shore_local("0.1.0"),
         ReviewInitializedPayload {},
         "2026-05-10T00:00:00Z",

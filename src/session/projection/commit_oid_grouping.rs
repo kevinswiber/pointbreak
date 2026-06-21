@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 
 use crate::error::Result;
-use crate::model::ReviewUnitId;
+use crate::model::RevisionId;
 use crate::session::event::ShoreEvent;
 use crate::session::projection::commit_range::ReviewUnitCommitRangeProjection;
 
@@ -25,13 +25,13 @@ pub struct CommitOidGroupingProjection {
     /// Only OIDs claimed by at least one unit appear; an OID claimed by exactly
     /// one unit is still recorded (a singleton group), so callers get a uniform
     /// "what units claim this commit?" answer.
-    pub groups: BTreeMap<String, BTreeSet<ReviewUnitId>>,
+    pub groups: BTreeMap<String, BTreeSet<RevisionId>>,
 }
 
 impl CommitOidGroupingProjection {
     pub fn from_events(events: &[ShoreEvent]) -> Result<Self> {
         let commit_range = ReviewUnitCommitRangeProjection::from_events(events)?;
-        let mut groups: BTreeMap<String, BTreeSet<ReviewUnitId>> = BTreeMap::new();
+        let mut groups: BTreeMap<String, BTreeSet<RevisionId>> = BTreeMap::new();
         for (review_unit_id, view) in &commit_range.units {
             for current in &view.current_commits {
                 // Distinct ids sharing one OID is the designed cross-worktree outcome,
@@ -47,7 +47,7 @@ impl CommitOidGroupingProjection {
 
     /// The review units whose current commit set includes `commit_oid`, or `None`
     /// when no unit currently claims it (withdrawn, or never associated).
-    pub fn group_for(&self, commit_oid: &str) -> Option<&BTreeSet<ReviewUnitId>> {
+    pub fn group_for(&self, commit_oid: &str) -> Option<&BTreeSet<RevisionId>> {
         self.groups.get(commit_oid)
     }
 }
@@ -56,52 +56,56 @@ impl CommitOidGroupingProjection {
 mod tests {
     use super::*;
     use crate::model::{
-        CommitRangeCaptureMode, ReviewEndpoint, ReviewTargetRef, ReviewUnitId, ReviewUnitSource,
-        RevisionId, SessionId, SnapshotId, WorktreeCaptureMode,
+        CommitRangeCaptureMode, EngagementId, LedgerId, ObjectId, ReviewEndpoint, ReviewTargetRef,
+        ReviewUnitSource, RevisionId, WorktreeCaptureMode,
     };
     use crate::session::event::{
-        EventTarget, EventType, ReviewUnitCapturedPayload, ReviewUnitCommitAssociatedPayload,
-        ReviewUnitCommitWithdrawnPayload, ShoreEvent, Writer, build_commit_association_id,
-        build_commit_withdrawal_id,
+        EventTarget, EventType, GitProvenance, ReviewUnitCommitAssociatedPayload,
+        ReviewUnitCommitWithdrawnPayload, Revision, ShoreEvent, WorkObjectProposal,
+        WorkObjectProposedPayload, Writer, build_commit_association_id, build_commit_withdrawal_id,
     };
 
-    fn envelope(unit: &ReviewUnitId) -> EventTarget {
-        EventTarget::for_review_unit(
-            SessionId::new("session:default"),
-            unit.clone(),
-            RevisionId::new("rev:git:sha256:def"),
-            SnapshotId::new("snap:git:sha256:ghi"),
-        )
+    fn envelope(unit: &RevisionId) -> EventTarget {
+        EventTarget::for_revision(LedgerId::new("session:default"), unit.clone(), None)
     }
 
     fn capture_for(
-        unit: &ReviewUnitId,
+        unit: &RevisionId,
         target: ReviewEndpoint,
         source: ReviewUnitSource,
     ) -> ShoreEvent {
         ShoreEvent::new(
-            EventType::ReviewUnitCaptured,
-            format!("review_unit_captured:{}", unit.as_str()),
+            EventType::WorkObjectProposed,
+            format!("work_object_proposed:{}", unit.as_str()),
             envelope(unit),
             Writer::shore_local("test"),
-            ReviewUnitCapturedPayload {
-                review_unit_id: unit.clone(),
-                source,
-                base: ReviewEndpoint::GitCommit {
-                    commit_oid: "base".to_owned(),
-                    tree_oid: "base-tree".to_owned(),
+            WorkObjectProposedPayload {
+                engagement_id: EngagementId::new(format!(
+                    "engagement:sha256:{}",
+                    crate::canonical_hash::sha256_bytes_hex(unit.as_str().as_bytes())
+                )),
+                work_object: WorkObjectProposal::Revision {
+                    revision: Revision {
+                        id: unit.clone(),
+                        object_id: ObjectId::new("snap:git:sha256:ghi"),
+                        git_provenance: Some(GitProvenance {
+                            source,
+                            base: ReviewEndpoint::GitCommit {
+                                commit_oid: "base".to_owned(),
+                                tree_oid: "base-tree".to_owned(),
+                            },
+                            target,
+                        }),
+                    },
+                    snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
                 },
-                target,
-                revision_id: RevisionId::new("rev:git:sha256:def"),
-                snapshot_id: SnapshotId::new("snap:git:sha256:ghi"),
-                snapshot_artifact_content_hash: "sha256:artifact".to_owned(),
             },
             "2026-06-19T00:00:00Z",
         )
         .unwrap()
     }
 
-    fn worktree_capture_for(unit: &ReviewUnitId) -> ShoreEvent {
+    fn worktree_capture_for(unit: &RevisionId) -> ShoreEvent {
         capture_for(
             unit,
             ReviewEndpoint::GitWorkingTree {
@@ -114,11 +118,7 @@ mod tests {
         )
     }
 
-    fn commit_range_capture_for(
-        unit: &ReviewUnitId,
-        commit_oid: &str,
-        tree_oid: &str,
-    ) -> ShoreEvent {
+    fn commit_range_capture_for(unit: &RevisionId, commit_oid: &str, tree_oid: &str) -> ShoreEvent {
         capture_for(
             unit,
             ReviewEndpoint::GitCommit {
@@ -131,7 +131,7 @@ mod tests {
         )
     }
 
-    fn commit_associated_for(unit: &ReviewUnitId, commit_oid: &str) -> ShoreEvent {
+    fn commit_associated_for(unit: &RevisionId, commit_oid: &str) -> ShoreEvent {
         let cid = build_commit_association_id(unit, commit_oid).unwrap();
         ShoreEvent::new(
             EventType::ReviewUnitCommitAssociated,
@@ -140,8 +140,8 @@ mod tests {
             Writer::shore_local("test"),
             ReviewUnitCommitAssociatedPayload {
                 commit_association_id: cid,
-                target: ReviewTargetRef::ReviewUnit {
-                    review_unit_id: unit.clone(),
+                target: ReviewTargetRef::Revision {
+                    revision_id: unit.clone(),
                 },
                 commit: ReviewEndpoint::GitCommit {
                     commit_oid: commit_oid.to_owned(),
@@ -153,7 +153,7 @@ mod tests {
         .unwrap()
     }
 
-    fn commit_withdrawn_for(unit: &ReviewUnitId, commit_oid: &str) -> ShoreEvent {
+    fn commit_withdrawn_for(unit: &RevisionId, commit_oid: &str) -> ShoreEvent {
         let cid = build_commit_association_id(unit, commit_oid).unwrap();
         let wid = build_commit_withdrawal_id(unit, &cid).unwrap();
         ShoreEvent::new(
@@ -163,8 +163,8 @@ mod tests {
             Writer::shore_local("test"),
             ReviewUnitCommitWithdrawnPayload {
                 commit_withdrawal_id: wid,
-                target: ReviewTargetRef::ReviewUnit {
-                    review_unit_id: unit.clone(),
+                target: ReviewTargetRef::Revision {
+                    revision_id: unit.clone(),
                 },
                 commit_association_id: cid,
             },
@@ -178,8 +178,8 @@ mod tests {
         // Two distinct review_unit_ids whose current sets both contain "oidShared"
         // collapse into one grouping key. (Models the cross-worktree same-range case:
         // two units, one shared OID — no re-ID.)
-        let unit_a = ReviewUnitId::new("review-unit:sha256:a");
-        let unit_b = ReviewUnitId::new("review-unit:sha256:b");
+        let unit_a = RevisionId::new("review-unit:sha256:a");
+        let unit_b = RevisionId::new("review-unit:sha256:b");
         let events = [
             worktree_capture_for(&unit_a),
             commit_associated_for(&unit_a, "oidShared"),
@@ -201,7 +201,7 @@ mod tests {
     fn capture_target_seed_groups_without_an_association_event() {
         // The primary cross-worktree case: a commit-range capture is born anchored at its
         // target commit (source = CaptureTarget). Its OID groups with NO association event.
-        let unit = ReviewUnitId::new("review-unit:sha256:seed");
+        let unit = RevisionId::new("review-unit:sha256:seed");
         let events = [commit_range_capture_for(&unit, "oidSeed", "oidSeed-tree")];
 
         let grouping = CommitOidGroupingProjection::from_events(&events).unwrap();
@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn a_floating_unit_stays_ungrouped() {
         // A worktree capture with no commit anchor contributes no grouping key.
-        let unit = ReviewUnitId::new("review-unit:sha256:floating");
+        let unit = RevisionId::new("review-unit:sha256:floating");
         let events = [worktree_capture_for(&unit)];
 
         let grouping = CommitOidGroupingProjection::from_events(&events).unwrap();
@@ -234,7 +234,7 @@ mod tests {
         // associate then withdraw the SAME oid: the OID leaves the unit's current set,
         // so the grouping key disappears (no member, and the key is dropped entirely
         // since the inversion only walks `current_commits`).
-        let unit = ReviewUnitId::new("review-unit:sha256:withdrawn");
+        let unit = RevisionId::new("review-unit:sha256:withdrawn");
         let events = [
             worktree_capture_for(&unit),
             commit_associated_for(&unit, "oidGone"),

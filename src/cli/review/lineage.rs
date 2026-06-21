@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
 use shoreline::documents::{lineage_attach_document, lineage_show_document};
-use shoreline::model::{ReviewUnitId, ReviewUnitLineageId};
+use shoreline::model::{ReviewUnitLineageId, RevisionId};
 use shoreline::session::{
     LineageAttachOptions, LineageShowOptions, attach_review_unit_to_lineage, show_lineage,
 };
@@ -106,9 +106,9 @@ fn review_lineage_show(
 
 fn lineage_attach_options(args: LineageAttachArgs) -> LineageAttachOptions {
     let mut options = LineageAttachOptions::new(&args.repo, ReviewUnitLineageId::new(args.lineage))
-        .with_review_unit_id(ReviewUnitId::new(args.review_unit));
+        .with_review_unit_id(RevisionId::new(args.review_unit));
     if let Some(predecessor) = args.predecessor {
-        options = options.with_predecessor_review_unit_id(ReviewUnitId::new(predecessor));
+        options = options.with_predecessor_review_unit_id(RevisionId::new(predecessor));
     }
     if let Some(change_id) = args.change_id {
         options = options.with_change_id(change_id);

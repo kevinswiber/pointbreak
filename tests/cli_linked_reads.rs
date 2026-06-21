@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::Value;
-use shoreline::model::SnapshotId;
+use shoreline::model::ObjectId;
 use shoreline::session::{
     ArtifactKind, ArtifactRef, ImportArtifactOptions, LineageListOptions, export_artifact,
     import_artifact, list_lineages, read_snapshot_artifact, referenced_artifacts,
@@ -482,7 +482,7 @@ fn reader_capture_file_target_observation_resolves_artifact() {
 
     assert_eq!(json["target"]["kind"], "file");
     assert_eq!(json["target"]["filePath"], "README.md");
-    assert_eq!(json["target"]["reviewUnitId"], Value::String(local_unit_id));
+    assert_eq!(json["target"]["revisionId"], Value::String(local_unit_id));
 }
 
 #[test]
@@ -610,17 +610,12 @@ fn linked_reader_respond_copies_request_event_target_fields() {
             event.event_type == shoreline::session::event::EventType::InputRequestResponded
         })
         .expect("the response event is in the linked store");
+    // The response addresses the same review-domain revision the request did, via
+    // the envelope's single `subject` (the object id rides the payload, never the
+    // envelope), on the same track — copied verbatim from the union-read request.
     assert_eq!(
-        response
-            .target
-            .review_unit_id
-            .as_ref()
-            .map(|id| id.as_str()),
+        shoreline::model::subject_revision_id(&response.target.subject).map(|id| id.as_str()),
         Some(fixture.seed_review_unit_id.as_str())
-    );
-    assert_eq!(
-        response.target.snapshot_id.as_ref().map(|id| id.as_str()),
-        Some(fixture.seed_snapshot_id.as_str())
     );
     assert_eq!(
         response.target.track_id.as_ref().map(|id| id.as_str()),
@@ -1192,7 +1187,7 @@ fn linked_history_reads_full_timeline_from_linked_store() {
         .filter_map(|entry| entry["eventType"].as_str())
         .collect();
     assert!(
-        event_types.contains(&"review_unit_captured"),
+        event_types.contains(&"work_object_proposed"),
         "{event_types:?}"
     );
     assert!(
@@ -1409,7 +1404,7 @@ fn linked_lineage_show_resolves_rounds_from_linked_store() {
 #[test]
 fn snapshot_artifact_reads_from_linked_store() {
     let fixture = LinkedFixture::new();
-    let snapshot_id = SnapshotId::new(fixture.seed_snapshot_id.clone());
+    let snapshot_id = ObjectId::new(fixture.seed_snapshot_id.clone());
 
     let artifact = read_snapshot_artifact(&fixture.reader, &snapshot_id)
         .expect("snapshot artifact reads from the linked store");

@@ -15,7 +15,7 @@ mod support;
 
 use std::path::Path;
 
-use shoreline::model::ReviewUnitId;
+use shoreline::model::RevisionId;
 use shoreline::session::{LivenessToken, read_events};
 use support::git_repo::GitRepo;
 use support::inspect::capture;
@@ -41,12 +41,12 @@ fn ledger_hash(repo: &Path) -> String {
 }
 
 /// A repository with one captured review, returning the repo and its unit id.
-fn repo_with_one_capture() -> (GitRepo, ReviewUnitId) {
+fn repo_with_one_capture() -> (GitRepo, RevisionId) {
     let repo = GitRepo::new();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
     repo.commit_all("base");
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
-    let review_unit_id = ReviewUnitId::new(capture(repo.path()));
+    let review_unit_id = RevisionId::new(capture(repo.path()));
     (repo, review_unit_id)
 }
 
