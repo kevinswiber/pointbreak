@@ -650,7 +650,7 @@ shore review unit show [--repo <path>] [--review-unit <id> | --lineage <lineage-
 ```
 
 `shore review unit list` is the discovery surface for captured ReviewUnits. It emits
-`shore.review-unit-list` JSON with `eventSetHash`, `eventCount`, `reviewUnitCount`, and entries
+`shore.review-revision-list` JSON with `eventSetHash`, `eventCount`, `reviewUnitCount`, and entries
 sorted by capture time.
 
 ReviewUnit lineage metadata is reported by lineage-aware read surfaces. The lineage round event is
@@ -658,7 +658,7 @@ ReviewUnit lineage metadata is reported by lineage-aware read surfaces. The line
 thread. Change-Id optional enrichment only: it is not required and is not the lineage identity.
 
 `shore review unit show` is the composite view for one ReviewUnit. It emits compact
-`shore.review-unit` v1 JSON by default.
+`shore.review-revision` v1 JSON by default.
 
 - When exactly one ReviewUnit has been captured, Shoreline selects it automatically.
 - If multiple ReviewUnits exist, pass `--review-unit <id>` or `--lineage <lineage-id>`.

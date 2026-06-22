@@ -1306,7 +1306,7 @@ fn worktree_local_unit_list_is_unchanged() {
         repo.path().to_str().unwrap(),
     ]);
 
-    assert_eq!(json["schema"], "shore.review-unit-list");
+    assert_eq!(json["schema"], "shore.review-revision-list");
     assert_eq!(json["version"], 1);
     assert_eq!(json["eventCount"], 2);
     assert_eq!(json["revisionCount"], 1);

@@ -462,7 +462,7 @@ mod tests {
 
     fn document_with_note(diagnostics: Vec<ReviewNotesDiagnostic>) -> DumpDocument {
         let review_id = ReviewId::new("review:test");
-        let snapshot_id = ObjectId::new("snapshot:test");
+        let object_id = ObjectId::new("snapshot:test");
         let file_id = FileId::new("src/lib.rs");
         let hunk_id = HunkId::new("hunk:0000");
         let note_id = ReviewNoteId::new("note:test");
@@ -483,7 +483,7 @@ mod tests {
         };
         let snapshot = DiffSnapshot::new(
             review_id.clone(),
-            snapshot_id.clone(),
+            object_id.clone(),
             vec![DiffFile {
                 id: file_id.clone(),
                 status: FileStatus::Modified,
@@ -523,7 +523,7 @@ mod tests {
         };
         let stream = ReviewStream {
             review_id,
-            snapshot_id,
+            object_id,
             rows: vec![
                 ReviewRow {
                     id: RowId::new("row:0000"),

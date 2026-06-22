@@ -55,10 +55,10 @@ mod tests {
     #[test]
     fn stream_summary_counts_stale_note_rows() {
         let review_id = ReviewId::new("review:test");
-        let snapshot_id = ObjectId::new("snapshot:test");
+        let object_id = ObjectId::new("snapshot:test");
         let stream = ReviewStream {
             review_id,
-            snapshot_id,
+            object_id,
             rows: vec![
                 ReviewRow {
                     id: RowId::new("row:0000"),

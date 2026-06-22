@@ -37,7 +37,7 @@ impl DiffSnapshot {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ReviewStream {
     pub review_id: ReviewId,
-    pub snapshot_id: ObjectId,
+    pub object_id: ObjectId,
     pub rows: Vec<ReviewRow>,
 }
 
@@ -45,7 +45,7 @@ impl ReviewStream {
     pub fn empty(review_id: ReviewId) -> Self {
         Self {
             review_id,
-            snapshot_id: ObjectId::new("empty"),
+            object_id: ObjectId::new("empty"),
             rows: Vec::new(),
         }
     }

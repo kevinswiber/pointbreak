@@ -70,7 +70,7 @@ fn cli_reference_exists_and_covers_current_commands() {
     }
 
     assert!(cli.contains("shore.review-capture"));
-    assert!(cli.contains("shore.review-unit"));
+    assert!(cli.contains("shore.review-revision"));
     assert!(cli.contains("eventSetHash"));
 
     assert_markdown_section_contains(

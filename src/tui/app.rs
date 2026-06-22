@@ -441,7 +441,7 @@ mod tests {
 
     fn document_with_one_hunk_and_one_note() -> DumpDocument {
         let review_id = ReviewId::new("review:test");
-        let snapshot_id = ObjectId::new("snapshot:test");
+        let object_id = ObjectId::new("snapshot:test");
         let file_id = FileId::new("src/lib.rs");
         let hunk_id = HunkId::new("hunk:0000");
         let note_id = ReviewNoteId::new("note:test");
@@ -462,7 +462,7 @@ mod tests {
         };
         let snapshot = DiffSnapshot::new(
             review_id.clone(),
-            snapshot_id.clone(),
+            object_id.clone(),
             vec![DiffFile {
                 id: file_id.clone(),
                 status: FileStatus::Added,
@@ -541,7 +541,7 @@ mod tests {
         ];
         let stream = ReviewStream {
             review_id,
-            snapshot_id,
+            object_id,
             rows,
         };
 
@@ -615,7 +615,7 @@ mod tests {
     fn document_with_two_hunks_and_one_note() -> DumpDocument {
         let mut document = document_with_one_hunk_and_one_note();
         let review_id = document.stream.review_id.clone();
-        let snapshot_id = document.stream.snapshot_id.clone();
+        let object_id = document.stream.object_id.clone();
         let file_id = FileId::new("src/lib.rs");
         let second_hunk_id = HunkId::new("hunk:0001");
         let second_diff_row = DiffRow {
@@ -627,7 +627,7 @@ mod tests {
 
         document.stream = ReviewStream {
             review_id,
-            snapshot_id,
+            object_id,
             rows: vec![
                 ReviewRow {
                     id: RowId::new("row:0000"),

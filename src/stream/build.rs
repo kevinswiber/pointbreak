@@ -102,7 +102,7 @@ impl<'a> StreamBuilder<'a> {
 
         ReviewStream {
             review_id: self.snapshot.review_id.clone(),
-            snapshot_id: self.snapshot.object_id.clone(),
+            object_id: self.snapshot.object_id.clone(),
             rows: self.rows,
         }
     }

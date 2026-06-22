@@ -368,7 +368,7 @@ pub(super) fn snapshot_json(repo: &Path, snapshot_id: &str) -> Result<String, St
 
 /// The full composite projection for one Revision.
 ///
-/// Reuses the exact `shore.review-unit` document the `shore review unit show`
+/// Reuses the exact `shore.review-revision` document the `shore review unit show`
 /// command builds (`unit_show_document`), so the inspector renders the same
 /// authoritative composite — current-assessment status, duplicate-collapsed
 /// facts, supersession, adapter notes, and projection rows — rather than

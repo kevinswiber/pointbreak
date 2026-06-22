@@ -29,7 +29,7 @@ fn revision_list_emits_v1_json_with_freshness_metadata() {
     );
     let json = parse_json(&output.stdout);
 
-    assert_eq!(json["schema"], "shore.review-unit-list");
+    assert_eq!(json["schema"], "shore.review-revision-list");
     assert_eq!(json["version"], 1);
     assert!(
         json["eventSetHash"]

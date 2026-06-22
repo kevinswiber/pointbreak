@@ -56,7 +56,7 @@ fn horizontal_overflow_does_not_change_vertical_geometry() {
 fn geometry_stream() -> ReviewStream {
     ReviewStream {
         review_id: ReviewId::new("review-1"),
-        snapshot_id: ObjectId::new("snapshot-1"),
+        object_id: ObjectId::new("snapshot-1"),
         rows: vec![
             row(
                 0,

@@ -14,7 +14,7 @@ use crate::session::{
     WithdrawnRefAssociation,
 };
 
-/// Documented body for `shore.review-unit`.
+/// Documented body for `shore.review-revision`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UnitShowBody {
@@ -33,7 +33,7 @@ pub struct UnitShowBody {
     commit_range: CommitRangeDocument,
 }
 
-/// Documented body for `shore.review-unit-list`.
+/// Documented body for `shore.review-revision-list`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UnitListBody {
@@ -181,14 +181,14 @@ struct SnapshotOrderDocument {
     row_index: Option<usize>,
 }
 
-/// Build the `shore.review-unit` composite document from a show result.
+/// Build the `shore.review-revision` composite document from a show result.
 pub fn unit_show_document(mut result: RevisionShowResult) -> DiagnosticDocument<UnitShowBody> {
     // The readback side table is keyed by event id; attach it to each member and to
     // the capture identity at the document layer. Take it out before the by-value
     // moves below.
     let readbacks = std::mem::take(&mut result.member_readbacks);
     DiagnosticDocument::new(
-        "shore.review-unit",
+        "shore.review-revision",
         UnitShowBody {
             event_set_hash: result.event_set_hash,
             event_count: result.event_count,
@@ -232,10 +232,10 @@ pub fn unit_show_document(mut result: RevisionShowResult) -> DiagnosticDocument<
     )
 }
 
-/// Build the `shore.review-unit-list` document from a list result.
+/// Build the `shore.review-revision-list` document from a list result.
 pub fn unit_list_document(result: RevisionListResult) -> DiagnosticDocument<UnitListBody> {
     DiagnosticDocument::new(
-        "shore.review-unit-list",
+        "shore.review-revision-list",
         UnitListBody {
             event_set_hash: result.event_set_hash,
             event_count: result.event_count,

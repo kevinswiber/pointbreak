@@ -142,7 +142,7 @@ fn review_stream_emits_empty_state_when_snapshot_has_no_changes() {
     let stream = ReviewStream::from_snapshot_with_resolved_notes(&snapshot, &[]);
 
     assert_eq!(stream.review_id, ReviewId::new("review-1"));
-    assert_eq!(stream.snapshot_id, ObjectId::new("snapshot-1"));
+    assert_eq!(stream.object_id, ObjectId::new("snapshot-1"));
     assert_eq!(stream.rows.len(), 1);
     assert_eq!(stream.rows[0].id, RowId::new("row:0000"));
     assert_eq!(stream.rows[0].ordinal, 0);
