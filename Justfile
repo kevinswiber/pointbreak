@@ -74,13 +74,6 @@ run *args:
 migrate-store repo=".":
     cargo +stable run --example migrate-store -- {{ repo }}
 
-# One-off: re-key a reshaped store from the Ledger-shaped wire into the
-# Journal-shaped wire (renames the container key/value and the artifact object
-# field). Non-destructive; writes a fresh target store. Owner-run, throwaway; not
-# part of the shipped CLI.
-migrate-substrate source target keystore:
-    cargo +stable run --example migrate-substrate -- {{ source }} {{ target }} {{ keystore }}
-
 # Fold a worktree-local .shore/data store into the common-dir store (.git/shore).
 # Non-destructive + idempotent; refuses an ephemeral/sensitive worktree unless
 # you pass include-ephemeral=true. This IS a shipped subcommand (shore store migrate).
