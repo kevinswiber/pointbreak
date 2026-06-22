@@ -51,10 +51,10 @@ pub(crate) use store::{
     worktree_fingerprint_for_files,
 };
 pub use store::{
-    ObjectArtifact, StoreMode, StoreModeOutcome, StoreModeSource, capture_worktree_fingerprint,
-    ensure_local_actor_attributes_excluded, ensure_local_delegates_excluded,
-    ensure_shore_storage_excluded, read_object_artifact, resolve_store_mode_for_repo,
-    set_store_mode_for_repo, store_dir_for_repo,
+    MigrateOptions, MigrateSummary, ObjectArtifact, StoreMode, StoreModeOutcome, StoreModeSource,
+    capture_worktree_fingerprint, ensure_local_actor_attributes_excluded,
+    ensure_local_delegates_excluded, ensure_shore_storage_excluded, migrate_object_rename,
+    read_object_artifact, resolve_store_mode_for_repo, set_store_mode_for_repo, store_dir_for_repo,
 };
 pub(in crate::session) use store::{body_artifact, fingerprint, object_artifact, store_init};
 pub(crate) use workflow::reload_diagnostics_for_document;

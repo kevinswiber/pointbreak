@@ -74,6 +74,12 @@ run *args:
 migrate-store repo=".":
     cargo +stable run --example migrate-store -- {{ repo }}
 
+# One-off: converge a reshaped store onto the final object-shaped wire (content-id
+# re-derivation + artifact re-hash), writing a fresh re-keyed store. Owner-run; not
+# part of the shipped CLI. target must be fresh/empty; keystore holds the signers.
+migrate-substrate source target keystore:
+    cargo +stable run --example migrate-substrate -- {{ source }} {{ target }} {{ keystore }}
+
 # Fold a worktree-local .shore/data store into the common-dir store (.git/shore).
 # Non-destructive + idempotent; refuses an ephemeral/sensitive worktree unless
 # you pass include-ephemeral=true. This IS a shipped subcommand (shore store migrate).
