@@ -107,7 +107,7 @@ pub(super) fn run(
     if let Some(object) = args.object.as_deref() {
         result
             .entries
-            .retain(|entry| entry.snapshot_id.as_str() == object);
+            .retain(|entry| entry.object_id.as_str() == object);
         result.revision_count = result.entries.len();
     }
 

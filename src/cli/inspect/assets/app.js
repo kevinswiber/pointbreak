@@ -130,7 +130,7 @@ function resolveRef(kind, id) {
       navigateToTrack(id);
       break;
     case "snap": {
-      const unit = (state.units?.entries || []).find((u) => u.snapshotId === id);
+      const unit = (state.units?.entries || []).find((u) => u.objectId === id);
       openDiff(id, unit ? shortId(unit.revisionId) : "", unit?.revisionId);
       break;
     }
@@ -489,7 +489,7 @@ function renderUnitOptions() {
 }
 
 function renderObjectOptions() {
-  const objects = [...new Set((state.units?.entries || []).map((u) => u.snapshotId).filter(Boolean))].sort();
+  const objects = [...new Set((state.units?.entries || []).map((u) => u.objectId).filter(Boolean))].sort();
   state.filterObject = fillSelect($("#filter-object"), objects, state.filterObject);
 }
 
@@ -512,7 +512,7 @@ function revisionIsHead(revisionId) {
 // snapshot id is the content-addressed object).
 function objectIdForRevision(revisionId) {
   const unit = (state.units?.entries || []).find((u) => u.revisionId === revisionId);
-  return unit ? unit.snapshotId : "";
+  return unit ? unit.objectId : "";
 }
 
 function eventMatchesObject(e, objectId) {
@@ -678,7 +678,7 @@ function renderDetail() {
 
 function snapshotIdForUnit(revisionId) {
   const unit = (state.units?.entries || []).find((u) => u.revisionId === revisionId);
-  return unit ? unit.snapshotId : null;
+  return unit ? unit.objectId : null;
 }
 
 // Gather the review facts on a revision — observations, input requests, and
@@ -879,7 +879,7 @@ function renderUnits() {
       ["captured", fmtDateTime(u.capturedAt)],
       ["base", base.commitOid ? shortId(base.commitOid) + " (" + (base.kind || "") + ")" : base.kind || "—"],
     ];
-    const tail = [["snapshot", shortId(u.snapshotId)]];
+    const tail = [["snapshot", shortId(u.objectId)]];
     const kv = ([k, v]) => `<span>${escapeHtml(k)}</span><b>${escapeHtml(String(v))}</b>`;
     // The target cell carries pre-escaped derived HTML (label + head badge), so
     // it bypasses the generic escaping cell renderer rather than double-escaping.
@@ -900,7 +900,7 @@ function renderUnits() {
     diffBtn.textContent = "view snapshot diff";
     diffBtn.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      openDiff(u.snapshotId, shortId(u.revisionId), u.revisionId);
+      openDiff(u.objectId, shortId(u.revisionId), u.revisionId);
     });
     actions.appendChild(diffBtn);
     card.appendChild(actions);
@@ -1181,7 +1181,7 @@ function renderUnitPage(d) {
     <dt>worktree</dt><dd>${escapeHtml(ru.targetDisplay?.label ?? "working tree")}</dd>
     <dt>head</dt><dd>${escapeHtml(ru.targetDisplay?.head?.label ?? "—")}</dd>
     <dt>supersession</dt><dd>${badge || "—"}</dd>
-    <dt>snapshot</dt><dd>${linkify(ru.snapshotId)}</dd>
+    <dt>snapshot</dt><dd>${linkify(ru.objectId)}</dd>
   </dl></section>`);
 
   sections.push(`<section><h2>Current assessment</h2>${verdictBadge(d.currentAssessment)}${currentAssessmentSummary(d)}</section>`);
@@ -1213,7 +1213,7 @@ function renderUnitPage(d) {
   $("#unit-page").innerHTML = sections.join("");
 
   const diffBtn = $("#up-diff-btn");
-  if (diffBtn && ru.snapshotId) diffBtn.addEventListener("click", () => openDiff(ru.snapshotId, shortId(ru.id), ru.id));
+  if (diffBtn && ru.objectId) diffBtn.addEventListener("click", () => openDiff(ru.objectId, shortId(ru.id), ru.id));
   const tlBtn = $("#up-timeline-btn");
   if (tlBtn) tlBtn.addEventListener("click", () => navigateToUnit(ru.id));
 }

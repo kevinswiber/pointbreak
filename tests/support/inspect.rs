@@ -319,7 +319,7 @@ pub fn representative_store() -> RepresentativeStore {
         .as_str()
         .expect("capture returns a Revision id")
         .to_owned();
-    let snapshot_id = capture["revision"]["snapshotId"]
+    let snapshot_id = capture["revision"]["objectId"]
         .as_str()
         .expect("capture returns a snapshot id")
         .to_owned();

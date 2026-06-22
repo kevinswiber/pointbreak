@@ -339,10 +339,7 @@ fn linked_inspector_drill_in_survives_deleted_source_worktree() {
     std::fs::write(gone.join("README.md"), "changed in gone\n").unwrap();
     let capture = capture_json(&gone);
     let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
-    let snapshot_id = capture["revision"]["snapshotId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let snapshot_id = capture["revision"]["objectId"].as_str().unwrap().to_owned();
     record_review_facts(&gone);
 
     let reader = parent.path().join("reader");

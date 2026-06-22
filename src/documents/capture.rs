@@ -17,7 +17,7 @@ struct CaptureRevisionDocument {
     base: ReviewEndpoint,
     target: ReviewEndpoint,
     revision_id: String,
-    snapshot_id: String,
+    object_id: String,
     snapshot_artifact_content_hash: String,
 }
 
@@ -31,7 +31,7 @@ pub fn capture_document(result: CaptureResult) -> EventWriteDocument<CaptureBody
                 base: result.base,
                 target: result.target,
                 revision_id: result.revision_id.as_str().to_owned(),
-                snapshot_id: result.object_id.as_str().to_owned(),
+                object_id: result.object_id.as_str().to_owned(),
                 snapshot_artifact_content_hash: result.snapshot_artifact_content_hash,
             },
         },

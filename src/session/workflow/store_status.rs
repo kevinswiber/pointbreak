@@ -64,7 +64,7 @@ pub struct StoreStatusArtifactInventory {
 #[serde(rename_all = "camelCase")]
 pub struct StoreStatusRevisionSnapshot {
     pub revision_ids: Vec<String>,
-    pub snapshot_id: String,
+    pub object_id: String,
     pub artifact_ref: String,
     pub byte_size: u64,
 }
@@ -139,7 +139,7 @@ impl From<RevisionSnapshotInventory> for StoreStatusRevisionSnapshot {
     fn from(snapshot: RevisionSnapshotInventory) -> Self {
         Self {
             revision_ids: snapshot.revision_ids,
-            snapshot_id: snapshot.object_id,
+            object_id: snapshot.object_id,
             artifact_ref: snapshot.artifact_ref,
             byte_size: snapshot.byte_size,
         }

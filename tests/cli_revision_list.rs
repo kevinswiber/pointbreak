@@ -44,7 +44,7 @@ fn revision_list_emits_v1_json_with_freshness_metadata() {
     assert_eq!(entry["revisionId"], capture["revision"]["id"]);
     assert!(!entry["capturedAt"].as_str().unwrap().is_empty());
     assert!(entry["revisionId"].as_str().unwrap().starts_with("rev:"));
-    assert!(entry["snapshotId"].as_str().unwrap().starts_with("obj:"));
+    assert!(entry["objectId"].as_str().unwrap().starts_with("obj:"));
     assert!(entry["source"].is_object());
     assert!(entry["base"].is_object());
     assert!(entry["target"].is_object());

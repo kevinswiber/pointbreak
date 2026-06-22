@@ -184,6 +184,41 @@ fn served_documents_carry_no_revision_wire_key() {
 }
 
 #[test]
+fn served_documents_carry_no_snapshot_id_wire_key() {
+    // The served identity key finishes Snapshot->Object: the content id serves
+    // as `objectId` (matching the `obj:` value and `currentObjectId`), never the
+    // legacy `snapshotId`. The "snapshot artifact" concept is untouched
+    // (`snapshotArtifactContentHash` does not contain the forbidden token), and
+    // the /api/snapshot route serves the artifact body, which has no identity key.
+    let forbidden = ["snapshot", "Id"].concat();
+    let store = representative_store();
+    let inspector = Inspector::spawn(store.repo.path());
+
+    let units = inspector.get_json("/api/units");
+    assert!(
+        units["entries"][0]["objectId"].is_string(),
+        "the units entry serves the content id under `objectId`"
+    );
+    let units_body = inspector.get_text("/api/units");
+    assert!(
+        !units_body.contains(&forbidden),
+        "/api/units must not emit a `snapshotId` key:\n{units_body}"
+    );
+
+    let revision_id = units["entries"][0]["revisionId"].as_str().unwrap();
+    let unit_body = inspector.get_text(&format!("/api/unit?id={}", urlencode(revision_id)));
+    assert!(
+        !unit_body.contains(&forbidden),
+        "/api/unit must not emit a `snapshotId` key:\n{unit_body}"
+    );
+    let unit: serde_json::Value = serde_json::from_str(&unit_body).unwrap();
+    assert!(
+        unit["revision"]["objectId"].is_string(),
+        "the unit document serves the content id under `objectId`"
+    );
+}
+
+#[test]
 fn served_index_html_replaces_lineages_tab_with_revisions() {
     let html = served_index_html();
 

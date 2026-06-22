@@ -100,7 +100,7 @@ impl RevisionListOptions {
 pub struct RevisionListEntry {
     pub captured_at: String,
     pub revision_id: RevisionId,
-    pub snapshot_id: ObjectId,
+    pub object_id: ObjectId,
     pub source: RevisionSource,
     pub base: ReviewEndpoint,
     pub target: ReviewEndpoint,
@@ -461,7 +461,7 @@ fn entry_from_event(
     Ok(Some(RevisionListEntry {
         captured_at: event.occurred_at.clone(),
         revision_id: revision_id.clone(),
-        snapshot_id: revision.object_id,
+        object_id: revision.object_id,
         source: provenance.source,
         base: provenance.base,
         target: provenance.target,

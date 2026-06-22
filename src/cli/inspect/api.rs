@@ -665,7 +665,7 @@ mod tests {
         RevisionListEntry {
             captured_at: "2026-05-13T10:00:00Z".to_owned(),
             revision_id: RevisionId::new("rev:sha256:abc"),
-            snapshot_id: ObjectId::new("snap:sha256:abc"),
+            object_id: ObjectId::new("snap:sha256:abc"),
             source: RevisionSource::GitWorktree {
                 mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
                 include_untracked: true,
@@ -725,7 +725,7 @@ mod tests {
         );
         assert_eq!(json["capturedAt"], "2026-05-13T10:00:00Z");
         assert_eq!(json["revisionId"], "rev:sha256:abc");
-        assert_eq!(json["snapshotId"], "snap:sha256:abc");
+        assert_eq!(json["objectId"], "snap:sha256:abc");
     }
 
     #[test]

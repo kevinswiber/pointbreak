@@ -55,7 +55,7 @@ impl LinkedFixture {
             .as_str()
             .expect("capture has review unit id")
             .to_owned();
-        fixture.seed_snapshot_id = capture["revision"]["snapshotId"]
+        fixture.seed_snapshot_id = capture["revision"]["objectId"]
             .as_str()
             .expect("capture has snapshot id")
             .to_owned();

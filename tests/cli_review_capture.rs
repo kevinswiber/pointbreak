@@ -36,7 +36,7 @@ fn review_capture_creates_revision_from_subdir() {
             .starts_with("rev:")
     );
     assert!(
-        json["revision"]["snapshotId"]
+        json["revision"]["objectId"]
             .as_str()
             .unwrap()
             .starts_with("obj:")
@@ -236,7 +236,7 @@ fn capture_with_dirty_worktree_and_base_ignores_worktree_state() {
         .stdout,
     );
     let snapshot_id =
-        shoreline::model::ObjectId::new(capture["revision"]["snapshotId"].as_str().unwrap());
+        shoreline::model::ObjectId::new(capture["revision"]["objectId"].as_str().unwrap());
 
     let artifact = shoreline::session::read_snapshot_artifact(repo.path(), &snapshot_id)
         .expect("snapshot artifact for the range capture");
