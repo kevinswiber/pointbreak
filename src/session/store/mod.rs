@@ -9,6 +9,7 @@ pub(in crate::session) mod sensitivity;
 pub(in crate::session) mod snapshot_artifact;
 pub(in crate::session) mod store_config;
 pub(in crate::session) mod store_init;
+pub(in crate::session) mod substrate_migrate;
 
 pub(crate) use event_migrate::{EventMigrateOutcome, migrate_event_file};
 pub(crate) use event_store::{EventStore, EventWriteOutcome};
@@ -32,3 +33,4 @@ pub use store_init::{
     ensure_local_actor_attributes_excluded, ensure_local_delegates_excluded,
     ensure_shore_storage_excluded, store_dir_for_repo,
 };
+pub use substrate_migrate::{MigrateOptions, MigrateSummary, migrate_journal_rename};
