@@ -53,9 +53,9 @@ Future event types may represent explicit cancellation or escalation. V1 express
 cancellation-like closures through response outcomes such as `dismissed`, `superseded`, or
 `abandoned`, and does not model escalation as a separate lifecycle event.
 
-Response events keep the request event's review unit, revision, snapshot, and track context. That
-anchors the decision to the captured material that caused the input request, not to whatever worktree
-state happens to exist when the input request is answered.
+Response events keep the request event's subject — the captured revision and its content-only object —
+and its track context. That anchors the decision to the captured material that caused the input
+request, not to whatever worktree state happens to exist when the input request is answered.
 
 Multiple different response events are preserved as append-only facts. Current V1 read surfaces
 report that state as `ambiguous` rather than choosing a timestamp winner.
@@ -99,7 +99,7 @@ openInputRequestCount
 openOperativeInputRequestCount
 ```
 
-The authoritative store is the `.shore/data/events/` event log plus any body or snapshot artifacts under
+The authoritative store is the `.shore/data/events/` event log plus any body or object artifacts under
 `.shore/data/artifacts/`. `state.json`, command-output views, and future read indexes are rebuildable
 projections derived from that durable storage.
 

@@ -43,7 +43,7 @@ caller would see them.
 
 ## A. Basic capture of tracked changes
 
-**Goal.** Confirm that `shore review capture` records a `review_unit_captured` event, writes a
+**Goal.** Confirm that `shore review capture` records a `work_object_proposed` event, writes a
 snapshot artifact, and rebuilds `.shore/data/state.json`.
 
 ```bash
@@ -55,16 +55,16 @@ echo -e "alpha\nbeta-modified\ngamma\ndelta" > src.txt
 
 shore review capture | jq .
 ls -la .shore/data/
-ls .shore/data/events/ .shore/data/artifacts/snapshots/
+ls .shore/data/events/ .shore/data/artifacts/objects/
 ```
 
 **Expect.**
 
-- One JSON document with `schema: "shore.review-capture"`, a `reviewUnit.id`, a `revisionId`, a
-  `snapshotId`, and a `snapshotArtifactContentHash`.
+- One JSON document with `schema: "shore.review-capture"`, a `revision.id`, a `revisionId`, an
+  `objectId`, and an `objectArtifactContentHash`.
 - `.shore/data/events/` contains exactly one event file.
-- `.shore/data/artifacts/snapshots/` contains exactly one snapshot artifact.
-- `.shore/data/state.json` exists and reports `reviewUnitCount: 1`.
+- `.shore/data/artifacts/objects/` contains exactly one snapshot artifact.
+- `.shore/data/state.json` exists and reports `revisionCount: 1`.
 - `.shore/data/` is registered in `.git/info/exclude`; the worktree `.gitignore` is
   unchanged and `git status --short` reports no `.gitignore` line.
 
@@ -91,7 +91,7 @@ that has no other diff.
 
 ## C. Observations — add and list
 
-**Goal.** Confirm observations attach to a ReviewUnit, support review-wide and range targets, and
+**Goal.** Confirm observations attach to a revision, support review-wide and range targets, and
 can be filtered by track or tag on read.
 
 ```bash
@@ -116,7 +116,7 @@ shore review observation list --pretty --include-body
 
 - Each `add` returns `shore.review-observation-add` JSON with a new `observationId` and
   `eventId`, plus a `bodyContentHash` for the second observation only.
-- `observation list` returns both observations under the same `reviewUnitId`. The range-targeted
+- `observation list` returns both observations under the same `revisionId`. The range-targeted
   observation has `target.kind: "range"` with `filePath`, `side`, `startLine`, `endLine`.
 - The `--track agent:codex` filter returns only the first observation.
 - The `--tag correctness` filter returns only observations carrying that exact tag.
@@ -217,34 +217,34 @@ shore review history --pretty --include-body \
   is `.summary.body`, an assessment summary is `.summary.summary`, and an input request response
   reason is on the responded entry's `.summary.reason`.
 
-## G. Review unit list and show with and without `--include-body`
+## G. Review revisions and show with and without `--include-body`
 
-**Goal.** Confirm the discovery surface lists every captured ReviewUnit, and the composite
-ReviewUnit view returns narrative facts before the snapshot remainder with body text omitted by
+**Goal.** Confirm the discovery surface lists every captured revision, and the composite
+revision view returns narrative facts before the snapshot remainder with body text omitted by
 default.
 
-### `shore review unit list`
+### `shore review revisions`
 
-`shore review unit list` projects `review_unit_captured` events into a flat directory of
-ReviewUnits. Reach for it whenever `shore review unit show` errors with
-`multiple captured review units; pass --review-unit`.
+`shore review revisions` projects `work_object_proposed` events into a flat directory of
+revisions. Reach for it whenever `shore review show` errors with
+`multiple captured revisions; pass --revision`.
 
 ```bash
-shore review unit list --pretty | jq '{eventSetHash, reviewUnitCount, ids: [.entries[].reviewUnitId]}'
-shore review unit list --pretty | jq '.entries[] | {reviewUnitId, capturedAt, snapshotArtifactContentHash}'
+shore review revisions --pretty | jq '{eventSetHash, revisionCount, ids: [.entries[].revisionId]}'
+shore review revisions --pretty | jq '.entries[] | {revisionId, capturedAt, objectArtifactContentHash}'
 ```
 
 **Expect.**
 
-- `reviewUnitCount` matches the number of `review_unit_captured` events on disk; capturing a new
-  ReviewUnit increments it by one.
-- Each entry includes `reviewUnitId`, `capturedAt`, `revisionId`, `snapshotId`, `source`, `base`,
-  `target`, and `snapshotArtifactContentHash` and no event paths, artifact paths, or `statePath`.
-- Entries are sorted by `capturedAt`, so the newest ReviewUnit appears last.
+- `revisionCount` matches the number of `work_object_proposed` events on disk; capturing a new
+  revision increments it by one.
+- Each entry includes `revisionId`, `capturedAt`, `objectId`, `source`, `base`,
+  `target`, and `objectArtifactContentHash` and no event paths, artifact paths, or `statePath`.
+- Entries are sorted by `capturedAt`, so the newest revision appears last.
 
-### `shore review unit show`
+### `shore review show`
 
-`shore review unit show` puts each ReviewUnit fact in two places:
+`shore review show` puts each revision fact in two places:
 
 - top-level `observations[]`, `inputRequests[]`, `assessments[]`, and `adapterNotes[]` carry the
   hydrated facts (including `body` / `summary` / `reason` when `--include-body` is passed).
@@ -254,18 +254,18 @@ shore review unit list --pretty | jq '.entries[] | {reviewUnitId, capturedAt, sn
   or `"snapshot_remainder"`. Body text is **not** carried on rows.
 
 ```bash
-shore review unit show --pretty | jq '.eventSetHash, .summary'
-shore review unit show --pretty | jq '[.rows[].kind] | unique'
-shore review unit show --pretty \
+shore review show --pretty | jq '.eventSetHash, .summary'
+shore review show --pretty | jq '[.rows[].kind] | unique'
+shore review show --pretty \
   | jq '[.rows[] | {kind, projectionPhase}] | group_by(.projectionPhase) | map({phase: .[0].projectionPhase, count: length})'
 
 # Bodies are omitted by default and live on the top-level fact lists when hydrated.
-shore review unit show --pretty | jq '.observations[] | {title, body}'
-shore review unit show --pretty --include-body | jq '.observations[] | {title, body}'
-shore review unit show --pretty --include-body | jq '.assessments[] | {assessment, summary}'
+shore review show --pretty | jq '.observations[] | {title, body}'
+shore review show --pretty --include-body | jq '.observations[] | {title, body}'
+shore review show --pretty --include-body | jq '.assessments[] | {assessment, summary}'
 
 # Track filter narrows narrative material but leaves the snapshot remainder intact.
-shore review unit show --pretty --track agent:codex \
+shore review show --pretty --track agent:codex \
   | jq '{
       observations: [.observations[].trackId] | unique,
       input_requests_count: (.inputRequests | length),
@@ -326,8 +326,8 @@ shore review history --pretty --event-type review-note-imported \
 - A second run with the same sidecar increments `notesExisting` and leaves `notesCreated` at 0:
   imported-note events are idempotent on their semantic ID.
 - `shore review history --event-type review-note-imported` returns one entry.
-- `shore review unit show --pretty | jq '.adapterNotes'` returns the imported note as one entry in
-  the ReviewUnit's adapter-notes list.
+- `shore review show --pretty | jq '.adapterNotes'` returns the imported note as one entry in
+  the revision's adapter-notes list.
 
 To exercise the TUI by eye, run `shore show` and confirm `j`/`k`, `[`/`]`, and `{`/`}` work, and
 that `q` exits cleanly.
@@ -367,24 +367,24 @@ regenerated.
 The authority split (see `docs/storage-model.md`):
 
 - `.shore/data/events/` — append-only immutable per-fact events.
-- `.shore/data/artifacts/` — immutable support records that events bind to: captured ReviewUnit
-  snapshots (`artifacts/snapshots/`), and content-addressed bodies for large observation,
-  input request, and assessment payloads (`artifacts/notes/`). `review unit show` reads the
-  snapshot artifact for the selected ReviewUnit; the event log alone cannot reconstruct snapshot
+- `.shore/data/artifacts/` — immutable support records that events bind to: captured revision
+  snapshots (`artifacts/objects/`), and content-addressed bodies for large observation,
+  input request, and assessment payloads (`artifacts/notes/`). `review show` reads the
+  snapshot artifact for the selected revision; the event log alone cannot reconstruct snapshot
   rows or large note bodies.
 - `.shore/data/state.json` — rebuildable projection summary. Reads do not depend on its existence;
   writes regenerate it.
 
 ```bash
 ls .shore/data/events/
-ls .shore/data/artifacts/snapshots/
+ls .shore/data/artifacts/objects/
 ls .shore/data/artifacts/notes/        # only populated for large-body events
 
 # Read commands work without state.json
 HASH_BEFORE=$(jq -r .eventSetHash .shore/data/state.json)
 rm .shore/data/state.json
 shore review history --pretty | jq -r .eventSetHash    # same hash
-shore review unit show --pretty >/dev/null
+shore review show --pretty >/dev/null
 test -f .shore/data/state.json && echo "rebuilt" || echo "still missing (expected for reads)"
 
 # A write command rebuilds the projection
@@ -394,7 +394,7 @@ jq '.eventCount, .eventSetHash' .shore/data/state.json
 
 **Expect.**
 
-- `shore review history` and `shore review unit show` both succeed without `state.json` present.
+- `shore review history` and `shore review show` both succeed without `state.json` present.
   Their `eventSetHash` matches the value that was in the deleted projection.
 - After the next write command, `.shore/data/state.json` exists again and reports a higher
   `eventCount` and a new `eventSetHash`.
@@ -419,7 +419,7 @@ When refactoring storage, projections, or CLI surfaces, also look at:
   an artifact at all, so use a body well over that threshold to exercise this path —
   `python3 -c "print('x'*5000)" > big-body.txt` and pass `--body-file big-body.txt` to two
   separate `observation add` calls.
-- **Exit codes**: piping `shore dump`, `shore review unit show`, or `shore review history` through
+- **Exit codes**: piping `shore dump`, `shore review show`, or `shore review history` through
   `jq -e 'has("schema")'` should always exit 0 for successful runs.
 - **Tracing**: passing `--log info --log-file /tmp/shore.log` to any command should write to that
   file and not corrupt the JSON on stdout. `shore show` requires `--log-file` when tracing is

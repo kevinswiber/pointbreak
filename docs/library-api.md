@@ -41,22 +41,22 @@ Shoreline does not introduce async traits or a runtime of its own.
 
 | Item | Purpose |
 | ---- | ------- |
-| `show_review_unit` + `ReviewUnitShowOptions` / `ReviewUnitShowResult` | The ReviewUnit projection (identity, summary, rows, observations, input requests, assessments, validation checks). |
-| `list_review_units` + `ReviewUnitListOptions` / `ReviewUnitListResult` | Enumerate captured ReviewUnits. |
+| `show_revision` + `RevisionShowOptions` / `RevisionShowResult` | The revision projection (identity, summary, rows, observations, input requests, assessments, validation checks). |
+| `list_revisions` + `RevisionListOptions` / `RevisionListResult` | Enumerate captured revisions. |
 | `list_input_requests` + `InputRequestListOptions` / `InputRequestListResult` | List input requests; defaults to open. Filter with `InputRequestStatusFilter`. |
 | `fetch_input_request` + `InputRequestFetchOptions` / `InputRequestFetchResult` | Fetch one input request, optionally hydrating its body. |
 | `list_observations` / `show_assessments` / `list_validation_checks` / `review_history` (+ their options/results) | Observations, current assessment, validation evidence, and the review history projection. |
 | `store_status` + `StoreStatusOptions` / `StoreStatusResult` | Store inventory and sensitivity diagnostics. |
-| `InputRequestView`, `InputRequestResponseView`, `ObservationView`, `AssessmentView`, `ValidationCheckView`, `ReviewUnitProjection*` | Public-field result types. |
+| `InputRequestView`, `InputRequestResponseView`, `ObservationView`, `AssessmentView`, `ValidationCheckView`, `RevisionProjection*` | Public-field result types. |
 | `InputRequestStatus`, `InputRequestStatusFilter`, `ObservationStatus`, `ValidationStatus`, `ValidationTrigger`, `CurrentAssessmentStatus`, `ReloadOutcome` | Status/value enums consumers branch on. |
 
 ### Writes — `shoreline::session`
 
 | Item | Purpose |
 | ---- | ------- |
-| `capture_review` + `CaptureOptions` | Canonical capture entry point; dispatches on the options' source spec (worktree by default, or a commit range via `CaptureOptions::with_commit_range`). |
+| `capture_review` + `CaptureOptions` | Canonical capture entry point; records a `WorkObjectProposed` event carrying a `WorkObjectProposedPayload` (the one generative move), and dispatches on the options' source spec (worktree by default, or a commit range via `CaptureOptions::with_commit_range`). The function name is unchanged. |
 | `CommitRangeSpec` | Commit-range capture input: a base rev and an optional target rev (default `HEAD`), resolved to commit endpoints at capture time. |
-| `capture_worktree_review` + `CaptureOptions` | Worktree-source convenience entry point; delegates to `capture_review`. |
+| `capture_worktree_review` + `CaptureOptions` | Worktree-source convenience entry point; delegates to `capture_review`. The function name is unchanged. |
 | `open_input_request` / `respond_input_request` (+ options/results) | Open and operatively respond to input requests. |
 | `record_observation` / `record_assessment` / `record_validation_check` (+ options/results) | Record observations, the review assessment, and advisory validation evidence. |
 
@@ -68,23 +68,23 @@ correct actor without mutating the process-global `SHORE_ACTOR_ID` (which is `un
 edition 2024). The chosen actor is part of a fact's content-addressed identity, so distinct actors
 produce distinct facts.
 
-Validation checks target a captured ReviewUnit only. `ValidationAddOptions` resolves either an
-explicit ReviewUnit, a lineage head, or the single current ReviewUnit, then constructs the
-ReviewUnit validation target internally. `ValidationListOptions` filters by ReviewUnit, track, and
+Validation checks target a captured revision only. `ValidationAddOptions` resolves either an
+explicit revision, a supersession-thread head, or the single current revision, then constructs the
+revision validation target internally. `ValidationListOptions` filters by revision, track, and
 status, and `with_include_body(true)` hydrates validation summaries. Validation evidence is
 advisory; it does not accept, reject, merge, block, or replace a review assessment.
 
 **Shared-store write resolution.** By default every worktree of a clone resolves the same shared
 common-dir store (`.git/shore`) for both reads and writes, with no setup step. Every review write
 workflow above (`record_observation`, `open_input_request`, `respond_input_request`,
-`record_assessment`, `record_validation_check`, and lineage attach) validates and derives against
+`record_assessment`, and `record_validation_check`) validates and derives against
 that store, and the write itself lands directly in it (`resolve_write_store` resolves the same store
-the reads do), so a consumer can record a fact against a ReviewUnit, observation, assessment, or
+the reads do), so a consumer can record a fact against a revision, observation, assessment, or
 input request captured in a sibling worktree, and the fact is visible to reads from every worktree in
 place. An `ephemeral` worktree instead resolves its own discardable worktree-local `.shore/data/`
 store; the validation set reduces to that store's event list.
 
-`respond_input_request` answers **review-unit** input requests (the reviewer-to-author loop). Agent
+`respond_input_request` answers **revision** input requests (the reviewer-to-author loop). Agent
 **task-attempt** input requests — the resumption domain that feeds ADR-0009 binding — are a separate
 input-request flavour, authored and answered by the agent session / relay rather than by this
 review-fact command; passing a task-attempt request id to `respond_input_request` is rejected with a
@@ -185,7 +185,7 @@ resolve a principal, and signing never gates a write.
 | `DelegationMap` / `delegation_map_from_value` / `DelegationMap::from_delegates_file` | Parse a checked-in `.shore/delegates.json` map (top-level `delegates` key, unknown keys ignored), reader-supplied like `TrustSet`. |
 | `DelegationMap::resolve` / `PrincipalResolution` / `UnresolvedReason` | Resolve an agent actor's principal at an event `occurredAt` over half-open validity windows: `Resolved` / `None(reason)` / `Ambiguous`. |
 | `PrincipalView` / `PrincipalStatus` / `PrincipalSource` | The serialized principal object `{actorId, status, source}` that rides beside `writer` in projections; `principal_view_for` builds it (only for `actor:agent:*` writers), `principal_display_label` renders `claude-code (for kevin@swiber.dev)`. |
-| `with_delegation_map` | Thread a `DelegationMap` into a read — on `ReviewHistoryOptions` and `ReviewUnitShowOptions`, and as a parameter to the leaf document builders — beside `with_trust_set`. |
+| `with_delegation_map` | Thread a `DelegationMap` into a read — on `ReviewHistoryOptions` and `RevisionShowOptions`, and as a parameter to the leaf document builders — beside `with_trust_set`. |
 | `PrincipalPolicy` / `principal_sufficient` | Reader-side principal-sufficiency policy (`none` default / `prefer` / `require-resolvable-principal`), composed conjunctively beneath ADR-0009's resumption binding predicate — narrowing only. |
 
 Every event's envelope carries `writer.producer` (`{name, version}`), the producing software that
@@ -243,7 +243,7 @@ after a migration into the shared store.
 | `export_artifact` | Read and hash-verify one referenced artifact's bytes from a source store. |
 | `import_artifact` + `ImportArtifactOptions` / `ImportArtifactResult` / `ImportArtifactOutcome` | Hash-verify and idempotently write one referenced artifact into a destination store. |
 
-`ingest_events` transfers events only. Events can reference snapshot artifacts and large note-shaped
+`ingest_events` transfers events only. Events can reference object artifacts and large note-shaped
 body artifacts, and those blobs must be transferred separately before reads that need them. A full
 mirror flow is:
 
@@ -253,7 +253,7 @@ mirror flow is:
 4. `ingest_events` into the destination store;
 5. `import_artifact` each fetched blob into the destination store.
 
-After events and artifacts are present, `show_review_unit` can load the bound snapshot artifact and
+After events and artifacts are present, `show_revision` can load the bound object artifact and
 `fetch_input_request(...with_include_body(true))` / include-body projections can hydrate large
 bodies. The store layout remains private; callers should keep and pass around `ArtifactRef` values
 rather than constructing paths. A remote bridge derives those refs from the forwarded events it
@@ -263,7 +263,7 @@ shared common-dir store: every worktree of a clone already shares one local stor
 networked consumers can fetch and import the required blobs by content hash.
 
 Signature validity does not imply artifact availability. A signed event can be `valid` while its
-referenced snapshot or note-body artifact is unavailable, and an available artifact can be attached
+referenced object or note-body artifact is unavailable, and an available artifact can be attached
 to an unsigned event. Consumers that need a full-fidelity mirror should verify both event signatures
 and artifact transfer separately.
 
@@ -274,7 +274,7 @@ The `shoreline::documents` module produces the documented `shore.review-*` comma
 
 - Envelopes: `DiagnosticDocument<T>`, `EventWriteDocument<T>` (schema/version/diagnostics, plus
   event-write counts).
-- Per-command builders: `unit_show_document`, `unit_list_document`, `capture_document`,
+- Per-command builders: `revision_show_document`, `revision_list_document`, `capture_document`,
   `observation_add_document`, `observation_list_document`, `input_request_open_document`,
   `input_request_list_document`, `input_request_fetch_document`, `input_request_respond_document`,
   `assessment_add_document`, `assessment_show_document`, `validation_add_document`,
@@ -285,7 +285,7 @@ typed result to the matching builder, and serializes the document with `serde_js
 
 ### Identifiers — `shoreline::model`
 
-The content-addressed id newtypes (`ActorId`, `ReviewUnitId`, `InputRequestId`,
+The content-addressed id newtypes (`ActorId`, `RevisionId`, `ObjectId`, `InputRequestId`,
 `InputRequestResponseId`, `ObservationId`, `AssessmentId`, `ValidationCheckId`, `EventId`,
 `TrackId`, …) are public and serialize transparently as strings.
 

@@ -1,7 +1,7 @@
 # Assessment Model
 
 Shoreline records reviewer decisions as `review_assessment_recorded` events. An assessment is the
-current review call for a captured ReviewUnit, file, range, observation, input request, or earlier
+current review call for a captured revision, file, range, observation, input request, or earlier
 assessment.
 
 The assessment values are deliberately narrow:
@@ -26,8 +26,8 @@ shore review assessment add \
   --summary "looks good, ship it"
 ```
 
-The command targets the selected ReviewUnit by default. It can also target a captured file or range,
-or a native observation, input request, or assessment in the same ReviewUnit:
+The command targets the selected revision by default. It can also target a captured file or range,
+or a native observation, input request, or assessment in the same revision:
 
 ```bash
 shore review assessment add --track human:kevin --assessment needs-changes --file src/lib.rs
@@ -46,8 +46,11 @@ same Shoreline-owned `shore.note-body` artifact path as other note-shaped bodies
 artifact paths private.
 
 `--replaces <assessment-id>` is the only relationship that removes an older assessment from the
-current set. `--related-observation` and `--related-input-request` record evidence links only; they
-do not mutate observations or close input requests.
+current set. It points the new assessment forward at the one it supersedes — the same forward-pointer
+shape that a capture's `--supersedes` uses to evolve past an earlier revision — so an assessment is
+never mutated in place; the replacement is a new fact. `--related-observation` and
+`--related-input-request` record evidence links only; they do not mutate observations or close input
+requests.
 
 Use `shore review assessment show` to read the current assessment projection:
 
@@ -76,8 +79,10 @@ duplicate semantic diagnostic.
 - `relatedObservationIds`
 - `relatedInputRequestIds`
 
-The event envelope owns writer provenance, track, review-unit identity, revision identity, snapshot
-identity, and idempotency.
+The event envelope owns writer provenance, track, idempotency, and the subject it targets — one
+non-optional `target` that addresses the captured revision and, through it, the revision's
+content-only object identity. The pre-reshape trio of flat review-unit, revision, and snapshot
+identities folds into that single subject plus the distinct object sub-identity.
 
 ## Legacy disposition events
 

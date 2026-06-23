@@ -16,7 +16,7 @@ work, you turn the handoff into self-grading and pollute the review surface the 
 
 ```text
 1. Confirm the full task change you intend to hand off — uncommitted in the worktree, or landed in commits.
-2. Capture the ReviewUnit: `shore review capture`, or `shore review capture --base <rev>` for a landed range.
+2. Capture the revision: `shore review capture`, or `shore review capture --base <rev>` for a landed range.
 3. Choose one author track for this handoff.
 4. Add observations on that track for what changed, why, and review risks.
 5. Record validation evidence on that track for checks you actually ran.
@@ -46,13 +46,13 @@ git status --short
 # Preferred: the task is still uncommitted in the worktree.
 capture_file=$(mktemp)
 shore review capture | tee "$capture_file" | jq .
-review_unit_id=$(jq -r '.reviewUnit.id' "$capture_file")
+revision_id=$(jq -r '.revision.id' "$capture_file")
 rm "$capture_file"
 
 # Already committed (clean tree): capture the landed range from the task's starting commit.
 capture_file=$(mktemp)
 shore review capture --base <commit-before-task> | tee "$capture_file" | jq .
-review_unit_id=$(jq -r '.reviewUnit.id' "$capture_file")
+revision_id=$(jq -r '.revision.id' "$capture_file")
 rm "$capture_file"
 ```
 
@@ -66,8 +66,8 @@ tell the user there is no change for Shoreline to capture. If you committed only
 left the rest uncommitted, plain `shore review capture` sees only the uncommitted remainder; capture
 the whole change with `--base` from the task's starting commit instead.
 
-Use the captured ReviewUnit ID for every write. If `jq` is unavailable, copy `reviewUnit.id` from the
-compact JSON output and use it in place of `$review_unit_id`.
+Use the captured revision ID for every write. If `jq` is unavailable, copy `revision.id` from the
+compact JSON output and use it in place of `$revision_id`.
 
 ## Choose your track
 
@@ -109,23 +109,23 @@ specific part of the diff.
 
 ```bash
 shore review observation add \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$track" \
   --title "Parser keeps the existing whitespace contract" \
   --file src/parser.rs --start-line 84 --end-line 123 \
   --body "The parser now accepts the new token form while preserving the old whitespace path. The branch stays local to parsing so callers do not need a compatibility shim."
 
 shore review observation add \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$track" \
   --title "Verification covered the changed parser and full suite" \
   --body "Ran the targeted parser test and the repository test suite after the final edit. No generated artifacts were changed."
 
 shore review observation add \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$track" \
   --title "Targeted parser test was red first" \
-  --body "The targeted parser test failed before the implementation change, confirming it covered the old behavior. That pre-change failure did not run against the captured ReviewUnit, so it is recorded as context rather than validation evidence."
+  --body "The targeted parser test failed before the implementation change, confirming it covered the old behavior. That pre-change failure did not run against the captured revision, so it is recorded as context rather than validation evidence."
 ```
 
 Good observation titles are short and specific. The body should explain why the fact matters for the
@@ -135,22 +135,22 @@ actually run.
 ## Record validation evidence
 
 Use validation evidence for concrete check results: tests, lint, builds, format checks, or equivalent
-verification commands that ran against the captured ReviewUnit. Validation evidence is advisory
+verification commands that ran against the captured revision. Validation evidence is advisory
 review context only. It never accepts, rejects, merges, blocks, or replaces the reviewer's
 assessment.
 
 ```bash
 shore review validation add \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$track" \
   --check-name "targeted parser test" \
   --status passed \
   --command "cargo +stable nextest run -p shoreline --test parser" \
   --exit-code 0 \
-  --summary "Passed after the final edit against the captured ReviewUnit."
+  --summary "Passed after the final edit against the captured revision."
 
 shore review validation add \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$track" \
   --check-name "just check" \
   --status passed \
@@ -159,7 +159,7 @@ shore review validation add \
   --summary "Completed after the final edit. This covered commit checks, build, lint, and tests."
 ```
 
-Validation checks target the whole captured ReviewUnit. Do not add file, range, or path targets; if
+Validation checks target the whole captured revision. Do not add file, range, or path targets; if
 the reviewer needs to know where a check matters, add an anchored observation separately. Do not
 record checks you did not run. If a planned check was intentionally skipped, record it as `skipped`
 only when the summary says why.
@@ -172,7 +172,7 @@ pause the workflow.
 
 ```bash
 shore review input-request open \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$track" \
   --title "Confirm whether the relaxed parser should be documented" \
   --reason manual-decision-required \
@@ -180,7 +180,7 @@ shore review input-request open \
   --body "The implementation accepts the new form, but I did not update user-facing docs because the prompt did not say whether this behavior should be advertised yet."
 
 shore review input-request open \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$track" \
   --title "Choose the default for conflicting config values" \
   --reason ambiguous-state \
@@ -196,9 +196,9 @@ are acting as the reviewer, not while authoring the handoff.
 Verify that the handoff is visible before you stop:
 
 ```bash
-shore review observation list --revision "$review_unit_id" --track "$track" --pretty
-shore review validation list --revision "$review_unit_id" --track "$track" --include-body --pretty
-shore review input-request list --revision "$review_unit_id" --track "$track" --status open --pretty
+shore review observation list --revision "$revision_id" --track "$track" --pretty
+shore review validation list --revision "$revision_id" --track "$track" --include-body --pretty
+shore review input-request list --revision "$revision_id" --track "$track" --status open --pretty
 ```
 
 These commands verify the author's writes without replaying the captured snapshot. The
@@ -238,8 +238,8 @@ capture a separate handoff when that task reaches its own end.
   `shore review validation add`; use observations for the surrounding decision or risk context.
 - **Treating validation as acceptance.** Validation evidence is advisory and never replaces the
   reviewer's assessment.
-- **Forgetting `--revision`.** If more than one ReviewUnit is current, write commands fail until
-  you pass the captured ReviewUnit ID.
+- **Forgetting `--revision`.** If more than one revision is current, write commands fail until
+  you pass the captured revision ID.
 - **Self-assessing.** The authoring agent records observations and input requests only. A reviewer
   records assessments.
 - **Recording vague observations.** "Implemented the feature" is not useful. Say what changed, why

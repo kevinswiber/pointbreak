@@ -61,15 +61,15 @@ git status --short
 git diff
 ```
 
-## 3. Capture The ReviewUnit
+## 3. Capture The Revision
 
 ```bash
 shore review capture
 ```
 
-The capture freezes the current diff as a local ReviewUnit. Shoreline creates the `.shore/data/`
+The capture freezes the current diff as a local revision. Shoreline creates the `.shore/data/`
 store in the worktree, writes immutable event files under `.shore/data/events/`, stores captured
-snapshot artifacts under `.shore/data/artifacts/`, and rebuilds `.shore/data/state.json` as a
+object artifacts under `.shore/data/artifacts/`, and rebuilds `.shore/data/state.json` as a
 projection.
 
 Those files are local storage. Use command output as the integration surface instead of depending
@@ -78,11 +78,11 @@ on internal file paths.
 ## 4. Inspect The Review
 
 ```bash
-shore review unit show --pretty
+shore review show --pretty
 ```
 
-This shows the composite ReviewUnit view: captured files and rows, plus any observations, input
-requests, assessments, and imported notes already recorded for the same ReviewUnit.
+This shows the composite revision view: captured files and rows, plus any observations, input
+requests, assessments, and imported notes already recorded for the same revision.
 
 For a chronological event log, use:
 
@@ -126,19 +126,19 @@ shore review assessment add \
   --summary "Implementation is small, but fallback wording needs a decision."
 ```
 
-Read the updated ReviewUnit:
+Read the updated revision:
 
 ```bash
-shore review unit show --pretty --include-body
+shore review show --pretty --include-body
 ```
 
 ## 6. Where To Go Next
 
 - Run `shore inspect --open` to browse this store in a local web UI: an event timeline,
-  per-ReviewUnit pages, ReviewUnit lineages, and captured diffs annotated with their review facts.
+  per-revision pages, supersession threads, and captured diffs annotated with their review facts.
 - [CLI reference](cli-reference.md) lists commands, options, output schemas, and V1 limitations.
 - [Review workflow](review-workflow.md) explains when to use capture, observations, input requests,
-  assessments, history, and unit show in a real review.
+  assessments, history, and revision reads in a real review.
 - [Storage model](storage-model.md) explains durable events, artifacts, and rebuildable
   projections.
 - [Input request model](input-request-model.md) explains operative and advisory requests.

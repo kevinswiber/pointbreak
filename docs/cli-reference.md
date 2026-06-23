@@ -37,7 +37,7 @@ per-call override; a malformed value is ignored and falls through rather than co
 provenance.
 
 Review read commands (`history`, the `observation` / `input-request` / `assessment` / `validation`
-list and show commands, `unit show`, and the inspector) discover a checked-in delegation map at
+list and show commands, `review show`, and the inspector) discover a checked-in delegation map at
 `<repo>/.shore/delegates.json` and resolve the human principal an agent wrote on behalf of,
 rendering it beside the writer as `claude-code (for kevin@swiber.dev)`. Discovery is presence-based
 — absent file, no change. A malformed `.shore/delegates.json` prints a single warning to stderr and
@@ -132,48 +132,47 @@ files or per-command output.
 - `--open` launches the inspector in the default browser after the server starts.
 - The server runs until interrupted with Ctrl-C.
 
-The page provides a chronological event timeline (filterable by track, ReviewUnit, lineage, and
-event type, newest-first by default), a per-event detail view, a composite per-ReviewUnit page showing
-the current-assessment status plus grouped observations, input requests, assessments, and lineage/head
-badges, a ReviewUnit lineage list/detail view showing heads, threaded rounds, diagnostics, and stale
-older-round facts, and the captured diff for a ReviewUnit annotated with the review facts anchored to
-each line. Validation checks recorded with `shore review validation add` appear throughout — as a
-labeled timeline event type, a "Validation checks" section on the ReviewUnit page (with the check
-name, status, trigger, and exit code), and on lineage round cards — shown for context only; they do
-not affect the current assessment and carry no merge or acceptance authority. The reader-relative
-`verificationStatus` and `endorsements` readback (see
+The page provides a chronological event timeline (filterable by track, revision, thread, and
+event type, newest-first by default), a per-event detail view, a composite per-revision page showing
+the current-assessment status plus grouped observations, input requests, assessments, and
+competing-head badges, a supersession-thread list/detail view showing heads, threaded revisions,
+diagnostics, and stale superseded-revision facts, and the captured diff for a revision annotated with
+the review facts anchored to each line. Validation checks recorded with `shore review validation add`
+appear throughout — as a labeled timeline event type, a "Validation checks" section on the revision
+page (with the check name, status, trigger, and exit code), and on thread cards — shown for context
+only; they do not affect the current assessment and carry no merge or acceptance authority. The
+reader-relative `verificationStatus` and `endorsements` readback (see
 [Verification status and endorsement readback](#verification-status-and-endorsement-readback))
 renders beside events and review facts: the per-event signature status as a chip on the timeline,
-detail view, and ReviewUnit fact cards, and the endorsement classification with its resolved
-`endorser` and `endorserAttributes` on the detail view and ReviewUnit page — presented as advisory,
+detail view, and revision fact cards, and the endorsement classification with its resolved
+`endorser` and `endorserAttributes` on the detail view and revision page — presented as advisory,
 render-only information, never as a gate or verdict. Long IDs render as
 truncated, clickable references that navigate to the resource they name, and the page auto-refreshes
 when the store changes or a freshness diagnostic appears or clears.
 
 The inspector is a read-only, single-store, localhost developer tool. It reads through the same
-validated projections as `shore review history` and `shore review unit show` rather than parsing raw
+validated projections as `shore review history` and `shore review show` rather than parsing raw
 storage, and it serves over a synchronous, dependency-free HTTP server with no async runtime. The
-small JSON API the page consumes (`/api/history`, `/api/units`, `/api/unit`, `/api/lineages`,
-`/api/lineage`, `/api/snapshot`, `/api/freshness`) is an internal surface for the bundled page, not
-a stable contract.
+small JSON API the page consumes (`/api/history`, `/api/revisions`, `/api/revision`, `/api/objects`,
+`/api/object`, `/api/freshness`) is an internal surface for the bundled page, not a stable contract.
 
 Every worktree of a clone resolves the shared common-dir store (`.git/shore`), so the inspector
-renders snapshots captured in sibling worktrees as well as the current one. The `/api/snapshot`
-payload is **snapshot-scoped** (#146): it carries
-the immutable diff content and its `contentHash` only — no `reviewUnitId`, `source`, `base`, or
-`target`. The captured worktree path is therefore simply absent from the snapshot wire (there is
-nothing to redact). Endpoint/target display lives on `/api/unit` and `/api/units`, derived from the
-ReviewUnit projection (a path-private `targetDisplay` block), not from the snapshot artifact.
-`shore review unit list` JSON still carries `target.worktreeRoot`, unchanged.
+renders snapshots captured in sibling worktrees as well as the current one. The `/api/object`
+payload is **content-only**: it carries the immutable diff content and its `contentHash` only — no
+`revisionId`, `source`, `base`, or `target`. The captured worktree path is therefore simply absent
+from the object wire (there is nothing to redact). Endpoint/target display lives on `/api/revision`
+and `/api/revisions`, derived from the revision projection (a path-private `targetDisplay` block),
+not from the object artifact. `shore review revisions` JSON still carries `target.worktreeRoot`,
+unchanged.
 
 ## `shore review capture`
 
 ```bash
 shore review capture [--repo <path>] [--base <rev> [--target <rev>]] \
-  [--lineage <lineage-id>] [--predecessor <review-unit-id>] [--change-id <change-id>]
+  [--supersedes <revision-id>]...
 ```
 
-`shore review capture` records the current V1 ReviewUnit: the base endpoint, target endpoint, and
+`shore review capture` records the current V1 revision: the base endpoint, target endpoint, and
 captured diff snapshot. By default V1 captures the local Git worktree from `HEAD` to the working
 tree, including untracked files (source `git_worktree`).
 
@@ -184,7 +183,7 @@ tree, including untracked files (source `git_worktree`).
   is the `base..target` tree diff with no working-tree, index, or untracked involvement, so both
   endpoints serialize as `git_commit` and no worktree path appears in the output. `--target`
   requires `--base`. Re-capturing the same range is idempotent and reports `eventsExisting`, and an
-  equivalent rev spelling (`HEAD~1` versus the resolved OID) captures the same ReviewUnit because
+  equivalent rev spelling (`HEAD~1` versus the resolved OID) captures the same revision because
   rev spellings are never stored. Like worktree capture, a range capture lands in the shared
   common-dir store, so it is immediately visible from sibling worktrees (see below).
 - Durable state lands in the shared common-dir store at `.git/shore` under the clone's Git common
@@ -207,13 +206,15 @@ tree, including untracked files (source `git_worktree`).
   `.shore/data/`.
 - `events/` stores immutable event files.
 - `state.json` is a rebuildable projection, not the authority.
-- Full captured snapshots are Shoreline-owned immutable artifacts under `artifacts/snapshots/`.
-- The `review_unit_captured` event binds to the snapshot artifact's canonical content hash; the
-  snapshot-scoped artifact body carries no ReviewUnit identity or endpoints (those live on the event).
-- Output is compact `shore.review-capture` JSON and includes ReviewUnit, revision, and snapshot IDs
-  plus `snapshotArtifactContentHash`.
-- With `--lineage`, capture immediately records lineage declaration/round facts for the newly
-  captured ReviewUnit. `--predecessor` is allowed only with `--lineage`.
+- Full captured snapshots are Shoreline-owned immutable object artifacts under `artifacts/objects/`.
+- The `work_object_proposed` event binds to the object artifact's canonical content hash; the
+  content-only artifact body carries no revision identity or endpoints (those live on the event).
+- Output is compact `shore.review-capture` JSON and includes the revision and object IDs
+  plus `objectArtifactContentHash`.
+- With `--supersedes <revision-id>` (repeatable, order-independent), the capture records that it
+  evolves past the named revisions, extending the supersession DAG. The new revision becomes a thread
+  head; when two captures supersede the same predecessor, the competing heads are surfaced rather than
+  auto-collapsed.
 
 V1 storage is local and synchronous. The shared common-dir store may take concurrent writes from
 multiple worktrees of the same clone, kept safe by content-addressed writes and a regenerable
@@ -222,14 +223,14 @@ storage, remote storage, or note mutation.
 
 By default every worktree of a clone resolves the shared common-dir store at `.git/shore`, so
 `shore review capture` lands its capture directly there — no setup step — and the capture is
-immediately visible to `review unit list`, `unit show`, and `history` from any sibling worktree. An
+immediately visible to `review revisions`, `review show`, and `history` from any sibling worktree. An
 `ephemeral` worktree instead captures into its own discardable `.shore/data/` store (see
 [`shore store`](#shore-store)).
 
 The native review write commands — `shore review observation add`, `shore review input-request open`
-and `respond`, `shore review assessment add`, `shore review validation add`, and `shore review
-lineage attach` — behave the same way. They resolve the shared common-dir store, so you can record a
-fact against a review unit (or related observation, assessment, or request) captured in a sibling
+and `respond`, `shore review assessment add`, and `shore review validation add` — behave the same
+way. They resolve the shared common-dir store, so you can record a
+fact against a revision (or related observation, assessment, or request) captured in a sibling
 worktree, and the fact lands directly in that shared store, visible to every worktree in place. An
 `ephemeral` worktree writes the fact to its own `.shore/data/` store, unchanged.
 
@@ -239,7 +240,7 @@ worktree, and the fact lands directly in that shared store, visible to every wor
 shore store status [--repo <path>] [--pretty]
 shore store mode (shared | ephemeral | show) [--repo <path>] [--pretty]
 shore store migrate [--repo <path>] [--include-ephemeral] [--pretty]
-shore store remove [--repo <path>] (--snapshot <id> | --review-unit <id> | --ref <name> | --range <a>..<b> | --orphans) [--sign-key <key>] [--pretty]
+shore store remove [--repo <path>] (--snapshot <id> | --revision <id> | --ref <name> | --range <a>..<b> | --orphans) [--sign-key <key>] [--pretty]
 shore store gc [--repo <path>] [--pretty]
 shore store compact [--repo <path>] [--pretty]
 ```
@@ -256,10 +257,10 @@ store, not a user-level multi-repository store or remote sync service.
 - `mode` is `local` and `storeRef` is `local`. (Both report the resolved local store; there is no
   registration step and no separate "linked" mode.)
 - `inventory` reports `eventCount`, `eventBytes`, `artifactCount`, `artifactBytes`, `totalBytes`,
-  optional `untrackedBytes`, `largestArtifacts`, and `reviewUnitSnapshots`. Artifact entries use
-  opaque artifact refs rather than filesystem paths. Each `reviewUnitSnapshots` entry carries a
-  `reviewUnitIds` **list** (sourced from the `review_unit_captured` events keyed by `snapshotId`),
-  because one snapshot-scoped artifact may be referenced by several ReviewUnits under the
+  optional `untrackedBytes`, `largestArtifacts`, and `revisionObjects`. Artifact entries use
+  opaque artifact refs rather than filesystem paths. Each `revisionObjects` entry carries a
+  `revisionIds` **list** (sourced from the `work_object_proposed` events keyed by `objectId`),
+  because one content-only object artifact may be referenced by several revisions under the
   shared-store model (#146).
 - `sensitivity` reports `policyOutcome` plus redacted findings. Finding references use
   `file:sha256:*` refs, and command output does not print secret values or source file paths.
@@ -269,9 +270,9 @@ explicit override controls are a forward-looking note for when movement can targ
 blocking findings still name only safe finding kinds, such as `known_token`, and command output does
 not print the secret text or file path.
 
-Every review read command resolves the shared common-dir store: `review unit list` and `unit show`,
-`history`, the observation, input-request, and validation lists, `assessment show`, and
-`lineage show` read it from any worktree of the clone, including hydrated bodies and the captured
+Every review read command resolves the shared common-dir store: `review revisions` and `review show`,
+`history`, the observation, input-request, and validation lists, the association list, and
+`assessment show` read it from any worktree of the clone, including hydrated bodies and the captured
 snapshot, so their `eventCount` and `eventSetHash` reflect that one store.
 
 `shore store mode` reads or sets a per-worktree store mode that controls where the worktree's review
@@ -298,12 +299,12 @@ relocates a legacy flat `.shore/` store to `.shore/data/`; see
 [storage-model.md](./storage-model.md#migrations-and-doctor).)
 
 `shore store remove` retires content-addressed artifacts from the store. It resolves exactly one
-selector to a set of content hashes — `--snapshot <id>` (a snapshot's bound artifact), `--review-unit
-<id>` (every artifact a unit references), `--ref <name>` / `--range <a>..<b>` (artifacts of units
-anchored on the named commit or commit range), or `--orphans` (artifacts of commit-anchored units
-whose commits are all unreachable) — and records one removal fact per content hash. It emits
+selector to a set of content hashes — `--snapshot <id>` (a snapshot's bound artifact), `--revision
+<id>` (every artifact a revision references), `--ref <name>` / `--range <a>..<b>` (artifacts of
+revisions anchored on the named commit or commit range), or `--orphans` (artifacts of commit-anchored
+revisions whose commits are all unreachable) — and records one removal fact per content hash. It emits
 `shore.store-remove` JSON listing each `contentHash`, whether it was newly `created`, and
-`coReferencingUnits` (other review units that still name the same shared artifact, reported before the
+`coReferencingUnits` (other revisions that still name the same shared artifact, reported before the
 removal), plus `eventsCreated` and `eventsExisting`. Removal is content-targeted and idempotent:
 re-removing a hash reports `created: false`. Removal is a write, so a signed store stays signed —
 `--sign-key` selects the signing key exactly as `shore review capture` does. There is deliberately no
@@ -412,19 +413,18 @@ unresolved signer is a hard error rather than an unsigned write. Only shipped su
 
 ```bash
 shore review observation add --track <track-id> --title <title> \
-  [--review-unit <review-unit-id> | --lineage <lineage-id>] [target options]
-shore review observation list [--review-unit <review-unit-id> | --lineage <lineage-id>] [--track <track-id>] \
+  [--revision <revision-id>] [target options]
+shore review observation list [--revision <revision-id>] [--track <track-id>] \
   [--file <path>] [--tag <tag>] [--include-body] [--pretty|--compact]
 ```
 
-Observations are append-only review notes for a captured ReviewUnit.
+Observations are append-only review notes for a captured revision.
 
 - `observation add` requires `--track` and `--title`.
-- `--review-unit` pins the observation to one captured ReviewUnit. `--lineage` targets the current
-  lineage head. Without either, the command defaults to the single captured unit and errors if
-  multiple captured ReviewUnits exist.
+- `--revision` pins the observation to one captured revision. Without either, the command defaults to the single captured revision and errors if
+  multiple captured revisions exist.
 - Tracks are review lanes, not actor or producer provenance.
-- Without `--file`, the observation targets the whole ReviewUnit.
+- Without `--file`, the observation targets the whole revision.
 - With `--file <path>`, it targets a captured file.
 - With `--file <path> --start-line <n> [--end-line <n>]`, it targets a range on `--side <old|new>`
   where the default side is `new`.
@@ -433,7 +433,7 @@ Observations are append-only review notes for a captured ReviewUnit.
   artifact paths private.
 - `--supersedes <observation-id>` records a correction by appending a new observation that names the
   older observation.
-- `observation list` replays durable events for the ReviewUnit and may filter by ReviewUnit, track,
+- `observation list` replays durable events for the revision and may filter by revision, track,
   file, or tag. It hydrates body text only with `--include-body`.
 
 Output is compact `shore.review-observation-add` or `shore.review-observation-list` JSON by
@@ -443,20 +443,19 @@ default. `observation list` also accepts `--pretty` and `--compact`.
 
 ```bash
 shore review input-request open --track <track-id> --title <title> --reason <reason> \
-  [--review-unit <review-unit-id> | --lineage <lineage-id>] [--mode operative|advisory]
-shore review input-request list [--review-unit <review-unit-id> | --lineage <lineage-id>] [--track <track-id>] \
+  [--revision <revision-id>] [--mode operative|advisory]
+shore review input-request list [--revision <revision-id>] [--track <track-id>] \
   [--mode operative|advisory] [--file <path>] [--status open|responded|ambiguous|all] \
   [--include-body] [--pretty|--compact]
 shore review input-request fetch <input-request-id> [--include-body]
 shore review input-request respond <input-request-id> --outcome <outcome> [reason options]
 ```
 
-Input requests are durable pause or decision requests for a captured ReviewUnit.
+Input requests are durable pause or decision requests for a captured revision.
 
 - `input-request open` requires `--track`, `--title`, and `--reason`.
-- `--review-unit` pins the request to one captured ReviewUnit. `--lineage` targets the current
-  lineage head. Without either, the command defaults to the single captured unit and errors if
-  multiple captured ReviewUnits exist.
+- `--revision` pins the request to one captured revision. Without either, the command defaults to the single captured revision and errors if
+  multiple captured revisions exist.
 - `--mode` defaults to `operative`; `advisory` requests are durable and visible but do not imply a
   cooperative client must pause.
 - Targets mirror observations: review-wide by default, captured file, captured range, or an
@@ -465,7 +464,7 @@ Input requests are durable pause or decision requests for a captured ReviewUnit.
 - Large request bodies reuse Shoreline-owned `shore.note-body` artifacts while command output keeps
   artifact paths private.
 - `input-request list` is the V1 polling read surface and defaults to open requests. It may filter
-  by ReviewUnit, track, mode, file, or status, and hydrates body text only with `--include-body`.
+  by revision, track, mode, file, or status, and hydrates body text only with `--include-body`.
 - `input-request fetch <id> --include-body` returns one request and hydrates the body when
   requested.
 - `input-request respond <id>` appends an `input_request_responded` event.
@@ -483,20 +482,19 @@ notification transport, or cancellation/escalation event.
 
 ```bash
 shore review assessment add --track <track-id> --assessment <assessment> \
-  [--review-unit <review-unit-id> | --lineage <lineage-id>] [target options]
-shore review assessment show [--review-unit <review-unit-id> | --lineage <lineage-id>] [--all] [--track <track-id>] \
+  [--revision <revision-id>] [target options]
+shore review assessment show [--revision <revision-id>] [--all] [--track <track-id>] \
   [--include-summary] [--pretty|--compact]
 ```
 
-Assessments record review calls for a captured ReviewUnit.
+Assessments record review calls for a captured revision.
 
 - `assessment add` requires `--track` and `--assessment`.
-- `--review-unit` pins the assessment to one captured ReviewUnit. `--lineage` targets the current
-  lineage head. Without either, the command defaults to the single captured unit and errors if
-  multiple captured ReviewUnits exist.
+- `--revision` pins the assessment to one captured revision. Without either, the command defaults to the single captured revision and errors if
+  multiple captured revisions exist.
 - V1 assessment values are `accepted`, `accepted-with-follow-up`, `needs-changes`, and
   `needs-clarification`.
-- Targets mirror the ReviewUnit ledger: review-wide by default, captured file, captured range,
+- Targets mirror the revision ledger: review-wide by default, captured file, captured range,
   native observation, native input request, or another assessment.
 - Summaries may come from `--summary`, `--summary-file`, or `--summary-stdin`.
 - Large summaries reuse Shoreline-owned `shore.note-body` artifacts while command output keeps
@@ -506,7 +504,7 @@ Assessments record review calls for a captured ReviewUnit.
 - `--related-observation` and `--related-input-request` record evidence links; they do not mutate
   observations or close input requests.
 - `assessment show` reports current status as `unassessed`, `resolved`, or `ambiguous`. It may
-  filter by ReviewUnit or track, include replaced assessments with `--all`, and hydrate summaries
+  filter by revision or track, include replaced assessments with `--all`, and hydrate summaries
   with `--include-summary`.
 
 Output documents are compact `shore.review-assessment-add` and `shore.review-assessment-show` JSON
@@ -519,20 +517,19 @@ observations when needed.
 
 ```bash
 shore review validation add --track <track-id> --check-name <name> --status <status> \
-  [--review-unit <review-unit-id> | --lineage <lineage-id>] [validation options]
-shore review validation list [--review-unit <review-unit-id> | --lineage <lineage-id>] \
+  [--revision <revision-id>] [validation options]
+shore review validation list [--revision <revision-id>] \
   [--track <track-id>] [--status <status>] [--include-body] [--pretty | --compact]
 ```
 
 Validation checks record local test, lint, build, or other verification evidence for a captured
-ReviewUnit. They are advisory review context only: they do not accept, reject, merge, block, or
+revision. They are advisory review context only: they do not accept, reject, merge, block, or
 replace a review assessment.
 
 - `validation add` requires `--track`, `--check-name`, and `--status`.
-- `--review-unit` pins the check to one captured ReviewUnit. `--lineage` targets the current
-  lineage head. Without either, the command defaults to the single captured unit and errors if
-  multiple captured ReviewUnits exist.
-- Validation targets are ReviewUnit-only. There are no file or path target flags.
+- `--revision` pins the check to one captured revision. Without either, the command defaults to the single captured revision and errors if
+  multiple captured revisions exist.
+- Validation targets are revision-only. There are no file or path target flags.
 - Status values are `passed`, `failed`, `errored`, and `skipped`.
 - `--command`, `--exit-code`, `--source-fingerprint`, `--started-at`, `--completed-at`, and
   repeatable `--log-content-hash` record evidence metadata without exposing artifact paths.
@@ -540,7 +537,7 @@ replace a review assessment.
 - Summaries may come from `--summary`, `--summary-file`, or `--summary-stdin`.
 - Large summaries reuse Shoreline-owned `shore.note-body` artifacts while command output keeps
   artifact paths private.
-- `validation list` replays durable events for the ReviewUnit and may filter by ReviewUnit, track,
+- `validation list` replays durable events for the revision and may filter by revision, track,
   or status. It hydrates summaries only with `--include-body`.
 
 Output documents are compact `shore.review-validation-add` and
@@ -554,7 +551,7 @@ shore review endorse <target-event-id> [--sign-key <name|path>] [--actor <id>] [
 ```
 
 `shore review endorse` records a detached co-signature (an endorsement) over an existing target event —
-for example a captured ReviewUnit's `review_unit_captured` event. The resolved signer is the attesting
+for example a captured revision's `work_object_proposed` event. The resolved signer is the attesting
 signer and the carrier's envelope writer is the **endorser's own actor** (`--actor`, else the resolved
 writing identity), never the target's author.
 
@@ -575,7 +572,7 @@ The endorsement record and its read-side classification are decided in
 ## `shore review history`
 
 ```bash
-shore review history [--repo <path>] [--review-unit <id>] [--track <track-id>] \
+shore review history [--repo <path>] [--revision <id>] [--track <track-id>] \
   [--event-type <event-type>]... [--include-body] [--pretty | --compact]
 ```
 
@@ -587,9 +584,10 @@ shore review history [--repo <path>] [--review-unit <id>] [--track <track-id>] \
   even when filters return only a subset of entries.
 - `historyCount` is the number of returned entries after filters.
 - Entries are sorted by `occurredAt`, then `eventId`, as display chronology.
-- `--review-unit`, `--track`, and repeated `--event-type` narrow the returned entries.
-- Lineage event filters are `review-unit-lineage-declared` and
-  `review-unit-lineage-round-recorded`.
+- `--revision`, `--track`, and repeated `--event-type` narrow the returned entries.
+- Succession and commit/ref association filters include `revision-captured`,
+  `revision-commit-associated`, `revision-commit-withdrawn`, `revision-ref-associated`, and
+  `revision-ref-withdrawn`.
 - Body-like text is omitted by default. `--include-body` hydrates observation bodies, input request
   bodies, input request response reasons, assessment summaries, validation summaries, and
   imported-note bodies.
@@ -598,7 +596,7 @@ shore review history [--repo <path>] [--review-unit <id>] [--track <track-id>] \
 
 ### Verification status and endorsement readback
 
-`shore review history`, `shore review unit show`, and the inspector endpoints render two
+`shore review history`, `shore review show`, and the inspector endpoints render two
 reader-relative, **advisory** facts beside each event. They render only — they never gate a write or
 change an exit code, and the temporal `require-verified-endorsement` tier is out of scope.
 
@@ -625,7 +623,7 @@ attributes for the endorser. The classification rules are decided in
 ```json
 {
   "eventId": "evt:sha256:…",
-  "eventType": "review_unit_captured",
+  "eventType": "work_object_proposed",
   "verificationStatus": "unsigned",
   "endorsements": [
     {
@@ -638,82 +636,70 @@ attributes for the endorser. The classification rules are decided in
 }
 ```
 
-History is not the full ReviewUnit row projection. Use `shore review unit show` for the composite
-narrative-first plus snapshot-complete view of one captured ReviewUnit.
+History is not the full revision row projection. Use `shore review show` for the composite
+narrative-first plus snapshot-complete view of one captured revision.
 
-## `shore review unit`
+## `shore review revisions`
 
 ```bash
-shore review unit list [--repo <path>] [--pretty | --compact]
-shore review unit show [--repo <path>] [--review-unit <id> | --lineage <lineage-id>] [--track <track-id>] \
+shore review revisions [--repo <path>] [--object <object-id>] [--ref <name>] \
+  [--all | --orphans] [--pretty | --compact]
+```
+
+`shore review revisions` is the discovery surface for captured revisions. It emits
+`shore.review-revision-list` JSON with `eventSetHash`, `eventCount`, `revisionCount`, and entries
+sorted by capture time. Each entry carries the revision id, the content-only object id, the capture
+endpoints, and `objectArtifactContentHash`.
+
+- `--object <object-id>` lists only the revisions that share one content object. Coincident content
+  may span supersession threads, so this is a listing/grouping lens, never a head selector.
+- `--ref <name>` filters to revisions associated with a ref. The succession view (the supersession
+  DAG and a thread's competing heads) is reported by this same projection; there is no separate
+  lineage surface.
+- `--all` / `--orphans` control whether revisions whose anchored commits are all unreachable
+  (orphaned) are shown or shown exclusively; by default orphaned revisions are hidden.
+
+## `shore review show`
+
+```bash
+shore review show [--repo <path>] [--revision <id>] [--track <track-id>] \
   [--include-body] [--pretty | --compact]
 ```
 
-`shore review unit list` is the discovery surface for captured ReviewUnits. It emits
-`shore.review-revision-list` JSON with `eventSetHash`, `eventCount`, `reviewUnitCount`, and entries
-sorted by capture time.
-
-ReviewUnit lineage metadata is reported by lineage-aware read surfaces. The lineage round event is
-`review_unit_lineage_round_recorded`; it links an already-stored captured ReviewUnit into an ordered
-thread. Change-Id optional enrichment only: it is not required and is not the lineage identity.
-
-`shore review unit show` is the composite view for one ReviewUnit. It emits compact
+`shore review show` is the composite view for one revision. It emits compact
 `shore.review-revision` v1 JSON by default.
 
-- When exactly one ReviewUnit has been captured, Shoreline selects it automatically.
-- If multiple ReviewUnits exist, pass `--review-unit <id>` or `--lineage <lineage-id>`.
-- The output includes ReviewUnit identity, event-set freshness metadata, filters, summary counts,
+- When exactly one revision has been captured, Shoreline selects it automatically.
+- If multiple revisions exist, pass `--revision <id>`. The flag is a **head seed**: a current head
+  resolves exactly; a superseded revision resolves its thread's current head; and a thread with
+  competing heads is reported as competing rather than auto-picked.
+- The output includes revision identity, event-set freshness metadata, filters, summary counts,
   current assessment status, native observations, input requests, assessments, validation checks,
   imported adapter notes, projection rows, and diagnostics.
 - Rows are narrative-first, then snapshot-complete.
-- `--track <track-id>` filters narrative facts without changing the selected ReviewUnit,
+- `--track <track-id>` filters narrative facts without changing the selected revision,
   event-set freshness metadata, or captured snapshot completeness.
 - Body-like text is omitted by default. `--include-body` hydrates observation bodies, input request
   bodies and response reasons, assessment summaries, validation summaries, and imported-note bodies.
 - Each narrative member (observations, input requests and their responses, assessments, validation
-  checks) and the `reviewUnit` identity (the capture event) carry the same reader-relative
+  checks) and the `revision` identity (the capture event) carry the same reader-relative
   `verificationStatus` and `endorsements` (with `endorserAttributes`) readback documented under
   [`shore review history`](#verification-status-and-endorsement-readback) — advisory, render-only,
   resolved against the reader's `.shore/` trust and attributes config.
 
-Lineage-scoped current selection resolves to `headReviewUnitId`; no implicit newest capture globally
-wins. Unscoped current selection with multiple captured ReviewUnits still errors at the selection
-boundary, but routine list, history, exact ReviewUnit, and lineage-scoped reads should have no
-always-on ambiguous-current warning for routine multi-capture reads. Thread-level lineage reads may
-surface `stale_by_newer_round` for facts attached to older rounds. This release has no interdiff or
-stack DAG.
+Revision-scoped selection seeds on `--revision <id>` and resolves that revision's thread head; no
+implicit newest capture globally wins. Unscoped current selection with multiple unrelated captured
+revisions still errors at the selection boundary, but routine list, history, and exact-revision reads
+have no always-on ambiguous-current warning. A thread-level read may surface
+`stale_by_superseding_revision` for a revision that a newer revision supersedes. This release has no
+interdiff or stack DAG beyond the supersession graph.
 
-Lineage event families stay signable under ADR-0004's generic `EventToBeSigned` contract with the
-Dead Simple Signing Envelope (DSSE) and pre-authentication encoding rules.
+Capture and succession facts stay signable under ADR-0004's generic `EventToBeSigned` contract with
+the Dead Simple Signing Envelope (DSSE) and pre-authentication encoding rules.
 
-`shore review unit show` is distinct from `shore review history`: history is the chronological raw
-event listing, while unit show is the composite ReviewUnit view for agents and future frontends.
-
-## `shore review lineage`
-
-```bash
-shore review lineage attach --repo <path> --lineage <lineage-id> --review-unit <id> \
-  [--predecessor <id>] [--change-id <change-id>]
-shore review lineage show --repo <path> --lineage <lineage-id> [--pretty | --compact]
-```
-
-`shore review lineage attach` records path-free lineage declaration and round facts over
-already-stored `review_unit_captured` events. The output is compact
-`shore.review-lineage-attach` JSON with `lineageId`, `headReviewUnitId`, event write counts, and
-diagnostics. If the write leaves the lineage malformed, `headReviewUnitId` is `null` and diagnostics
-describe the malformed lineage.
-
-`shore review lineage show` emits compact `shore.review-lineage` JSON by default. The document
-includes `eventSetHash`, `eventCount`, `lineageId`, `headReviewUnitId`, `rounds`, and diagnostics.
-Round entries include `reviewUnitId`, optional `predecessorReviewUnitId`, `roundIndex`, and
-`isHead`. Thread-level diagnostics may include `stale_by_newer_round` when facts target an older
-round than the lineage head. This release does not render interdiffs, stack graphs, or a
-stacked-work DAG.
-
-`shore review capture --lineage <lineage-id> [--predecessor <id>]` is a convenience that captures a
-new ReviewUnit and then attaches that captured ReviewUnit to the lineage. Its `shore.review-capture`
-output keeps capture event counts at the top level and places lineage attach counts under
-`lineageAttach`, including the post-attach lineage head and lineage diagnostics.
+`shore review show` is distinct from `shore review history`: history is the chronological raw
+event listing, while `shore review show` is the composite revision view for agents and future
+frontends.
 
 ## `shore notes apply`
 

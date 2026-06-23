@@ -1,17 +1,17 @@
 ---
 name: shoreline-author-response
-description: Use when the coding agent that authored a change should pick up a Shoreline reviewer pass on its existing ReviewUnit. Read the reviewer's observations, validation evidence, assessment, and input requests with bounded commands, classify the verdict, respond to advisory requests with shore review input-request respond, make changes only when the review is actionable, record author response observations, never add an assessment, and never recapture.
+description: Use when the coding agent that authored a change should pick up a Shoreline reviewer pass on its existing revision. Read the reviewer's observations, validation evidence, assessment, and input requests with bounded commands, classify the verdict, respond to advisory requests with shore review input-request respond, make changes only when the review is actionable, record author response observations, never add an assessment, and never recapture.
 ---
 
 # Shoreline Author Review Response
 
 You are the agent that authored the change. A reviewer has recorded a Shoreline review on the
-existing ReviewUnit, and you are picking that review back up. Your job is to triage the verdict,
+existing revision, and you are picking that review back up. Your job is to triage the verdict,
 respond through structured input-request channels, make required changes when the review asks for
 them, and record your response on your author track.
 
 Do not run `shore review assessment add`. The reviewer owns the assessment. Do not run
-`shore review capture`; this response attaches to the existing ReviewUnit with `--revision`.
+`shore review capture`; this response attaches to the existing revision with `--revision`.
 
 Do not run `shore review show --pretty` as a readback surface. Use bounded list commands for the
 reviewer's observations, input requests, and assessment.
@@ -19,14 +19,14 @@ reviewer's observations, input requests, and assessment.
 ## Workflow at a glance
 
 ```text
-1. Identify the existing ReviewUnit, reviewer track, and your author track.
+1. Identify the existing revision, reviewer track, and your author track.
 2. Read the reviewer's observations, validation evidence, assessment, and input requests.
 3. Classify the verdict as actionable or non-blocking triage.
 4. Respond to reviewer advisory input requests with input-request respond.
 5. Handle open operative input requests only when they are genuinely answerable.
 6. For needs-changes, make the requested code change and rerun relevant checks.
 7. Record author response observations on your author track.
-8. Do not add or change the assessment, and do not capture a new ReviewUnit.
+8. Do not add or change the assessment, and do not capture a new revision.
 9. Read back the response with bounded commands, then stop.
 ```
 
@@ -35,12 +35,12 @@ needs a decision and a durable response, not a new code change in an already-rev
 
 ## Read the reviewer pass
 
-Set the ReviewUnit ID, reviewer track, and your existing author track. If the ReviewUnit ID is not
+Set the revision ID, reviewer track, and your existing author track. If the revision ID is not
 known, list captured units first:
 
 ```bash
 shore review revisions --pretty
-review_unit_id="<review-unit-id>"
+revision_id="<revision-id>"
 reviewer_track="<reviewer-track>"
 author_track="<author-track>"
 agent_name="<agent-name>"
@@ -64,22 +64,22 @@ Read the reviewer's durable review facts:
 
 ```bash
 shore review observation list \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-body --pretty
 
 shore review validation list \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-body --pretty
 
 shore review assessment show \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-summary --pretty
 
 shore review input-request list \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$reviewer_track" \
   --status open \
   --include-body --pretty
@@ -104,7 +104,7 @@ Use a focused operative-request read when the classification is unclear:
 
 ```bash
 shore review input-request list \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$reviewer_track" \
   --mode operative \
   --status open \
@@ -118,7 +118,7 @@ them with `shore review input-request respond`; do not answer only in an observa
 
 ```bash
 shore review input-request list \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$reviewer_track" \
   --mode advisory \
   --status open \
@@ -130,7 +130,7 @@ shore review input-request respond <input-request-id> \
 ```
 
 Use `approved`, `rejected`, `dismissed`, `superseded`, or `abandoned` for the outcome. The response
-should state the author decision and why it is appropriate for this ReviewUnit.
+should state the author decision and why it is appropriate for this revision.
 
 ## Handle open operative requests
 
@@ -156,12 +156,12 @@ For `needs-changes`, make the requested change in the working tree and rerun the
 before recording the response. Keep the edit scoped to the review finding. If the reviewer asked
 for clarification, answer the question first; change code only when the answer requires it.
 
-The ReviewUnit snapshot remains the original captured snapshot. Do not run a fresh capture as part
+The revision snapshot remains the original captured snapshot. Do not run a fresh capture as part
 of this response. When your live code has moved beyond the snapshot, say so in the author response
 observation and reference the reviewer IDs you are addressing.
 
 If you rerun checks after making response edits, be precise about what those checks validated. Checks
-against live code that no longer matches the frozen ReviewUnit should be recorded as author response
+against live code that no longer matches the frozen revision should be recorded as author response
 observations, not misleading validation evidence for the old snapshot.
 
 ## Record author response observations
@@ -171,13 +171,13 @@ and assessment ID in the body so a reader can connect the response to the review
 
 ```bash
 shore review observation add \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$author_track" \
   --title "Response to reviewer parser follow-up" \
-  --body "Responded to reviewer advisory request <input-request-id> from assessment <assessment-id>: accepted the follow-up but kept it out of this ReviewUnit because the current assessment is accepted-with-follow-up and the cleanup would widen the reviewed change."
+  --body "Responded to reviewer advisory request <input-request-id> from assessment <assessment-id>: accepted the follow-up but kept it out of this revision because the current assessment is accepted-with-follow-up and the cleanup would widen the reviewed change."
 
 shore review observation add \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$author_track" \
   --title "Addressed reviewer observation <observation-id>" \
   --file src/parser.rs --start-line 84 --end-line 123 \
@@ -191,11 +191,11 @@ your response, the reviewer records that later on the reviewer track.
 
 After the review reaches an accepting verdict and you commit the reviewed change, record the landed
 commit as a structural association on your author track — the first-class "the work landed as commit
-X" record (a `ReviewUnitCommitAssociated` edge, ADR-0014):
+X" record (a `RevisionCommitAssociated` edge, ADR-0014):
 
 ```bash
 shore review association associate-commit \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$author_track" \
   --commit <landed-sha>
 ```
@@ -221,18 +221,18 @@ Optionally also record a human-readable companion for readers scanning observati
 
 ```bash
 shore review observation add \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$author_track" \
   --tag state-change:landed \
   --title "landed as <sha>" \
-  --body "ReviewUnit $review_unit_id (accepted by $reviewer_track) landed as <full-sha> on <branch>."
+  --body "revision $revision_id (accepted by $reviewer_track) landed as <full-sha> on <branch>."
 ```
 
-If more than one ReviewUnit is current, pin the landing to the one that was actually reviewed and
+If more than one revision is current, pin the landing to the one that was actually reviewed and
 accepted with `--revision`. `--revision <id>` is a head seed: passing a current head resolves it
 exactly, while passing a superseded revision resolves its thread's current head (and a fork with
 competing heads errors, listing them). Sibling captures stay current, but routine
-list/history/exact reads no longer emit an ambient `ambiguous_current_review_unit` diagnostic just
+list/history/exact reads no longer emit an ambient `ambiguous_current_revision` diagnostic just
 because multiple captures exist. Shoreline still has no way to retire a stale capture
 (kevinswiber/shoreline#106).
 
@@ -242,42 +242,42 @@ Verify the author response with bounded read commands:
 
 ```bash
 shore review observation list \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$author_track" \
   --include-body --pretty
 
 shore review validation list \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-body --pretty
 
 shore review input-request list \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$reviewer_track" \
   --status all \
   --include-body --pretty
 
 shore review assessment show \
-  --revision "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-summary --pretty
 ```
 
-Then stop. Report the ReviewUnit ID, author track, reviewer track, what you changed or deliberately
+Then stop. Report the revision ID, author track, reviewer track, what you changed or deliberately
 did not change, and which input requests you responded to. Leave the assessment untouched.
 
 ## Common errors
 
 - **Adding an assessment as the author.** The author never assesses. Only the reviewer records the
   review call.
-- **Recapturing the ReviewUnit.** Attach to the existing ReviewUnit with `--revision`; do not run
+- **Recapturing the revision.** Attach to the existing revision with `--revision`; do not run
   `shore review capture` for the response leg.
-- **Using full ReviewUnit show for readback.** Use bounded observation, input-request, and
+- **Using full revision show for readback.** Use bounded observation, input-request, and
   assessment read commands. Do not use `shore review show --pretty` for this response loop.
 - **Ignoring reviewer validation evidence.** Read `shore review validation list` on the reviewer
   track before deciding what checks to rerun.
 - **Attaching live-code checks to an old snapshot.** If response edits moved the checkout beyond the
-  captured ReviewUnit, record rerun checks as observations unless you can prove the snapshot matches.
+  captured revision, record rerun checks as observations unless you can prove the snapshot matches.
 - **Manufacturing work after an accepted review.** Accepted follow-ups often need triage, not a new
   code change.
 - **Answering advisory requests only in prose.** Use `shore review input-request respond` so the
@@ -289,5 +289,5 @@ did not change, and which input requests you responded to. Leave the assessment 
   fact is an author association (with an optional companion observation); the reviewer owns the
   assessment.
 - **Pinning the landing to the wrong unit when captures are ambiguous.** With multiple current
-  ReviewUnits, pass the accepted revision with `--revision` (a head resolves exactly; a superseded
+  revisions, pass the accepted revision with `--revision` (a head resolves exactly; a superseded
   revision resolves its thread's current head).

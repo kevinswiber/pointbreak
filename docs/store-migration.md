@@ -133,3 +133,34 @@ digest, recompute that id with the **same** function a native write uses (not a 
 that can drift), and re-derive anything keyed off it. For example, an id that digests a target
 must be re-minted once the target reshapes, or a re-run of the same operation against the
 migrated store will fail to deduplicate against it.
+
+## 8. Content-id convergence is the real gate (the self-check is necessary, not sufficient)
+
+The self-check in §5 proves the migrated store *reads* cleanly. It does **not** prove the store is
+**convergent** — that a fresh re-record of the same fact deduplicates against what is already there
+instead of forking a second copy. The two are different, and the gap is easy to miss because the
+strict read-path validator never closes it.
+
+A content id (an observation id, an assessment id, the object id, a revision id) is a digest of the
+fact's own canonical content. The read-path validator checks an event's stored idempotency key,
+event id, payload hash, and filename against each other — it never re-derives a *content* id against
+the builder that mints it. So a content id is **opaque** to validation: a store can pass every
+read-path and self-check while every content id is frozen at the material it was first minted from. If
+a later reshape changes the **content a content id digests** but only re-keys the payload — carrying
+the old id string forward — the store still reads fine, yet a fresh re-record (the live builder over
+the current payload) mints a *different* id and **forks**. The store was silently non-convergent, and
+no read-time check would ever say so.
+
+The durable rule, then: **on any change to a content-id digest input, re-derive every affected content
+id via the live builders, in dependency order, remapping references** — exactly as §4 and §7's
+"re-derive dependent ids" require — rather than re-keying payloads and carrying the ids. And gate
+correctness on a **convergence test**, not the self-check alone:
+
+- drive the live write workflow to record the same fact the migrated store already holds, and assert
+  it deduplicates — `events_created == 0` — against the migrated event;
+- pin the migrator's id derivation to the live builders directly (assert the migrator's computed
+  content id equals the live builder's id for every event family it touches), so the two cannot drift.
+
+A reshape that skips this passes its self-check and ships a store that forks on the next write. The
+self-check is necessary; convergence is the property that actually matters, and only a re-record test
+proves it.

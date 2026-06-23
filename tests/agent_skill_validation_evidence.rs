@@ -8,7 +8,7 @@ fn agent_skills_and_docs_adopt_validation_evidence_workflow() {
     );
     assert_contains(
         "skills/shoreline-author/SKILL.md",
-        "That pre-change failure did not run against the captured ReviewUnit",
+        "That pre-change failure did not run against the captured revision",
     );
     assert_not_contains(
         "skills/shoreline-author/SKILL.md",

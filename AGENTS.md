@@ -76,9 +76,12 @@ The headless model should own file identity, file order, hunk identity, row geom
 navigation cursors, and serializable review/session state. The TUI should be a projection of that
 model, not the authoritative owner of review semantics.
 
-Shoreline's internal architecture language treats review units, task attempts, and similar subjects as
+Shoreline's internal architecture language treats revisions, task attempts, and similar subjects as
 software work objects coordinated through an append-only event log and purpose-built projections.
-Read `docs/substrate-language.md`, `docs/substrate-thesis-summary.md`, and
+A revision is the captured review work object (observations, assessments, and validation evidence
+attach to it); succession between revisions is a fork-tolerant supersession DAG, not a scalar lineage,
+and content identity is a separate object layer beneath the revision. Read
+`docs/substrate-language.md`, `docs/substrate-thesis-summary.md`, and
 `docs/adr/adr-0003-agent-resource-claims-advisory-first.md` before substrate-shaped refactors.
 Substrate vocabulary is internal; user-facing commands and JSON documents should stay domain-named.
 

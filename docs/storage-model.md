@@ -31,13 +31,13 @@ notes name `.shore/data` literally.
 - `events/` — append-only, immutable per-fact event files. Events are independently written
   and never moved, retried in place, or rewritten on read.
 - `artifacts/` — immutable or content-addressed support records, including captured
-  ReviewUnit snapshots and large bodies for imported notes, native observations, input requests, and
+  revision snapshots and large bodies for imported notes, native observations, input requests, and
   assessments.
 
 These are the only authoritative durable storage in V1. Everything else is a cache or projection.
 
 **Rebuildable projections.** `state.json`, command-output views such as `shore.review-history` and
-`shore.review-unit`, and any future read indexes are derived from durable events and artifacts.
+`shore.review-revision`, and any future read indexes are derived from durable events and artifacts.
 They may be deleted and regenerated. Freshness against the current event set is verified through
 `eventSetHash`, not through the projection's existence or `eventCount` alone.
 
@@ -65,7 +65,7 @@ committed config siblings always live under the worktree's `.shore/`:
   state.json              rebuildable projection
   artifacts/              immutable or content-addressed support records
     notes/                optional content-addressed note-body records
-    snapshots/            immutable captured ReviewUnit snapshots
+    objects/              immutable captured revision object artifacts (content-only snapshots)
 
 .shore/                   per-worktree config (and the ephemeral store, when opted in)
   data/                   ephemeral worktree-local store (git-excluded; same events/ + artifacts/ layout)
@@ -96,75 +96,80 @@ first store write.
 `state.json` is a cache/projection. It must be rebuildable from durable records. If it is missing,
 stale, or invalid, Shoreline should rebuild it rather than treating it as authority.
 
-ReviewUnit capture follows the same authority split:
+Revision capture follows the same authority split:
 
-- `review_unit_captured` events in `events/` carry durable capture facts
-- a ReviewUnit is the base endpoint, target endpoint, and captured diff snapshot
+- `work_object_proposed` events in `events/` carry durable capture facts
+- a revision carries the base endpoint, target endpoint, and captured diff snapshot, and references a
+  content-only **object** identity; the Git endpoints are optional provenance, so a revision is
+  git-optional
 - V1 captures the local Git worktree from `HEAD` to the working tree
-- full captured snapshots live as Shoreline-owned immutable artifacts under `artifacts/snapshots/`
-- `review_unit_captured` events bind to the internal snapshot artifact's canonical `contentHash`;
-  the event/projection — not the artifact body — is the source of `reviewUnitId`, `source`, `base`,
-  and `target` (the snapshot-scoped V2 artifact carries none of them)
-- bounded `state.json` may summarize ReviewUnit count and current unambiguous ReviewUnit ID, but it
-  is not the source of ReviewUnit identity or snapshot content
+- full captured snapshots live as Shoreline-owned immutable **object artifacts** under
+  `artifacts/objects/`
+- `work_object_proposed` events bind to the internal object artifact's canonical `contentHash`;
+  the event/projection — not the artifact body — is the source of `revisionId`, `objectId`, `source`,
+  `base`, and `target` (the content-only object artifact carries none of the revision's identity or
+  endpoints)
+- the separation is deliberate: the **revision id** is the captured unit's identity and the **object
+  id** is a hash of its captured content alone, so two clones capturing identical content converge on
+  one object while keeping distinct revisions
+- bounded `state.json` may summarize revision count and current unambiguous revision ID, but it
+  is not the source of revision identity or snapshot content
 
 `shore review capture` returns `shore.review-capture` JSON as the command-output contract. The
-command reports ReviewUnit, revision, and snapshot IDs plus the snapshot artifact content hash,
-without making snapshot artifact paths a user-facing API.
+command reports the revision and object IDs plus the object artifact content hash, without making
+object artifact paths a user-facing API.
 
-ReviewUnit lineage follows the same event/projection split. A lineage links already-stored
-`review_unit_captured` events through path-free lineage facts; it never edits captured ReviewUnit
-payloads or snapshot artifacts. The lineage event family includes
-`review_unit_lineage_declared` and `review_unit_lineage_round_recorded`. Derived read documents use
-domain fields such as `lineageId`, `roundIndex`, and `headReviewUnitId` to describe the thread and
-its current head. `shore review lineage show` emits the compact `shore.review-lineage` document;
-`shore review lineage attach` emits `shore.review-lineage-attach`. The capture convenience
-`shore review capture --lineage <id> [--predecessor <review-unit-id>]` keeps capture counts at the
-top level and reports lineage attach counts, the post-attach head, and lineage diagnostics in a
-nested `lineageAttach` object. Malformed lineages have no head, so `headReviewUnitId` is `null`
-until the lineage projection is well formed again.
+Revision succession follows the same event/projection split. A capture records `supersedes` forward
+pointers naming the already-stored revisions it evolves past; it never edits captured revision payloads
+or object artifacts. There is no separate lineage event family — succession rides the
+`work_object_proposed` event's `supersedes` field. Derived read documents build the **supersession
+DAG**: a thread is the connected component of the `supersedes` graph, and the projection surfaces every
+live **head** rather than resolving to a single scalar head. When two captures supersede the same
+predecessor, the resulting **competing heads** are surfaced as competing, never nulled or tie-broken by
+timestamp.
 
-Lineage identity must not depend on worktree paths, raw `.git` layout, raw `.shore/data` paths, or
-raw shared-store paths. Change-Id optional enrichment only: it may help readers display or correlate
-rounds, but it is not required and is not the lineage identity. Lineage events remain ordinary
-producer facts signable by the generic `EventToBeSigned` contract from
+Succession identity must not depend on worktree paths, raw `.git` layout, raw `.shore/data` paths, or
+raw shared-store paths. The `supersedes` pointers carry opaque revision ids only. Succession facts
+remain ordinary producer facts signable by the generic `EventToBeSigned` contract from
 [ADR-0004](./adr/adr-0004-event-signatures.md), including its Dead Simple Signing Envelope (DSSE)
 and pre-authentication encoding rules.
 
-Lineage introduces scoped current semantics. A lineage-scoped read resolves to the lineage's
-`headReviewUnitId`; no implicit newest capture globally wins. Routine list, history, exact
-ReviewUnit, and lineage-scoped projections have no always-on ambiguous-current warning for routine
-multi-capture reads. Unscoped current selection still fails clearly when the caller asks for one
-current ReviewUnit in a store with multiple captures. The `stale_by_newer_round` diagnostic is a
-thread-level freshness fact for older lineage rounds, not an exact-ReviewUnit read error.
+Succession has scoped current semantics with no global winner. A revision-scoped read seeds on
+`--revision <id>` and resolves that revision's thread head; an intra-thread fork surfaces as competing
+revisions. The content-only `--object` lens groups revisions by identical content — which may span
+threads — and is a listing aid only, never a head selector. Routine list, history, and exact-revision
+reads have no always-on ambiguous-current warning, but unscoped current selection still fails clearly
+when the caller asks for one current revision in a store with multiple unrelated captures. The
+`stale_by_superseding_revision` diagnostic is a thread-level freshness fact for a revision that a newer
+revision supersedes, not an exact-revision read error.
 
-The first lineage release has no interdiff or stack DAG. Public export, relay/network forwarding,
-visual stack rendering, and stacked-work graph semantics remain out of scope.
+This first release has no interdiff or stack DAG beyond the supersession graph itself. Public export,
+relay/network forwarding, visual stack rendering, and stacked-work graph semantics remain out of scope.
 
-When the inspector lists captured ReviewUnits, it shows a derived label for each working-tree
+When the inspector lists captured revisions, it shows a derived label for each working-tree
 target — the worktree's name together with the short base commit — instead of a generic
 "working tree". This label is computed at read time from the capture's existing endpoint data; the
 captured record itself is unchanged, and the full worktree path is not shown. Opening the complete
-detail for a unit captured in a different worktree is future work.
+detail for a revision captured in a different worktree is future work.
 
-`SnapshotArtifact.contentHash` is a canonical hash of the artifact body excluding the
-self-referential `contentHash` field. The **snapshot-scoped V2 body** (`SNAPSHOT_ARTIFACT_VERSION =
-2`, GitHub #146) is `{schema, version, snapshot, contentHash}`, so the hash covers only the
-namespace-independent `{schema, version, snapshot}` — the **full captured row inventory** (every
-`DiffFile`, `FileMetadataRow`, `ReviewHunk`, and `DiffRow`) and nothing worktree-specific. Two
-worktrees capturing the same `snapshot_id` therefore produce **byte-identical artifacts that dedup**
-instead of colliding; ReviewUnit identity and endpoints live in the `review_unit_captured`
-event/projection, never in the artifact. The hash is not a raw JSON file checksum.
+`ObjectArtifact.contentHash` is a canonical hash of the artifact body excluding the
+self-referential `contentHash` field. The body is `{schema: "shore.object", version, snapshot,
+contentHash}`, so the hash covers only the content-only `{schema, version, snapshot}` — the **full
+captured row inventory** (every `DiffFile`, `FileMetadataRow`, `ReviewHunk`, and `DiffRow`) and nothing
+worktree- or identity-specific. The `snapshot` body field is the captured diff itself (a
+`DiffSnapshot`); it is kept. Two clones capturing the same content therefore produce **byte-identical
+artifacts that dedup** into one object instead of colliding; revision identity and endpoints live in
+the `work_object_proposed` event/projection, never in the artifact. The hash is not a raw JSON file
+checksum.
 
-The legacy **V1 body** additionally embedded `reviewUnitId`/`source`/`base`/`target` and folded them
-into the hash (which is what made two worktrees' artifacts collide). V1 artifacts remain readable:
-the single decode path validates `contentHash` over whatever body is stored (version-agnostic), so a
-V1 artifact still validates and still binds to the event that referenced it — a **dual-read escape
-hatch** that avoids rewriting any pre-existing (possibly signed) capture event. There is no in-place
-V1→V2 migration; new captures write V2, and a V2 capture dedups against a pre-existing V1 artifact for
-the same snapshot. The dual-read V1 branch is transitional and slated for removal once stores have
-converged to V2. Any future elision plan must again bump `SNAPSHOT_ARTIFACT_VERSION`; see
-[ADR-0002](./adr/adr-0002-large-snapshot-artifact-policy.md).
+An earlier artifact body embedded the captured unit's identity and endpoints
+(`revisionId`/`source`/`base`/`target`) and folded them into the hash, which is what made two
+worktrees' artifacts collide. The identity-reshape break removed that shape along with the transitional
+dual-read that once accepted both bodies: the strict reader now rejects the old-schema artifact
+outright, and a one-shot migrator re-hashed every artifact into the content-only object form (see
+[store-migration.md](./store-migration.md)). New captures write only the object artifact, and no
+in-store legacy body remains to read. Any future elision plan must again bump the object artifact
+version; see [ADR-0002](./adr/adr-0002-large-snapshot-artifact-policy.md).
 
 Imported review notes should follow the same split:
 
@@ -178,10 +183,10 @@ On the read path, Shoreline reconstructs imported notes by replaying `review_not
 loading any optional note-body artifacts under `artifacts/notes/`. `state.json` remains a bounded
 projection and is not the durable source of note content.
 
-Native observations follow the ReviewUnit ledger model:
+Native observations follow the revision ledger model:
 
 - immutable `review_observation_recorded` events in `events/` carry durable observation facts
-- each observation targets a ReviewUnit plus an optional file or line range in that captured
+- each observation targets a revision plus an optional file or line range in that captured
   snapshot
 - each observation belongs to a required track; tracks are review lanes, while actor/producer provenance
   remains in the event writer envelope
@@ -204,14 +209,14 @@ unbounded event payload growth.
 The direct read surface is `shore review observation list`, which replays events and can optionally
 hydrate bodies. Body artifact paths, event filenames, and `state.json` paths are internal storage
 details, not command-output API. Native observations also appear in the composite
-`shore review unit show` projection, but they are not projected into `shore dump` or `shore show`.
+`shore review show` projection, but they are not projected into `shore dump` or `shore show`.
 
-Native input requests follow the same ReviewUnit ledger model:
+Native input requests follow the same revision ledger model:
 
 - immutable `input_request_opened` events in `events/` carry durable request facts
 - immutable `input_request_responded` events in `events/` carry durable response facts
-- each request targets a ReviewUnit, captured file or range, or native observation in that same
-  ReviewUnit
+- each request targets a revision, captured file or range, or native observation in that same
+  revision
 - each request belongs to a required track; actor/producer provenance remains in the event writer
   envelope
 - bounded `state.json` summarizes input request state with `inputRequestCount`,
@@ -238,14 +243,14 @@ unbounded event payload growth.
 The direct read surfaces are `shore review input-request list` and `shore review input-request fetch`,
 which replay events and can optionally hydrate bodies. Body artifact paths, reason artifact paths,
 event filenames, and `state.json` paths are internal storage details, not command-output API. Native
-input requests also appear in the composite `shore review unit show` projection. They are not
+input requests also appear in the composite `shore review show` projection. They are not
 projected into `shore dump` or `shore show`.
 
-Native assessments follow the same ReviewUnit ledger model:
+Native assessments follow the same revision ledger model:
 
 - immutable `review_assessment_recorded` events in `events/` carry durable assessment facts
-- each assessment targets a ReviewUnit, captured file or range, native observation, native input
-  request, or native assessment in that same ReviewUnit
+- each assessment targets a revision, captured file or range, native observation, native input
+  request, or native assessment in that same revision
 - each assessment belongs to a required track; actor/producer provenance remains in the event writer
   envelope
 - bounded `state.json` summarizes assessment state with `assessmentCount`, but it does not embed
@@ -273,29 +278,29 @@ unbounded event payload growth.
 The direct read surface is `shore review assessment show`, which replays events and can optionally
 hydrate summaries. Summary artifact paths, event filenames, and `state.json` paths are internal
 storage details, not command-output API. Native assessments also appear in the composite
-`shore review unit show` projection, but they are not projected into `shore dump` or `shore show`.
+`shore review show` projection, but they are not projected into `shore dump` or `shore show`.
 
 State-change outcomes such as deferred, split-out, overridden, and superseded are represented as
 native observations tagged with `state-change:*`, not as assessment values.
 
-Validation evidence follows the same ReviewUnit ledger model:
+Validation evidence follows the same revision ledger model:
 
 - immutable `validation_check_recorded` events in `events/` carry durable facts about completed
   checks
-- each validation check targets one exact captured ReviewUnit through opaque, content-addressed
-  ReviewUnit identity
+- each validation check targets one exact captured revision through opaque, content-addressed
+  revision identity
 - each validation check belongs to a required track; actor/producer provenance remains in the event
   writer envelope
 - bounded `state.json` summarizes validation evidence with `validationCheckCount`, but it does not
   embed validation history, summary content, logs, or reports
 
-Validation evidence is advisory. It may support review judgment in `shore review unit show`,
+Validation evidence is advisory. It may support review judgment in `shore review show`,
 `shore review history`, and `shore review validation list`, but it never grants review acceptance,
 merge authority, or write authority. It never changes `currentAssessment`, assessment ambiguity,
 operative input-request counts, or any other operative projection.
 
 Validation identity is path-free. Event targets, validation targets, and stable identity fields carry
-opaque IDs such as `reviewUnitId`, `trackId`, and `validationCheckId`; they must not derive from
+opaque IDs such as `revisionId`, `trackId`, and `validationCheckId`; they must not derive from
 worktree paths, raw `.git` layout, raw `.shore/data` paths, raw shared-store paths, raw artifact paths,
 or machine-local route names.
 
@@ -318,34 +323,34 @@ Review history is the chronological read surface over durable events:
   returned entries after filters
 - `historyCount` describes the filtered entry count
 - entries are sorted by `occurredAt`, then `eventId`, as display chronology only
-- ReviewUnit, track, and event-type filters narrow entries without changing freshness metadata or
+- revision, track, and event-type filters narrow entries without changing freshness metadata or
   suppressing full-event-set diagnostics
 - `--include-body` hydrates body-like text from inline payloads or `artifacts/notes/`, while the
   default output keeps large text omitted
 
 History preserves raw append-only facts. It does not collapse duplicate semantic events, choose
-current assessments, resolve input-request lifecycles, or build the full ReviewUnit row projection.
+current assessments, resolve input-request lifecycles, or build the full revision row projection.
 Shared state diagnostics are still included so callers can see duplicate semantic facts while
 inspecting the underlying events. Raw event files, artifact paths, event filenames, and `state.json`
 are storage details, not history output API.
 
-ReviewUnit show is the composite read surface for one captured ReviewUnit:
+`shore review show` is the composite read surface for one captured revision:
 
-- `shore review unit show` returns `shore.review-unit` JSON derived from a validated scan of the
-  resolved store's `events/` plus the bound immutable snapshot artifact for the selected ReviewUnit
+- `shore review show` returns `shore.review-revision` JSON derived from a validated scan of the
+  resolved store's `events/` plus the bound immutable object artifact for the selected revision
 - `eventSetHash` and `eventCount` describe the full event set read for the command, not only the
-  selected ReviewUnit's returned narrative facts
-- the output includes ReviewUnit identity, filters, summary counts, current assessment, native
+  selected revision's returned narrative facts
+- the output includes revision identity, filters, summary counts, current assessment, native
   observations, input requests, assessments, imported adapter notes, projection rows, and
   diagnostics
 - rows are narrative-first plus snapshot-complete: reviewed ledger material appears first, and the
   snapshot remainder still includes every captured file, metadata row, hunk header, and diff row
-- track filters narrow narrative facts only; they do not mutate ReviewUnit selection, freshness
+- track filters narrow narrative facts only; they do not mutate revision selection, freshness
   metadata, or captured snapshot completeness
 - `--include-body` hydrates body-like text from inline payloads or `artifacts/notes/`, while the
   default output keeps large text omitted
 
-`shore.review-unit` is command-output API. Snapshot artifacts, note body artifacts, event files,
+`shore.review-revision` is command-output API. Object artifacts, note body artifacts, event files,
 event filenames, and `state.json` remain Shoreline-owned storage details and are not exposed as stable
 paths.
 
@@ -370,10 +375,10 @@ on raw store paths, event filenames, artifact paths, `.git` paths, `.shore/data`
 `state.json` layout — the JSON never prints them.
 
 The writer contract is direct. Review capture and the native review write commands — recording an
-observation, an input request open or response, an assessment, validation evidence, or a lineage
-round — write their event, artifacts, and rebuilt `state.json` directly into the shared common-dir
+observation, an input request open or response, an assessment, or validation evidence — write their
+event, artifacts, and rebuilt `state.json` directly into the shared common-dir
 store, the same store every read surface resolves. The fact is therefore visible to every worktree
-of the clone in place, with no setup step, and a write can attach a fact to a review unit (or relate
+of the clone in place, with no setup step, and a write can attach a fact to a revision (or relate
 it to an observation, assessment, or request) captured in a sibling worktree. An **ephemeral**
 worktree (`shore store mode ephemeral`) instead pins its writes to a discardable worktree-local
 `.shore/data/` store — the privacy escape hatch for sensitive or throwaway work whose bytes should
@@ -392,15 +397,15 @@ legacy flat `.shore/` store to `.shore/data/`; see [Migrations And Doctor](#migr
 
 `shore store status` is the public health and inventory surface for the resolved store. Its
 `inventory` reports event and artifact byte counts, total bytes, optional Git untracked bytes,
-largest artifact refs, and ReviewUnit snapshot byte accounting; its redacted sensitivity scan
+largest artifact refs, and revision snapshot byte accounting; its redacted sensitivity scan
 findings are hashed `file:sha256:*` values and do not disclose secret contents or source file paths.
 Sensitivity findings are reported but do not currently abort a write; a hard-blocking policy and
 explicit override controls are a forward-looking note for when movement can target a wider store.
 
-Reads resolve the shared common-dir store on every review read surface. `shore review unit list` and
-`unit show`, `shore review history`, the observation, input-request, and validation lists,
-`shore review assessment show`, `shore review lineage list` and `show`, and the inspector API all
-read it from any worktree of the clone, including snapshot artifacts and large note-shaped bodies, so
+Reads resolve the shared common-dir store on every review read surface. `shore review revisions` and
+`show`, `shore review history`, the observation, input-request, and validation lists,
+`shore review assessment show`, the association list, and the inspector API all
+read it from any worktree of the clone, including object artifacts and large note-shaped bodies, so
 their `eventCount` and `eventSetHash` reflect that one store.
 
 Reload is a read-side projection refresh. The durable event log remains immutable; reload re-runs
@@ -418,9 +423,9 @@ Because the shared common-dir store persists captured bytes that a removed workt
 discarded, the store has an explicit, never-automatic content-removal path. It is content-targeted:
 the durable fact is an `ArtifactRemoved { content_hash }` event keyed solely on the content hash, so
 two peers removing the same content converge on one byte-identical fact and the same shared blob is
-removed for every review unit that references it (snapshot artifacts dedup on content, so one blob is
-shared by many units; targeting content rather than a unit is the only coherent granularity). The
-event is session-anchored — it carries no review-unit target — and the event log stays immutable: the
+removed for every revision that references it (object artifacts dedup on content, so one blob is
+shared by many revisions; targeting content rather than a revision is the only coherent granularity). The
+event is journal-anchored — it carries no revision target — and the event log stays immutable: the
 removal event never rewrites or tombstones the capture event. Read projections join the capture event
 with any `ArtifactRemoved` over its content hash and render an explained **"content removed"** in place
 of the missing bytes, distinguishing a removed artifact from one that is merely not-yet-synced or
@@ -520,16 +525,15 @@ The marker discriminates from its landing forward.
 Artifact filenames follow two deliberate rules, paired to what the file represents:
 
 - **Identifier-hashed artifacts** use a hash of a stable opaque identifier as the filename stem.
-  Snapshot artifacts live at `artifacts/snapshots/<sha256(snapshotId)>.json`. The readable ID stays
+  Object artifacts live at `artifacts/objects/<sha256(objectId)>.json`. The readable ID stays
   inside the artifact body; the hash exists only so the filename is fixed-width, filesystem-safe,
   and free of the characters that appear in semantic IDs (such as the `:` separators in
-  `snap:git:sha256:…`). This is the same rule events use, applied to a different identifier.
-  Snapshot artifacts also carry their own canonical `contentHash` field that the read path
-  recomputes and compares, so tamper or transcription errors are caught at load time. The V2 body
+  `obj:sha256:…`). This is the same rule events use, applied to a different identifier.
+  Object artifacts also carry their own canonical `contentHash` field that the read path
+  recomputes and compares, so tamper or transcription errors are caught at load time. The body
   inlines every captured row but no worktree identity, so the `contentHash` covers the full row
-  inventory only (legacy V1 artifacts, still readable, additionally fold in the identity/endpoint
-  fields). See [ADR-0002](./adr/adr-0002-large-snapshot-artifact-policy.md) for the V2 namespace
-  decoupling (#146).
+  inventory only. See [ADR-0002](./adr/adr-0002-large-snapshot-artifact-policy.md) for the content
+  decoupling that separates the object's content hash from the revision's identity (#146).
 - **Content-addressed artifacts** use a hash of the artifact body as the filename stem. Note-body
   artifacts live at `artifacts/notes/<sha256(body)>.json`. Hashing the body gives deterministic
   addressing and deduplication across observations, input requests, and assessments that share
@@ -542,12 +546,12 @@ Artifact filenames follow two deliberate rules, paired to what the file represen
 
 The asymmetry is intentional: identifier-hashed naming protects filenames from arbitrary ID
 characters, while content-addressed naming earns its keep through deterministic dedup. Read paths
-should not mix the two rules — locate snapshot artifacts by their `snapshotId` and note-body
+should not mix the two rules — locate object artifacts by their `objectId` and note-body
 artifacts by the relative path recorded in the referencing event.
 
 Artifact filenames remain Shoreline-owned storage details. The consumer contract is the command-output
-JSON (`shore.review-capture`, `shore.review-unit`, and friends), which exposes semantic IDs and the
-snapshot artifact's canonical `contentHash`. Filename derivation rules may change without a
+JSON (`shore.review-capture`, `shore.review-revision`, and friends), which exposes semantic IDs and the
+object artifact's canonical `contentHash`. Filename derivation rules may change without a
 deprecation cycle, but artifacts are V1 authority alongside events — the event log alone cannot
 reconstruct snapshot rows or large note bodies. A future rule change must therefore rename or
 migrate the affected files in place, keep a compatibility read path during transition, or
@@ -645,10 +649,10 @@ resolve both arms.
 
 See [ADR-0001](./adr/adr-0001-note-body-materialization.md) for the decision rationale.
 
-## Large Snapshot Artifact Policy
+## Large Object Artifact Policy
 
-Shoreline stores captured review-unit diffs inline in identifier-hashed artifacts under
-`artifacts/snapshots/<sha256(snapshotId)>.json`. The artifact body is one JSON object per snapshot
+Shoreline stores captured revision diffs inline in identifier-hashed object artifacts under
+`artifacts/objects/<sha256(objectId)>.json`. The artifact body is one JSON object per snapshot
 and carries every captured file, every metadata row, every hunk, and every diff row. There is no
 elision threshold, no generated-file detection, and no metadata-only marker for "too-large" or
 "elided" files.
@@ -661,13 +665,14 @@ elision threshold, no generated-file detection, and no metadata-only marker for 
   three variants carry file-level Git facts (rename, mode change, submodule pointer change) and
   also leave `hunks` empty, but they are not content-omission markers. There is no `ElidedFile`
   or `GeneratedFile` variant.
-- **Read surface.** `shore review unit show` is narrative-first plus snapshot-complete: reviewed
+- **Read surface.** `shore review show` is narrative-first plus snapshot-complete: reviewed
   ledger material appears first, and the snapshot remainder includes every captured file, metadata
   row, hunk header, and diff row. No flag omits row bodies.
-- **Content-hash scope.** `SnapshotArtifact.contentHash` covers the full row inventory. `SNAPSHOT_ARTIFACT_VERSION`
-  has already moved from `1` to `2` for namespace decoupling (#146) — V2 drops the
-  identity/endpoint fields from the body and hash. Any future elision must again change the version
-  so a consumer can tell which scope produced a given hash on inspection.
+- **Content-hash scope.** `ObjectArtifact.contentHash` covers the full row inventory. The object
+  artifact body carries content only — the revision's identity and endpoint fields were dropped from
+  the body and hash at the content-decoupling (#146) and identity-reshape breaks. Any future elision
+  must again change the artifact version so a consumer can tell which scope produced a given hash on
+  inspection.
 
 The V1 policy is intentionally minimal: every question issue #64 asks ("elide?", "detect
 generated?", "metadata-only rows?", "omit-on-show?", "hash scope?") receives an explicit answer in
@@ -688,7 +693,7 @@ the projection saw; it is not a causal ordering primitive or a raw event-file ch
 If a cached projection's `eventSetHash` does not match a fresh scan of the store's `events/`, the
 projection is stale and should be rebuilt from the event files. The event files remain authoritative;
 `state.json` is still safe to delete and regenerate. `shore review history` and
-`shore review unit show` reuse this freshness primitive, and future derived-index projections should
+`shore review show` reuse this freshness primitive, and future derived-index projections should
 do the same rather than inventing per-projection hashes.
 
 ## Shared Mutable Files
@@ -708,7 +713,7 @@ are explicit and tested.
 
 V1 has no store-directory lock: Shoreline does not coordinate writers with lockfiles, leases, a
 daemon, IPC, or filesystem notifications. Concurrency safety rests on the store primitives instead.
-Events and snapshot artifacts are written with content-addressed exclusive file creation, note-body
+Events and object artifacts are written with content-addressed exclusive file creation, note-body
 artifacts are content-addressed by body hash, and `state.json` is a regenerable projection written by
 atomic rename. So concurrent writers to one store directory cannot corrupt each other: identical
 events converge (already-exists with a matching payload), different events never collide, and

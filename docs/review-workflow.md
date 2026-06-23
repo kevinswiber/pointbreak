@@ -8,33 +8,38 @@ command and *why*. If the change was authored by a coding agent, start with
 
 ## What Shoreline reviews
 
-Shoreline reviews a **ReviewUnit**: the base endpoint, the target endpoint, and a
-captured diff snapshot taken at a single moment. V1 captures one of two shapes:
+Shoreline reviews a **revision**: the base endpoint, the target endpoint, and a
+captured diff snapshot taken at a single moment. Capturing a revision is the one **generative move**
+in the workflow — proposing a captured work object for others to assert facts about — while "review"
+stays the surface verb. V1 captures one of two shapes:
 the local Git worktree from `HEAD` to the working tree, including untracked files
 (the default); or, with `shore review capture --base <rev>`, the committed range
 between two resolved commits (`<rev>..--target`, target defaulting to `HEAD`),
 read as a tree diff with no working-tree involvement.
 
-Each ReviewUnit binds an immutable snapshot artifact by content hash. The artifact body is
-snapshot-scoped, so two ReviewUnits capturing the same change in different worktrees share one
-byte-identical artifact rather than each owning a distinct copy. Anything you record
-afterwards — observations, input requests, assessments — attaches to that
-ReviewUnit and lives in the durable `.shore/data/events/` log.
+Each revision binds an immutable **object artifact** by content hash. The artifact body is
+content-only, so two revisions capturing the same change in different worktrees share one
+byte-identical artifact — they converge on a single **object** — rather than each owning a distinct
+copy. The revision is the captured unit's identity; the object is a hash of its content alone.
+Anything you record afterwards — observations, input requests, assessments — attaches to that
+revision and lives in the durable `.shore/data/events/` log.
 
-Several captured ReviewUnits can also be linked as one ReviewUnit lineage. A lineage records
-successive review rounds without mutating the captured snapshots. The lineage head is explicit
-within that lineage; no implicit newest capture globally wins.
+A later capture can record that it **supersedes** one or more earlier revisions, forming a
+fork-tolerant succession graph. A reviewer is free to counter-propose by capturing their own revision
+that supersedes yours. Successive rounds never mutate the captured snapshots; the thread's current
+**head** is derived from the supersession graph, and when two captures supersede the same predecessor
+the **competing heads** are surfaced rather than one silently winning.
 
 ## The workflow at a glance
 
 1. Start from a Git worktree containing the change you want to review.
-2. Capture a ReviewUnit with `shore review capture`.
-3. Inspect what was captured with `shore review unit show` and
+2. Capture a revision with `shore review capture`.
+3. Inspect what was captured with `shore review show` and
    `shore review history`.
 4. Record review facts as you read the diff:
    - **Observations** are notes you want preserved.
    - **Input requests** are durable pause/decision requests for someone else.
-   - **Assessments** are the current review call for the ReviewUnit (or for a
+   - **Assessments** are the current review call for the revision (or for a
      file, range, or specific fact within it).
 5. Optionally use `shore notes apply`, `shore dump`, and `shore show` for
    import and read-only inspection of the older review-stream surface.
@@ -49,7 +54,7 @@ teammate's WIP branch, your own edits — but it must be present in the working
 tree before capture. Shoreline reads the diff from `git`; it does not summarize
 prior commits on its own. If the change is already committed, capture the
 committed range directly with `shore review capture --base <rev>` (see
-[section 2](#2-capture-a-reviewunit)) instead of recreating it in the working
+[section 2](#2-capture-a-revision)) instead of recreating it in the working
 tree.
 
 ```bash
@@ -64,29 +69,28 @@ without modifying your tracked `.gitignore` or dirtying the working tree. If
 `.shore/data/` is already ignored — for example by a project `.gitignore` entry —
 Shoreline leaves the ignore files untouched.
 
-## 2. Capture a ReviewUnit
+## 2. Capture a revision
 
 ```bash
 shore review capture
 ```
 
-`shore review capture` records a `review_unit_captured` event and writes the
-captured snapshot as an immutable Shoreline-owned artifact. The output document is
+`shore review capture` records a `work_object_proposed` event and writes the
+captured snapshot as an immutable Shoreline-owned object artifact. The output document is
 `shore.review-capture` JSON and includes:
 
-- the ReviewUnit ID
 - the revision ID
-- the snapshot ID
-- the snapshot artifact's canonical content hash
+- the object ID (the content-only identity)
+- the object artifact's canonical content hash
 
-You can pin later commands to the captured ReviewUnit with `--review-unit
-<id>`. When only one ReviewUnit exists in `.shore/data/`, commands that need a
-current ReviewUnit pick it automatically. When multiple exist, list them with
-`shore review unit list` and pass either the exact ReviewUnit ID or a lineage
-scope.
+You can pin later commands to the captured revision with `--revision
+<id>`. When only one revision exists in `.shore/data/`, commands that need a
+current revision pick it automatically. When multiple exist, list them with
+`shore review revisions` and pass either the exact revision ID or seed a
+supersession thread with `--revision <id>`.
 
 The snapshot is now frozen. Re-running `shore review capture` later creates a
-new ReviewUnit; it does not mutate the previous one.
+new revision; it does not mutate the previous one.
 
 ### Capturing a committed range
 
@@ -105,81 +109,83 @@ honest error. The capture is the `base..target` tree diff — both endpoints are
 appears in the output. This is the supported way to review after landing: never
 rewrite history (for example `git reset --soft`) to manufacture a worktree diff.
 
-A post-landing range capture is a second current ReviewUnit alongside any
-worktree capture, so disambiguate later reads and writes with `--review-unit
-<id>` (or a lineage scope), exactly as for any multi-capture store. Recording the
-landed commit, choosing a canonical capture, and ReviewUnit lifecycle remain open
+A post-landing range capture is a second current revision alongside any
+worktree capture, so disambiguate later reads and writes with `--revision
+<id>`, exactly as for any multi-capture store. Recording the
+landed commit, choosing a canonical capture, and revision lifecycle remain open
 follow-ups.
 
-Lineage-aware command paths attach immutable captures with
-`review_unit_lineage_round_recorded` facts:
+Record a succession round by naming the revisions a new capture supersedes:
 
 ```bash
-shore review lineage attach --lineage <lineage-id> --review-unit <id>
-shore review lineage attach --lineage <lineage-id> --review-unit <next-id> --predecessor <id>
-shore review capture --lineage <lineage-id> [--predecessor <id>]
+shore review capture --supersedes <revision-id>
+shore review capture --supersedes <revision-id> --supersedes <other-revision-id>
 ```
 
-The derived fields `lineageId`, `roundIndex`, and `headReviewUnitId` identify the thread, the
-round, and the current lineage head. Change-Id is optional enrichment only: it can help display or
-correlate rounds, but it is not required and never replaces the lineage ID.
+The `supersedes` set is order-independent and may name more than one predecessor. There is no
+separate lineage command or declared lineage id — the thread is the connected component of the
+`supersedes` graph, and its current **head** is derived from that graph. When two captures supersede
+the same predecessor, the resulting **competing heads** are surfaced as competing, never collapsed to
+a single winner.
 
 Write commands such as `shore review observation add`,
 `shore review input-request open`, and `shore review assessment add` accept
-`--review-unit <id>`. When more than one captured ReviewUnit is current, pass
-the ID from capture output or `shore review unit list`; otherwise writes fail
+`--revision <id>`. When more than one captured revision is current, pass
+the ID from capture output or `shore review revisions`; otherwise writes fail
 with an ambiguity error.
 
-Lineage makes that ambiguity contextual. A lineage-scoped current read or write resolves to the
-lineage `headReviewUnitId`; unscoped current selection remains ambiguous when multiple captures
-exist. Routine list, history, exact ReviewUnit, and lineage-scoped reads have no always-on
-ambiguous-current warning for routine multi-capture reads. Thread-level reads may report
-`stale_by_newer_round` when a fact targets an older round than the lineage head, but exact
-ReviewUnit reads remain valid for old rounds.
+Supersession makes that ambiguity contextual. A revision-scoped read seeds on `--revision <id>` and
+resolves that revision's thread head; unscoped current selection remains ambiguous when multiple
+unrelated captures exist. Routine list, history, and exact-revision reads have no always-on
+ambiguous-current warning. A thread-level read may report `stale_by_superseding_revision` when a fact
+targets a revision that a newer revision supersedes, but exact-revision reads remain valid for
+superseded revisions.
 
 ## 3. Inspect what was captured
 
-Three read surfaces describe ReviewUnits, and they answer different questions:
+Three read surfaces describe revisions, and they answer different questions:
 
 ```bash
-shore review unit list     # what ReviewUnits exist in .shore/data/
-shore review unit show     # composite ReviewUnit view (narrative + snapshot)
+shore review revisions     # what revisions exist in .shore/data/
+shore review show          # composite revision view (narrative + snapshot)
 shore review history       # chronological raw event listing
 ```
 
-For a visual, cross-linked view of the whole store — an event timeline, composite per-ReviewUnit
-pages, ReviewUnit lineage pages, and captured diffs annotated with their review facts — run
+For a visual, cross-linked view of the whole store — an event timeline, composite per-revision
+pages, supersession-thread pages, and captured diffs annotated with their review facts — run
 `shore inspect` to open a local web UI (see the [CLI reference](cli-reference.md)). The commands
 below remain the scriptable surface.
 
-### `shore review unit list`
+### `shore review revisions`
 
-`shore review unit list` projects every `review_unit_captured` event into a
-flat directory of ReviewUnits. It is the discovery surface — start here when
-`shore review unit show` errors with `multiple captured review units; pass
---review-unit`, or whenever you need to pick an ID for `--review-unit <id>`.
+`shore review revisions` projects every `work_object_proposed` event into a
+flat directory of revisions. It is the discovery surface — start here when
+`shore review show` errors with `multiple captured revisions; pass
+--revision`, or whenever you need to pick an ID for `--revision <id>`.
 
-It returns `shore.review-unit-list` JSON with `eventSetHash`, `eventCount`,
-`reviewUnitCount`, and an `entries` array whose elements include
-`reviewUnitId`, `capturedAt`, `revisionId`, `snapshotId`, `source`, `base`,
-`target`, and `snapshotArtifactContentHash`. Entries are sorted by capture
-time so the newest ReviewUnit appears last.
+It returns `shore.review-revision-list` JSON with `eventSetHash`, `eventCount`,
+`revisionCount`, and an `entries` array whose elements include
+`revisionId`, `capturedAt`, `objectId`, `source`, `base`,
+`target`, and `objectArtifactContentHash`. Entries are sorted by capture
+time so the newest revision appears last. Pass `--object <object-id>` to list only the revisions
+that share one content object — a listing lens that may span threads, never a head selector.
 
 ```bash
-shore review unit list --pretty
+shore review revisions --pretty
 ```
 
-When lineage facts exist, list/read projections can include lineage metadata. That metadata is a
-thread view over immutable captures, not an interdiff renderer; this release has no interdiff or
-stack DAG. Lineage events remain signable through the generic `EventToBeSigned` producer-fact view
-and ADR-0004's Dead Simple Signing Envelope (DSSE) pre-authentication encoding.
+When a revision supersedes another, the list/read projections build the supersession DAG and surface
+each thread's competing heads. That view is a thread over immutable captures, not an interdiff
+renderer; this release has no interdiff or stack DAG. Capture facts remain signable through the
+generic `EventToBeSigned` producer-fact view and ADR-0004's Dead Simple Signing Envelope (DSSE)
+pre-authentication encoding.
 
-### `shore review unit show`
+### `shore review show`
 
-`shore review unit show` is the composite view of one ReviewUnit. It returns
-`shore.review-unit` JSON containing:
+`shore review show` is the composite view of one revision. It returns
+`shore.review-revision` JSON containing:
 
-- ReviewUnit identity and event-set freshness metadata
+- revision identity and event-set freshness metadata
 - summary counts and current assessment status
 - native observations, input requests, and assessments
 - imported adapter notes
@@ -192,27 +198,26 @@ metadata row, hunk header, and diff row. Track filters narrow narrative facts
 without changing snapshot completeness.
 
 ```bash
-shore review unit show --pretty
-shore review unit show --lineage <lineage-id>
-shore review unit show --track agent:codex
-shore review unit show --include-body
+shore review show --pretty
+shore review show --revision <revision-id>
+shore review show --track agent:codex
+shore review show --include-body
 ```
 
-Use `shore review lineage show --lineage <lineage-id>` for the compact thread document. It returns
-`shore.review-lineage` JSON with `eventSetHash`, `eventCount`, `lineageId`, `headReviewUnitId`,
-`rounds`, and diagnostics.
+Passing `--revision <id>` seeds head selection on that revision and resolves its thread's current
+head; an intra-thread fork is reported as competing revisions.
 
 ### `shore review history`
 
 `shore review history` is the chronological raw-event listing across the
-entire `.shore/data/events/` log — across ReviewUnits if there is more than one.
+entire `.shore/data/events/` log — across revisions if there is more than one.
 It is the place to answer "what happened, in what order?" rather than
-"what does this ReviewUnit look like right now?".
+"what does this revision look like right now?".
 
 ```bash
 shore review history --pretty
 shore review history --event-type review-observation-recorded
-shore review history --review-unit <id> --include-body
+shore review history --revision <id> --include-body
 ```
 
 `eventSetHash` and `eventCount` describe the full validated event set used to
@@ -228,7 +233,7 @@ and surface a duplicate diagnostic.
 
 ### Observations
 
-An observation is a durable note for a ReviewUnit, a file, or a line range.
+An observation is a durable note for a revision, a file, or a line range.
 Observations are append-only; corrections are new observations that name the
 older observation through `--supersedes`.
 
@@ -293,9 +298,9 @@ make the input request `ambiguous` rather than picking a timestamp winner.
 
 ### Assessments
 
-An assessment is the current review call for a ReviewUnit, a file, a range,
+An assessment is the current review call for a revision, a file, a range,
 or a specific native observation/input request/assessment in the same
-ReviewUnit. V1 values: `accepted`, `accepted-with-follow-up`, `needs-changes`,
+revision. V1 values: `accepted`, `accepted-with-follow-up`, `needs-changes`,
 and `needs-clarification`.
 
 ```bash
@@ -342,7 +347,7 @@ shore notes apply --repo . --review-notes review-notes.json
 ```
 
 It writes one immutable `review_note_imported` event per imported note.
-Imported notes appear in `shore review unit show` as adapter notes, and in
+Imported notes appear in `shore review show` as adapter notes, and in
 `shore dump` and `shore show` as note rows in the review stream.
 
 ### `shore dump`
@@ -356,8 +361,8 @@ shore dump --review-notes review-notes.json
 ```
 
 `shore dump` operates on the **working tree at run time**, not on a captured
-ReviewUnit. It does not include native observations, input requests, or
-assessments — use `shore review unit show` for those.
+revision. It does not include native observations, input requests, or
+assessments — use `shore review show` for those.
 
 ### `shore show`
 
@@ -389,7 +394,7 @@ Shoreline separates **authoritative facts** from **derived views**:
   immutable durable fact. Events are never moved, retried in place, or
   rewritten on read.
 - `.shore/data/artifacts/` holds the immutable support records that events bind to:
-  captured ReviewUnit snapshots, and the optional content-addressed bodies
+  captured revision object artifacts, and the optional content-addressed bodies
   for large observation, input request, and assessment payloads.
 - `.shore/data/state.json` is a **rebuildable projection**, not the authority. It
   may be deleted and regenerated; freshness against the current event set is
@@ -402,7 +407,7 @@ its internal shape.
 ### Command-output JSON is the integration surface
 
 The stable surface for automation is **command-output JSON documents**:
-`shore.review-capture`, `shore.review-history`, `shore.review-unit`,
+`shore.review-capture`, `shore.review-history`, `shore.review-revision`,
 `shore.review-observation-add` / `-list`,
 `shore.review-input-request-open` / `-list` / `-fetch` / `-respond`,
 `shore.review-assessment-add` / `-show`, and `shore.notes-apply`.
@@ -411,7 +416,7 @@ These documents expose semantic IDs, content hashes, and freshness metadata.
 Raw event files, event filenames, artifact paths, and `.shore/data/state.json` are
 Shoreline-owned storage details. They can change without a deprecation cycle.
 
-### Old dump/show stream vs. ReviewUnit ledger
+### Old dump/show stream vs. revision ledger
 
 There are two overlapping read surfaces today:
 
@@ -419,15 +424,15 @@ There are two overlapping read surfaces today:
   working tree at run time and renders the unified diff plus imported notes.
   It is the older surface and is well-suited to import workflows and quick
   read-only viewing.
-- The **ReviewUnit ledger** (`shore review capture` plus the
+- The **revision ledger** (`shore review capture` plus the
   `shore review observation`, `input-request`, `assessment`, `history`, and
-  `unit show` commands) operates on a frozen captured snapshot plus the
+  `show` commands) operates on a frozen captured snapshot plus the
   durable event log. It is the surface for recording review facts.
 
 Native observations, input requests, and assessments appear in
-`shore review unit show` but are not yet projected into `shore dump` or
+`shore review show` but are not yet projected into `shore dump` or
 `shore show`. If you need a single view that combines a captured snapshot
-with all ledger facts, use `shore review unit show`.
+with all ledger facts, use `shore review show`.
 
 ### Tracks
 
@@ -454,17 +459,21 @@ shape either way.
 
 ### IDs are opaque
 
-Shoreline exposes several kinds of IDs in its output: ReviewUnit IDs, revision
-IDs, snapshot IDs, observation IDs, input request IDs, input request response
+Shoreline exposes several kinds of IDs in its output: revision IDs, object
+IDs, observation IDs, input request IDs, input request response
 IDs, assessment IDs, event IDs, and review-stream row IDs. **Treat them all
 as opaque strings.** They are stable and safe to use as keys or to pass back
 into other commands, but their internal format is an implementation detail.
+This opacity is load-bearing: a content id is derived from content, so two clones
+capturing identical content converge on the same revision and object IDs without
+coordinating, and a store migration may rename the on-disk files that hold them
+while the IDs themselves stay valid and unchanged. Read the IDs; never parse them.
 In particular:
 
 - Do not parse review-stream `row.id` values, derive ordering from them
   lexically, or assume any particular width or prefix. Use the sibling
   `ordinal` field if you need a numeric position.
-- Do not parse storage filenames. Event filenames, snapshot artifact
+- Do not parse storage filenames. Event filenames, object artifact
   filenames, and note-body artifact filenames are derived from internal
   hashes and may change without a deprecation cycle.
 - Do not depend on artifact paths or the internal shape of
@@ -473,7 +482,7 @@ In particular:
 ## 7. A small realistic walkthrough
 
 The block below captures the typical sequence: confirm the change, capture
-the ReviewUnit, inspect it, record a couple of observations, open an
+the revision, inspect it, record a couple of observations, open an
 input request, respond to it, and land an assessment.
 
 ```bash
@@ -481,13 +490,13 @@ input request, respond to it, and land an assessment.
 cd ~/src/myproject
 git status
 
-# 1. Capture a ReviewUnit. This freezes the current diff as a snapshot.
+# 1. Capture a revision. This freezes the current diff as a snapshot.
 #    `shore review capture` emits compact JSON only; pipe through jq if you
 #    want to read it.
 shore review capture | jq .
 
-# 2. Read the captured ReviewUnit (composite view, narrative + snapshot).
-shore review unit show --pretty | less
+# 2. Read the captured revision (composite view, narrative + snapshot).
+shore review show --pretty | less
 
 # 3. Record observations as you read the diff.
 shore review observation add \
@@ -516,7 +525,7 @@ shore review input-request respond <input-request-id> \
   --outcome approved \
   --reason "verified backfill plan with on-call DBA"
 
-# 5. Record the final assessment for the ReviewUnit.
+# 5. Record the final assessment for the revision.
 shore review assessment add \
   --track human:kevin \
   --assessment accepted-with-follow-up \

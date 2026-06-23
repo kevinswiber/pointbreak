@@ -20,7 +20,7 @@ recreating a worktree diff.
 `shore review capture` freezes the current Git worktree diff from `HEAD` to the working tree,
 including untracked files. That timing matters for the default capture: if the agent commits part of
 the task first, a later worktree capture only sees the remaining uncommitted diff. The preferred
-order is to finish the implementation, run the relevant checks, capture the ReviewUnit while the full
+order is to finish the implementation, run the relevant checks, capture the revision while the full
 change is still in the worktree, record the handoff facts, then stop. If the change is already
 committed and the working tree is clean, capture the committed range instead with
 `shore review capture --base <commit-before-the-change>` (target defaults to `HEAD`) — never rewrite
@@ -28,7 +28,7 @@ history to manufacture a worktree diff.
 
 Humans set up the loop by making the expectation explicit: when the agent reaches the end of a task,
 it should run Shoreline before declaring the task complete. Agents execute the loop from inside the
-repository that contains the change. Reviewers pick up the recorded ReviewUnit afterward and make the
+repository that contains the change. Reviewers pick up the recorded revision afterward and make the
 review call on their own track.
 
 ## What The Author Records
@@ -84,10 +84,10 @@ follow-up edges, and files or line ranges a reviewer should inspect first. A use
 specific enough that someone can understand the change without scrolling back through the agent's
 transcript.
 
-Validation evidence records concrete check results for the captured ReviewUnit: tests, lint, builds,
+Validation evidence records concrete check results for the captured revision: tests, lint, builds,
 format checks, or equivalent verification commands the agent actually ran. Validation evidence is
 advisory review context only. It does not accept, reject, merge, block, or replace the reviewer's
-assessment, and it targets the whole captured ReviewUnit rather than a file or range.
+assessment, and it targets the whole captured revision rather than a file or range.
 
 Input requests are for genuine open questions. Use them when the agent could not responsibly decide
 something on its own: ambiguous requirements, a risky choice that needs approval, or a manual decision
@@ -97,7 +97,11 @@ workflow.
 
 The authoring agent must not add a `shore review assessment`. Assessments are the reviewer's current
 call, such as `accepted` or `needs-changes`. If the author records its own assessment, it turns the
-handoff into self-grading and pollutes the review surface the reviewer owns.
+handoff into self-grading and pollutes the review surface the reviewer owns. This author/reviewer
+split is a review-**policy** convention, not a substrate restriction: the event log is symmetric —
+author and reviewer record facts through the same write surface, and nothing mechanically stops an
+author from writing an assessment. The discipline is what keeps the handoff honest; the substrate
+only records who wrote what.
 
 ## Author Loop
 
@@ -107,27 +111,27 @@ An agent-authored handoff looks like this:
 git status --short
 capture_file=$(mktemp)
 shore review capture | tee "$capture_file" | jq .
-review_unit_id=$(jq -r '.reviewUnit.id' "$capture_file")
+revision_id=$(jq -r '.revision.id' "$capture_file")
 rm "$capture_file"
 agent_name="<agent-name>"
 run_id="<id>"
 track="agent:${agent_name}-${run_id}"
 
 shore review observation add \
-  --review-unit "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$track" \
   --title "Parser keeps the existing whitespace contract" \
   --file src/parser.rs --start-line 84 --end-line 123 \
   --body "The parser now accepts the new token form while preserving the old whitespace path. The branch stays local to parsing so callers do not need a compatibility shim."
 
 shore review observation add \
-  --review-unit "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$track" \
   --title "Verification covered the changed parser and full suite" \
   --body "Ran the targeted parser test and the repository test suite after the final edit. No generated artifacts were changed."
 
 shore review validation add \
-  --review-unit "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$track" \
   --check-name "just check" \
   --status passed \
@@ -136,26 +140,26 @@ shore review validation add \
   --summary "Completed after the final edit. This covered commit checks, build, lint, and tests."
 
 shore review input-request open \
-  --review-unit "$review_unit_id" \
+  --revision "$revision_id" \
   --track "$track" \
   --title "Confirm whether the relaxed parser should be documented" \
   --reason manual-decision-required \
   --mode advisory \
   --body "The implementation accepts the new form, but I did not update user-facing docs because the prompt did not say whether this behavior should be advertised yet."
 
-shore review observation list --review-unit "$review_unit_id" --track "$track" --pretty
-shore review validation list --review-unit "$review_unit_id" --track "$track" --include-body --pretty
-shore review input-request list --review-unit "$review_unit_id" --track "$track" --status open --pretty
+shore review observation list --revision "$revision_id" --track "$track" --pretty
+shore review validation list --revision "$revision_id" --track "$track" --include-body --pretty
+shore review input-request list --revision "$revision_id" --track "$track" --status open --pretty
 ```
 
 The commands emit compact JSON by default, so piping capture output through `jq` is only for human
 readability. The readback uses bounded list commands so the author can verify the observations and
-open input requests without replaying the captured snapshot. `shore review unit show` remains the
-full composite JSON view of a ReviewUnit; it includes the complete captured snapshot, can be large
+open input requests without replaying the captured snapshot. `shore review show` remains the
+full composite JSON view of a revision; it includes the complete captured snapshot, can be large
 for real changes, and is meant for tooling or cases where the full snapshot is genuinely needed. The
-write commands above pass the captured ReviewUnit ID explicitly because write commands can infer a
-ReviewUnit only when exactly one current capture exists. If `jq` is not available, copy
-`reviewUnit.id` from `shore review capture` output and use it in place of `$review_unit_id`.
+write commands above pass the captured revision ID explicitly because write commands can infer a
+revision only when exactly one current capture exists. If `jq` is not available, copy
+`revision.id` from `shore review capture` output and use it in place of `$revision_id`.
 
 ## What A Good Handoff Looks Like
 
@@ -173,9 +177,9 @@ better as observations unless they require a decision.
 After the author stops, a reviewer can read the handoff with:
 
 ```bash
-shore review observation list --review-unit <review-unit-id> --track <track> --include-body --pretty
-shore review validation list --review-unit <review-unit-id> --track <track> --include-body --pretty
-shore review input-request list --review-unit <review-unit-id> --track <track> --status open \
+shore review observation list --revision <revision-id> --track <track> --include-body --pretty
+shore review validation list --revision <revision-id> --track <track> --include-body --pretty
+shore review input-request list --revision <revision-id> --track <track> --status open \
   --include-body --pretty
 ```
 
@@ -183,7 +187,7 @@ The reviewer then records their own facts on their own track. For example:
 
 ```bash
 shore review assessment add \
-  --review-unit <review-unit-id> \
+  --revision <revision-id> \
   --track human:kevin \
   --assessment needs-clarification \
   --summary "The change is understandable, but the open documentation question needs an answer before landing."
@@ -194,7 +198,7 @@ That separation keeps the author's explanation and the reviewer's call distinct.
 ## Reviewer Loop
 
 The `shoreline-reviewer` skill is the reviewer-side pair to the author handoff. It starts from an
-existing ReviewUnit, reads the author's handoff with bounded list commands, reviews the change
+existing revision, reads the author's handoff with bounded list commands, reviews the change
 independently, records reviewer observations on a separate reviewer track, responds to any open
 operative input requests, opens advisory input requests for author decisions, and records exactly one
 assessment.
@@ -203,17 +207,17 @@ The reviewer uses the author's observations as navigation context, not as proof.
 the diff and rerun the project's relevant checks rather than trusting the author's verification
 claim. It should also read the author's validation evidence as context, then rerun relevant checks
 and record reviewer-run checks as validation evidence on the reviewer track. The reviewer compares
-the captured ReviewUnit with the live checkout it reviewed; if the ReviewUnit snapshot and live
+the captured revision with the live checkout it reviewed; if the revision snapshot and live
 commit diverge, the reviewer records that divergence as an observation.
 
 Reviewer readback uses the same bounded surfaces as the author handoff:
 
 ```bash
-shore review observation list --review-unit <review-unit-id> --track <author-track> \
+shore review observation list --revision <revision-id> --track <author-track> \
   --include-body --pretty
-shore review validation list --review-unit <review-unit-id> --track <author-track> \
+shore review validation list --revision <revision-id> --track <author-track> \
   --include-body --pretty
-shore review input-request list --review-unit <review-unit-id> --track <author-track> \
+shore review input-request list --revision <revision-id> --track <author-track> \
   --status open --include-body --pretty
 ```
 
@@ -221,7 +225,7 @@ When the reviewer runs checks, it records those concrete results separately from
 
 ```bash
 shore review validation add \
-  --review-unit <review-unit-id> \
+  --revision <revision-id> \
   --track <reviewer-track> \
   --check-name "just check" \
   --status passed \
@@ -235,7 +239,7 @@ observations:
 
 ```bash
 shore review input-request open \
-  --review-unit <review-unit-id> \
+  --revision <revision-id> \
   --track <reviewer-track> \
   --title "Decide whether to split the parser cleanup" \
   --reason manual-decision-required \
@@ -247,7 +251,7 @@ The reviewer records the review call once:
 
 ```bash
 shore review assessment add \
-  --review-unit <review-unit-id> \
+  --revision <revision-id> \
   --track <reviewer-track> \
   --assessment accepted-with-follow-up \
   --summary "The change is acceptable. I opened an advisory follow-up for the author to decide."
@@ -258,19 +262,19 @@ The reviewer should not write to the author's track. The author should not recor
 ## Author Response Loop
 
 The `shoreline-author-response` skill closes the loop when the original author picks up the
-reviewer's pass. It attaches to the existing ReviewUnit with `--review-unit`; it does not run
+reviewer's pass. It attaches to the existing revision with `--revision`; it does not run
 `shore review capture` again, and it does not add or replace assessments.
 
 The author reads the reviewer track with bounded commands:
 
 ```bash
-shore review observation list --review-unit <review-unit-id> --track <reviewer-track> \
+shore review observation list --revision <revision-id> --track <reviewer-track> \
   --include-body --pretty
-shore review validation list --review-unit <review-unit-id> --track <reviewer-track> \
+shore review validation list --revision <revision-id> --track <reviewer-track> \
   --include-body --pretty
-shore review assessment show --review-unit <review-unit-id> --track <reviewer-track> \
+shore review assessment show --revision <revision-id> --track <reviewer-track> \
   --include-summary --pretty
-shore review input-request list --review-unit <review-unit-id> --track <reviewer-track> \
+shore review input-request list --revision <revision-id> --track <reviewer-track> \
   --status open --include-body --pretty
 ```
 
@@ -280,9 +284,9 @@ runs the relevant checks, responds to any resolved input requests, and records a
 observations on the author track. If an operative request is still a genuine blocker, the author
 leaves it open and records what remains unresolved rather than forcing a response.
 
-The original ReviewUnit snapshot remains frozen. If the author makes response edits and reruns
+The original revision snapshot remains frozen. If the author makes response edits and reruns
 checks against live code that no longer matches that snapshot, those rerun checks belong in author
-response observations unless the author can prove the captured ReviewUnit still matches the checkout.
+response observations unless the author can prove the captured revision still matches the checkout.
 
 If the assessment is `accepted` or `accepted-with-follow-up` and the only open items are advisory or
 non-blocking, the author triages them without manufacturing work. Reviewer follow-ups that ask for an
@@ -306,19 +310,19 @@ reaches an accepting verdict and after any author response, and it belongs to th
 reviewer: the reviewer records its one assessment and stands down.
 
 Record the landed commit as a structural association on the author track — the first-class "the work
-landed as commit X" record (a `ReviewUnitCommitAssociated` edge, ADR-0014):
+landed as commit X" record (a `RevisionCommitAssociated` edge, ADR-0014):
 
 ```bash
 shore review association associate-commit \
-  --review-unit <review-unit-id> \
+  --revision <revision-id> \
   --track <author-track> \
   --commit <landed-sha>
 ```
 
-This is git-resolved and machine-readable: the unit then reports `anchored` with merged/live
-reachability in `shore review unit show`, and `shore review unit list --ref <branch>` /
-`shore review history --ref <branch>` can find the landed work by branch. A worktree-captured unit is
-born floating, so this is the event it was waiting for; a commit-range-captured unit is already
+This is git-resolved and machine-readable: the revision then reports `anchored` with merged/live
+reachability in `shore review show`, and `shore review revisions --ref <branch>` /
+`shore review history --ref <branch>` can find the landed work by branch. A worktree-captured revision is
+born floating, so this is the event it was waiting for; a commit-range-captured revision is already
 anchored at its captured target, so associate that same commit on a rebase or fast-forward — or,
 when a squash or merge produced a new commit, expect a `divergent_commit_association` diagnostic and
 keep or `withdraw-commit` the edge you do not want. Optionally add a human-readable companion with
@@ -328,10 +332,10 @@ commit is an author fact, not a review call.
 
 When several captures are still current — re-captures stack, and Shoreline has no way to retire a
 stale one yet ([#106](https://github.com/kevinswiber/shoreline/issues/106)) — pin the landing to the
-ReviewUnit that was actually reviewed and accepted by passing `--review-unit` explicitly, or use
-`--lineage` when the accepted ReviewUnit is the current head of a recorded lineage. Sibling captures
-remain, but routine list/history/exact/lineage-scoped reads no longer emit an ambient
-`ambiguous_current_review_unit` diagnostic just because multiple captures exist. Note that one commit
-can correspond to more than one accepted unit (for example a sub-task capture nested inside a phase
-capture); the landing observation annotates only the unit or lineage head you pin, not the
+revision that was actually reviewed and accepted by passing `--revision` explicitly, seeding it on the
+accepted revision when it is the current head of a supersession thread. Sibling captures
+remain, but routine list/history/exact/thread-scoped reads no longer emit an ambient
+`ambiguous_current_revision` diagnostic just because multiple captures exist. Note that one commit
+can correspond to more than one accepted revision (for example a sub-task capture nested inside a phase
+capture); the landing observation annotates only the revision or thread head you pin, not the
 relationship.

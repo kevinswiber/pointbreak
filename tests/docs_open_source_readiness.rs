@@ -21,7 +21,7 @@ fn cli_reference_documents_verification_and_endorsement_readback() {
     );
     assert_markdown_section_contains(
         &cli,
-        "## `shore review unit`",
+        "## `shore review show`",
         &["verificationStatus", "endorsements", "endorserAttributes"],
     );
 }
@@ -60,7 +60,7 @@ fn cli_reference_exists_and_covers_current_commands() {
         "shore review input-request open",
         "shore review assessment add",
         "shore review history",
-        "shore review unit show",
+        "shore review show",
         "shore notes apply",
     ] {
         assert!(
@@ -77,7 +77,7 @@ fn cli_reference_exists_and_covers_current_commands() {
         &cli,
         "## `shore review observation`",
         &[
-            "--review-unit <review-unit-id>",
+            "--revision <revision-id>",
             "--include-body",
             "--pretty",
             "--compact",
@@ -87,7 +87,7 @@ fn cli_reference_exists_and_covers_current_commands() {
         &cli,
         "## `shore review input-request`",
         &[
-            "--review-unit <review-unit-id>",
+            "--revision <revision-id>",
             "--track <track-id>",
             "--mode operative|advisory",
             "--file <path>",
@@ -100,7 +100,7 @@ fn cli_reference_exists_and_covers_current_commands() {
         &cli,
         "## `shore review assessment`",
         &[
-            "--review-unit <review-unit-id>",
+            "--revision <revision-id>",
             "--include-summary",
             "--pretty",
             "--compact",
@@ -123,7 +123,7 @@ fn public_docs_cover_the_shared_common_dir_store() {
             "policyOutcome",
             "file:sha256:",
             "hard-blocking policy",
-            "review unit list",
+            "review revisions",
             "shared common-dir store",
         ],
     );
@@ -157,7 +157,7 @@ fn getting_started_walks_through_first_review() {
     for required in [
         "cargo install shoreline",
         "shore review capture",
-        "shore review unit show",
+        "shore review show",
         "shore review observation add",
         "shore review input-request open",
         "shore review assessment add",
