@@ -22,7 +22,7 @@ content-only, so two revisions capturing the same change in different worktrees 
 byte-identical artifact — they converge on a single **object** — rather than each owning a distinct
 copy. The revision is the captured unit's identity; the object is a hash of its content alone.
 Anything you record afterwards — observations, input requests, assessments — attaches to that
-revision and lives in the durable `.shore/data/events/` log.
+revision and lives in the durable `events/` log.
 
 A later capture can record that it **supersedes** one or more earlier revisions, forming a
 fork-tolerant succession graph. A reviewer is free to counter-propose by capturing their own revision
@@ -62,11 +62,13 @@ cd path/to/worktree
 git status        # confirm the changes you expect are present
 ```
 
-The first Shoreline command run in the worktree creates local `.shore/data/`
-storage and registers `.shore/data/` in the repository-local `.git/info/exclude`
-when it is not already ignored. This keeps `.shore/data/` out of `git status`
-without modifying your tracked `.gitignore` or dirtying the working tree. If
-`.shore/data/` is already ignored — for example by a project `.gitignore` entry —
+By default the store is the shared common-dir store at `.git/shore`, under the clone's Git common
+directory — every worktree of the clone resolves the same store, and because it lives inside `.git`
+it never appears in `git status`. The first Shoreline command run in the worktree registers the
+per-worktree `.shore/` config directory (and a worktree-local `.shore/data/` store, if you opt into
+an ephemeral worktree) in the repository-local `.git/info/exclude` when it is not already ignored.
+This keeps those paths out of `git status` without modifying your tracked `.gitignore` or dirtying
+the working tree. If they are already ignored — for example by a project `.gitignore` entry —
 Shoreline leaves the ignore files untouched.
 
 ## 2. Capture a revision
@@ -84,7 +86,7 @@ captured snapshot as an immutable Shoreline-owned object artifact. The output do
 - the object artifact's canonical content hash
 
 You can pin later commands to the captured revision with `--revision
-<id>`. When only one revision exists in `.shore/data/`, commands that need a
+<id>`. When only one revision exists in the store, commands that need a
 current revision pick it automatically. When multiple exist, list them with
 `shore review revisions` and pass either the exact revision ID or seed a
 supersession thread with `--revision <id>`.
@@ -146,7 +148,7 @@ superseded revisions.
 Three read surfaces describe revisions, and they answer different questions:
 
 ```bash
-shore review revisions     # what revisions exist in .shore/data/
+shore review revisions     # what revisions exist in the store
 shore review show          # composite revision view (narrative + snapshot)
 shore review history       # chronological raw event listing
 ```
@@ -210,7 +212,7 @@ head; an intra-thread fork is reported as competing revisions.
 ### `shore review history`
 
 `shore review history` is the chronological raw-event listing across the
-entire `.shore/data/events/` log — across revisions if there is more than one.
+entire `events/` log — across revisions if there is more than one.
 It is the place to answer "what happened, in what order?" rather than
 "what does this revision look like right now?".
 
@@ -388,19 +390,21 @@ stale/orphan note rows.
 
 ### Durable event facts vs. rebuildable projections
 
-Shoreline separates **authoritative facts** from **derived views**:
+Shoreline separates **authoritative facts** from **derived views**. The paths below are relative to
+the resolved store directory — `.git/shore` by default, or a worktree-local `.shore/data/` when the
+worktree is ephemeral:
 
-- `.shore/data/events/` is the authoritative append-only log. Each file is one
+- `events/` is the authoritative append-only log. Each file is one
   immutable durable fact. Events are never moved, retried in place, or
   rewritten on read.
-- `.shore/data/artifacts/` holds the immutable support records that events bind to:
+- `artifacts/` holds the immutable support records that events bind to:
   captured revision object artifacts, and the optional content-addressed bodies
   for large observation, input request, and assessment payloads.
-- `.shore/data/state.json` is a **rebuildable projection**, not the authority. It
+- `state.json` is a **rebuildable projection**, not the authority. It
   may be deleted and regenerated; freshness against the current event set is
   verified through `eventSetHash`.
 
-If `.shore/data/state.json` looks stale or inconsistent, Shoreline rebuilds it from
+If `state.json` looks stale or inconsistent, Shoreline rebuilds it from
 the event log. Do not write to `state.json` yourself, and do not depend on
 its internal shape.
 
@@ -413,7 +417,7 @@ The stable surface for automation is **command-output JSON documents**:
 `shore.review-assessment-add` / `-show`, and `shore.notes-apply`.
 
 These documents expose semantic IDs, content hashes, and freshness metadata.
-Raw event files, event filenames, artifact paths, and `.shore/data/state.json` are
+Raw event files, event filenames, artifact paths, and `state.json` are
 Shoreline-owned storage details. They can change without a deprecation cycle.
 
 ### Old dump/show stream vs. revision ledger
@@ -477,7 +481,7 @@ In particular:
   filenames, and note-body artifact filenames are derived from internal
   hashes and may change without a deprecation cycle.
 - Do not depend on artifact paths or the internal shape of
-  `.shore/data/state.json`.
+  `state.json`.
 
 ## 7. A small realistic walkthrough
 

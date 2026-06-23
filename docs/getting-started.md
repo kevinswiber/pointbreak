@@ -67,10 +67,11 @@ git diff
 shore review capture
 ```
 
-The capture freezes the current diff as a local revision. Shoreline creates the `.shore/data/`
-store in the worktree, writes immutable event files under `.shore/data/events/`, stores captured
-object artifacts under `.shore/data/artifacts/`, and rebuilds `.shore/data/state.json` as a
-projection.
+The capture freezes the current diff as a local revision. Shoreline writes immutable event files to
+the store's `events/` log, stores captured object artifacts under `artifacts/`, and rebuilds
+`state.json` as a projection. By default the store is the shared common-dir store at `.git/shore` —
+the same store for every worktree of the clone — and an ephemeral worktree keeps a worktree-local
+`.shore/data/` store instead.
 
 Those files are local storage. Use command output as the integration surface instead of depending
 on internal file paths.
