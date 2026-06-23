@@ -762,8 +762,8 @@ hard-break policy ([ADR-0007](./adr/adr-0007-writer-act-vocabulary.md)): the gol
 bytes, the embedded signatures, and `sigVersion: 1` are all untouched.
 
 Store reads reject stored events whose writer carries `tool` with a typed
-`UnsupportedEventEnvelope` error naming the replacement field (`writer.producer`) and this anchor,
-rather than an opaque missing-field error. The supported repair for a legacy flat `.shore/` store
+`UnsupportedEventEnvelope` error naming the retired field (`writer.tool`) and this anchor — which
+names the replacement, `writer.producer` — rather than an opaque missing-field error. The supported repair for a legacy flat `.shore/` store
 is to run `just migrate-store`, which relocates the store to `.shore/data/` and rewrites
 `writer.tool` to `writer.producer` (dropping `writer.role`) in place — no recapture needed (see
 [Migrations And Doctor](#migrations-and-doctor)).

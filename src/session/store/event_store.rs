@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
-use crate::error::{Result, ShoreError};
+use crate::error::{Result, SchemaBreakRecord, ShoreError};
 use crate::session::event::{AssertionMode, EventType, ShoreEvent};
 use crate::storage::{CreateFileOutcome, Durability, LocalStorage};
 
@@ -99,32 +99,27 @@ impl EventStore {
         // silently with degraded meaning; the probe makes the break loud.
         // `tool` (ADR-0010): the rename to `producer` makes the break naturally
         // loud (the required field is missing), but only as an opaque serde
-        // error; the probe upgrades it to the typed migration error naming the
-        // replacement field. The probe runs before full decode, so the typed
-        // error wins.
+        // error; the probe upgrades it to the typed migration error pointing at
+        // the doc anchor where the replacement field is documented. The probe
+        // runs before full decode, so the typed error wins.
         #[derive(Default, serde::Deserialize)]
         struct WriterProbe {
             role: Option<serde::de::IgnoredAny>,
             tool: Option<serde::de::IgnoredAny>,
         }
         let probe: EventProbe<'_> = serde_json::from_slice(&bytes)?;
-        if let Some(migration_hint) = legacy_event_migration_hint(probe.event_type) {
-            return Err(ShoreError::UnsupportedEventType {
-                event_type: probe.event_type.to_owned(),
-                migration_hint: migration_hint.to_owned(),
-            });
+        if let Some(record) = schema_break_for(probe.event_type) {
+            return Err(ShoreError::UnsupportedEventType(record));
         }
         if probe.writer.role.is_some() {
-            return Err(ShoreError::UnsupportedEventEnvelope {
-                detail: "stored event writer carries a role field".to_owned(),
-                migration_hint: "legacy writer.role events are no longer supported; see docs/storage-model.md#legacy-writer-role-events".to_owned(),
-            });
+            return Err(ShoreError::UnsupportedEventEnvelope(
+                schema_break_for("writer.role").expect("writer.role has a break record"),
+            ));
         }
         if probe.writer.tool.is_some() {
-            return Err(ShoreError::UnsupportedEventEnvelope {
-                detail: "stored event writer carries a tool field".to_owned(),
-                migration_hint: "legacy writer.tool events are no longer supported; the field is writer.producer; see docs/storage-model.md#legacy-writer-tool-events".to_owned(),
-            });
+            return Err(ShoreError::UnsupportedEventEnvelope(
+                schema_break_for("writer.tool").expect("writer.tool has a break record"),
+            ));
         }
         let event: ShoreEvent = serde_json::from_slice(&bytes)?;
         validate_event(&event, Some(path))?;
@@ -229,16 +224,28 @@ fn is_event_file(path: &Path) -> bool {
         .is_some_and(|name| name.len() == 69 && name.ends_with(".json"))
 }
 
-fn legacy_event_migration_hint(event_type: &str) -> Option<&'static str> {
-    match event_type {
-        "review_disposition_recorded" => Some(
-            "review_disposition_recorded is no longer supported; see docs/assessment-model.md#legacy-disposition-events",
+/// The single source of truth for retired event types and envelope shapes.
+/// Given a retired identifier (an event-type wire tag or an envelope field
+/// name), returns the structured break record naming where its migration
+/// guidance lives. Returns `None` for identifiers that are still supported.
+fn schema_break_for(retired: &str) -> Option<SchemaBreakRecord> {
+    let (broken_at, anchor) = match retired {
+        "review_disposition_recorded" => {
+            ("0.1", "docs/assessment-model.md#legacy-disposition-events")
+        }
+        "intervention_requested" | "intervention_resolved" => (
+            "0.1",
+            "docs/input-request-model.md#legacy-intervention-events",
         ),
-        "intervention_requested" | "intervention_resolved" => Some(
-            "legacy intervention events are no longer supported; see docs/input-request-model.md#legacy-intervention-events",
-        ),
-        _ => None,
-    }
+        "writer.role" => ("0.1", "docs/storage-model.md#legacy-writer-role-events"),
+        "writer.tool" => ("0.1", "docs/storage-model.md#legacy-writer-tool-events"),
+        _ => return None,
+    };
+    Some(SchemaBreakRecord {
+        retired: retired.to_owned(),
+        broken_at: broken_at.to_owned(),
+        anchor: anchor.to_owned(),
+    })
 }
 
 #[cfg(test)]
@@ -253,6 +260,37 @@ mod tests {
         ReviewAssessment, ReviewAssessmentRecordedPayload, ReviewInitializedPayload,
         ReviewNoteImportedPayload, ShoreEvent, Writer,
     };
+
+    #[test]
+    fn schema_break_for_covers_every_retired_identifier() {
+        for (retired, anchor_suffix) in [
+            (
+                "review_disposition_recorded",
+                "assessment-model.md#legacy-disposition-events",
+            ),
+            (
+                "intervention_requested",
+                "input-request-model.md#legacy-intervention-events",
+            ),
+            (
+                "intervention_resolved",
+                "input-request-model.md#legacy-intervention-events",
+            ),
+            ("writer.role", "storage-model.md#legacy-writer-role-events"),
+            ("writer.tool", "storage-model.md#legacy-writer-tool-events"),
+        ] {
+            let record =
+                schema_break_for(retired).expect("a retired identifier has a break record");
+            assert_eq!(record.retired, retired);
+            assert!(!record.broken_at.is_empty());
+            assert!(
+                record.anchor.ends_with(anchor_suffix),
+                "anchor was {}",
+                record.anchor
+            );
+        }
+        assert!(schema_break_for("review_observation_recorded").is_none());
+    }
 
     #[test]
     fn event_path_is_sha256_of_idempotency_key() {
@@ -399,8 +437,8 @@ mod tests {
 
         assert!(matches!(
             err,
-            ShoreError::UnsupportedEventType { ref event_type, .. }
-                if event_type == "review_disposition_recorded"
+            ShoreError::UnsupportedEventType(ref record)
+                if record.retired == "review_disposition_recorded"
         ));
         assert!(
             err.to_string()
@@ -416,8 +454,8 @@ mod tests {
 
             assert!(matches!(
                 err,
-                ShoreError::UnsupportedEventType { ref event_type, .. }
-                    if event_type == legacy_event_type
+                ShoreError::UnsupportedEventType(ref record)
+                    if record.retired == legacy_event_type
             ));
         }
     }
@@ -438,7 +476,7 @@ mod tests {
             .read_event(&path)
             .expect_err("role-bearing stored event must be rejected");
 
-        assert!(matches!(err, ShoreError::UnsupportedEventEnvelope { .. }));
+        assert!(matches!(err, ShoreError::UnsupportedEventEnvelope(_)));
         assert!(
             err.to_string()
                 .contains("docs/storage-model.md#legacy-writer-role-events"),
@@ -480,7 +518,7 @@ mod tests {
             .expect_err("tool-bearing stored event must be rejected");
 
         assert!(
-            matches!(err, ShoreError::UnsupportedEventEnvelope { .. }),
+            matches!(err, ShoreError::UnsupportedEventEnvelope(_)),
             "expected the typed migration error, got: {err:?}"
         );
         assert!(
@@ -489,8 +527,8 @@ mod tests {
             "error carries the public migration anchor; got: {err}"
         );
         assert!(
-            err.to_string().contains("writer.producer"),
-            "error names the replacement field; got: {err}"
+            err.to_string().contains("writer.tool"),
+            "error names the retired envelope field; got: {err}"
         );
     }
 
