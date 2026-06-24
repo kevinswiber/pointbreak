@@ -193,7 +193,7 @@ impl ContentArtifacts {
     /// Fetch a note-body artifact's stored bytes and validate them against
     /// `expected_content_hash` (locator-hash + content-hash check via
     /// `validate_note_body_artifact_bytes`), returning the raw validated bytes. The
-    /// export seam needs the bytes, not a parsed body; a missing blob maps to the
+    /// export path needs the bytes, not a parsed body; a missing blob maps to the
     /// canonical "import referenced artifacts" guidance.
     pub(crate) fn read_note_body_bytes(
         &self,
