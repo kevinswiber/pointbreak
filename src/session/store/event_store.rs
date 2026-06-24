@@ -8,18 +8,39 @@ use crate::storage::{CreateOutcome, LocalStorage};
 
 #[derive(Debug)]
 pub struct EventStore {
+    journal: Box<dyn Journal>,
+    /// The file-layout helpers, present only for a file-backed store. They read
+    /// events by arbitrary on-disk path (not by logical key), so they serve the
+    /// store-migrate, bundle, and tamper-probe consumers and have no meaning for a
+    /// non-file backend — an injected memory store carries `None`.
+    files: Option<LocalEventFiles>,
+}
+
+/// The file-layout half of a file-backed event store: the events directory and a
+/// `LocalStorage` for the path-keyed reads (`read_event`, `list_event_file_names`)
+/// that sit beside, not on, the key-addressed [`Journal`].
+#[derive(Debug)]
+struct LocalEventFiles {
     store_dir: PathBuf,
     storage: LocalStorage,
-    journal: Box<dyn Journal>,
+}
+
+impl LocalEventFiles {
+    fn new(store_dir: impl AsRef<Path>) -> Self {
+        let store_dir = store_dir.as_ref().to_path_buf();
+        Self {
+            storage: LocalStorage::new(&store_dir),
+            store_dir,
+        }
+    }
 }
 
 impl EventStore {
     pub fn open(store_dir: impl AsRef<Path>) -> Self {
         let store_dir = store_dir.as_ref().to_path_buf();
         Self {
-            storage: LocalStorage::new(&store_dir),
             journal: Box::new(LocalJournal::new(&store_dir)),
-            store_dir,
+            files: Some(LocalEventFiles::new(store_dir)),
         }
     }
 
@@ -29,30 +50,28 @@ impl EventStore {
     /// constructor for tests and direct file-store access.
     pub(crate) fn from_backend(backend: &StoreBackend) -> Self {
         let journal = backend.journal();
-        match backend {
-            StoreBackend::Local(store_dir) => Self {
-                storage: LocalStorage::new(store_dir),
-                journal,
-                store_dir: store_dir.clone(),
-            },
+        let files = match backend {
+            StoreBackend::Local(store_dir) => Some(LocalEventFiles::new(store_dir)),
             // The injection-only memory backend has no directory. Every write and
-            // read on this path goes through `journal`; the retained file-path
-            // helpers (`read_event`, `events_dir`, `list_event_file_names`) are
-            // file-backend-only and an injected memory store never calls them.
-            // `record_event_once` still works: the path it derives for validation
-            // is `events/<sha256(key)>.json`, whose stem comes only from the key,
-            // so the empty root never reaches a stored byte.
+            // read goes through `journal`; the file-layout helpers are
+            // file-backend-only, so a memory store simply carries `None`.
             #[cfg(test)]
-            StoreBackend::Memory(_) => Self {
-                storage: LocalStorage::new(PathBuf::new()),
-                journal,
-                store_dir: PathBuf::new(),
-            },
-        }
+            StoreBackend::Memory(_) => None,
+        };
+        Self { journal, files }
+    }
+
+    /// The file-layout helpers, which are valid only on a file-backed store. A
+    /// memory-backed store never reaches these (its consumers — store-migrate,
+    /// bundle, the tamper probes — are all file-backed by construction).
+    fn files(&self) -> &LocalEventFiles {
+        self.files
+            .as_ref()
+            .expect("event file-path helpers require a file-backed store")
     }
 
     pub(crate) fn events_dir(&self) -> PathBuf {
-        self.store_dir.join("events")
+        self.files().store_dir.join("events")
     }
 
     pub(crate) fn event_path_for_idempotency_key(&self, idempotency_key: &str) -> PathBuf {
@@ -69,8 +88,9 @@ impl EventStore {
         );
         let _entered = span.enter();
 
-        let path = self.event_path_for_idempotency_key(&event.idempotency_key);
-        validate_event(event, Some(&path))?;
+        // The journal owns key→address mapping, so the write needs no on-disk path;
+        // the prior path-stem check was a tautology over the key-derived filename.
+        validate_event(event, None)?;
         let bytes = serde_json::to_vec(event)?;
 
         match self
@@ -78,21 +98,27 @@ impl EventStore {
             .create_event_once(&event.idempotency_key, &bytes)?
         {
             CreateOutcome::Created => {
-                tracing::debug!(path = %path.display(), "event_store_write_created");
+                tracing::debug!(
+                    idempotency_key = %event.idempotency_key,
+                    "event_store_write_created"
+                );
                 Ok(EventWriteOutcome::Created)
             }
             CreateOutcome::AlreadyExists => {
                 let existing = self.read_stored_event(&event.idempotency_key)?;
                 if existing.payload_hash == event.payload_hash {
                     if event_signature_binding_matches(&existing, event) {
-                        tracing::debug!(path = %path.display(), "event_store_write_existing");
+                        tracing::debug!(
+                            idempotency_key = %event.idempotency_key,
+                            "event_store_write_existing"
+                        );
                         Ok(EventWriteOutcome::Existing)
                     } else if existing.event_record_hash()? == event.event_record_hash()? {
                         // Same content record (signer-exclusive eventRecordHash matches),
                         // differently signed: a transcription-eligible co-signature, not a
                         // conflict.
                         tracing::debug!(
-                            path = %path.display(),
+                            idempotency_key = %event.idempotency_key,
                             "event_store_write_existing_divergent_signature"
                         );
                         Ok(EventWriteOutcome::ExistingDivergentSignature)
@@ -100,7 +126,10 @@ impl EventStore {
                         // Same idempotencyKey and payloadHash but a different record
                         // (eventRecordHash differs) — an eventId collision without content
                         // identity, not a co-signature. Keep the first-stored copy.
-                        tracing::debug!(path = %path.display(), "event_store_write_existing");
+                        tracing::debug!(
+                            idempotency_key = %event.idempotency_key,
+                            "event_store_write_existing"
+                        );
                         Ok(EventWriteOutcome::Existing)
                     }
                 } else {
@@ -114,7 +143,7 @@ impl EventStore {
     }
 
     pub fn read_event(&self, path: &Path) -> Result<ShoreEvent> {
-        let bytes = self.storage.read_bytes(path)?;
+        let bytes = self.files().storage.read_bytes(path)?;
         Self::decode_validated_event(&bytes, Some(path))
     }
 
@@ -236,6 +265,7 @@ impl EventStore {
     /// directory lists as empty.
     pub(crate) fn list_event_file_names(&self) -> Result<Vec<String>> {
         Ok(self
+            .files()
             .storage
             .list_dir(&self.events_dir())?
             .into_iter()
