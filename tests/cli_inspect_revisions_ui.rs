@@ -219,20 +219,33 @@ fn served_documents_carry_no_snapshot_id_wire_key() {
 }
 
 #[test]
-fn served_index_html_replaces_lineages_tab_with_revisions() {
+fn served_index_html_offers_the_threads_lens_not_a_lineages_tab() {
     let html = served_index_html();
 
+    // The retired Lineages tab never returns.
     assert!(
         !html.contains("data-view=\"lineages\"") && !html.contains(">Lineages<"),
         "the Lineages tab is replaced"
     );
+    // The parallel-tab model is gone: the master pane swaps lenses instead. The
+    // supersession-thread affordance is now the `threads` lens of the one shell.
     assert!(
-        html.contains("data-view=\"revisions\""),
-        "a Revisions tab is present"
+        !html.contains("data-view="),
+        "the parallel-view tab model is replaced by the lens switcher"
     );
-    // The timeline filter is repointed from lineage to object.
     assert!(
-        html.contains("id=\"filter-object\"") && !html.contains("id=\"filter-lineage\""),
-        "the lineage filter becomes the object filter"
+        html.contains("data-lens=\"threads\"") && html.contains("data-lens=\"list\""),
+        "the lens switcher offers the threads + list lenses"
+    );
+    // The retired lineage filter never returns; object filtering is now a token
+    // in the structured query grammar (`object:`), not a dropdown.
+    assert!(
+        !html.contains("id=\"filter-lineage\""),
+        "no lineage filter remains"
+    );
+    let js = served_app_js();
+    assert!(
+        js.contains("object:"),
+        "object filtering is a field token in the structured query grammar"
     );
 }

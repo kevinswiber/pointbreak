@@ -23,8 +23,8 @@ body { display: flex; flex-direction: column; }
 .brand { font-weight: 700; letter-spacing: 0.3px; }
 .brand span { color: var(--accent); margin-left: 4px; font-weight: 500; }
 
-#tabs { display: flex; gap: 4px; }
-.tab {
+#lens-switcher { display: flex; gap: 4px; }
+.lens-tab {
   background: transparent;
   color: var(--fg-dim);
   border: 1px solid transparent;
@@ -33,7 +33,7 @@ body { display: flex; flex-direction: column; }
   cursor: pointer;
   font: inherit;
 }
-.tab[aria-selected="true"] { color: var(--fg); background: var(--bg-row); border-color: var(--border); }
+.lens-tab[aria-selected="true"] { color: var(--fg); background: var(--bg-row); border-color: var(--border); }
 
 .stats { margin-left: auto; display: flex; gap: 14px; align-items: center; }
 .stat { color: var(--fg-dim); font-size: var(--fs-sm); }
@@ -49,8 +49,17 @@ body { display: flex; flex-direction: column; }
 }
 .diagnostics .code { font-family: var(--mono); color: var(--warning-strong); margin-right: 6px; }
 
-main { flex: 1 1 auto; min-height: 0; display: flex; }
-.view { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; }
+/* A quiet, informational notice when a deep link resolved to a nearby fallback
+   (never an error: the view still rendered). */
+.route-diagnostic {
+  background: var(--bg-row);
+  color: var(--fg-dim);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 16px;
+  font-size: var(--fs-md);
+}
+
+main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; width: 100%; }
 .hidden { display: none !important; }
 
 .toolbar {
@@ -88,11 +97,17 @@ main { flex: 1 1 auto; min-height: 0; display: flex; }
   gap: 5px;
 }
 .type-toggle .dot { width: 8px; height: 8px; border-radius: 50%; }
+.type-toggle .type-count { color: var(--fg-dim); font-variant-numeric: tabular-nums; }
 .type-toggle.off { opacity: 0.4; }
 
 .split { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr); }
 
-.timeline { list-style: none; margin: 0; padding: 0; overflow-y: auto; border-right: 1px solid var(--border); }
+/* The master pane is the swappable lens body; it owns the scroll + the divider
+   between it and the detail pane. */
+#master { min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+#master > * { flex: 1 1 auto; min-height: 0; }
+
+.timeline { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
 .event {
   display: grid;
   grid-template-columns: 96px 14px 1fr;
@@ -138,6 +153,7 @@ main { flex: 1 1 auto; min-height: 0; display: flex; }
   cursor: pointer;
 }
 .unit-card:hover { border-color: var(--accent); }
+.unit-card[aria-selected="true"] { border-color: var(--accent); background: var(--bg-row-sel); }
 .unit-card h3 { margin: 0 0 6px; font-size: var(--fs-md); font-family: var(--mono); }
 .unit-card .kv { display: grid; grid-template-columns: 110px 1fr; gap: 2px 10px; font-size: var(--fs-sm); font-family: var(--mono); color: var(--fg-dim); }
 .unit-card .kv b { color: var(--fg); font-weight: 500; }
@@ -165,6 +181,7 @@ main { flex: 1 1 auto; min-height: 0; display: flex; }
   border-left-color: color-mix(in srgb, var(--warning) 50%, transparent);
   border-left-style: dashed;
 }
+.revision-node[aria-selected="true"] { background: var(--bg-row-sel); border-color: var(--accent); }
 .rev-node-head { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .rev-edge { margin-top: 4px; color: var(--fg-dim); }
 
@@ -209,6 +226,42 @@ main { flex: 1 1 auto; min-height: 0; display: flex; }
   background: var(--bg-elev);
 }
 .diff-body { overflow: auto; padding: 12px 14px; }
+.modal-head h2 { margin: 0; font-size: var(--fs-base); }
+
+/* Command palette: a top-anchored search overlay. */
+#cmd-palette { align-items: flex-start; }
+.cmd-card { width: min(560px, 92vw); height: auto; max-height: 70vh; margin-top: 10vh; }
+.cmd-input {
+  background: var(--bg-elev);
+  color: var(--fg);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+  font: inherit;
+  font-size: var(--fs-base);
+  outline: none;
+}
+.cmd-results { list-style: none; margin: 0; padding: 6px 0; overflow-y: auto; }
+.cmd-group { padding: 6px 16px 2px; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-dim); font-family: var(--mono); }
+.cmd-item { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 6px 16px; cursor: pointer; }
+.cmd-item.active, .cmd-item:hover { background: var(--bg-row-sel); }
+.cmd-label { font-family: var(--mono); font-size: var(--fs-sm); }
+.cmd-hint { color: var(--fg-dim); font-size: var(--fs-xs); font-family: var(--mono); }
+.cmd-empty { padding: 10px 16px; color: var(--fg-dim); font-size: var(--fs-sm); }
+
+/* Keyboard cheat sheet: a compact overlay, smaller than the diff modal. */
+.key-help-card { width: min(520px, 92vw); height: auto; max-height: 80vh; }
+.key-help-list { margin: 0; padding: 14px 18px; display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; overflow-y: auto; }
+.key-help-list dt { font-family: var(--mono); color: var(--fg); }
+.key-help-list dd { margin: 0; color: var(--fg-dim); font-size: var(--fs-sm); }
+.key-help-list kbd {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  background: var(--bg-row);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+}
 
 .dfile { margin-bottom: 18px; border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; }
 .dfile-head { display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: var(--bg-elev); border-bottom: 1px solid var(--border); }
@@ -283,10 +336,8 @@ main { flex: 1 1 auto; min-height: 0; display: flex; }
 .ref[data-ref-kind]:hover { background: var(--bg-row); }
 .ref-commit, .ref-hash { color: var(--fg-dim); }
 
-/* Single-unit composite page */
-.unit-page-bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--border); flex: 0 0 auto; }
-#unit-page-title { color: var(--fg-dim); font-size: var(--fs-sm); }
-.unit-page { overflow-y: auto; padding: 16px 18px; }
+/* The revision composite, rendered as the detail pane's "full" mode. */
+.unit-page-title { color: var(--fg-dim); font-size: var(--fs-sm); font-family: var(--mono); margin: 0 0 14px; word-break: break-all; }
 .unit-page section { margin-bottom: 20px; }
 .unit-page h2 { font-size: var(--fs-md); text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-dim); margin: 0 0 8px; }
 .up-identity { display: grid; grid-template-columns: 120px 1fr; gap: 4px 12px; font-size: var(--fs-sm); font-family: var(--mono); }

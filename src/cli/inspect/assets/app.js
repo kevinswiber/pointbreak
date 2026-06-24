@@ -17,15 +17,26 @@ const state = {
   history: null,
   units: null,
   objects: null,
-  view: "timeline",
+  // The master pane projection: one of timeline | list | threads. Serialized
+  // into the URL fragment by the router.
+  lens: "timeline",
+  // The single selection through-line: { kind: "event" | "revision" | null, id }.
+  // The detail pane is a pure projection of this; it replaces the three former
+  // scattered selection sites.
+  selected: { kind: null, id: null },
   enabledTypes: new Set(TYPES.map((t) => t.id)),
   seenTypes: new Set(TYPES.map((t) => t.id)),
+  // The structured query string (serialized as q=). It carries free-text terms
+  // plus field:value clauses (type/track/revision/object/status); the revision
+  // filter lives here as `revision:<id>`, so it is shareable like the rest.
   filterText: "",
   filterTrack: "",
-  filterUnit: "",
   filterObject: "",
   order: "desc", // "desc" = newest first (default), "asc" = chronological
-  selectedEventId: null,
+  // The route-preserving diff overlay: the object id being shown, plus the
+  // set-valued in-diff fact highlight.
+  diff: null,
+  focus: null,
   lastHash: null,
   lastDiagnosticCount: null,
 };
@@ -150,23 +161,23 @@ function linkify(text) {
   });
 }
 
+// A reference chip resolves to a navigation through the router (set the
+// selection / scope and push a hash), never an in-place filter mutation.
+// Navigating to a named reference also dismisses any open diff overlay.
 function resolveRef(kind, id) {
-  closeDiff();
   switch (kind) {
     // The revision and the (retired) review-unit prefix both address a revision's
     // composite — its identity is unified onto RevisionId.
     case "rev":
     case "review-unit":
-      openUnit(id);
+      navigate({ selected: { kind: "revision", id }, diff: null, focus: null });
       break;
     case "track":
       navigateToTrack(id);
       break;
-    case "snap": {
-      const unit = (state.units?.entries || []).find((u) => u.objectId === id);
-      openDiff(id, unit ? shortId(unit.revisionId) : "", unit?.revisionId);
+    case "snap":
+      openDiff(id);
       break;
-    }
     case "obs":
       revealBy((e) => (e.summary || {}).observationId === id);
       break;
@@ -184,26 +195,21 @@ function resolveRef(kind, id) {
   }
 }
 
+// Show a single revision's events on the timeline. The revision filter is the
+// structured query `revision:<id>`, so it is shareable like the rest of the
+// query; clear the cross-lens scope that could otherwise leave the timeline
+// empty and switch to the timeline lens through the router.
 function navigateToUnit(id) {
-  // Clear text/track filters so the unit's events actually show — a stale
-  // no-match text or track filter would otherwise leave an empty timeline.
-  state.filterText = "";
-  state.filterTrack = "";
-  state.filterObject = "";
-  state.filterUnit = id;
-  $("#filter-text").value = "";
-  $("#filter-track").value = "";
-  $("#filter-object").value = "";
-  $("#filter-unit").value = id;
-  switchView("timeline");
-  renderTimeline();
+  navigate({
+    lens: "timeline",
+    filterText: "revision:" + id,
+    filterTrack: "",
+    filterObject: "",
+  });
 }
 
 function navigateToTrack(id) {
-  state.filterTrack = id;
-  $("#filter-track").value = id;
-  switchView("timeline");
-  renderTimeline();
+  navigate({ lens: "timeline", filterTrack: id, diff: null, focus: null });
 }
 
 function revealBy(predicate) {
@@ -211,29 +217,27 @@ function revealBy(predicate) {
   if (e) revealEvent(e.eventId);
 }
 
-// Make an event visible (clearing filters that would hide it) and select it.
+// Make an event visible (clearing filters that would hide it) and select it, all
+// through the router so the URL is the single source of truth. The
+// selection-scroll happens on the render that follows.
 function revealEvent(eventId) {
   const e = (state.history?.entries || []).find((x) => x.eventId === eventId);
   if (!e) return;
-  // Clear every filter that could hide the target row, including the track
-  // filter (a cross-track chip, e.g. an assessment linking to another track's
-  // observation, would otherwise select a row that stays hidden).
-  state.filterText = "";
-  state.filterUnit = "";
-  state.filterTrack = "";
-  state.filterObject = "";
-  $("#filter-text").value = "";
-  $("#filter-unit").value = "";
-  $("#filter-track").value = "";
-  $("#filter-object").value = "";
-  state.enabledTypes.add(e.eventType);
-  state.selectedEventId = eventId;
-  switchView("timeline");
-  renderTypeToggles();
-  renderTimeline();
-  renderDetail();
-  const row = $("#timeline").querySelector('.event[aria-selected="true"]');
-  if (row) row.scrollIntoView({ block: "center" });
+  // Enable the target's type and clear every filter that could hide the target
+  // row, including the track filter (a cross-track chip, e.g. an assessment
+  // linking to another track's observation, would otherwise select a hidden row).
+  const types = new Set(state.enabledTypes);
+  types.add(e.eventType);
+  navigate({
+    lens: "timeline",
+    selected: { kind: "event", id: eventId },
+    filterText: "",
+    filterTrack: "",
+    filterObject: "",
+    enabledTypes: types,
+    diff: null,
+    focus: null,
+  });
 }
 
 function parseMs(occurredAt) {
@@ -398,6 +402,19 @@ async function load() {
     // divergence appearing/clearing without a new event (#142). The history
     // payload carries the same diagnostics set the freshness probe counts.
     state.lastDiagnosticCount = (history.diagnostics || []).length;
+    // Build the per-entry search index once (not per keystroke): a lowercased
+    // haystack plus a small structured projection the query grammar reads.
+    for (const e of history.entries || []) {
+      const revision = entryRevisionId(e);
+      e.__search = {
+        text: buildHaystack(e),
+        type: e.eventType,
+        track: entryTrack(e),
+        revision,
+        object: objectIdForRevision(revision),
+        status: (e.summary || {}).status || "",
+      };
+    }
     showError(null);
     renderAll();
   } catch (err) {
@@ -430,17 +447,14 @@ async function pollFreshness() {
   }
 }
 
+// Populate the data-driven surfaces (stats, option lists, the lens bodies that do
+// not depend on the transient filters), then project the current view. Called on
+// load and on every freshness refresh; the per-navigation re-projection is
+// render().
 function renderAll() {
   renderStats();
   renderDiagnostics();
-  renderTypeToggles();
-  renderTrackOptions();
-  renderUnitOptions();
-  renderObjectOptions();
-  renderTimeline();
-  renderUnits();
-  renderRevisions();
-  renderDetail();
+  render();
 }
 
 function renderStats() {
@@ -477,6 +491,9 @@ function presentTypes() {
 function renderTypeToggles() {
   const container = $("#filter-types");
   container.innerHTML = "";
+  // Live facet counts: how many events each type would contribute under the rest
+  // of the current query (distribution first, then narrow).
+  const counts = facetCounts();
   for (const id of presentTypes()) {
     // Default a newly-seen type (e.g. an unknown event type) to enabled once;
     // after that the user's toggle sticks instead of being re-enabled here.
@@ -486,44 +503,16 @@ function renderTypeToggles() {
     }
     const btn = document.createElement("button");
     btn.className = "type-toggle" + (state.enabledTypes.has(id) ? "" : " off");
-    btn.innerHTML = `<span class="dot" style="background:${typeColor(id)}"></span>${escapeHtml(typeLabel(id))}`;
+    btn.innerHTML = `<span class="dot" style="background:${typeColor(id)}"></span>${escapeHtml(typeLabel(id))}<span class="type-count">${counts[id] || 0}</span>`;
     btn.title = id;
     btn.addEventListener("click", () => {
-      if (state.enabledTypes.has(id)) state.enabledTypes.delete(id);
-      else state.enabledTypes.add(id);
-      renderTypeToggles();
-      renderTimeline();
+      const types = new Set(state.enabledTypes);
+      if (types.has(id)) types.delete(id);
+      else types.add(id);
+      navigate({ enabledTypes: types }, { replace: true });
     });
     container.appendChild(btn);
   }
-}
-
-function fillSelect(select, values, current) {
-  const keep = current && values.includes(current) ? current : "";
-  select.querySelectorAll("option:not(:first-child)").forEach((o) => o.remove());
-  for (const v of values) {
-    const opt = document.createElement("option");
-    opt.value = v;
-    opt.textContent = v.length > 40 ? v.slice(0, 18) + "…" + v.slice(-12) : v;
-    select.appendChild(opt);
-  }
-  select.value = keep;
-  return keep;
-}
-
-function renderTrackOptions() {
-  const tracks = [...new Set((state.history?.entries || []).map(entryTrack).filter(Boolean))].sort();
-  state.filterTrack = fillSelect($("#filter-track"), tracks, state.filterTrack);
-}
-
-function renderUnitOptions() {
-  const units = [...new Set((state.history?.entries || []).map(entryRevisionId).filter(Boolean))].sort();
-  state.filterUnit = fillSelect($("#filter-unit"), units, state.filterUnit);
-}
-
-function renderObjectOptions() {
-  const objects = [...new Set((state.units?.entries || []).map((u) => u.objectId).filter(Boolean))].sort();
-  state.filterObject = fillSelect($("#filter-object"), objects, state.filterObject);
 }
 
 // The supersession threads (connected components of the supersession DAG, each
@@ -585,16 +574,131 @@ function supersessionBadge(revisionId) {
   return "";
 }
 
+// The selected event id, when the single selection is an event (else null).
+function selectedEventId() {
+  return state.selected && state.selected.kind === "event" ? state.selected.id : null;
+}
+
+// ---------------------------------------------------------------------------
+// Search index + structured query grammar
+//
+// Each entry carries a once-per-load `__search` record (a lowercased haystack of
+// the human-relevant fields plus a small structured projection), so the filter
+// never re-serializes the whole event per keystroke. The query box parses a
+// small grammar: bare terms (free-text AND), field:value equality over
+// type/track/revision/object/status, `-` negation, and "quoted phrases".
+// ---------------------------------------------------------------------------
+const QUERY_FIELDS = ["type", "track", "revision", "object", "status"];
+
+// The lowercased haystack of an entry's human-relevant fields (not the whole
+// serialized object).
+function buildHaystack(e) {
+  const s = e.summary || {};
+  const parts = [
+    entryTitle(e),
+    s.body,
+    s.summary,
+    s.assessment,
+    s.outcome,
+    s.reasonCode,
+    e.eventId,
+    entryRevisionId(e),
+    s.observationId,
+    s.assessmentId,
+    s.inputRequestId,
+    s.validationCheckId,
+    entryTrack(e),
+    entryAnchor(e),
+    s.checkName,
+    s.command,
+    ...(entryTags(e) || []),
+  ];
+  return parts.filter(Boolean).join(" ").toLowerCase();
+}
+
+// Split a query into tokens, honoring "quoted phrases" (optionally negated /
+// field-prefixed) and bare runs.
+function tokenizeQuery(q) {
+  const out = [];
+  const re = /-?(?:[a-z]+:)?"[^"]*"|\S+/gi;
+  let m;
+  while ((m = re.exec(q)) !== null) out.push(m[0]);
+  return out;
+}
+
+// Parse a query string into a list of clauses. A `field:value` whose field is a
+// recognized id-shaped field reuses refInfo's classification; everything else is
+// a free-text clause.
+function parseSearchQuery(q) {
+  const clauses = [];
+  for (let tok of tokenizeQuery(q || "")) {
+    let negate = false;
+    if (tok.length > 1 && tok[0] === "-") {
+      negate = true;
+      tok = tok.slice(1);
+    }
+    const colon = tok.indexOf(":");
+    const field = colon > 0 ? tok.slice(0, colon).toLowerCase() : "";
+    if (field && QUERY_FIELDS.includes(field)) {
+      const raw = tok.slice(colon + 1).replace(/^"|"$/g, "");
+      // refInfo classifies the operand (id-shaped values stay id-shaped); the
+      // value is matched as a substring of the stored field so short ids work.
+      refInfo(raw);
+      clauses.push({ kind: "field", field, value: raw.toLowerCase(), negate });
+    } else {
+      const term = tok.replace(/^"|"$/g, "").toLowerCase();
+      if (term) clauses.push({ kind: "text", value: term, negate });
+    }
+  }
+  return clauses;
+}
+
+function fieldMatches(idx, field, value) {
+  if (field === "type") {
+    // Accept the human label (e.g. "observation") or the raw event-type id.
+    const known = TYPES.find((t) => t.label === value || t.id === value);
+    return idx.type === (known ? known.id : value);
+  }
+  return (idx[field] || "").toLowerCase().includes(value);
+}
+
+function matchesQuery(idx, clauses) {
+  for (const c of clauses) {
+    const hit = c.kind === "field" ? fieldMatches(idx, c.field, c.value) : idx.text.includes(c.value);
+    if (c.negate ? hit : !hit) return false;
+  }
+  return true;
+}
+
+// Parse the query once per render and memoize on the raw string (matchesFilters
+// is called per entry).
+let queryCache = { raw: null, clauses: [] };
+function currentClauses() {
+  if (queryCache.raw !== state.filterText) {
+    queryCache = { raw: state.filterText, clauses: parseSearchQuery(state.filterText) };
+  }
+  return queryCache.clauses;
+}
+
 function matchesFilters(e) {
   if (!state.enabledTypes.has(e.eventType)) return false;
   if (state.filterTrack && entryTrack(e) !== state.filterTrack) return false;
-  if (state.filterUnit && entryRevisionId(e) !== state.filterUnit) return false;
   if (state.filterObject && !eventMatchesObject(e, state.filterObject)) return false;
-  if (state.filterText) {
-    const hay = JSON.stringify(e).toLowerCase();
-    if (!hay.includes(state.filterText.toLowerCase())) return false;
+  return matchesQuery(e.__search || {}, currentClauses());
+}
+
+// Per-type counts over the events matching everything except the type toggles,
+// so each toggle shows the distribution it would contribute.
+function facetCounts() {
+  const counts = {};
+  const clauses = currentClauses();
+  for (const e of state.history?.entries || []) {
+    if (state.filterTrack && entryTrack(e) !== state.filterTrack) continue;
+    if (state.filterObject && !eventMatchesObject(e, state.filterObject)) continue;
+    if (!matchesQuery(e.__search || {}, clauses)) continue;
+    counts[e.eventType] = (counts[e.eventType] || 0) + 1;
   }
-  return true;
+  return counts;
 }
 
 function renderTimeline() {
@@ -615,7 +719,7 @@ function renderTimeline() {
     const li = document.createElement("li");
     li.className = "event";
     li.dataset.eventId = e.eventId;
-    if (e.eventId === state.selectedEventId) li.setAttribute("aria-selected", "true");
+    if (e.eventId === selectedEventId()) li.setAttribute("aria-selected", "true");
     const tags = entryTags(e)
       .map((t) => `<span class="badge">${escapeHtml(t)}</span>`)
       .join(" ");
@@ -637,10 +741,7 @@ function renderTimeline() {
       </span>`;
     li.addEventListener("click", (ev) => {
       if (ev.target.closest("[data-ref-kind]")) return; // let the ref handler navigate
-      state.selectedEventId = e.eventId;
-      list.querySelectorAll(".event[aria-selected]").forEach((n) => n.removeAttribute("aria-selected"));
-      li.setAttribute("aria-selected", "true");
-      renderDetail();
+      navigate({ selected: { kind: "event", id: e.eventId } });
     });
     list.appendChild(li);
   }
@@ -649,9 +750,9 @@ function renderTimeline() {
 function renderDetail() {
   const el = $("#detail");
   const entries = state.history?.entries || [];
-  const e = entries.find((x) => x.eventId === state.selectedEventId);
+  const e = entries.find((x) => x.eventId === selectedEventId());
   if (!e) {
-    el.innerHTML = `<p class="empty">Select an event to inspect its full payload.</p>`;
+    el.innerHTML = `<p class="empty">Select an event or revision to inspect.</p>`;
     return;
   }
   const revisionId = entryRevisionId(e);
@@ -707,7 +808,7 @@ function renderDetail() {
     <pre>${escapeHtml(JSON.stringify(e, null, 2))}</pre>`;
   if (snapshotId) {
     const btn = el.querySelector("#detail-diff-btn");
-    if (btn) btn.addEventListener("click", () => openDiff(snapshotId, shortId(revisionId), revisionId, focusId));
+    if (btn) btn.addEventListener("click", () => openDiff(snapshotId, focusId));
   }
 }
 
@@ -759,31 +860,75 @@ function annotationsForUnit(revisionId) {
   return out;
 }
 
-async function openDiff(snapshotId, label, revisionId = null, focusId = null) {
-  const modal = $("#diff-modal");
-  $("#diff-title").textContent = label ? `${label} · snapshot ${shortId(snapshotId)}` : shortId(snapshotId);
-  $("#diff-body").innerHTML = `<p class="empty">loading snapshot…</p>`;
-  modal.classList.remove("hidden");
-  try {
-    // The object endpoint is object-scoped (no revision id on the wire);
-    // the caller threads the revision id for annotation lookup.
-    const artifact = await fetchJSON("/api/object?id=" + encodeURIComponent(snapshotId));
-    const annotations = annotationsForUnit(revisionId);
-    $("#diff-body").innerHTML = renderDiff(artifact, annotations);
-    if (focusId) {
-      const target = $("#diff-body").querySelector(`[data-anno="${focusId}"]`);
-      if (target) {
-        target.scrollIntoView({ block: "center" });
-        target.classList.add("anno-flash");
-      }
-    }
-  } catch (err) {
-    $("#diff-body").innerHTML = `<p class="empty">error: ${escapeHtml(err.message)}</p>`;
-  }
+// Open the route-preserving diff overlay for a captured object. The overlay is a
+// fragment param (`diff=`/`focus=`); the modal body is reconciled from state on
+// the render that follows, so a deep link or Back/Forward reopens it identically.
+function openDiff(objectId, focusId = null) {
+  navigate({ diff: objectId, focus: focusId ? [focusId] : null });
 }
 
 function closeDiff() {
-  $("#diff-modal").classList.add("hidden");
+  if (!state.diff && $("#diff-modal").classList.contains("hidden")) return;
+  navigate({ diff: null, focus: null });
+}
+
+// The revision that captured an object, via the units list (its snapshot id is
+// the content-addressed object).
+function revisionIdForObject(objectId) {
+  const unit = (state.units?.entries || []).find((u) => u.objectId === objectId);
+  return unit ? unit.revisionId : null;
+}
+
+// The object id currently painted in the modal, so a re-render with an unchanged
+// overlay does not re-fetch.
+let shownDiffObject = null;
+
+// Reconcile the diff modal DOM with `state.diff`/`state.focus`. Part of the
+// render path: it both opens (user action, deep link, Back/Forward) and closes.
+function renderDiffOverlay() {
+  const modal = $("#diff-modal");
+  if (!state.diff) {
+    modal.classList.add("hidden");
+    shownDiffObject = null;
+    return;
+  }
+  if (state.diff === shownDiffObject) {
+    applyDiffFocus();
+    return;
+  }
+  shownDiffObject = state.diff;
+  const objectId = state.diff;
+  const revisionId = revisionIdForObject(objectId);
+  const label = revisionId ? shortId(revisionId) : "";
+  $("#diff-title").textContent = label
+    ? `${label} · snapshot ${shortId(objectId)}`
+    : shortId(objectId);
+  $("#diff-body").innerHTML = `<p class="empty">loading snapshot…</p>`;
+  modal.classList.remove("hidden");
+  // The object endpoint is object-scoped (no revision id on the wire); the
+  // revision id is recovered from the units list for annotation lookup.
+  fetchJSON("/api/object?id=" + encodeURIComponent(objectId))
+    .then((artifact) => {
+      // A later overlay change may have superseded this fetch.
+      if (state.diff !== objectId) return;
+      const annotations = annotationsForUnit(revisionId);
+      $("#diff-body").innerHTML = renderDiff(artifact, annotations);
+      applyDiffFocus();
+    })
+    .catch((err) => {
+      if (state.diff !== objectId) return;
+      $("#diff-body").innerHTML = `<p class="empty">error: ${escapeHtml(err.message)}</p>`;
+    });
+}
+
+function applyDiffFocus() {
+  const focusId = state.focus && state.focus[0];
+  if (!focusId) return;
+  const target = $("#diff-body").querySelector(`[data-anno="${focusId}"]`);
+  if (target) {
+    target.scrollIntoView({ block: "center" });
+    target.classList.add("anno-flash");
+  }
 }
 
 function lineMatch(fact, row) {
@@ -909,6 +1054,10 @@ function renderUnits() {
     const base = u.base || {};
     const card = document.createElement("div");
     card.className = "unit-card";
+    card.dataset.revisionId = u.revisionId;
+    if (state.selected.kind === "revision" && state.selected.id === u.revisionId) {
+      card.setAttribute("aria-selected", "true");
+    }
     const badge = supersessionBadge(u.revisionId);
     const rows = [
       ["captured", fmtDateTime(u.capturedAt)],
@@ -926,7 +1075,7 @@ function renderUnits() {
     card.title = u.revisionId + "\nclick to open the revision page";
     card.addEventListener("click", (ev) => {
       if (ev.target.closest("[data-ref-kind]")) return;
-      openUnit(u.revisionId);
+      navigate({ selected: { kind: "revision", id: u.revisionId } });
     });
     const actions = document.createElement("div");
     actions.className = "actions";
@@ -935,7 +1084,7 @@ function renderUnits() {
     diffBtn.textContent = "view snapshot diff";
     diffBtn.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      openDiff(u.objectId, shortId(u.revisionId), u.revisionId);
+      openDiff(u.objectId);
     });
     actions.appendChild(diffBtn);
     card.appendChild(actions);
@@ -1001,36 +1150,116 @@ function renderRevisionNode(rev, heads, superseded) {
   const supersedesRow = predecessors.length
     ? `<div class="rev-edge">supersedes ${predecessors.map((p) => linkify(p)).join(" ")}</div>`
     : "";
-  return `<div class="revision-node${isHead ? " head" : ""}${isSuperseded ? " superseded" : ""}">
+  const selected = state.selected.kind === "revision" && state.selected.id === rev ? ' aria-selected="true"' : "";
+  return `<div class="revision-node${isHead ? " head" : ""}${isSuperseded ? " superseded" : ""}" data-revision-id="${escapeHtml(rev)}"${selected}>
     <div class="rev-node-head">${linkify(rev)} ${marks.join(" ")}</div>
     ${supersedesRow}
   </div>`;
 }
 
-function switchView(view) {
-  state.view = view;
-  // Drill-in pages stay under their parent tabs.
-  document.querySelectorAll(".tab").forEach((t) =>
-    t.setAttribute(
-      "aria-selected",
-      String(t.dataset.view === view || (view === "unit" && t.dataset.view === "units")),
-    ),
+// Mark the active lens on the switcher.
+function renderLensSwitcher() {
+  document.querySelectorAll(".lens-tab").forEach((t) =>
+    t.setAttribute("aria-selected", String(t.dataset.lens === state.lens)),
   );
-  $("#view-timeline").classList.toggle("hidden", view !== "timeline");
-  $("#view-units").classList.toggle("hidden", view !== "units");
-  $("#view-revisions").classList.toggle("hidden", view !== "revisions");
-  $("#view-unit").classList.toggle("hidden", view !== "unit");
+}
+
+// Reflect the current filter/order state into the toolbar controls (the option
+// lists are rebuilt only on load, so a navigation that changes a filter syncs the
+// displayed value here rather than rebuilding the controls). The toolbar filters
+// the event timeline, so it is shown only for that lens.
+function syncControls() {
+  const text = $("#filter-text");
+  if (text && text.value !== (state.filterText || "")) text.value = state.filterText || "";
+  const order = $("#order-toggle");
+  if (order) order.textContent = state.order === "desc" ? "newest first" : "oldest first";
+  const toolbar = $("#toolbar");
+  if (toolbar) toolbar.classList.toggle("hidden", state.lens !== "timeline");
+}
+
+// Master pane: swap in the active lens body and populate it. The scaffold is
+// rebuilt only on a lens change; the populate runs every render so the lens
+// reflects the current filters/selection. The threads-lens body is a clean,
+// replaceable seam (its flat node list becomes a laid-out graph later).
+let lastMasterLens = null;
+function renderMaster() {
+  const master = $("#master");
+  if (state.lens !== lastMasterLens) {
+    lastMasterLens = state.lens;
+    if (state.lens === "list") {
+      master.innerHTML = `<div id="units" class="units"></div>`;
+    } else if (state.lens === "threads") {
+      master.innerHTML = `<div id="revisions" class="units" aria-label="supersession threads"></div>`;
+    } else {
+      master.innerHTML = `<ol id="timeline" class="timeline" aria-label="event timeline"></ol>`;
+    }
+  }
+  if (state.lens === "list") renderUnits();
+  else if (state.lens === "threads") renderRevisions();
+  else renderTimeline();
+}
+
+// Detail pane: a pure projection of the single selection — the event detail, the
+// revision composite, or the empty prompt.
+function renderSelected() {
+  if (state.selected.kind === "revision") {
+    showComposite(state.selected.id);
+  } else {
+    shownCompositeId = null;
+    renderDetail();
+  }
+}
+
+// The single render entry. Projects the whole view from state: the lens switcher,
+// the toolbar controls, the master lens body, the detail selection, and the
+// route-preserving diff overlay. Boot, popstate, hashchange, and every
+// navigate() funnel through here.
+function render() {
+  renderLensSwitcher();
+  syncControls();
+  renderTypeToggles();
+  renderMaster();
+  renderSelected();
+  scrollSelectionIntoView();
+  renderDiffOverlay();
+}
+
+// Scroll the selected entry into view within the master pane (the timeline row,
+// the list card, or the DAG node), so cursor stepping keeps the selection
+// visible.
+function scrollSelectionIntoView() {
+  const sel = state.selected;
+  if (!sel.id) return;
+  const master = $("#master");
+  if (!master) return;
+  const el =
+    sel.kind === "event"
+      ? master.querySelector('.event[aria-selected="true"]')
+      : master.querySelector('[data-revision-id="' + sel.id + '"]');
+  if (el) el.scrollIntoView({ block: "center" });
+}
+
+// The revision whose composite is currently shown, so a re-render with an
+// unchanged revision selection does not re-fetch.
+let shownCompositeId = null;
+function showComposite(revisionId) {
+  if (revisionId === shownCompositeId) return;
+  shownCompositeId = revisionId;
+  openUnit(revisionId);
 }
 
 async function openUnit(revisionId) {
-  switchView("unit");
-  $("#unit-page-title").textContent = shortId(revisionId);
-  $("#unit-page").innerHTML = `<p class="up-empty">loading…</p>`;
+  const detail = $("#detail");
+  detail.innerHTML = `<p class="up-empty">loading…</p>`;
   try {
     const d = await fetchJSON("/api/revision?id=" + encodeURIComponent(revisionId));
+    // A later selection change may have superseded this fetch.
+    if (state.selected.kind !== "revision" || state.selected.id !== revisionId) return;
     renderUnitPage(d);
   } catch (err) {
-    $("#unit-page").innerHTML = `<p class="up-empty">error: ${escapeHtml(err.message)}</p>`;
+    if (state.selected.kind === "revision" && state.selected.id === revisionId) {
+      detail.innerHTML = `<p class="up-empty">error: ${escapeHtml(err.message)}</p>`;
+    }
   }
 }
 
@@ -1204,7 +1433,7 @@ function renderUnitPage(d) {
   const base = ru.base || {};
   const s = d.summary || {};
   const badge = supersessionBadge(ru.id);
-  $("#unit-page-title").textContent = `${shortId(ru.id)}${base.commitOid ? " · base " + shortId(base.commitOid) : ""}`;
+  const title = `${shortId(ru.id)}${base.commitOid ? " · base " + shortId(base.commitOid) : ""}`;
 
   const stat = (label, n) => `<span class="up-stat"><b>${n ?? 0}</b> ${label}</span>`;
   const sections = [];
@@ -1245,10 +1474,10 @@ function renderUnitPage(d) {
 
   if ((d.adapterNotes || []).length) sections.push(factSection("Adapter notes", d.adapterNotes, renderAdapterNoteCard));
 
-  $("#unit-page").innerHTML = sections.join("");
+  $("#detail").innerHTML = `<div class="unit-page"><p class="unit-page-title">${escapeHtml(title)}</p>${sections.join("")}</div>`;
 
   const diffBtn = $("#up-diff-btn");
-  if (diffBtn && ru.objectId) diffBtn.addEventListener("click", () => openDiff(ru.objectId, shortId(ru.id), ru.id));
+  if (diffBtn && ru.objectId) diffBtn.addEventListener("click", () => openDiff(ru.objectId));
   const tlBtn = $("#up-timeline-btn");
   if (tlBtn) tlBtn.addEventListener("click", () => navigateToUnit(ru.id));
 }
@@ -1257,52 +1486,573 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// ---------------------------------------------------------------------------
+// URL fragment route grammar
+//
+// location.hash is the single serialization of {lens|entity, selection,
+// filters, diff overlay}. The fragment never reaches the GET-only server, so
+// routing is entirely client-side and the server is untouched. Theme and
+// density are reader-local localStorage preferences and are deliberately NOT
+// part of the fragment (they are not shareable view state).
+//
+//   #/<lens>                      lens-primary (lens ∈ timeline | list | threads)
+//   #/<lens>?sel=<id>             a selection within the lens
+//   #/revision/<revisionId>       entity-primary: the named revision is selected
+//   #/event/<eventId>             entity-primary: the named event is selected
+//   ?lens=<lens>                  the master lens behind an entity-primary path
+//   ?track= ?object=             cross-lens scope (survive a lens switch)
+//   ?order= ?types= ?q=           per-lens timeline controls
+//   ?diff=<objectId> ?focus=<set> the route-preserving diff overlay
+//   ?v=1                          grammar version (reserved)
+//   ?journal= ?asof=             reserved: parsed and ignored, never an error
+// ---------------------------------------------------------------------------
+const LENSES = ["timeline", "list", "threads"];
+const DEFAULT_LENS = "timeline";
+
+// Guards re-deriving the view from a fragment this router just wrote.
+let routerLastHash = null;
+
+// Classify a selection id as a revision or an event (a `rev:`/`review-unit:` id
+// is a revision; anything else is treated as an event).
+function selectionKind(id) {
+  const info = refInfo(id);
+  if (info && (info.kind === "rev" || info.kind === "review-unit")) return "revision";
+  return "event";
+}
+
+function parseQuery(queryString) {
+  const params = {};
+  for (const pair of String(queryString || "").split("&")) {
+    if (!pair) continue;
+    const eq = pair.indexOf("=");
+    const key = decodeURIComponent(eq < 0 ? pair : pair.slice(0, eq));
+    const value = eq < 0 ? "" : decodeURIComponent(pair.slice(eq + 1));
+    params[key] = value;
+  }
+  return params;
+}
+
+// Parse a fragment into a complete state patch. Absent params resolve to their
+// defaults so the fragment fully determines the filter/selection state (so
+// Back/Forward to a barer fragment clears what it omits).
+function parseHash(hash) {
+  const raw = String(hash || "").replace(/^#/, "");
+  const q = raw.indexOf("?");
+  const path = q < 0 ? raw : raw.slice(0, q);
+  const p = parseQuery(q < 0 ? "" : raw.slice(q + 1));
+
+  const patch = {
+    selected: { kind: null, id: null },
+    filterTrack: p.track != null ? p.track : "",
+    filterObject: p.object != null ? p.object : "",
+    order: p.order === "asc" || p.order === "desc" ? p.order : "desc",
+    filterText: p.q != null ? p.q : "",
+    enabledTypes:
+      p.types != null ? new Set(p.types.split(",").filter(Boolean)) : new Set(presentTypes()),
+    diff: p.diff || null,
+    focus: p.focus ? p.focus.split(" ").filter(Boolean) : null,
+  };
+
+  const segs = path.split("/").filter(Boolean); // "/timeline" -> ["timeline"]
+  if (segs.length === 0) {
+    patch.lens = DEFAULT_LENS;
+  } else if (segs[0] === "revision" && segs[1]) {
+    patch.selected = { kind: "revision", id: decodeURIComponent(segs[1]) };
+    patch.lens = LENSES.includes(p.lens) ? p.lens : DEFAULT_LENS;
+  } else if (segs[0] === "event" && segs[1]) {
+    patch.selected = { kind: "event", id: decodeURIComponent(segs[1]) };
+    patch.lens = LENSES.includes(p.lens) ? p.lens : DEFAULT_LENS;
+  } else if (LENSES.includes(segs[0])) {
+    patch.lens = segs[0];
+    if (p.sel) patch.selected = { kind: selectionKind(p.sel), id: p.sel };
+  } else {
+    patch.lens = DEFAULT_LENS;
+    patch.unknownPath = path; // resolve() surfaces a visible fallback diagnostic
+  }
+  return patch;
+}
+
+// Serialize the current state into a fragment, omitting defaults to keep the URL
+// short. A selection is entity-primary (durable identity); the lens-primary
+// `sel=` form is the inverse of the parser's `?sel=` handling.
+function serializeState() {
+  const params = [];
+  const sel = state.selected || { kind: null, id: null };
+  let path = state.lens === DEFAULT_LENS ? "#/timeline" : "#/" + state.lens;
+  if (sel.id && (sel.kind === "revision" || sel.kind === "event")) {
+    path =
+      sel.kind === "revision"
+        ? "#/revision/" + encodeURIComponent(sel.id)
+        : "#/event/" + encodeURIComponent(sel.id);
+    if (state.lens && state.lens !== DEFAULT_LENS) params.push("lens=" + encodeURIComponent(state.lens));
+  } else if (sel.id) {
+    params.push("sel=" + encodeURIComponent(sel.id));
+  }
+  if (state.filterTrack) params.push("track=" + encodeURIComponent(state.filterTrack));
+  if (state.filterObject) params.push("object=" + encodeURIComponent(state.filterObject));
+  if (state.order && state.order !== "desc") params.push("order=" + encodeURIComponent(state.order));
+  const all = presentTypes();
+  if (state.enabledTypes && all.some((id) => !state.enabledTypes.has(id))) {
+    params.push("types=" + encodeURIComponent(all.filter((id) => state.enabledTypes.has(id)).join(",")));
+  }
+  if (state.filterText) params.push("q=" + encodeURIComponent(state.filterText));
+  if (state.diff) params.push("diff=" + encodeURIComponent(state.diff));
+  if (state.focus && state.focus.length) params.push("focus=" + encodeURIComponent(state.focus.join(" ")));
+  return params.length ? path + "?" + params.join("&") : path;
+}
+
+// The single mutation + history + render choke point. Distinct navigations push
+// history; refinements (search-as-you-type, cursor steps) replace it.
+function navigate(patch, opts) {
+  opts = opts || {};
+  Object.assign(state, patch);
+  if (!state.selected) state.selected = { kind: null, id: null };
+  const hash = serializeState();
+  routerLastHash = hash;
+  history[opts.replace ? "replaceState" : "pushState"]({}, "", hash);
+  render();
+}
+
+// Derive the whole view from the current fragment. Called on boot and from the
+// popstate / hashchange listeners (Back/Forward + manual edits).
+function applyHash() {
+  const hash = location.hash;
+  routerLastHash = hash;
+  Object.assign(state, resolve(parseHash(hash)));
+  render();
+}
+
+// Resolve a parsed patch against the loaded data, falling back up the hierarchy
+// (revision → its thread → the lens → timeline) with a visible diagnostic when a
+// deep link names an absent entity — never a 404, never a blank view.
+function resolve(patch) {
+  if (patch.unknownPath != null) {
+    showRouteDiagnostic("fell back to the timeline — unknown route " + patch.unknownPath);
+    patch.lens = DEFAULT_LENS;
+    patch.selected = { kind: null, id: null };
+    delete patch.unknownPath;
+    return patch;
+  }
+  const sel = patch.selected || { kind: null, id: null };
+  if (sel.kind === "revision" && sel.id && !revisionExists(sel.id)) {
+    if (revisionInAnyThread(sel.id)) {
+      showRouteDiagnostic(
+        "fell back to the threads lens — revision " + shortRef(sel.id) + " is not directly selectable",
+      );
+      patch.lens = "threads";
+    } else {
+      // Keep the requested lens (only the selection was absent); name it in the
+      // diagnostic so the message matches the lens actually shown.
+      const lens = patch.lens || DEFAULT_LENS;
+      showRouteDiagnostic(
+        "fell back to the " + lens + " lens — revision " + shortRef(sel.id) + " is not in this store",
+      );
+      patch.lens = lens;
+    }
+    patch.selected = { kind: null, id: null };
+    return patch;
+  }
+  if (sel.kind === "event" && sel.id && !eventExists(sel.id)) {
+    showRouteDiagnostic(
+      "fell back to the " + (patch.lens || DEFAULT_LENS) + " lens — event " + shortRef(sel.id) + " is not in this store",
+    );
+    patch.selected = { kind: null, id: null };
+    return patch;
+  }
+  clearRouteDiagnostic();
+  return patch;
+}
+
+function revisionExists(id) {
+  return (state.units?.entries || []).some((u) => u.revisionId === id);
+}
+function revisionInAnyThread(id) {
+  return objectThreads().some((t) => (t.revisions || []).includes(id));
+}
+function eventExists(id) {
+  return (state.history?.entries || []).some((e) => e.eventId === id);
+}
+
+function showRouteDiagnostic(message) {
+  const el = $("#route-diagnostic");
+  if (!el) return;
+  el.textContent = message;
+  el.classList.remove("hidden");
+}
+function clearRouteDiagnostic() {
+  const el = $("#route-diagnostic");
+  if (!el) return;
+  el.textContent = "";
+  el.classList.add("hidden");
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard layer
+//
+// One delegated keydown handler: step the selection (j/k, ↓/↑), focus search
+// (/), jump lenses (g-then-t/l/r), activate the selection (Enter), a layered
+// Escape, and a cheat sheet (?). Keystrokes are ignored while an input/textarea
+// is focused, except the global Escape. No key activates an advisory fact as an
+// operative action — Enter only opens read affordances (the snapshot diff).
+// ---------------------------------------------------------------------------
+
+// Whether the focused element is a text field, so the layer yields to typing.
+function isTypingTarget(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable;
+}
+
+// The ordered selectable entries of the active lens, for cursor stepping. Pure:
+// reads state, returns { kind, id } in the lens's display order.
+function lensEntryIds() {
+  if (state.lens === "list") {
+    return (state.units?.entries || []).map((u) => ({ kind: "revision", id: u.revisionId }));
+  }
+  if (state.lens === "threads") {
+    const ids = [];
+    for (const t of objectThreads()) for (const r of t.revisions || []) ids.push({ kind: "revision", id: r });
+    return ids;
+  }
+  let entries = (state.history?.entries || []).filter(matchesFilters);
+  if (state.order === "desc") entries = entries.slice().reverse();
+  return entries.map((e) => ({ kind: "event", id: e.eventId }));
+}
+
+// Move the selection by delta within the active lens (replaceState — stepping a
+// cursor is a refinement, not a distinct navigation).
+function stepSelection(delta) {
+  const ids = lensEntryIds();
+  if (!ids.length) return;
+  let idx = ids.findIndex((x) => x.id === state.selected.id);
+  if (idx < 0) idx = delta > 0 ? -1 : 0;
+  const next = Math.max(0, Math.min(ids.length - 1, idx + delta));
+  navigate({ selected: ids[next] }, { replace: true });
+}
+
+// Open the selection's snapshot diff — a read affordance, never a gate.
+function activateSelection() {
+  const sel = state.selected;
+  if (sel.kind === "revision") {
+    const obj = objectIdForRevision(sel.id);
+    if (obj) openDiff(obj);
+  } else if (sel.kind === "event") {
+    const rev = entryRevisionId((state.history?.entries || []).find((e) => e.eventId === sel.id) || {});
+    const obj = rev ? snapshotIdForRevision(rev) : null;
+    if (obj) openDiff(obj);
+  }
+}
+
+function focusSearch() {
+  if (state.lens !== "timeline") navigate({ lens: "timeline" });
+  const box = $("#filter-text");
+  if (box) box.focus();
+}
+
+function toggleKeyHelp() {
+  const help = $("#key-help");
+  if (help) help.classList.toggle("hidden");
+}
+
+// Layered Escape: close the diff, then the cheat sheet, then blur a field, then
+// clear the query — one precedence chain, top-down. (A higher-priority overlay
+// inserts itself at the head of this chain.)
+function handleEscape() {
+  if (cmdOpen) {
+    closePalette();
+    return;
+  }
+  if (state.diff) {
+    navigate({ diff: null, focus: null });
+    return;
+  }
+  const help = $("#key-help");
+  if (help && !help.classList.contains("hidden")) {
+    help.classList.add("hidden");
+    return;
+  }
+  const active = document.activeElement;
+  if (isTypingTarget(active)) {
+    active.blur();
+    return;
+  }
+  if (state.filterText) navigate({ filterText: "" }, { replace: true });
+}
+
+// A short-lived two-key chord (g-then-…). Cleared after ~1s.
+let pendingChord = null;
+let chordTimer = null;
+function setChord(key) {
+  pendingChord = key;
+  if (chordTimer) clearTimeout(chordTimer);
+  chordTimer = setTimeout(() => {
+    pendingChord = null;
+  }, 1000);
+}
+
+function onKey(ev) {
+  // A focused reference chip activates on Enter/Space (it carries role=link +
+  // tabindex=0 but had no key handler), resolving the reference like a click.
+  const chip = ev.target.closest && ev.target.closest("[data-ref-kind]");
+  if (chip && (ev.key === "Enter" || ev.key === " ")) {
+    ev.preventDefault();
+    resolveRef(chip.dataset.refKind, chip.dataset.refId);
+    return;
+  }
+  // The command palette opens from anywhere, including a focused field. Cmd-K /
+  // Ctrl-K, plus a Ctrl-Shift-P fallback (Ctrl-K collides with some browsers'
+  // address-bar binding), all preventDefault so the binding does not fight.
+  if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "k") {
+    ev.preventDefault();
+    togglePalette();
+    return;
+  }
+  if (ev.ctrlKey && ev.shiftKey && ev.key.toLowerCase() === "p") {
+    ev.preventDefault();
+    togglePalette();
+    return;
+  }
+  // Escape is global (it fires even while typing); everything else yields to a
+  // focused text field.
+  if (ev.key === "Escape") {
+    handleEscape();
+    return;
+  }
+  if (isTypingTarget(document.activeElement)) return;
+
+  if (pendingChord === "g") {
+    pendingChord = null;
+    if (ev.key === "t") return navigate({ lens: "timeline" });
+    if (ev.key === "l") return navigate({ lens: "list" });
+    if (ev.key === "r") return navigate({ lens: "threads" });
+  }
+
+  switch (ev.key) {
+    case "g":
+      setChord("g");
+      return;
+    case "/":
+      ev.preventDefault();
+      focusSearch();
+      return;
+    case "j":
+    case "ArrowDown":
+      ev.preventDefault();
+      stepSelection(1);
+      return;
+    case "k":
+    case "ArrowUp":
+      ev.preventDefault();
+      stepSelection(-1);
+      return;
+    case "Enter":
+      activateSelection();
+      return;
+    case "?":
+      ev.preventDefault();
+      toggleKeyHelp();
+      return;
+    default:
+      return;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Command palette (Cmd/Ctrl-K)
+//
+// One searchable overlay that unifies jump-to-entity + actions and is the
+// scalable replacement for the dropdowns' jump role. Every command navigates via
+// the router or runs a read/copy action — none is operative or gating.
+// ---------------------------------------------------------------------------
+let cmdOpen = false;
+let cmdItems = [];
+let cmdFiltered = [];
+let cmdActive = 0;
+let cmdPriorFocus = null;
+
+function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text);
+}
+
+// The candidate commands, built over the loaded state. (When a search index
+// exists, jumps query it instead of re-deriving — the source is a single fn.)
+function buildCommands() {
+  const cmds = [];
+  for (const u of state.units?.entries || []) {
+    cmds.push({
+      kind: "Revisions",
+      label: shortRef(u.revisionId),
+      hint: shortId(u.objectId),
+      run: () => navigate({ selected: { kind: "revision", id: u.revisionId }, diff: null, focus: null }),
+    });
+  }
+  for (const o of [...new Set((state.units?.entries || []).map((u) => u.objectId).filter(Boolean))]) {
+    cmds.push({ kind: "Objects", label: shortRef(o), hint: "open diff", run: () => openDiff(o) });
+  }
+  for (const t of [...new Set((state.history?.entries || []).map(entryTrack).filter(Boolean))].sort()) {
+    cmds.push({ kind: "Tracks", label: t, hint: "filter timeline", run: () => navigate({ lens: "timeline", filterTrack: t }) });
+  }
+  for (const e of state.history?.entries || []) {
+    cmds.push({
+      kind: "Events",
+      label: entryTitle(e),
+      hint: typeLabel(e.eventType),
+      run: () => navigate({ selected: { kind: "event", id: e.eventId }, diff: null, focus: null }),
+    });
+  }
+  cmds.push({ kind: "Actions", label: "Switch to timeline lens", hint: "lens", run: () => navigate({ lens: "timeline" }) });
+  cmds.push({ kind: "Actions", label: "Switch to list lens", hint: "lens", run: () => navigate({ lens: "list" }) });
+  cmds.push({ kind: "Actions", label: "Switch to threads lens", hint: "lens", run: () => navigate({ lens: "threads" }) });
+  cmds.push({
+    kind: "Actions",
+    label: "Toggle timeline order",
+    hint: "order",
+    run: () => navigate({ order: state.order === "desc" ? "asc" : "desc" }, { replace: true }),
+  });
+  cmds.push({
+    kind: "Actions",
+    label: "Clear filters",
+    hint: "filters",
+    run: () =>
+      navigate(
+        { filterText: "", filterTrack: "", filterObject: "", enabledTypes: new Set(presentTypes()) },
+        { replace: true },
+      ),
+  });
+  cmds.push({ kind: "Actions", label: "Copy current view link", hint: "share", run: () => copyText(location.href) });
+  cmds.push({
+    kind: "Actions",
+    label: "Copy selected id",
+    hint: "clipboard",
+    run: () => {
+      if (state.selected.id) copyText(state.selected.id);
+    },
+  });
+  return cmds;
+}
+
+function togglePalette() {
+  if (cmdOpen) closePalette();
+  else openPalette();
+}
+
+function openPalette() {
+  cmdOpen = true;
+  cmdPriorFocus = document.activeElement;
+  cmdItems = buildCommands();
+  const input = $("#cmd-input");
+  input.value = "";
+  filterPalette("");
+  $("#cmd-palette").classList.remove("hidden");
+  input.focus();
+}
+
+function closePalette() {
+  cmdOpen = false;
+  $("#cmd-palette").classList.add("hidden");
+  if (cmdPriorFocus && cmdPriorFocus.focus) cmdPriorFocus.focus();
+  cmdPriorFocus = null;
+}
+
+function filterPalette(query) {
+  const needle = query.trim().toLowerCase();
+  cmdFiltered = needle
+    ? cmdItems.filter((c) => (c.label + " " + (c.hint || "")).toLowerCase().includes(needle))
+    : cmdItems.slice();
+  cmdActive = 0;
+  renderPalette();
+}
+
+function renderPalette() {
+  const list = $("#cmd-results");
+  if (!cmdFiltered.length) {
+    list.innerHTML = `<li class="cmd-empty" role="option" aria-disabled="true">No matches</li>`;
+    return;
+  }
+  let html = "";
+  let lastKind = null;
+  cmdFiltered.forEach((c, i) => {
+    if (c.kind !== lastKind) {
+      lastKind = c.kind;
+      html += `<li class="cmd-group" role="presentation">${escapeHtml(c.kind)}</li>`;
+    }
+    html += `<li class="cmd-item${i === cmdActive ? " active" : ""}" role="option" data-idx="${i}" aria-selected="${i === cmdActive}"><span class="cmd-label">${escapeHtml(c.label)}</span>${c.hint ? `<span class="cmd-hint">${escapeHtml(c.hint)}</span>` : ""}</li>`;
+  });
+  list.innerHTML = html;
+  const active = list.querySelector(".cmd-item.active");
+  if (active) active.scrollIntoView({ block: "nearest" });
+}
+
+function movePaletteActive(delta) {
+  if (!cmdFiltered.length) return;
+  cmdActive = (cmdActive + delta + cmdFiltered.length) % cmdFiltered.length;
+  renderPalette();
+}
+
+function runPaletteActive() {
+  const cmd = cmdFiltered[cmdActive];
+  closePalette();
+  if (cmd) cmd.run();
+}
+
 function wireControls() {
-  document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => switchView(tab.dataset.view)));
+  document.querySelectorAll(".lens-tab").forEach((tab) =>
+    tab.addEventListener("click", () =>
+      navigate({ lens: LENSES.includes(tab.dataset.lens) ? tab.dataset.lens : DEFAULT_LENS, selected: { kind: null, id: null } }),
+    ),
+  );
   $("#filter-text").addEventListener("input", (ev) => {
-    state.filterText = ev.target.value;
-    renderTimeline();
-  });
-  $("#filter-track").addEventListener("change", (ev) => {
-    state.filterTrack = ev.target.value;
-    renderTimeline();
-  });
-  $("#filter-unit").addEventListener("change", (ev) => {
-    state.filterUnit = ev.target.value;
-    renderTimeline();
-  });
-  $("#filter-object").addEventListener("change", (ev) => {
-    state.filterObject = ev.target.value;
-    renderTimeline();
+    navigate({ filterText: ev.target.value }, { replace: true });
   });
   $("#filter-clear").addEventListener("click", () => {
-    state.filterText = "";
-    state.filterTrack = "";
-    state.filterUnit = "";
-    state.filterObject = "";
-    state.enabledTypes = new Set(presentTypes());
-    $("#filter-text").value = "";
-    $("#filter-track").value = "";
-    $("#filter-unit").value = "";
-    $("#filter-object").value = "";
-    renderTypeToggles();
-    renderTimeline();
+    navigate(
+      {
+        filterText: "",
+        filterTrack: "",
+        filterObject: "",
+        enabledTypes: new Set(presentTypes()),
+      },
+      { replace: true },
+    );
   });
   $("#theme-toggle").addEventListener("click", toggleTheme);
   $("#density-toggle").addEventListener("click", toggleDensity);
-  $("#unit-back").addEventListener("click", () => switchView("units"));
   $("#order-toggle").addEventListener("click", () => {
-    state.order = state.order === "desc" ? "asc" : "desc";
-    $("#order-toggle").textContent = state.order === "desc" ? "newest first" : "oldest first";
-    renderTimeline();
+    navigate({ order: state.order === "desc" ? "asc" : "desc" }, { replace: true });
   });
   $("#diff-close").addEventListener("click", closeDiff);
   $("#diff-modal").addEventListener("click", (ev) => {
     if (ev.target === $("#diff-modal")) closeDiff();
   });
-  document.addEventListener("keydown", (ev) => {
-    if (ev.key === "Escape") closeDiff();
+  $("#key-help-close").addEventListener("click", () => $("#key-help").classList.add("hidden"));
+  $("#key-help").addEventListener("click", (ev) => {
+    if (ev.target === $("#key-help")) $("#key-help").classList.add("hidden");
   });
+  $("#cmd-input").addEventListener("input", (ev) => filterPalette(ev.target.value));
+  $("#cmd-input").addEventListener("keydown", (ev) => {
+    if (ev.key === "ArrowDown") {
+      ev.preventDefault();
+      movePaletteActive(1);
+    } else if (ev.key === "ArrowUp") {
+      ev.preventDefault();
+      movePaletteActive(-1);
+    } else if (ev.key === "Enter") {
+      ev.preventDefault();
+      runPaletteActive();
+    }
+  });
+  $("#cmd-palette").addEventListener("click", (ev) => {
+    if (ev.target === $("#cmd-palette")) {
+      closePalette();
+      return;
+    }
+    const item = ev.target.closest(".cmd-item");
+    if (item) {
+      cmdActive = Number(item.dataset.idx);
+      runPaletteActive();
+    }
+  });
+  document.addEventListener("keydown", onKey);
   // Delegated handler: any reference chip anywhere (timeline, detail, diff)
   // navigates to the resource it names.
   document.addEventListener("click", (ev) => {
@@ -1314,7 +2064,10 @@ function wireControls() {
 }
 
 wireControls();
+window.addEventListener("popstate", applyHash);
+window.addEventListener("hashchange", applyHash);
 load().then(() => {
+  applyHash();
   $("#refresh").textContent = "watching";
   setInterval(pollFreshness, 3000);
 });
