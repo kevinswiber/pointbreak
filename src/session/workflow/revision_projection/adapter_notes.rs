@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
-use std::path::Path;
 
 use crate::error::Result;
 use crate::model::{DiffSnapshot, ResolutionStatus};
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{EventType, ImportedNoteTarget, ReviewNoteImportedPayload, ShoreEvent};
+use crate::session::store::backend::StoreBackend;
 use crate::sidecar::{
     ReviewNoteEntry, ReviewNoteTarget, ReviewNotesFile, ReviewNotesSidecar, resolve_notes,
 };
@@ -51,7 +51,7 @@ impl AdapterNoteStatus {
 
 pub(super) fn project_adapter_notes(
     events: &[ShoreEvent],
-    store_dir: &Path,
+    backend: &StoreBackend,
     snapshot: &DiffSnapshot,
     include_body: bool,
 ) -> Result<Vec<AdapterNoteView>> {
@@ -70,7 +70,7 @@ pub(super) fn project_adapter_notes(
         .iter()
         .map(|payload| {
             let body = if include_body {
-                adapter_note_body(store_dir, payload)?
+                adapter_note_body(backend, payload)?
             } else {
                 None
             };
@@ -176,14 +176,14 @@ pub(super) fn adapter_note_status(status: &ResolutionStatus) -> AdapterNoteStatu
 }
 
 fn adapter_note_body(
-    store_dir: &Path,
+    backend: &StoreBackend,
     payload: &ReviewNoteImportedPayload,
 ) -> Result<Option<String>> {
     if payload.body.is_some() {
         return Ok(payload.body.clone());
     }
     match payload.body_artifact_path.as_deref() {
-        Some(path) => load_body_artifact(store_dir, path),
+        Some(path) => load_body_artifact(backend, path),
         None => Ok(None),
     }
 }

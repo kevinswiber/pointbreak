@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
 use serde::Serialize;
 
@@ -170,8 +169,9 @@ fn engagement_lifecycle(
         object_id: capture.object_id.clone(),
     };
     let (current, _) = project_assessments(AssessmentProjectionOptions {
-        // `include_summary: false` means the store dir is never read.
-        store_dir: Path::new(""),
+        // A status-only projection: `include_summary: false` means no summary
+        // artifact is read, so no backend handle is needed.
+        backend: None,
         events,
         resolved: &resolved,
         track_filter: None,

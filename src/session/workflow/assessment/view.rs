@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
 use crate::error::{Result, ShoreError};
 use crate::model::{
@@ -10,10 +9,13 @@ use crate::session::event::{
     EventType, ReviewAssessment, ReviewAssessmentRecordedPayload, ShoreEvent, Writer,
 };
 use crate::session::observation::ResolvedRevision;
+use crate::session::store::backend::StoreBackend;
 use crate::session::workflow::util::sorted_unique;
 
 pub(crate) struct AssessmentProjectionOptions<'a> {
-    pub store_dir: &'a Path,
+    /// `None` for status-only projections that never hydrate a summary
+    /// (`include_summary: false`); required when a summary artifact is read.
+    pub backend: Option<&'a StoreBackend>,
     pub events: &'a [ShoreEvent],
     pub resolved: &'a ResolvedRevision,
     pub track_filter: Option<TrackId>,
@@ -98,7 +100,7 @@ pub(crate) fn project_assessments(
         }
 
         let view = assessment_view_from_event(
-            options.store_dir,
+            options.backend,
             record.event,
             record.payload,
             record.track_id,
@@ -181,7 +183,7 @@ fn collect_assessment_records<'a>(
 }
 
 fn assessment_view_from_event(
-    store_dir: &Path,
+    backend: Option<&StoreBackend>,
     event: &ShoreEvent,
     payload: ReviewAssessmentRecordedPayload,
     track_id: TrackId,
@@ -189,7 +191,7 @@ fn assessment_view_from_event(
     include_summary: bool,
 ) -> Result<AssessmentView> {
     let summary = if include_summary {
-        assessment_summary(store_dir, &payload)?
+        assessment_summary(backend, &payload)?
     } else {
         None
     };
@@ -220,14 +222,21 @@ fn assessment_view_from_event(
 }
 
 fn assessment_summary(
-    store_dir: &Path,
+    backend: Option<&StoreBackend>,
     payload: &ReviewAssessmentRecordedPayload,
 ) -> Result<Option<String>> {
     if payload.summary.is_some() {
         return Ok(payload.summary.clone());
     }
     match payload.summary_artifact_path.as_deref() {
-        Some(path) => load_body_artifact(store_dir, path),
+        Some(path) => {
+            let backend = backend.ok_or_else(|| {
+                ShoreError::Message(
+                    "store backend is required to hydrate an assessment summary".to_owned(),
+                )
+            })?;
+            load_body_artifact(backend, path)
+        }
         None => Ok(None),
     }
 }

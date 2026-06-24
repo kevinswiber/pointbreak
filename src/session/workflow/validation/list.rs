@@ -69,7 +69,6 @@ pub struct ValidationListResult {
 
 pub fn list_validation_checks(options: ValidationListOptions) -> Result<ValidationListResult> {
     let read_store = resolve_read_store(&options.repo)?;
-    let store_dir = read_store.store_dir();
     let event_store = EventStore::from_backend(read_store.backend());
     let events = event_store.list_events()?;
     let resolved = resolve_revision(
@@ -84,7 +83,7 @@ pub fn list_validation_checks(options: ValidationListOptions) -> Result<Validati
         .map(validated_track_id)
         .transpose()?;
     let validation_checks = project_validation_checks(ValidationCheckProjectionOptions {
-        store_dir,
+        backend: read_store.backend(),
         events: &events,
         revision_id: &resolved.revision_id,
         track_filter: track_filter.clone(),

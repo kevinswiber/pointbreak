@@ -6,9 +6,8 @@ pub use self::add::{ValidationAddOptions, ValidationAddResult, record_validation
 pub use self::list::{
     ValidationListFilters, ValidationListOptions, ValidationListResult, list_validation_checks,
 };
-pub use self::view::{
-    ValidationCheckProjectionOptions, ValidationCheckView, project_validation_checks,
-};
+pub use self::view::ValidationCheckView;
+pub(crate) use self::view::{ValidationCheckProjectionOptions, project_validation_checks};
 
 #[cfg(test)]
 mod tests {

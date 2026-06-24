@@ -5,6 +5,7 @@ use crate::error::Result;
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{EventType, ReviewNoteImportedPayload, ShoreEvent};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
+use crate::session::store::backend::StoreBackend;
 use crate::session::store::resolution::{resolve_read_store, resolve_write_store};
 use crate::session::{EventStore, SkippedEvent, sweep_stale_temp_files};
 use crate::sidecar::{
@@ -14,7 +15,7 @@ use crate::storage::{Durability, LocalStorage};
 
 fn replay_note_entry(
     payload: &ReviewNoteImportedPayload,
-    store_dir: &Path,
+    backend: &StoreBackend,
 ) -> Result<ReviewNoteEntry> {
     let target = payload
         .target
@@ -26,7 +27,7 @@ fn replay_note_entry(
         });
 
     let body = if let Some(artifact_path) = &payload.body_artifact_path {
-        load_body_artifact(store_dir, artifact_path)?
+        load_body_artifact(backend, artifact_path)?
     } else {
         payload.body.clone()
     };
@@ -46,12 +47,12 @@ fn replay_note_entry(
 
 fn parsed_review_notes_from_imports(
     payloads: &[ReviewNoteImportedPayload],
-    store_dir: &Path,
+    backend: &StoreBackend,
 ) -> Result<ParsedReviewNotes> {
     let mut file_map: BTreeMap<String, (Option<String>, Vec<ReviewNoteEntry>)> = BTreeMap::new();
 
     for payload in payloads {
-        let entry = replay_note_entry(payload, store_dir)?;
+        let entry = replay_note_entry(payload, backend)?;
 
         file_map
             .entry(payload.file_path.clone())
@@ -90,7 +91,7 @@ fn parsed_review_notes_from_imports(
 }
 
 pub fn load_durable_notes_for_repo(repo: impl AsRef<Path>) -> Result<Option<ParsedReviewNotes>> {
-    let Some((store_dir, events)) = list_events_if_store_exists(repo)? else {
+    let Some((backend, events)) = list_events_if_store_exists(repo)? else {
         return Ok(None);
     };
 
@@ -110,13 +111,13 @@ pub fn load_durable_notes_for_repo(repo: impl AsRef<Path>) -> Result<Option<Pars
 
     Ok(Some(parsed_review_notes_from_imports(
         &imported_payloads,
-        &store_dir,
+        &backend,
     )?))
 }
 
 #[cfg(test)]
 fn load_or_rebuild_session_state(repo: impl AsRef<Path>) -> Result<Option<SessionState>> {
-    let Some((_store_dir, events)) = list_events_if_store_exists(repo)? else {
+    let Some((_backend, events)) = list_events_if_store_exists(repo)? else {
         return Ok(None);
     };
 
@@ -178,20 +179,20 @@ pub fn read_events_for_display(
 
 fn list_events_if_store_exists(
     repo: impl AsRef<Path>,
-) -> Result<Option<(std::path::PathBuf, Vec<ShoreEvent>)>> {
+) -> Result<Option<(StoreBackend, Vec<ShoreEvent>)>> {
     let read_store = resolve_read_store(repo.as_ref())?;
-    let store_dir = read_store.store_dir().to_path_buf();
-    if !store_dir.exists() {
+    // The store dir is the existence gate; the backend handle is what note-body
+    // reads flow through.
+    if !read_store.store_dir().exists() {
         return Ok(None);
     }
 
     let events = EventStore::from_backend(read_store.backend()).list_events()?;
-    Ok(Some((store_dir, events)))
+    Ok(Some((read_store.backend().clone(), events)))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
     use std::process::Command;
 
     use super::*;
@@ -269,7 +270,7 @@ mod tests {
             sidecar_content_hash: "sha256:abc".to_owned(),
         };
 
-        let entry = replay_note_entry(&payload, Path::new(".shore/data")).expect("entry builds");
+        let entry = replay_note_entry(&payload, &StoreBackend::memory()).expect("entry builds");
 
         assert_eq!(entry.id.as_deref(), Some("note:123"));
         assert_eq!(entry.title.as_deref(), Some("Durable title"));
@@ -285,7 +286,7 @@ mod tests {
         ];
 
         let parsed =
-            parsed_review_notes_from_imports(&events, Path::new(".shore/data")).expect("parses");
+            parsed_review_notes_from_imports(&events, &StoreBackend::memory()).expect("parses");
 
         assert_eq!(parsed.sidecar.files.len(), 2);
         assert_eq!(
@@ -319,7 +320,8 @@ mod tests {
         payload.body_artifact_path = Some(artifact_path.to_owned());
         payload.body_byte_size = Some(256);
 
-        let entry = replay_note_entry(&payload, store_dir.path()).expect("entry builds");
+        let backend = StoreBackend::Local(store_dir.path().to_path_buf());
+        let entry = replay_note_entry(&payload, &backend).expect("entry builds");
 
         assert_eq!(entry.body.as_deref(), Some("Artifact body"));
     }
@@ -330,7 +332,7 @@ mod tests {
         payload.body = None;
         payload.body_artifact_path = Some("../outside.json".to_owned());
 
-        let error = replay_note_entry(&payload, Path::new(".shore/data"))
+        let error = replay_note_entry(&payload, &StoreBackend::memory())
             .expect_err("path should be rejected");
         assert!(error.to_string().contains("Invalid artifact path"));
     }
@@ -352,8 +354,8 @@ mod tests {
         payload.body = None;
         payload.body_artifact_path = Some(artifact_path.to_owned());
 
-        let error =
-            replay_note_entry(&payload, store_dir.path()).expect_err("schema should be rejected");
+        let backend = StoreBackend::Local(store_dir.path().to_path_buf());
+        let error = replay_note_entry(&payload, &backend).expect_err("schema should be rejected");
         assert!(error.to_string().contains("Unsupported note body artifact"));
     }
 

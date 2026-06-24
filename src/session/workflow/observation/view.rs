@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
 use serde::Serialize;
 
@@ -8,6 +7,7 @@ use crate::error::{Result, ShoreError};
 use crate::model::{EventId, ObservationId, ReviewTargetRef, TrackId};
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{EventType, ReviewObservationRecordedPayload, ShoreEvent, Writer};
+use crate::session::store::backend::StoreBackend;
 
 struct ObservationEventRecord<'a> {
     event: &'a ShoreEvent,
@@ -16,7 +16,7 @@ struct ObservationEventRecord<'a> {
 }
 
 pub(crate) struct ObservationProjectionOptions<'a> {
-    pub store_dir: &'a Path,
+    pub backend: &'a StoreBackend,
     pub events: &'a [ShoreEvent],
     pub resolved: &'a ResolvedRevision,
     pub track_filter: Option<TrackId>,
@@ -119,7 +119,7 @@ pub(crate) fn project_observations(
     let mut observations = Vec::new();
     for (_, record) in observation_records {
         let body = if options.include_body {
-            observation_body(options.store_dir, &record.payload)?
+            observation_body(options.backend, &record.payload)?
         } else {
             None
         };
@@ -164,14 +164,14 @@ pub(crate) fn target_matches_file(target: &ReviewTargetRef, file: &str) -> bool 
 }
 
 fn observation_body(
-    store_dir: &Path,
+    backend: &StoreBackend,
     payload: &ReviewObservationRecordedPayload,
 ) -> Result<Option<String>> {
     if payload.body.is_some() {
         return Ok(payload.body.clone());
     }
     match payload.body_artifact_path.as_deref() {
-        Some(path) => load_body_artifact(store_dir, path),
+        Some(path) => load_body_artifact(backend, path),
         None => Ok(None),
     }
 }

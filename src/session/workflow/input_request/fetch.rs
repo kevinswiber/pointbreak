@@ -40,7 +40,6 @@ pub struct InputRequestFetchResult {
 
 pub fn fetch_input_request(options: InputRequestFetchOptions) -> Result<InputRequestFetchResult> {
     let read_store = resolve_read_store(&options.repo)?;
-    let store_dir = read_store.store_dir();
     let events = EventStore::from_backend(read_store.backend()).list_events()?;
     let InputRequestProjectionRecords {
         mut request_records,
@@ -49,7 +48,7 @@ pub fn fetch_input_request(options: InputRequestFetchOptions) -> Result<InputReq
 
     if let Some(record) = request_records.remove(&options.input_request_id) {
         let view = input_request_view_from_event(
-            store_dir,
+            read_store.backend(),
             record.event,
             record.payload,
             record.track_id,

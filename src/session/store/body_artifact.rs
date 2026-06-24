@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::canonical_hash::sha256_bytes_hex;
 use crate::error::{Result, ShoreError};
+use crate::session::store::backend::StoreBackend;
 use crate::session::store::content::ContentArtifacts;
 
 /// Inline/artifact threshold for note-shaped event bodies (observations,
@@ -82,10 +83,13 @@ pub(crate) fn stage_body_artifact(body_bytes: &[u8]) -> Result<BodyArtifactOutco
     })
 }
 
-pub(crate) fn load_body_artifact(store_dir: &Path, relative_path: &str) -> Result<Option<String>> {
+pub(crate) fn load_body_artifact(
+    backend: &StoreBackend,
+    relative_path: &str,
+) -> Result<Option<String>> {
     validate_body_artifact_read_path(relative_path)?;
 
-    let body = ContentArtifacts::local(store_dir).read_note_body(relative_path)?;
+    let body = ContentArtifacts::from_backend(backend).read_note_body(relative_path)?;
 
     Ok(Some(body))
 }
@@ -175,6 +179,18 @@ fn invalid_artifact_path(relative_path: &str) -> ShoreError {
 mod tests {
     use super::*;
 
+    /// The file backend (rooted at a temp dir the guard keeps alive) and the
+    /// injection-only in-memory backend, so the note-body read is proven to flow
+    /// through the handle for either backend.
+    fn each_backend() -> Vec<(Option<tempfile::TempDir>, StoreBackend)> {
+        let root = tempfile::tempdir().unwrap();
+        let store_dir = root.path().join(".shore/data");
+        vec![
+            (Some(root), StoreBackend::Local(store_dir)),
+            (None, StoreBackend::memory()),
+        ]
+    }
+
     #[test]
     fn body_inline_limit_is_the_documented_4096_bytes() {
         assert_eq!(BODY_INLINE_LIMIT, 4096);
@@ -239,39 +255,44 @@ mod tests {
 
     #[test]
     fn load_rejects_path_escape_with_parent_dir() {
-        let dir = tempfile::tempdir().unwrap();
-        let err = load_body_artifact(dir.path(), "../escape.json").unwrap_err();
+        // Path validation runs before any store access, so the backend is moot.
+        let err = load_body_artifact(&StoreBackend::memory(), "../escape.json").unwrap_err();
         assert!(err.to_string().contains("Invalid artifact path"));
     }
 
     #[test]
     fn load_rejects_path_outside_artifacts_notes() {
-        let dir = tempfile::tempdir().unwrap();
-        let err = load_body_artifact(dir.path(), "elsewhere/x.json").unwrap_err();
+        let err = load_body_artifact(&StoreBackend::memory(), "elsewhere/x.json").unwrap_err();
         assert!(err.to_string().contains("Invalid artifact path"));
     }
 
     #[test]
-    fn load_rejects_wrong_schema() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("artifacts/notes/x.json");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, r#"{"schema":"wrong","version":1,"body":"x"}"#).unwrap();
-        let err = load_body_artifact(dir.path(), "artifacts/notes/x.json").unwrap_err();
-        assert!(err.to_string().contains("Unsupported note body artifact"));
+    fn load_rejects_wrong_schema_over_every_backend() {
+        for (_guard, backend) in each_backend() {
+            backend
+                .content_store()
+                .put_once(
+                    "artifacts/notes/x.json",
+                    br#"{"schema":"wrong","version":1,"body":"x"}"#,
+                )
+                .unwrap();
+            let err = load_body_artifact(&backend, "artifacts/notes/x.json").unwrap_err();
+            assert!(err.to_string().contains("Unsupported note body artifact"));
+        }
     }
 
     #[test]
-    fn load_returns_body_when_schema_and_version_match() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("artifacts/notes/x.json");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(
-            &path,
-            r#"{"schema":"shore.note-body","version":1,"body":"the body"}"#,
-        )
-        .unwrap();
-        let body = load_body_artifact(dir.path(), "artifacts/notes/x.json").unwrap();
-        assert_eq!(body, Some("the body".to_owned()));
+    fn load_returns_body_when_schema_and_version_match_over_every_backend() {
+        for (_guard, backend) in each_backend() {
+            backend
+                .content_store()
+                .put_once(
+                    "artifacts/notes/x.json",
+                    br#"{"schema":"shore.note-body","version":1,"body":"the body"}"#,
+                )
+                .unwrap();
+            let body = load_body_artifact(&backend, "artifacts/notes/x.json").unwrap();
+            assert_eq!(body, Some("the body".to_owned()));
+        }
     }
 }

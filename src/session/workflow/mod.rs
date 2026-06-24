@@ -88,7 +88,7 @@ pub use store_status::{
     StoreStatusRevisionObject, StoreStatusSensitivity, StoreStatusSensitivityFinding, store_status,
 };
 pub use validation::{
-    ValidationAddOptions, ValidationAddResult, ValidationCheckProjectionOptions,
-    ValidationCheckView, ValidationListFilters, ValidationListOptions, ValidationListResult,
-    list_validation_checks, project_validation_checks, record_validation_check,
+    ValidationAddOptions, ValidationAddResult, ValidationCheckView, ValidationListFilters,
+    ValidationListOptions, ValidationListResult, list_validation_checks, record_validation_check,
 };
+pub(crate) use validation::{ValidationCheckProjectionOptions, project_validation_checks};

@@ -87,7 +87,6 @@ pub struct InputRequestListResult {
 
 pub fn list_input_requests(options: InputRequestListOptions) -> Result<InputRequestListResult> {
     let read_store = resolve_read_store(&options.repo)?;
-    let store_dir = read_store.store_dir();
     let event_store = EventStore::from_backend(read_store.backend());
     let events = event_store.list_events()?;
     let resolved = resolve_revision(
@@ -102,7 +101,7 @@ pub fn list_input_requests(options: InputRequestListOptions) -> Result<InputRequ
         .map(validated_track_id)
         .transpose()?;
     let input_requests = project_input_requests(InputRequestProjectionOptions {
-        store_dir,
+        backend: read_store.backend(),
         events: &events,
         resolved: &resolved,
         track_filter: track_filter.clone(),

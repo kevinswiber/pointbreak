@@ -112,7 +112,7 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
         ),
     };
     let observations = project_observations(ObservationProjectionOptions {
-        store_dir: read_store.store_dir(),
+        backend: read_store.backend(),
         events: &events,
         resolved: &resolved,
         track_filter: track_id.clone(),
@@ -121,7 +121,7 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
         include_body: options.include_body,
     })?;
     let input_requests = project_input_requests(InputRequestProjectionOptions {
-        store_dir: read_store.store_dir(),
+        backend: read_store.backend(),
         events: &events,
         resolved: &resolved,
         track_filter: track_id.clone(),
@@ -131,7 +131,7 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
         include_body: options.include_body,
     })?;
     let (current_assessment, assessments) = project_assessments(AssessmentProjectionOptions {
-        store_dir: read_store.store_dir(),
+        backend: Some(read_store.backend()),
         events: &events,
         resolved: &resolved,
         track_filter: track_id.clone(),
@@ -139,7 +139,7 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
         include_all: true,
     })?;
     let validation_checks = project_validation_checks(ValidationCheckProjectionOptions {
-        store_dir: read_store.store_dir(),
+        backend: read_store.backend(),
         events: &events,
         revision_id: &resolved.revision_id,
         track_filter: track_id.clone(),
@@ -148,7 +148,7 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
     })?;
     let adapter_notes = project_adapter_notes(
         &events,
-        read_store.store_dir(),
+        read_store.backend(),
         &snapshot,
         options.include_body,
     )?;

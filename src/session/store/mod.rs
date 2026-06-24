@@ -1,4 +1,4 @@
-mod backend;
+pub(in crate::session) mod backend;
 pub(in crate::session) mod body_artifact;
 pub(in crate::session) mod bundle;
 pub(in crate::session) mod content;

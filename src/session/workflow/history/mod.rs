@@ -53,7 +53,7 @@ pub fn review_history(options: ReviewHistoryOptions) -> Result<ReviewHistoryResu
         actor_attributes: options.actor_attributes,
         delegation_map: options.delegation_map,
     };
-    let mut result = history_from_events(&events, filters, Some(read_store.store_dir()))?;
+    let mut result = history_from_events(&events, filters, Some(read_store.backend()))?;
     result.diagnostics.extend(skip_diagnostics);
     Ok(result)
 }
@@ -78,6 +78,7 @@ mod tests {
         WorkObjectProposedPayload, Writer,
     };
     use crate::session::state::DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE;
+    use crate::session::store::backend::StoreBackend;
 
     #[test]
     fn review_history_returns_empty_freshness_metadata_without_events() {
@@ -667,10 +668,11 @@ mod tests {
             ..ResolvedHistoryFilters::default()
         };
 
+        let backend = StoreBackend::Local(dir.path().to_path_buf());
         let result = history_from_events(
             &[observation_event_with_artifact_path(artifact_path)],
             filters,
-            Some(dir.path()),
+            Some(&backend),
         )
         .unwrap();
         let json = serde_json::to_value(&result.entries[0]).unwrap();

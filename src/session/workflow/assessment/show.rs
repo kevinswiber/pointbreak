@@ -70,7 +70,6 @@ pub struct AssessmentShowFilters {
 
 pub fn show_assessments(options: AssessmentShowOptions) -> Result<AssessmentShowResult> {
     let read_store = resolve_read_store(&options.repo)?;
-    let store_dir = read_store.store_dir();
     let events = EventStore::from_backend(read_store.backend()).list_events()?;
     let resolved = resolve_revision(
         &events,
@@ -84,7 +83,7 @@ pub fn show_assessments(options: AssessmentShowOptions) -> Result<AssessmentShow
         .map(validated_track_id)
         .transpose()?;
     let (current, assessments) = project_assessments(AssessmentProjectionOptions {
-        store_dir,
+        backend: Some(read_store.backend()),
         events: &events,
         resolved: &resolved,
         track_filter: track_filter.clone(),

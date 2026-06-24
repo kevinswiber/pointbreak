@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::path::Path;
 
 use serde::Serialize;
 
@@ -10,6 +9,7 @@ use crate::model::{
 };
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{EventType, ShoreEvent, ValidationCheckRecordedPayload, Writer};
+use crate::session::store::backend::StoreBackend;
 
 struct ValidationEventRecord<'a> {
     event: &'a ShoreEvent,
@@ -17,8 +17,8 @@ struct ValidationEventRecord<'a> {
     track_id: TrackId,
 }
 
-pub struct ValidationCheckProjectionOptions<'a> {
-    pub store_dir: &'a Path,
+pub(crate) struct ValidationCheckProjectionOptions<'a> {
+    pub backend: &'a StoreBackend,
     pub events: &'a [ShoreEvent],
     pub revision_id: &'a RevisionId,
     pub track_filter: Option<TrackId>,
@@ -115,7 +115,7 @@ pub fn project_validation_checks(
     let mut validations = Vec::new();
     for (_, record) in validation_records {
         let summary = if options.include_body {
-            validation_summary(options.store_dir, &record.payload)?
+            validation_summary(options.backend, &record.payload)?
         } else {
             None
         };
@@ -146,14 +146,14 @@ pub fn project_validation_checks(
 }
 
 fn validation_summary(
-    store_dir: &Path,
+    backend: &StoreBackend,
     payload: &ValidationCheckRecordedPayload,
 ) -> Result<Option<String>> {
     if payload.summary.is_some() {
         return Ok(payload.summary.clone());
     }
     match payload.summary_artifact_path.as_deref() {
-        Some(path) => load_body_artifact(store_dir, path),
+        Some(path) => load_body_artifact(backend, path),
         None => Ok(None),
     }
 }
@@ -202,9 +202,10 @@ mod tests {
             ),
         ];
         let dir = tempfile::tempdir().unwrap();
+        let backend = StoreBackend::Local(dir.path().to_path_buf());
 
         let views = project_validation_checks(ValidationCheckProjectionOptions {
-            store_dir: dir.path(),
+            backend: &backend,
             events: &events,
             revision_id: &RevisionId::new("review-unit:sha256:one"),
             track_filter: None,
@@ -236,9 +237,10 @@ mod tests {
             ),
         ];
         let dir = tempfile::tempdir().unwrap();
+        let backend = StoreBackend::Local(dir.path().to_path_buf());
 
         let views = project_validation_checks(ValidationCheckProjectionOptions {
-            store_dir: dir.path(),
+            backend: &backend,
             events: &events,
             revision_id: &RevisionId::new("review-unit:sha256:one"),
             track_filter: None,
@@ -277,9 +279,10 @@ mod tests {
             ),
         ];
         let dir = tempfile::tempdir().unwrap();
+        let backend = StoreBackend::Local(dir.path().to_path_buf());
 
         let views = project_validation_checks(ValidationCheckProjectionOptions {
-            store_dir: dir.path(),
+            backend: &backend,
             events: &events,
             revision_id: &RevisionId::new("review-unit:sha256:one"),
             track_filter: None,
@@ -305,6 +308,7 @@ mod tests {
     #[test]
     fn project_validation_checks_hydrates_summary_only_when_requested() {
         let dir = tempfile::tempdir().unwrap();
+        let backend = StoreBackend::Local(dir.path().to_path_buf());
         let artifact_path = "artifacts/notes/abc.json";
         fs::create_dir_all(dir.path().join("artifacts/notes")).unwrap();
         fs::write(
@@ -320,7 +324,7 @@ mod tests {
         )];
         let revision_id = RevisionId::new("review-unit:sha256:one");
         let options = |include_body| ValidationCheckProjectionOptions {
-            store_dir: dir.path(),
+            backend: &backend,
             events: &events,
             revision_id: &revision_id,
             track_filter: None,
