@@ -128,20 +128,29 @@ body {
 .thread-competing { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 0 0 8px; }
 .thread-card.competing { border-color: color-mix(in srgb, var(--warning) 30%, transparent); }
 .fact-status.competing { color: var(--warning); }
-.revision-dag { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-.revision-node {
-  font-family: var(--mono);
-  font-size: 11px;
-  border: 1px solid var(--border);
-  border-left-width: 3px;
-  border-radius: var(--r-sm);
-  padding: 5px 8px;
-  background: var(--bg-row);
+/* The supersession DAG: a server-laid SVG the client only paints — one <rect>
+   node per revision (head/superseded modifiers), routed <polyline> edges, and a
+   directional arrowhead pointing at the superseding head. Mirrors app.css. */
+.revision-dag { max-width: 100%; height: auto; margin-top: 10px; }
+.dag-edge { fill: none; stroke: var(--border); stroke-width: 1.5; }
+.dag-edge.traced { stroke: var(--accent); stroke-width: 2.5; }
+/* A traced edge swaps to the accent marker via its marker-end attribute (a
+   cross-browser alternative to context-stroke, which Safari does not paint). */
+.dag-arrow-head { fill: var(--border); }
+.dag-arrow-head-traced { fill: var(--accent); }
+.dag-node { cursor: pointer; }
+.dag-node rect { fill: var(--bg-row); stroke: var(--border); stroke-width: 1.5; }
+.dag-node text { fill: var(--fg); font-family: var(--mono); font-size: var(--fs-xs); }
+/* Head vs superseded reads as a shape cue (solid vs dashed stroke), not color alone. */
+.dag-node.head rect { stroke: var(--success); stroke-width: 2; }
+.dag-node.superseded rect {
+  stroke: color-mix(in srgb, var(--warning) 60%, transparent);
+  stroke-dasharray: 4 3;
 }
-.revision-node.head { border-left-color: var(--success); }
-.revision-node.superseded { border-left-color: color-mix(in srgb, var(--warning) 50%, transparent); }
-.rev-node-head { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.rev-edge { margin-top: 4px; color: var(--fg-dim); }
+.dag-node[aria-selected="true"] rect { fill: var(--bg-row-sel); stroke: var(--accent); }
+.dag-node.traced rect { stroke: var(--accent); }
+.dag-node:focus { outline: none; }
+.dag-node:focus rect { stroke: var(--accent); stroke-width: 2.5; }
 .unit-card .actions { margin-top: 8px; }
 .unit-card .diff-btn, .detail .diff-btn { font-size: 12px; }
 
@@ -231,16 +240,72 @@ body {
 .ref-commit, .ref-hash { color: var(--fg-dim); }
 
 /* ---- Diff ------------------------------------------------------------- */
-.dfile { border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; }
-.dfile-head { display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: var(--bg-elev); border-bottom: 1px solid var(--border); }
-.dpath { font-family: var(--mono); font-size: 13px; }
-.dstatus { font-family: var(--mono); font-size: 11px; padding: 1px 7px; border-radius: var(--r-sm); background: var(--bg-row); color: var(--fg-dim); text-transform: lowercase; }
+/* Two-column diff: an always-visible file/fact navigator beside the scrolling
+   body, each with its own overflow so the navigator survives the body scroll. */
+.diff-layout { display: flex; flex: 1 1 auto; min-height: 0; }
+.diff-nav {
+  flex: 0 0 220px;
+  overflow: auto;
+  padding: 10px 8px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+.diff-nav ol { list-style: none; margin: 0; padding: 0; }
+.diff-nav-files { margin-bottom: 10px; }
+.diff-nav-file,
+.diff-nav-fact {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--r-sm);
+}
+.diff-nav-file:hover,
+.diff-nav-fact:hover,
+.diff-nav-file:focus-visible,
+.diff-nav-fact:focus-visible { background: var(--bg-row); outline: none; }
+.diff-nav-file .dpath { font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-nav-file .dfile-notes { margin-left: auto; }
+.diff-nav-fact { font-size: var(--fs-sm); color: var(--fg-dim); }
+.diff-unanchored h3 {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-dim);
+  font-weight: 500;
+  margin: 8px 6px 4px;
+}
+.diff-body { flex: 1; min-width: 0; overflow: auto; padding: 12px 14px; }
+
+/* File accordion: a clickable header (disclosure caret via ::before keyed on
+   aria-expanded) over a collapsible body. Low-signal files (binary / mode-only /
+   pure-rename / large) read quieter and carry a one-line reason chip. */
+.dfile { margin-bottom: 18px; border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; }
+.dfile-head { display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: var(--bg-elev); border-bottom: 1px solid var(--border); cursor: pointer; }
+.dfile-head::before { content: "▸"; color: var(--fg-dim); font-size: var(--fs-xs); width: 0.8em; }
+.dfile[aria-expanded="true"] > .dfile-head::before { content: "▾"; }
+.dfile[aria-expanded="false"] > .dfile-head { border-bottom: none; }
+.dfile[aria-expanded="false"] > .dfile-body { display: none; }
+.dfile-head:hover { background: var(--bg-row); }
+.dfile-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.dfile-lowsignal > .dfile-head { background: var(--bg); }
+.dfile-lowsignal .dpath { color: var(--fg-dim); }
+.dfile-summary { font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim); padding: 1px 7px; border-radius: var(--r-sm); background: var(--bg-row); }
+.dpath { font-family: var(--mono); font-size: var(--fs-md); }
+.dstatus { font-family: var(--mono); font-size: var(--fs-xs); padding: 1px 7px; border-radius: var(--r-sm); background: var(--bg-row); color: var(--fg-dim); text-transform: lowercase; }
 .s-added { color: var(--success); }
 .s-deleted { color: var(--danger); }
 .s-renamed, .s-copied { color: var(--warning); }
-.dfile-notes { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--fg-dim); }
-.dhunk { font-family: var(--mono); font-size: 12px; color: var(--info); background: var(--hunk-bg); padding: 3px 12px; border-top: 1px solid var(--border); }
-.drow { display: grid; grid-template-columns: 52px 52px 16px 1fr; font-family: var(--mono); font-size: 12px; line-height: 1.5; }
+.dfile-notes { margin-left: auto; font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim); }
+.dhunk { font-family: var(--mono); font-size: var(--fs-sm); color: var(--info); background: var(--hunk-bg); padding: 3px 12px; border-top: 1px solid var(--border); }
+.drow { display: grid; grid-template-columns: 52px 52px 16px 1fr; font-family: var(--mono); font-size: var(--fs-sm); line-height: 1.5; }
 .drow .ln { color: #5b6675; text-align: right; padding-right: 8px; user-select: none; }
 .drow .sign { text-align: center; user-select: none; }
 .drow .dtext { white-space: pre-wrap; word-break: break-word; padding-right: 10px; }
@@ -250,9 +315,13 @@ body {
 .drow-removed .sign, .drow-removed .dtext { color: var(--diff-del-fg); }
 .drow-context .dtext { color: var(--fg-dim); }
 .drow-meta { grid-template-columns: 1fr; padding: 4px 12px; color: var(--fg-dim); font-style: italic; }
-.drow-noted { box-shadow: inset 3px 0 0 var(--success); }
-.anno-summary { font-size: 12px; color: var(--fg-dim); margin-bottom: 10px; }
+.drow-noted { box-shadow: inset 3px 0 0 var(--success); cursor: pointer; }
+.drow-noted:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.anno-summary { font-size: var(--fs-sm); color: var(--fg-dim); margin-bottom: 10px; }
 .anno-group { margin-bottom: 14px; }
+/* Diff-anchored annotations indent under the gutter to align with the rows
+   (matches the live diff body); standalone annos elsewhere keep the flush base. */
+.diff-body .anno { margin-left: 52px; }
 
 /* ---- Endorsements / verify ------------------------------------------- */
 .verify { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: var(--r-sm); background: var(--bg-row); color: var(--fg-dim); white-space: nowrap; }
@@ -283,3 +352,7 @@ body {
 .ds-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-dim); margin: 0; }
 .ds-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .ds-stack { display: grid; gap: 10px; }
+/* The annotated-diff card frames the two-column layout inline (no fixed overlay),
+   bounding it so the navigator and body each get their own scroll like the modal. */
+.diff-demo { display: flex; height: 440px; border: 1px solid var(--border); border-radius: var(--r-xl); overflow: hidden; background: var(--bg); }
+.diff-demo .diff-layout { flex: 1 1 auto; min-width: 0; }

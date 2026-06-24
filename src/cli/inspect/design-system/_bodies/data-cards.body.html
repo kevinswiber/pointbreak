@@ -17,47 +17,70 @@
   </div>
 
   <div class="ds-group">
-    <p class="ds-label">Revision thread — single head</p>
+    <p class="ds-label">Revision thread — single head (linear succession)</p>
     <div class="ds-stack" style="max-width:520px">
       <div class="unit-card thread-card">
-        <h3>revision thread · head 020ff756d7ab</h3>
+        <h3>revision thread · head fb12c0a9e4d1</h3>
         <div class="kv">
-          <span>revisions</span><b>1</b>
+          <span>revisions</span><b>3</b>
           <span>heads</span><b>1</b>
-          <span>superseded</span><b>0</b>
+          <span>superseded</span><b>2</b>
         </div>
-        <div class="revision-dag">
-          <div class="revision-node head">
-            <div class="rev-node-head"><span class="ref" data-ref-kind="rev">rev:020ff756</span> <span class="fact-status current">HEAD</span></div>
-          </div>
-        </div>
+        <svg class="revision-dag" width="120" height="164" viewBox="0 0 120 164" preserveAspectRatio="xMinYMin meet" role="group" aria-label="supersession graph">
+          <defs>
+            <marker id="dag-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path class="dag-arrow-head" d="M0,0 L7,4 L0,8 z" /></marker>
+            <marker id="dag-arrow-traced" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path class="dag-arrow-head-traced" d="M0,0 L7,4 L0,8 z" /></marker>
+          </defs>
+          <polyline class="dag-edge" data-from="fb12c0a9e4d1" data-to="7a3e55c8b201" points="60,67 60,37" marker-end="url(#dag-arrow)" />
+          <polyline class="dag-edge" data-from="7a3e55c8b201" data-to="9c1aee30b742" points="60,127 60,97" marker-end="url(#dag-arrow)" />
+          <g class="dag-node head" data-revision-id="fb12c0a9e4d1" tabindex="0" role="link" aria-label="revision fb12c0a9e4d1">
+            <rect x="8" y="7" width="104" height="30" rx="6" />
+            <text x="60" y="22" text-anchor="middle" dominant-baseline="middle">fb12c0a9e4d1</text>
+          </g>
+          <g class="dag-node superseded" data-revision-id="7a3e55c8b201" tabindex="0" role="link" aria-label="revision 7a3e55c8b201">
+            <rect x="8" y="67" width="104" height="30" rx="6" />
+            <text x="60" y="82" text-anchor="middle" dominant-baseline="middle">7a3e55c8b201</text>
+          </g>
+          <g class="dag-node superseded" data-revision-id="9c1aee30b742" tabindex="0" role="link" aria-label="revision 9c1aee30b742">
+            <rect x="8" y="127" width="104" height="30" rx="6" />
+            <text x="60" y="142" text-anchor="middle" dominant-baseline="middle">9c1aee30b742</text>
+          </g>
+        </svg>
       </div>
     </div>
   </div>
 
   <div class="ds-group">
-    <p class="ds-label">Revision thread — competing heads (forked)</p>
+    <p class="ds-label">Revision thread — competing heads (forked; one edge traced)</p>
     <div class="ds-stack" style="max-width:520px">
       <div class="unit-card thread-card competing">
-        <h3>revision thread · 2 heads</h3>
-        <div class="thread-competing">
-          <span class="fact-status competing">competing revisions (2)</span>
-          <span class="ref" data-ref-kind="rev">rev:aaaa1111</span>
-          <span class="ref" data-ref-kind="rev">rev:bbbb2222</span>
-        </div>
+        <h3>revision thread · 2 competing heads</h3>
+        <div class="thread-competing"><span class="fact-status competing">competing revisions (2)</span> <span class="ref" data-ref-kind="rev">rev:aaaa1111</span> <span class="ref" data-ref-kind="rev">rev:cccc2222</span></div>
         <div class="kv">
           <span>revisions</span><b>3</b>
           <span>heads</span><b>2</b>
           <span>superseded</span><b>1</b>
         </div>
-        <div class="revision-dag">
-          <div class="revision-node head"><div class="rev-node-head"><span class="ref" data-ref-kind="rev">rev:aaaa1111</span> <span class="fact-status current">HEAD</span></div></div>
-          <div class="revision-node head"><div class="rev-node-head"><span class="ref" data-ref-kind="rev">rev:bbbb2222</span> <span class="fact-status current">HEAD</span></div></div>
-          <div class="revision-node superseded">
-            <div class="rev-node-head"><span class="ref" data-ref-kind="rev">rev:cccc3333</span> <span class="fact-status superseded">superseded</span></div>
-            <div class="rev-edge">↳ superseded by <span class="ref" data-ref-kind="rev">rev:aaaa1111</span></div>
-          </div>
-        </div>
+        <svg class="revision-dag" width="228" height="120" viewBox="0 0 228 120" preserveAspectRatio="xMinYMin meet" role="group" aria-label="supersession graph">
+          <defs>
+            <marker id="dag-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path class="dag-arrow-head" d="M0,0 L7,4 L0,8 z" /></marker>
+            <marker id="dag-arrow-traced" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path class="dag-arrow-head-traced" d="M0,0 L7,4 L0,8 z" /></marker>
+          </defs>
+          <polyline class="dag-edge traced" data-from="aaaa1111bbbb" data-to="e5f0a7b3c901" points="114,81 54,39" marker-end="url(#dag-arrow-traced)" />
+          <polyline class="dag-edge" data-from="cccc2222dddd" data-to="e5f0a7b3c901" points="114,81 174,39" marker-end="url(#dag-arrow)" />
+          <g class="dag-node head traced" data-revision-id="aaaa1111bbbb" tabindex="0" role="link" aria-label="revision aaaa1111bbbb">
+            <rect x="2" y="9" width="104" height="30" rx="6" />
+            <text x="54" y="24" text-anchor="middle" dominant-baseline="middle">aaaa1111bbbb</text>
+          </g>
+          <g class="dag-node head" data-revision-id="cccc2222dddd" tabindex="0" role="link" aria-label="revision cccc2222dddd">
+            <rect x="122" y="9" width="104" height="30" rx="6" />
+            <text x="174" y="24" text-anchor="middle" dominant-baseline="middle">cccc2222dddd</text>
+          </g>
+          <g class="dag-node superseded" data-revision-id="e5f0a7b3c901" tabindex="0" role="link" aria-label="revision e5f0a7b3c901">
+            <rect x="62" y="81" width="104" height="30" rx="6" />
+            <text x="114" y="96" text-anchor="middle" dominant-baseline="middle">e5f0a7b3c901</text>
+          </g>
+        </svg>
       </div>
     </div>
   </div>

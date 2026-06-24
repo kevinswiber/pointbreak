@@ -1,33 +1,84 @@
 <div class="ds-page">
   <div class="ds-group">
-    <p class="ds-label">Annotated diff — file, hunk, rows &amp; inline review facts</p>
-    <div class="anno-summary">21 review facts on this revision · 16 observations, 1 input request, 4 assessments · 11 not anchored to a diff line</div>
-    <section class="dfile">
-      <header class="dfile-head">
-        <span class="dstatus s-added">added</span>
-        <span class="dpath">src/cli/inspect/design-system/styles.css</span>
-        <span class="dfile-notes">2 notes</span>
-      </header>
-      <div class="dhunk">@@ -1,6 +1,9 @@ fn replay_event(entry: &amp;JournalEntry)</div>
-      <div class="drow drow-context"><span class="ln">1</span><span class="ln">1</span><span class="sign"> </span><span class="dtext">    let decoded = entry.decode()?;</span></div>
-      <div class="drow drow-removed"><span class="ln">2</span><span class="ln"></span><span class="sign">-</span><span class="dtext">    let hash = sha256(decoded.bytes);</span></div>
-      <div class="drow drow-added drow-noted"><span class="ln"></span><span class="ln">2</span><span class="sign">+</span><span class="dtext">    let hash = sha256(decoded.content); // re-hash floor</span></div>
-      <div class="anno anno-observation" style="margin-left:52px">
-        <div class="anno-head"><span class="anno-kind anno-kind-observation">observation</span><span class="anno-track">agent:claude-code-0080</span><span class="anno-title">Re-hash before erase</span></div>
-        <div class="anno-body">Compact re-derives the decoded-content hash and refuses on drift (0077-B2).</div>
+    <p class="ds-label">Annotated diff — file accordion, fact navigator &amp; low-signal collapse</p>
+    <div class="diff-demo">
+      <div class="diff-layout">
+        <nav class="diff-nav" aria-label="diff files">
+          <ol class="diff-nav-files">
+            <li><button class="diff-nav-file" data-nav-file="0"><span class="dstatus s-modified">modified</span><span class="dpath">src/cli/inspect/assets/app.css</span><span class="dfile-notes">2</span></button></li>
+            <li><button class="diff-nav-file" data-nav-file="1"><span class="dstatus s-modified">modified</span><span class="dpath">src/cli/inspect/assets/app.js</span></button></li>
+            <li><button class="diff-nav-file" data-nav-file="2"><span class="dstatus s-added">added</span><span class="dpath">src/cli/inspect/assets/preview.png</span></button></li>
+            <li><button class="diff-nav-file" data-nav-file="3"><span class="dstatus s-renamed">renamed</span><span class="dpath">src/store/event_store.rs → src/store/journal.rs</span></button></li>
+          </ol>
+          <section class="diff-unanchored" aria-label="unanchored review facts">
+            <h3>3 not anchored to a diff line</h3>
+            <ol>
+              <li><button class="diff-nav-fact" data-anno="u1">Capture base is the parent, not the working tree</button></li>
+              <li><button class="diff-nav-fact" data-anno="u2">Revision supersedes rev:9c1aee30</button></li>
+              <li><button class="diff-nav-fact" data-anno="u3">Should low-signal collapse be sticky per file?</button></li>
+            </ol>
+          </section>
+        </nav>
+        <div class="diff-body">
+          <div class="anno-summary">5 review facts on this revision · 3 observations, 1 input request, 1 assessment · 3 not anchored to a diff line</div>
+          <div class="anno-group">
+            <div class="anno anno-observation" data-anno="u1">
+              <div class="anno-head"><span class="anno-kind anno-kind-observation">observation</span><span class="anno-track">agent:claude-code-0081</span><span class="anno-title">Capture base is the parent, not the working tree</span> <span class="anno-loc">src/cli/inspect/server.rs:142</span></div>
+              <div class="anno-body">The snapshot diff is taken against the captured base commit, so this fact targets a line outside the captured changeset.</div>
+            </div>
+            <div class="anno anno-observation" data-anno="u2">
+              <div class="anno-head"><span class="anno-kind anno-kind-observation">observation</span><span class="anno-track">agent:codex-insdiff</span><span class="anno-title">Revision supersedes rev:9c1aee30</span></div>
+              <div class="anno-body">This revision is the superseding head of the thread; the prior head's facts read as stale.</div>
+            </div>
+            <div class="anno anno-input-request" data-anno="u3">
+              <div class="anno-head"><span class="anno-kind anno-kind-input-request">input-request</span><span class="anno-track">agent:codex-insdiff</span><span class="anno-title">Should low-signal collapse be sticky per file?</span> <span class="fact-status open">advisory</span></div>
+              <div class="anno-body">A reader who expands a binary file may want that choice remembered across renders. Advisory — no blocking dependency.</div>
+            </div>
+          </div>
+          <section class="dfile" data-dfile="0" aria-expanded="true">
+            <header class="dfile-head" role="button" tabindex="0">
+              <span class="dstatus s-modified">modified</span>
+              <span class="dpath">src/cli/inspect/assets/app.css</span>
+              <span class="dfile-notes">2 notes</span></header>
+            <div class="dfile-body" data-dfile-body="0" data-rendered="1">
+              <div class="anno anno-assessment" data-anno="a-assess">
+                <div class="anno-head"><span class="anno-kind anno-kind-assessment">assessment</span><span class="anno-track">agent:codex-insdiff</span><span class="anno-title">accepted — arrowheads orient by node identity</span></div>
+                <div class="anno-body">Round-1 fixpoint. The two-marker swap is Safari-verified; no further changes requested.</div>
+              </div>
+              <div class="dhunk">@@ -174,2 +174,4 @@ .revision-dag</div>
+              <div class="drow drow-context"><span class="ln">174</span><span class="ln">174</span><span class="sign"> </span><span class="dtext">.dag-edge { fill: none; stroke: var(--border); stroke-width: 1.5; }</span></div>
+              <div class="drow drow-added drow-noted" data-anno="a-obs" tabindex="0" role="button"><span class="ln"></span><span class="ln">175</span><span class="sign">+</span><span class="dtext">.dag-arrow-head { fill: var(--border); }</span></div>
+              <div class="anno anno-observation" data-anno="a-obs">
+                <div class="anno-head"><span class="anno-kind anno-kind-observation">observation</span><span class="anno-track">agent:claude-code-0081</span><span class="anno-title">Two arrowhead fills, swapped on trace</span></div>
+                <div class="anno-body">A traced edge swaps its marker-end to #dag-arrow-traced; context-stroke is not painted by Safari, so two markers are needed.</div>
+              </div>
+              <div class="drow drow-added"><span class="ln"></span><span class="ln">176</span><span class="sign">+</span><span class="dtext">.dag-arrow-head-traced { fill: var(--accent); }</span></div>
+              <div class="drow drow-context"><span class="ln">175</span><span class="ln">177</span><span class="sign"> </span><span class="dtext">.dag-node { cursor: pointer; }</span></div>
+              <div class="drow drow-meta"><span class="dtext">(24 unchanged lines hidden)</span></div>
+            </div>
+          </section>
+          <section class="dfile" data-dfile="1" aria-expanded="false">
+            <header class="dfile-head" role="button" tabindex="0">
+              <span class="dstatus s-modified">modified</span>
+              <span class="dpath">src/cli/inspect/assets/app.js</span></header>
+            <div class="dfile-body" data-dfile-body="1"></div>
+          </section>
+          <section class="dfile dfile-lowsignal" data-dfile="2" aria-expanded="false" data-lowsignal="binary">
+            <header class="dfile-head" role="button" tabindex="0">
+              <span class="dstatus s-added">added</span>
+              <span class="dpath">src/cli/inspect/assets/preview.png</span>
+              <span class="dfile-summary">binary</span></header>
+            <div class="dfile-body" data-dfile-body="2"></div>
+          </section>
+          <section class="dfile dfile-lowsignal" data-dfile="3" aria-expanded="false" data-lowsignal="rename 100%">
+            <header class="dfile-head" role="button" tabindex="0">
+              <span class="dstatus s-renamed">renamed</span>
+              <span class="dpath">src/store/event_store.rs → src/store/journal.rs</span>
+              <span class="dfile-summary">rename 100%</span></header>
+            <div class="dfile-body" data-dfile-body="3"></div>
+          </section>
+        </div>
       </div>
-      <div class="drow drow-added"><span class="ln"></span><span class="ln">3</span><span class="sign">+</span><span class="dtext">    if hash != entry.address { return Err(Drift); }</span></div>
-      <div class="drow drow-context"><span class="ln">3</span><span class="ln">4</span><span class="sign"> </span><span class="dtext">    store.put(decoded);</span></div>
-      <div class="drow drow-meta"><span class="dtext">(18 unchanged lines hidden)</span></div>
-    </section>
-    <section class="dfile">
-      <header class="dfile-head">
-        <span class="dstatus s-renamed">renamed</span>
-        <span class="dpath">src/store/event_store.rs → src/store/journal.rs</span>
-      </header>
-      <div class="dhunk">@@ -155,4 +155,4 @@</div>
-      <div class="drow drow-removed"><span class="ln">155</span><span class="ln"></span><span class="sign">-</span><span class="dtext">    pub fn writer_tool(&amp;self) -&gt; &amp;str { ... }</span></div>
-      <div class="drow drow-added"><span class="ln"></span><span class="ln">155</span><span class="sign">+</span><span class="dtext">    pub fn producer(&amp;self) -&gt; &amp;str { ... }</span></div>
-    </section>
+    </div>
   </div>
 </div>
