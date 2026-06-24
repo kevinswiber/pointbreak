@@ -1406,10 +1406,29 @@ function renderThreadSvg(laid) {
   if (!laid || !(laid.nodes && laid.nodes.length)) return "";
   const w = laid.bounds.w;
   const h = laid.bounds.h;
+  // Node centers, so each edge's arrowhead is oriented by node identity: the
+  // arrow points at the superseding `from` head, never by raw points order (a
+  // reversed/cycle edge still renders correctly).
+  const center = new Map(laid.nodes.map((n) => [n.id, [n.x, n.y]]));
+  // Two shared arrowhead markers: a default (border-colored) and a traced
+  // (accent-colored) one. CSS swaps a traced edge to the accent marker — a
+  // cross-browser alternative to `context-stroke` (which Safari does not paint).
+  const marker = (id, cls) =>
+    `<marker id="${id}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path class="${cls}" d="M0,0 L7,4 L0,8 z" /></marker>`;
+  const defs = `<defs>${marker("dag-arrow", "dag-arrow-head")}${marker("dag-arrow-traced", "dag-arrow-head-traced")}</defs>`;
   const edges = (laid.edges || [])
     .map((e) => {
-      const pts = e.path.map(([x, y]) => `${x},${y}`).join(" ");
-      return `<polyline class="dag-edge" data-from="${escapeHtml(e.from)}" data-to="${escapeHtml(e.to)}" points="${pts}" />`;
+      // Draw so the LAST point is nearest the `from` (superseding head) node;
+      // marker-end then points the arrowhead at that head, so succession reads
+      // bottom-up (a fork diverges upward into its competing heads).
+      let path = e.path;
+      const from = center.get(e.from);
+      if (from && path.length > 1) {
+        const dist2 = (p) => (p[0] - from[0]) ** 2 + (p[1] - from[1]) ** 2;
+        if (dist2(path[0]) < dist2(path[path.length - 1])) path = [...path].reverse();
+      }
+      const pts = path.map(([x, y]) => `${x},${y}`).join(" ");
+      return `<polyline class="dag-edge" data-from="${escapeHtml(e.from)}" data-to="${escapeHtml(e.to)}" points="${pts}" marker-end="url(#dag-arrow)" />`;
     })
     .join("");
   const nodes = laid.nodes
@@ -1425,7 +1444,7 @@ function renderThreadSvg(laid) {
   // Render at natural pixel size (1 user unit = 1px) so the node text is not
   // scaled down to illegibility; CSS `max-width:100%` shrinks an oversized graph
   // proportionally. Boxes are sized server-side to the short label.
-  return `<svg class="revision-dag" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMinYMin meet" role="group" aria-label="supersession graph">${edges}${nodes}</svg>`;
+  return `<svg class="revision-dag" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMinYMin meet" role="group" aria-label="supersession graph">${defs}${edges}${nodes}</svg>`;
 }
 
 // Wire the DAG nodes into the IA: click / Enter / Space navigate to the
@@ -1449,7 +1468,12 @@ function wireDagInteractions(card) {
       node.classList.toggle("traced", on);
       card
         .querySelectorAll(`.dag-edge[data-from="${id}"], .dag-edge[data-to="${id}"]`)
-        .forEach((edge) => edge.classList.toggle("traced", on));
+        .forEach((edge) => {
+          edge.classList.toggle("traced", on);
+          // Swap the arrowhead to the accent marker via the marker-end attribute
+          // (cross-browser; not CSS context paint) so it tracks the edge highlight.
+          edge.setAttribute("marker-end", on ? "url(#dag-arrow-traced)" : "url(#dag-arrow)");
+        });
     };
     node.addEventListener("mouseenter", () => trace(true));
     node.addEventListener("mouseleave", () => trace(false));

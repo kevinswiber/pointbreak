@@ -225,3 +225,37 @@ fn laid_out_dag_degenerate_single_node_thread_has_no_edges() {
     assert_eq!(laid["edges"].as_array().unwrap().len(), 0);
     assert_eq!(laid["nodes"][0]["isHead"], true);
 }
+
+#[test]
+fn dag_edges_carry_a_directional_arrowhead_marker() {
+    // Paint-only contract: the served DAG SVG defines an arrowhead <marker> and
+    // edge polylines reference it, so a fork reads with explicit succession
+    // direction (the arrow points toward the superseding head). Topology and
+    // geometry are unchanged — asserted by the layout tests above.
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    let _ = capture_supersession_round(repo.path(), None);
+    let insp = Inspector::spawn(repo.path());
+    let js = insp.get_text("/app.js");
+    assert!(
+        js.contains("<marker"),
+        "the DAG SVG defines an arrowhead marker"
+    );
+    assert!(
+        js.contains("marker-end") || js.contains("marker-start"),
+        "edge polylines reference the arrowhead marker"
+    );
+    // A distinct traced arrowhead marker exists and the CSS swaps to it on a
+    // traced edge, so the arrowhead follows the highlight cross-browser (rather
+    // than relying on context paint, which not every browser renders).
+    assert!(
+        js.contains("dag-arrow-traced"),
+        "a distinct traced arrowhead marker is defined"
+    );
+    let css = insp.get_text("/app.css");
+    assert!(
+        css.contains("dag-arrow-head-traced"),
+        "the traced arrowhead marker is styled with the accent fill"
+    );
+}
