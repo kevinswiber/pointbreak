@@ -28,9 +28,9 @@ final-status-level = "fail"
 max-threads = 1
 
 [[profile.default.overrides]]
-filter = 'binary(cli_inspect_target_display)'
+filter = 'binary(cli_inspect_target_display) | binary(cli_inspect_dag)'
 test-group = 'inspect-server'
 
 [[profile.ci.overrides]]
-filter = 'binary(cli_inspect_target_display)'
+filter = 'binary(cli_inspect_target_display) | binary(cli_inspect_dag)'
 test-group = 'inspect-server'

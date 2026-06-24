@@ -6,9 +6,11 @@
 //! files. Errors are stringified so the server can surface them to the UI as
 //! a JSON `error` body instead of crashing a connection thread.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use mmdflux::graph::{Direction, Edge, Graph, Node};
+use mmdflux::layout::{LaidOutGraph, LayoutOptions, layout_graph};
 use serde::Serialize;
 use shoreline::documents::revision_show_document;
 use shoreline::model::{ObjectId, ReviewEndpoint, RevisionId};
@@ -57,7 +59,25 @@ struct ObjectsPayload {
     /// supersede it), so a fact on a superseded revision can name *all* of its
     /// superseding successors. Only superseded revisions appear.
     superseded_by: BTreeMap<String, Vec<String>>,
+    /// Per-revision supersession classification (head / superseded / isolated +
+    /// its direct superseders/predecessors), so the client reads a field instead
+    /// of re-deriving head/superseded status from the edge maps every render. An
+    /// advisory readback: a fork classifies both competing heads as `head`, no
+    /// winner.
+    revision_classification: BTreeMap<String, RevisionClassification>,
     diagnostics: Vec<ProjectionDiagnostic>,
+}
+
+/// The supersession standing of one revision, derived from the projection.
+/// `state` is `head` (a current head that supersedes at least one predecessor),
+/// `superseded` (named by at least one successor), or `isolated` (a lone root —
+/// a current head with no incident edges either way).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RevisionClassification {
+    state: &'static str,
+    superseded_by: Vec<String>,
+    supersedes: Vec<String>,
 }
 
 /// One supersession thread (the connected component of the supersession graph —
@@ -71,6 +91,52 @@ struct ThreadDocument {
     superseded: Vec<String>,
     /// `true` when the thread has more than one current head (a fork).
     competing: bool,
+    /// The server-laid graph geometry for this thread (node centers + routed
+    /// edge polylines + bounds), so the client is a thin SVG painter. Additive.
+    laid_out: ThreadLayout,
+}
+
+/// Server-computed supersession-DAG geometry for one thread, normalized to a
+/// `(0,0)` top-left so the client paints into `viewBox="0 0 w h"` with no
+/// clipping. Topology is the contract; exact pixels are the pinned engine's.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThreadLayout {
+    nodes: Vec<LaidOutNodeWire>,
+    edges: Vec<LaidOutEdgeWire>,
+    bounds: LayoutBounds,
+}
+
+/// One laid-out revision node: `x,y` is the box CENTER (not a corner), `w,h` its
+/// size; `isHead`/`isSuperseded` come from the projection, never from the engine.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LaidOutNodeWire {
+    id: String,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    is_head: bool,
+    is_superseded: bool,
+}
+
+/// One routed supersession edge: `from` SUPERSEDES `to`; `path` is the routed
+/// polyline. The client orients the arrowhead by the from/to node centers, so the
+/// engine's cycle-removal `is_backward` flag is intentionally not surfaced here.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LaidOutEdgeWire {
+    from: String,
+    to: String,
+    path: Vec<[f64; 2]>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LayoutBounds {
+    w: f64,
+    h: f64,
 }
 
 /// One `/api/revisions` entry: the full `RevisionListEntry` flattened verbatim,
@@ -288,7 +354,7 @@ pub(super) fn objects_json(repo: &Path) -> Result<String, String> {
                 .intersection(&view.superseded)
                 .map(|revision| revision.as_str().to_owned())
                 .collect();
-            ThreadDocument {
+            Ok(ThreadDocument {
                 revisions: component
                     .iter()
                     .map(|revision| revision.as_str().to_owned())
@@ -296,9 +362,15 @@ pub(super) fn objects_json(repo: &Path) -> Result<String, String> {
                 competing: heads.len() > 1,
                 heads,
                 superseded,
-            }
+                laid_out: thread_layout(component, &view)?,
+            })
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, String>>()?;
+
+    // Build everything that borrows `view` before moving `view.diagnostics` out.
+    let supersedes = revision_edge_map(&view.supersedes);
+    let superseded_by = revision_edge_map(&view.superseded_by);
+    let classification = revision_classification(&view);
 
     let mut diagnostics = view.diagnostics;
     diagnostics.extend(display_diagnostics);
@@ -308,11 +380,142 @@ pub(super) fn objects_json(repo: &Path) -> Result<String, String> {
         event_count: state.event_count,
         thread_count: threads.len(),
         threads,
-        supersedes: revision_edge_map(&view.supersedes),
-        superseded_by: revision_edge_map(&view.superseded_by),
+        supersedes,
+        superseded_by,
+        revision_classification: classification,
         diagnostics,
     };
     serde_json::to_string(&payload).map_err(|error| error.to_string())
+}
+
+/// Lay out one supersession thread server-side via `mmdflux`, mapping the result
+/// onto the additive wire shape. The graph is `TopDown`, one node per revision
+/// (insertion keyed by `RevisionId` sort for stable columns), one edge `B -> A`
+/// for each `A` that `B` supersedes (so `from` supersedes `to`). The engine
+/// ranks in-degree-0 heads as equal rank-0 peers, so competing heads stay equal
+/// by construction. `isHead`/`isSuperseded` come from the projection, not the
+/// engine. The geometry is normalized to a `(0,0)` origin over the content
+/// bounding box so the client never clips.
+fn thread_layout(
+    component: &BTreeSet<RevisionId>,
+    view: &SupersessionView,
+) -> Result<ThreadLayout, String> {
+    let mut graph = Graph::new(Direction::TopDown);
+    for revision in component {
+        graph.add_node(Node::new(revision.as_str()));
+    }
+    for revision in component {
+        if let Some(targets) = view.supersedes.get(revision) {
+            for target in targets {
+                if component.contains(target) {
+                    graph.add_edge(Edge::new(revision.as_str(), target.as_str()));
+                }
+            }
+        }
+    }
+    let laid =
+        layout_graph(&graph, &LayoutOptions::default()).map_err(|error| error.to_string())?;
+
+    // mmdflux's bounds are extents not guaranteed to start at the origin, so
+    // shift to a (0,0) top-left over the real content and emit the content
+    // extent (max - min), not laid.width/height directly.
+    let (min_x, min_y, max_x, max_y) = content_bounds(&laid);
+    Ok(ThreadLayout {
+        nodes: laid
+            .nodes
+            .iter()
+            .map(|n| LaidOutNodeWire {
+                id: n.id.clone(),
+                x: n.center.x - min_x,
+                y: n.center.y - min_y,
+                w: n.width,
+                h: n.height,
+                is_head: view.heads.iter().any(|h| h.as_str() == n.id),
+                is_superseded: view.superseded.iter().any(|s| s.as_str() == n.id),
+            })
+            .collect(),
+        edges: laid
+            .edges
+            .iter()
+            .map(|e| LaidOutEdgeWire {
+                from: e.from.clone(),
+                to: e.to.clone(),
+                path: e
+                    .points
+                    .iter()
+                    .map(|p| [p.x - min_x, p.y - min_y])
+                    .collect(),
+            })
+            .collect(),
+        bounds: LayoutBounds {
+            w: max_x - min_x,
+            h: max_y - min_y,
+        },
+    })
+}
+
+/// The content bounding box over node boxes (center +/- half-size) and routed
+/// edge points. Falls back to the engine's own extent for an empty graph.
+fn content_bounds(laid: &LaidOutGraph) -> (f64, f64, f64, f64) {
+    let (mut min_x, mut min_y) = (f64::INFINITY, f64::INFINITY);
+    let (mut max_x, mut max_y) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for n in &laid.nodes {
+        min_x = min_x.min(n.center.x - n.width / 2.0);
+        max_x = max_x.max(n.center.x + n.width / 2.0);
+        min_y = min_y.min(n.center.y - n.height / 2.0);
+        max_y = max_y.max(n.center.y + n.height / 2.0);
+    }
+    for e in &laid.edges {
+        for p in &e.points {
+            min_x = min_x.min(p.x);
+            max_x = max_x.max(p.x);
+            min_y = min_y.min(p.y);
+            max_y = max_y.max(p.y);
+        }
+    }
+    if min_x.is_finite() {
+        (min_x, min_y, max_x, max_y)
+    } else {
+        (0.0, 0.0, laid.width, laid.height)
+    }
+}
+
+/// Classify every known revision (head / superseded / isolated) with its direct
+/// superseders and predecessors, from the supersession projection. Iterates the
+/// components so isolated roots (no edges) are still classified. Deterministic:
+/// built from `BTreeMap`/`BTreeSet`, keyed into a `BTreeMap<String, _>`.
+fn revision_classification(view: &SupersessionView) -> BTreeMap<String, RevisionClassification> {
+    let mut map = BTreeMap::new();
+    for component in &view.components {
+        for revision in component {
+            let superseded_by = view
+                .superseded_by
+                .get(revision)
+                .map(|s| s.iter().map(|r| r.as_str().to_owned()).collect())
+                .unwrap_or_default();
+            let supersedes = view
+                .supersedes
+                .get(revision)
+                .map(|s| s.iter().map(|r| r.as_str().to_owned()).collect())
+                .unwrap_or_default();
+            let state = if view.superseded.contains(revision) {
+                "superseded"
+            } else if view.supersedes.contains_key(revision) {
+                "head" // a current head that supersedes at least one predecessor
+            } else {
+                "isolated" // a lone root: a current head with no incident edges
+            };
+            map.insert(
+                revision.as_str().to_owned(),
+                RevisionClassification {
+                    state,
+                    superseded_by,
+                    supersedes,
+                },
+            );
+        }
+    }
+    map
 }
 
 /// Flatten the projection's `RevisionId -> {RevisionId}` adjacency into a wire
@@ -483,6 +686,101 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn revision_classification_marks_head_superseded_and_isolated() {
+        use shoreline::session::SupersessionView;
+        // A <- B (B supersedes A), plus an isolated root Z.
+        let view = SupersessionView::from_edges([
+            (RevisionId::new("A"), vec![]),
+            (RevisionId::new("B"), vec![RevisionId::new("A")]),
+            (RevisionId::new("Z"), vec![]),
+        ]);
+
+        let map = revision_classification(&view);
+
+        assert_eq!(map["B"].state, "head");
+        assert_eq!(map["A"].state, "superseded");
+        assert_eq!(map["A"].superseded_by, vec!["B".to_owned()]);
+        assert_eq!(map["B"].supersedes, vec!["A".to_owned()]);
+        assert_eq!(map["Z"].state, "isolated");
+    }
+
+    #[test]
+    fn thread_layout_lays_out_a_fork_as_equal_peers() {
+        use shoreline::session::SupersessionView;
+        // A superseded by two heads B and C: heads {B, C}, superseded {A}.
+        let view = SupersessionView::from_edges([
+            (RevisionId::new("A"), vec![]),
+            (RevisionId::new("B"), vec![RevisionId::new("A")]),
+            (RevisionId::new("C"), vec![RevisionId::new("A")]),
+        ]);
+        let component: std::collections::BTreeSet<RevisionId> =
+            ["A", "B", "C"].into_iter().map(RevisionId::new).collect();
+
+        let laid = thread_layout(&component, &view).expect("layout");
+
+        // Topology, never pixels.
+        assert_eq!(laid.nodes.len(), 3);
+        let head_ids: Vec<&str> = laid
+            .nodes
+            .iter()
+            .filter(|n| n.is_head)
+            .map(|n| n.id.as_str())
+            .collect();
+        assert_eq!(head_ids.len(), 2, "two equal-peer heads: {head_ids:?}");
+        assert!(head_ids.contains(&"B") && head_ids.contains(&"C"));
+        let superseded: Vec<&str> = laid
+            .nodes
+            .iter()
+            .filter(|n| n.is_superseded)
+            .map(|n| n.id.as_str())
+            .collect();
+        assert_eq!(superseded, vec!["A"]);
+
+        // Each edge B->A / C->A: `from` supersedes `to`, every edge points at A.
+        assert_eq!(laid.edges.len(), 2);
+        for e in &laid.edges {
+            assert_eq!(e.to, "A");
+            assert_ne!(e.from, "A");
+            assert!(e.path.len() >= 2, "a routed polyline has >=2 points");
+        }
+
+        // Normalized to a (0,0) origin: every node box fits the emitted bounds.
+        assert!(laid.bounds.w > 0.0 && laid.bounds.h > 0.0);
+        for n in &laid.nodes {
+            assert!(n.x - n.w / 2.0 >= -0.5 && n.x + n.w / 2.0 <= laid.bounds.w + 0.5);
+            assert!(n.y - n.h / 2.0 >= -0.5 && n.y + n.h / 2.0 <= laid.bounds.h + 0.5);
+        }
+
+        // Competing heads share a rank (equal y); no node sits above them.
+        let head_ys: Vec<f64> = laid
+            .nodes
+            .iter()
+            .filter(|n| n.is_head)
+            .map(|n| n.y)
+            .collect();
+        assert!((head_ys[0] - head_ys[1]).abs() < 1.0, "heads share a rank");
+        let min_head_y = head_ys.iter().cloned().fold(f64::INFINITY, f64::min);
+        for n in &laid.nodes {
+            if !n.is_head {
+                assert!(n.y >= min_head_y, "no non-head node above a head");
+            }
+        }
+    }
+
+    #[test]
+    fn thread_layout_degenerate_single_node_has_no_edges() {
+        use shoreline::session::SupersessionView;
+        let view = SupersessionView::from_edges([(RevisionId::new("solo"), vec![])]);
+        let component: std::collections::BTreeSet<RevisionId> =
+            std::iter::once(RevisionId::new("solo")).collect();
+
+        let laid = thread_layout(&component, &view).expect("layout");
+        assert_eq!(laid.nodes.len(), 1);
+        assert_eq!(laid.edges.len(), 0);
+        assert!(laid.nodes[0].is_head);
+    }
 
     fn working_tree(root: &str) -> ReviewEndpoint {
         ReviewEndpoint::GitWorkingTree {

@@ -137,14 +137,17 @@ fn served_app_js_timeline_drops_retired_lineage_event_types() {
 }
 
 #[test]
-fn served_app_js_stale_badge_reads_supersession() {
+fn served_app_js_reads_the_server_revision_classification() {
     let app_js = served_app_js();
 
-    // The stale badge is computed from the supersession reverse edges (naming all
-    // superseding successors), not a single lineage head.
+    // The per-revision supersession classification (head / superseded / its
+    // superseders) is computed server-side and read as a payload field, not
+    // re-derived in the browser. The data contract is asserted as JSON over HTTP
+    // in cli_inspect_target_display (api_objects_carries_per_revision_classification);
+    // here the durable served-copy seam is that the client reads the field.
     assert!(
-        app_js.contains("supersededBy"),
-        "the stale badge reads the supersededBy edges off /api/objects"
+        app_js.contains("revisionClassification"),
+        "the client reads the server-computed revisionClassification field"
     );
 }
 

@@ -516,18 +516,26 @@ function renderTypeToggles() {
 }
 
 // The supersession threads (connected components of the supersession DAG, each
-// labeled domain-side) and the forward/reverse edges, all from /api/objects.
+// labeled domain-side), all from /api/objects.
 function objectThreads() {
   return state.objects?.threads || [];
 }
+// The server-computed per-revision supersession classification (state +
+// direct superseders/predecessors). The client reads this field instead of
+// re-deriving head/superseded status from the edge maps every render.
+function revisionClassification(revisionId) {
+  return (state.objects?.revisionClassification && state.objects.revisionClassification[revisionId]) || null;
+}
 function supersededByRevision(revisionId) {
-  return (state.objects?.supersededBy && state.objects.supersededBy[revisionId]) || [];
+  return revisionClassification(revisionId)?.supersededBy || [];
 }
 function supersedesRevision(revisionId) {
-  return (state.objects?.supersedes && state.objects.supersedes[revisionId]) || [];
+  return revisionClassification(revisionId)?.supersedes || [];
 }
 function revisionIsHead(revisionId) {
-  return objectThreads().some((thread) => (thread.heads || []).includes(revisionId));
+  const klass = revisionClassification(revisionId)?.state;
+  // A lone root (isolated) is a current head with no incident edges.
+  return klass === "head" || klass === "isolated";
 }
 
 // The content object id captured for a revision, via the units list (its
@@ -1119,42 +1127,83 @@ function threadLabel(thread) {
 function renderThreadCard(thread) {
   const revisions = thread.revisions || [];
   const heads = thread.heads || [];
-  const superseded = new Set(thread.superseded || []);
+  const superseded = thread.superseded || [];
   const card = document.createElement("div");
   card.className = "unit-card thread-card" + (thread.competing ? " competing" : "");
   // A fork surfaces every competing head as a navigable chip — never a null head.
   const competingBadge = thread.competing
     ? `<div class="thread-competing"><span class="fact-status competing">competing revisions (${heads.length})</span> ${heads.map((h) => linkify(h)).join(" ")}</div>`
     : "";
-  const nodes = revisions.map((rev) => renderRevisionNode(rev, heads, superseded)).join("");
   card.innerHTML = `
     <h3>${escapeHtml(threadLabel(thread))}</h3>
     ${competingBadge}
     <div class="kv">
       <span>revisions</span><b>${escapeHtml(String(revisions.length))}</b>
       <span>heads</span><b>${escapeHtml(String(heads.length))}</b>
-      <span>superseded</span><b>${escapeHtml(String(superseded.size))}</b>
+      <span>superseded</span><b>${escapeHtml(String(superseded.length))}</b>
     </div>
-    <div class="revision-dag">${nodes}</div>`;
+    ${renderThreadSvg(thread.laidOut)}`;
+  wireDagInteractions(card);
   return card;
 }
 
-function renderRevisionNode(rev, heads, superseded) {
-  const isHead = heads.includes(rev);
-  const isSuperseded = superseded.has(rev);
-  const successors = supersededByRevision(rev);
-  const predecessors = supersedesRevision(rev);
-  const marks = [];
-  if (isHead) marks.push(`<span class="fact-status current">head</span>`);
-  if (isSuperseded) marks.push(`<span class="fact-status superseded">superseded by ${successors.map((s) => linkify(s)).join(" ")}</span>`);
-  const supersedesRow = predecessors.length
-    ? `<div class="rev-edge">supersedes ${predecessors.map((p) => linkify(p)).join(" ")}</div>`
-    : "";
-  const selected = state.selected.kind === "revision" && state.selected.id === rev ? ' aria-selected="true"' : "";
-  return `<div class="revision-node${isHead ? " head" : ""}${isSuperseded ? " superseded" : ""}" data-revision-id="${escapeHtml(rev)}"${selected}>
-    <div class="rev-node-head">${linkify(rev)} ${marks.join(" ")}</div>
-    ${supersedesRow}
-  </div>`;
+// Pure painter of the server-laid geometry: nodes are <rect>+<text> groups
+// keyed by revision id, edges are routed polylines. No client-side layout —
+// every coordinate comes from `laidOut`, which is already normalized to a
+// (0,0) origin, so the viewBox contains the whole graph with no clipping. Heads
+// carry no centering/bold/sort-first (peer-equal); the head-vs-superseded shape
+// cue lives in the CSS, not in color alone.
+function renderThreadSvg(laid) {
+  if (!laid || !(laid.nodes && laid.nodes.length)) return "";
+  const w = laid.bounds.w;
+  const h = laid.bounds.h;
+  const edges = (laid.edges || [])
+    .map((e) => {
+      const pts = e.path.map(([x, y]) => `${x},${y}`).join(" ");
+      return `<polyline class="dag-edge" data-from="${escapeHtml(e.from)}" data-to="${escapeHtml(e.to)}" points="${pts}" />`;
+    })
+    .join("");
+  const nodes = laid.nodes
+    .map((n) => {
+      const sel = state.selected.kind === "revision" && state.selected.id === n.id;
+      const cls = `dag-node${n.isHead ? " head" : ""}${n.isSuperseded ? " superseded" : ""}`;
+      return `<g class="${cls}" data-revision-id="${escapeHtml(n.id)}" tabindex="0" role="link"${sel ? ' aria-selected="true"' : ""} aria-label="revision ${escapeHtml(shortId(n.id))}">
+        <rect x="${n.x - n.w / 2}" y="${n.y - n.h / 2}" width="${n.w}" height="${n.h}" rx="6" />
+        <text x="${n.x}" y="${n.y}" text-anchor="middle" dominant-baseline="middle">${escapeHtml(shortId(n.id))}</text>
+      </g>`;
+    })
+    .join("");
+  return `<svg class="revision-dag" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMinYMin meet" role="group" aria-label="supersession graph">${edges}${nodes}</svg>`;
+}
+
+// Wire the DAG nodes into the IA: click / Enter / Space navigate to the
+// revision via the router; hover/focus traces the node and its incident edges
+// by class toggle (no re-render).
+function wireDagInteractions(card) {
+  const nav = (node) => {
+    const id = node.getAttribute("data-revision-id");
+    if (id) navigate({ selected: { kind: "revision", id }, diff: null, focus: null });
+  };
+  card.querySelectorAll(".dag-node").forEach((node) => {
+    node.addEventListener("click", () => nav(node));
+    node.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        nav(node);
+      }
+    });
+    const trace = (on) => {
+      const id = node.getAttribute("data-revision-id");
+      node.classList.toggle("traced", on);
+      card
+        .querySelectorAll(`.dag-edge[data-from="${id}"], .dag-edge[data-to="${id}"]`)
+        .forEach((edge) => edge.classList.toggle("traced", on));
+    };
+    node.addEventListener("mouseenter", () => trace(true));
+    node.addEventListener("mouseleave", () => trace(false));
+    node.addEventListener("focus", () => trace(true));
+    node.addEventListener("blur", () => trace(false));
+  });
 }
 
 // Mark the active lens on the switcher.

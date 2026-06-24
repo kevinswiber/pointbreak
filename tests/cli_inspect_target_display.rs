@@ -326,6 +326,39 @@ fn api_objects_surfaces_competing_heads_for_a_fork() {
     assert_eq!(objects["diagnostics"].as_array().unwrap().len(), 0);
 }
 
+#[test]
+fn api_objects_carries_per_revision_classification() {
+    // Root superseded by two successors -> {root: superseded by both, A/B: heads}.
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    let root = capture_supersession_round(repo.path(), None);
+    let branch_a = capture_supersession_round(repo.path(), Some(&root));
+    let branch_b = capture_supersession_round(repo.path(), Some(&root));
+
+    let inspector = Inspector::spawn(repo.path());
+    let objects = inspector.get_json("/api/objects");
+    let cls = &objects["revisionClassification"];
+
+    assert_eq!(cls[&root]["state"], "superseded");
+    let supers: Vec<&str> = cls[&root]["supersededBy"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert!(supers.contains(&branch_a.as_str()) && supers.contains(&branch_b.as_str()));
+
+    assert_eq!(cls[&branch_a]["state"], "head");
+    assert_eq!(cls[&branch_b]["state"], "head");
+    assert_eq!(cls[&branch_a]["supersedes"][0], root.as_str());
+
+    // Additive: every existing field is byte-unchanged.
+    assert_eq!(objects["schema"], "shore.inspect-objects");
+    assert_eq!(objects["threads"][0]["competing"], true);
+}
+
 /// The issue-140 user story over a real socket: a linked reader (whose source
 /// worktree has been deleted) can drill from the unit list into the unit
 /// composite, snapshot diff, history, freshness, and lineages — all served
