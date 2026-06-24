@@ -251,7 +251,10 @@ mod tests {
             let read = ContentArtifacts::from_backend(&backend)
                 .read_object_bytes(&content_ref, &artifact.snapshot.object_id)
                 .unwrap();
-            assert_eq!(decode_and_validate_object_artifact(&read).unwrap(), artifact);
+            assert_eq!(
+                decode_and_validate_object_artifact(&read).unwrap(),
+                artifact
+            );
 
             // A second write of the same snapshot dedups to the existing artifact.
             let deduped =

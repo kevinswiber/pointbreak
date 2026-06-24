@@ -16,6 +16,7 @@ use crate::session::event::{
 };
 use crate::session::observation::staged_body;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
+use crate::session::store::content::ContentArtifacts;
 use crate::session::store::resolution::{
     prepare_write_landing, resolve_write_store, resolve_write_validation_store,
 };
@@ -178,8 +179,9 @@ pub fn respond_input_request(
         )
     {
         // Body artifacts are content-addressed. A crash before the event commit can leave a
-        // harmless orphan that a retry reuses or overwrites with the same bytes.
-        storage.write_bytes_atomic(Path::new(artifact_path), bytes, Durability::Durable)?;
+        // harmless orphan that a retry reuses or finds already present with the same bytes.
+        ContentArtifacts::from_backend(write_store.backend())
+            .put_note_body(artifact_path, bytes)?;
     }
 
     let revision_id = crate::model::subject_revision_id(&request_event.target.subject)

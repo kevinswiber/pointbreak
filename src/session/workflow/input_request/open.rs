@@ -19,6 +19,7 @@ use crate::session::observation::{
     staged_body, validated_track_id,
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
+use crate::session::store::content::ContentArtifacts;
 use crate::session::store::resolution::{
     prepare_write_landing, resolve_write_store, resolve_write_validation_store,
 };
@@ -210,8 +211,9 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
             (body_artifact_path.as_deref(), body_artifact_bytes.as_ref())
     {
         // Body artifacts are content-addressed. A crash before the event commit can leave a
-        // harmless orphan that a retry reuses or overwrites with the same bytes.
-        storage.write_bytes_atomic(Path::new(artifact_path), bytes, Durability::Durable)?;
+        // harmless orphan that a retry reuses or finds already present with the same bytes.
+        ContentArtifacts::from_backend(write_store.backend())
+            .put_note_body(artifact_path, bytes)?;
     }
 
     let mut event = ShoreEvent::new(

@@ -10,6 +10,7 @@ use crate::session::event::{
     EventTarget, EventType, ImportedNoteTarget, ReviewInitializedPayload,
     ReviewNoteImportedPayload, ShoreEvent, SidecarSource,
 };
+use crate::session::store::content::ContentArtifacts;
 use crate::session::store::resolution::{prepare_write_landing, resolve_write_store};
 use crate::session::{
     EventStore, EventWriteOutcome, ProjectionDiagnostic, SessionState, current_timestamp,
@@ -96,7 +97,8 @@ pub fn import_notes(options: ImportNotesOptions) -> Result<ImportNotesResult> {
                 record.body_artifact_bytes.as_ref(),
             )
         {
-            storage.write_bytes_atomic(Path::new(artifact_path), bytes, Durability::Durable)?;
+            ContentArtifacts::from_backend(write_store.backend())
+                .put_note_body(artifact_path, bytes)?;
         }
 
         let event = ShoreEvent::new(

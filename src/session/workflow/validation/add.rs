@@ -16,6 +16,7 @@ use crate::model::{
 };
 use crate::session::event::{EventTarget, EventType, ShoreEvent, ValidationCheckRecordedPayload};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
+use crate::session::store::content::ContentArtifacts;
 use crate::session::store::resolution::{
     prepare_write_landing, resolve_write_store, resolve_write_validation_store,
 };
@@ -285,7 +286,8 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
             summary_artifact_bytes.as_ref(),
         )
     {
-        storage.write_bytes_atomic(Path::new(artifact_path), bytes, Durability::Durable)?;
+        ContentArtifacts::from_backend(write_store.backend())
+            .put_note_body(artifact_path, bytes)?;
     }
 
     let mut event_target = EventTarget::for_revision(

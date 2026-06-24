@@ -94,6 +94,29 @@ impl ContentArtifacts {
 
     // --- note bodies ---
 
+    /// Store a staged note-body artifact's bytes at `content_ref`. The locator is
+    /// content-addressed (`artifacts/notes/<sha256(body)>.json`), so a faithful
+    /// re-stage of the same body is byte-identical and dedups. A blob already
+    /// present under the locator but **differing** from the staged bytes is a
+    /// corrupt or tampered store, surfaced as a loud conflict rather than silently
+    /// kept and then referenced by the recorded event (the same guard `put_object`
+    /// applies to object artifacts).
+    pub(crate) fn put_note_body(&self, content_ref: &str, bytes: &[u8]) -> Result<CreateOutcome> {
+        match self.store.put_once(content_ref, bytes)? {
+            CreateOutcome::Created => Ok(CreateOutcome::Created),
+            CreateOutcome::AlreadyExists => {
+                let existing = self.store.get(content_ref)?;
+                if existing == bytes {
+                    Ok(CreateOutcome::AlreadyExists)
+                } else {
+                    Err(ShoreError::Message(format!(
+                        "note body artifact conflict for {content_ref}"
+                    )))
+                }
+            }
+        }
+    }
+
     /// Fetch and parse a note body artifact, mapping an absent blob to the
     /// canonical "import referenced artifacts" guidance.
     pub(crate) fn read_note_body(&self, content_ref: &str) -> Result<String> {
@@ -219,6 +242,47 @@ mod tests {
                     .unwrap_err()
                     .to_string()
                     .contains("import referenced artifacts")
+            );
+        }
+    }
+
+    #[test]
+    fn put_note_body_creates_then_dedups_over_every_backend() {
+        // The staged-note-body write goes through the wrapper, so a non-Local
+        // backend captures it: a first put creates, an identical second put dedups
+        // (note bodies are content-addressed), and the body reads back.
+        let valid = NoteBodyEnvelope::new("the staged body".to_owned())
+            .to_json_bytes()
+            .unwrap();
+        let content_ref = "artifacts/notes/staged.json";
+
+        for (_guard, backend) in each_backend() {
+            let content = ContentArtifacts::from_backend(&backend);
+            assert_eq!(
+                content.put_note_body(content_ref, &valid).unwrap(),
+                CreateOutcome::Created
+            );
+            assert_eq!(
+                content.put_note_body(content_ref, &valid).unwrap(),
+                CreateOutcome::AlreadyExists
+            );
+            assert_eq!(
+                content.read_note_body(content_ref).unwrap(),
+                "the staged body"
+            );
+
+            // A blob already present but differing from the staged bytes is a loud
+            // conflict, not a silent keep — a corrupt/tampered store must not be
+            // referenced by a freshly recorded event.
+            let divergent = NoteBodyEnvelope::new("a different body".to_owned())
+                .to_json_bytes()
+                .unwrap();
+            assert!(
+                content
+                    .put_note_body(content_ref, &divergent)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("conflict")
             );
         }
     }
