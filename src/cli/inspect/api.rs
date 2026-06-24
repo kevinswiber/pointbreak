@@ -388,6 +388,14 @@ pub(super) fn objects_json(repo: &Path) -> Result<String, String> {
     serde_json::to_string(&payload).map_err(|error| error.to_string())
 }
 
+/// The short display form the client paints inside a DAG node (`shortId`): the
+/// segment after the last `:`, capped at 12 chars. Used only to size the layout
+/// boxes to the painted text; the node id is unaffected.
+fn short_node_label(revision: &RevisionId) -> String {
+    let tail = revision.as_str().rsplit(':').next().unwrap_or("");
+    tail.chars().take(12).collect()
+}
+
 /// Lay out one supersession thread server-side via `mmdflux`, mapping the result
 /// onto the additive wire shape. The graph is `TopDown`, one node per revision
 /// (insertion keyed by `RevisionId` sort for stable columns), one edge `B -> A`
@@ -402,7 +410,11 @@ fn thread_layout(
 ) -> Result<ThreadLayout, String> {
     let mut graph = Graph::new(Direction::TopDown);
     for revision in component {
-        graph.add_node(Node::new(revision.as_str()));
+        // Size the box to the SHORT form the client actually paints, not the full
+        // revision id — otherwise mmdflux measures the ~70-char id and the boxes
+        // (and the whole graph) blow up, so the painted short text scales tiny.
+        // The node id still round-trips verbatim; the label only drives sizing.
+        graph.add_node(Node::new(revision.as_str()).with_label(short_node_label(revision)));
     }
     for revision in component {
         if let Some(targets) = view.supersedes.get(revision) {
@@ -418,16 +430,19 @@ fn thread_layout(
 
     // mmdflux's bounds are extents not guaranteed to start at the origin, so
     // shift to a (0,0) top-left over the real content and emit the content
-    // extent (max - min), not laid.width/height directly.
+    // extent (max - min), not laid.width/height directly. Inset by a margin so a
+    // node stroke (drawn CENTERED on the box edge, up to ~half a stroke-width
+    // outside the box) is not clipped at the viewBox edge.
     let (min_x, min_y, max_x, max_y) = content_bounds(&laid);
+    let (origin_x, origin_y) = (min_x - NODE_STROKE_MARGIN, min_y - NODE_STROKE_MARGIN);
     Ok(ThreadLayout {
         nodes: laid
             .nodes
             .iter()
             .map(|n| LaidOutNodeWire {
                 id: n.id.clone(),
-                x: n.center.x - min_x,
-                y: n.center.y - min_y,
+                x: n.center.x - origin_x,
+                y: n.center.y - origin_y,
                 w: n.width,
                 h: n.height,
                 is_head: view.heads.iter().any(|h| h.as_str() == n.id),
@@ -443,16 +458,21 @@ fn thread_layout(
                 path: e
                     .points
                     .iter()
-                    .map(|p| [p.x - min_x, p.y - min_y])
+                    .map(|p| [p.x - origin_x, p.y - origin_y])
                     .collect(),
             })
             .collect(),
         bounds: LayoutBounds {
-            w: max_x - min_x,
-            h: max_y - min_y,
+            w: (max_x - min_x) + 2.0 * NODE_STROKE_MARGIN,
+            h: (max_y - min_y) + 2.0 * NODE_STROKE_MARGIN,
         },
     })
 }
+
+/// Padding (user units) added around the content on every side so a node box's
+/// centered stroke — widest on a selected/focused node — is never clipped at the
+/// viewBox edge. Comfortably covers the largest stroke the client paints.
+const NODE_STROKE_MARGIN: f64 = 4.0;
 
 /// The content bounding box over node boxes (center +/- half-size) and routed
 /// edge points. Falls back to the engine's own extent for an empty graph.
@@ -586,6 +606,10 @@ pub(super) fn revision_json(repo: &Path, revision_id: &str) -> Result<String, St
     }
     let mut show_options = RevisionShowOptions::new(repo)
         .with_revision_id(RevisionId::new(revision_id.to_owned()))
+        // The inspector addresses a specific revision by id (e.g. a superseded
+        // DAG node), so resolve it exactly rather than forward-resolving to a
+        // thread head (which errors on a competing fork).
+        .with_exact(true)
         .with_include_body(true)
         .with_read_for_display(true)
         .with_verification_policy(EventVerificationPolicy::advisory())

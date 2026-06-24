@@ -48,8 +48,11 @@ fn laid_out_dag_places_competing_heads_as_equal_peers() {
     );
     assert!(bw > 0.0 && bh > 0.0);
 
-    // Normalized origin: every node box lies within `viewBox="0 0 w h"`, so the
-    // client never clips. (Containment over the emitted axis, not exact pixels.)
+    // Normalized origin + a stroke margin: every node box lies within
+    // `viewBox="0 0 w h"` with room to spare on every side, so the centered node
+    // stroke is never clipped at the edge. (Containment + a positive margin over
+    // the emitted axis, not exact pixels.)
+    const MARGIN: f64 = 1.0;
     for n in nodes {
         let (x, y, w, h) = (
             n["x"].as_f64().unwrap(),
@@ -58,12 +61,12 @@ fn laid_out_dag_places_competing_heads_as_equal_peers() {
             n["h"].as_f64().unwrap(),
         );
         assert!(
-            x - w / 2.0 >= -0.5 && x + w / 2.0 <= bw + 0.5,
-            "node fits the viewBox width"
+            x - w / 2.0 >= MARGIN && x + w / 2.0 <= bw - MARGIN,
+            "node box is inset from the viewBox width so its stroke is not clipped"
         );
         assert!(
-            y - h / 2.0 >= -0.5 && y + h / 2.0 <= bh + 0.5,
-            "node fits the viewBox height"
+            y - h / 2.0 >= MARGIN && y + h / 2.0 <= bh - MARGIN,
+            "node box is inset from the viewBox height so its stroke is not clipped"
         );
     }
 
@@ -165,6 +168,45 @@ fn forked_thread_payload_surfaces_competing_heads_and_peer_layout() {
         assert_eq!(
             e["to"], root_id,
             "`from` supersedes `to` = the superseded root"
+        );
+    }
+}
+
+#[test]
+fn api_revision_shows_a_superseded_revision_exactly() {
+    // The DAG makes every node — including a superseded one in a competing fork —
+    // addressable by id. /api/revision must show that exact revision, not
+    // forward-resolve to a thread head (which errors on a competing fork).
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    let root = capture_supersession_round(repo.path(), None);
+    let _b = capture_supersession_round(repo.path(), Some(&root));
+    let _c = capture_supersession_round(repo.path(), Some(&root));
+
+    let inspector = Inspector::spawn(repo.path());
+    let shown = inspector.get_json(&format!("/api/revision?id={}", root.replace(':', "%3A")));
+    assert_eq!(
+        shown["revision"]["id"], root,
+        "the superseded root shows itself exactly, not a forward-resolved head: {shown}"
+    );
+}
+
+#[test]
+fn laid_out_dag_nodes_are_sized_to_the_short_label_not_the_full_id() {
+    // Boxes are sized to the short form the client paints, not the ~70-char
+    // revision id — otherwise the graph blows up and the text scales tiny. A
+    // generous ceiling (not an exact pixel): the full id needed ~700px/node.
+    let objects = forked_objects();
+    let nodes = objects["threads"][0]["laidOut"]["nodes"]
+        .as_array()
+        .unwrap();
+    for n in nodes {
+        assert!(
+            n["w"].as_f64().unwrap() < 400.0,
+            "node box sized to the short label, not the full id: w={}",
+            n["w"]
         );
     }
 }

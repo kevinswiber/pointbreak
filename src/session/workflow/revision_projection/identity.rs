@@ -29,6 +29,7 @@ pub struct RevisionShowOptions {
     pub(super) actor_attributes: Option<ActorAttributesMap>,
     pub(super) delegation_map: Option<DelegationMap>,
     pub(super) read_for_display: bool,
+    pub(super) exact: bool,
 }
 
 impl RevisionShowOptions {
@@ -44,6 +45,7 @@ impl RevisionShowOptions {
             actor_attributes: None,
             delegation_map: None,
             read_for_display: false,
+            exact: false,
         }
     }
 
@@ -106,6 +108,16 @@ impl RevisionShowOptions {
     /// default, so the relay and other strict callers keep the typed error.
     pub fn with_read_for_display(mut self, value: bool) -> Self {
         self.read_for_display = value;
+        self
+    }
+
+    /// Resolve the supplied revision id **exactly** (no head resolution), so a
+    /// superseded revision shows itself rather than forward-resolving to its
+    /// thread's current head (which errors on a competing fork). Off by default,
+    /// so the `--revision` CLI seed keeps its head-seed semantics; the inspector,
+    /// which addresses specific revisions by id, opts in.
+    pub fn with_exact(mut self, value: bool) -> Self {
+        self.exact = value;
         self
     }
 }

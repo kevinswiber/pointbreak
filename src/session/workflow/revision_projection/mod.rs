@@ -77,9 +77,16 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
     } else {
         (store.list_events()?, Vec::new())
     };
+    // The `--revision` seed is a head seed (forward-resolving); an exact request
+    // (the inspector addressing a specific revision by id, e.g. a superseded DAG
+    // node) resolves the id directly instead.
+    let selection = match (options.exact, options.revision_id.as_ref()) {
+        (true, Some(id)) => RevisionSelection::Exact(id),
+        _ => RevisionSelection::from_revision_seed(options.revision_id.as_ref()),
+    };
     let resolved = resolve_revision(
         &events,
-        RevisionSelection::from_revision_seed(options.revision_id.as_ref()),
+        selection,
         &CurrentRevisionContext::for_repo(&options.repo)?,
         RevisionScope::default(),
     )?;

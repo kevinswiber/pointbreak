@@ -1173,7 +1173,10 @@ function renderThreadSvg(laid) {
       </g>`;
     })
     .join("");
-  return `<svg class="revision-dag" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMinYMin meet" role="group" aria-label="supersession graph">${edges}${nodes}</svg>`;
+  // Render at natural pixel size (1 user unit = 1px) so the node text is not
+  // scaled down to illegibility; CSS `max-width:100%` shrinks an oversized graph
+  // proportionally. Boxes are sized server-side to the short label.
+  return `<svg class="revision-dag" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMinYMin meet" role="group" aria-label="supersession graph">${edges}${nodes}</svg>`;
 }
 
 // Wire the DAG nodes into the IA: click / Enter / Space navigate to the

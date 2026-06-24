@@ -166,8 +166,11 @@ main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; wid
 .fact-status.competing { color: var(--warning); }
 /* The revision DAG: one node per revision, each marked head/superseded with its
    supersession edges. */
-/* The supersession DAG: a server-laid SVG the client only paints. */
-.revision-dag { width: 100%; height: auto; margin-top: 10px; max-height: 420px; }
+/* The supersession DAG: a server-laid SVG the client only paints. Rendered at
+   natural pixel size (the painter sets width/height to the laid-out bounds);
+   max-width keeps an oversized graph inside the pane without scaling the node
+   text down to illegibility by default. */
+.revision-dag { max-width: 100%; height: auto; margin-top: 10px; }
 .dag-edge { fill: none; stroke: var(--border); stroke-width: 1.5; }
 .dag-edge.traced { stroke: var(--accent); stroke-width: 2.5; }
 .dag-node { cursor: pointer; }
