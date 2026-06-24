@@ -4,9 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Result, ShoreError};
 use crate::model::ObjectId;
-use crate::session::body_artifact::{
-    note_body_content_hash_from_path, validate_note_body_artifact_bytes,
-};
+use crate::session::body_artifact::note_body_content_hash_from_path;
 use crate::session::event::{
     EventType, InputRequestRespondedPayload, ReviewAssessmentRecordedPayload,
     ReviewNoteImportedPayload, ReviewObservationRecordedPayload, ShoreEvent,
@@ -14,13 +12,13 @@ use crate::session::event::{
     WorkObjectProposedPayload, decode_input_request_opened_payload,
 };
 use crate::session::object_artifact::{
-    decode_and_validate_object_artifact, object_artifact_path, read_object_artifact_bytes,
+    decode_and_validate_object_artifact, read_object_artifact_bytes,
 };
 use crate::session::store::content::ContentArtifacts;
 use crate::session::store::resolution::{
     prepare_write_landing, resolve_read_store, resolve_write_store,
 };
-use crate::storage::{CreateOutcome, Durability, LocalStorage};
+use crate::storage::{CreateOutcome, LocalStorage};
 
 /// The kind of content-addressed artifact an event references.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -163,20 +161,18 @@ pub fn export_artifact(repo: impl AsRef<Path>, artifact: &ArtifactRef) -> Result
 /// bytes that do not match the reference hash are rejected.
 pub fn import_artifact(options: ImportArtifactOptions) -> Result<ImportArtifactResult> {
     let write_store = resolve_write_store(&options.repo)?;
-    let store_dir = write_store.store_dir();
-    let storage = LocalStorage::new(store_dir);
+    let storage = LocalStorage::new(write_store.store_dir());
+    // The dir layout + `.git/info/exclude` are a worktree/file concern with no
+    // non-file analogue, so landing prep stays on `LocalStorage`; the content
+    // I/O below flows through the resolved backend handle.
     prepare_write_landing(&write_store, &storage)?;
 
+    let content = ContentArtifacts::from_backend(write_store.backend());
     let outcome = match &options.artifact.locator {
-        ArtifactLocator::Object { object_id } => import_object_artifact(
-            store_dir,
-            &storage,
-            object_id,
-            &options.artifact.content_hash,
-            &options.bytes,
-        )?,
-        ArtifactLocator::Body { relative_path } => import_body_artifact(
-            &storage,
+        ArtifactLocator::Object { object_id } => {
+            content.import_object(object_id, &options.artifact.content_hash, &options.bytes)?
+        }
+        ArtifactLocator::Body { relative_path } => content.import_body(
             relative_path,
             &options.artifact.content_hash,
             &options.bytes,
@@ -185,7 +181,10 @@ pub fn import_artifact(options: ImportArtifactOptions) -> Result<ImportArtifactR
 
     Ok(ImportArtifactResult {
         artifact: options.artifact,
-        outcome,
+        outcome: match outcome {
+            CreateOutcome::Created => ImportArtifactOutcome::Created,
+            CreateOutcome::AlreadyExists => ImportArtifactOutcome::Existing,
+        },
     })
 }
 
@@ -296,77 +295,6 @@ fn insert_artifact_ref(
     }
     refs.insert(key, artifact);
     Ok(())
-}
-
-fn import_object_artifact(
-    store_dir: &Path,
-    storage: &LocalStorage,
-    object_id: &ObjectId,
-    expected_content_hash: &str,
-    bytes: &[u8],
-) -> Result<ImportArtifactOutcome> {
-    let artifact = decode_and_validate_object_artifact(bytes)?;
-    if artifact.snapshot.object_id != *object_id {
-        return Err(ShoreError::Message(format!(
-            "object artifact locator mismatch for {}",
-            object_id.as_str()
-        )));
-    }
-    if artifact.content_hash != expected_content_hash {
-        return Err(ShoreError::Message(format!(
-            "object artifact content hash mismatch for {expected_content_hash}"
-        )));
-    }
-
-    let path = object_artifact_path(store_dir, object_id);
-    match storage.create_file_exclusive(&path, bytes, Durability::Durable)? {
-        CreateOutcome::Created => Ok(ImportArtifactOutcome::Created),
-        CreateOutcome::AlreadyExists => {
-            let existing_bytes = std::fs::read(&path).map_err(|error| {
-                ShoreError::Message(format!("read file {}: {error}", path.display()))
-            })?;
-            let existing = decode_and_validate_object_artifact(&existing_bytes)?;
-            // Byte-identical artifacts (both native v2) dedup. A v1/v2 mix for the
-            // same snapshot does not converge here — the signed event's hash and
-            // the on-disk hash differ — and is the accepted cross-peer residual.
-            if existing == artifact {
-                Ok(ImportArtifactOutcome::Existing)
-            } else {
-                Err(ShoreError::Message(format!(
-                    "object artifact conflict for {}",
-                    object_id.as_str()
-                )))
-            }
-        }
-    }
-}
-
-fn import_body_artifact(
-    storage: &LocalStorage,
-    relative_path: &str,
-    expected_content_hash: &str,
-    bytes: &[u8],
-) -> Result<ImportArtifactOutcome> {
-    let artifact = validate_note_body_artifact_bytes(relative_path, expected_content_hash, bytes)?;
-    let path = Path::new(relative_path);
-    match storage.create_file_exclusive(path, bytes, Durability::Durable)? {
-        CreateOutcome::Created => Ok(ImportArtifactOutcome::Created),
-        CreateOutcome::AlreadyExists => {
-            let existing_bytes = storage.read_bytes(path)?;
-            let existing = validate_note_body_artifact_bytes(
-                relative_path,
-                expected_content_hash,
-                &existing_bytes,
-            )?;
-            if existing == artifact {
-                Ok(ImportArtifactOutcome::Existing)
-            } else {
-                Err(ShoreError::Message(format!(
-                    "note body artifact conflict for {expected_content_hash}"
-                )))
-            }
-        }
-    }
 }
 
 #[cfg(test)]

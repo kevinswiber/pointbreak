@@ -12,7 +12,9 @@ use std::path::Path;
 
 use super::backend::{ContentStore, LocalContentStore, StoreBackend};
 use super::body_artifact::{parse_note_body_artifact, validate_note_body_artifact_bytes};
-use super::object_artifact::{ObjectArtifact, decode_and_validate_object_artifact};
+use super::object_artifact::{
+    ObjectArtifact, decode_and_validate_object_artifact, object_content_ref,
+};
 use crate::error::{Result, ShoreError};
 use crate::model::ObjectId;
 use crate::storage::{CreateOutcome, RemoveOutcome};
@@ -92,6 +94,45 @@ impl ContentArtifacts {
         self.store.get_if_exists(content_ref)
     }
 
+    /// Import a fetched object artifact's bytes: decode + validate, confirm the
+    /// locator (`object_id`) and the expected content hash, then store
+    /// create-if-absent. A blob already present must be the byte-equal artifact
+    /// (full compare) or it is a loud conflict — never silently kept.
+    pub(crate) fn import_object(
+        &self,
+        object_id: &ObjectId,
+        expected_content_hash: &str,
+        bytes: &[u8],
+    ) -> Result<CreateOutcome> {
+        let artifact = decode_and_validate_object_artifact(bytes)?;
+        if artifact.snapshot.object_id != *object_id {
+            return Err(ShoreError::Message(format!(
+                "object artifact locator mismatch for {}",
+                object_id.as_str()
+            )));
+        }
+        if artifact.content_hash != expected_content_hash {
+            return Err(ShoreError::Message(format!(
+                "object artifact content hash mismatch for {expected_content_hash}"
+            )));
+        }
+        let content_ref = object_content_ref(object_id);
+        match self.store.put_once(&content_ref, bytes)? {
+            CreateOutcome::Created => Ok(CreateOutcome::Created),
+            CreateOutcome::AlreadyExists => {
+                let existing = decode_and_validate_object_artifact(&self.store.get(&content_ref)?)?;
+                if existing == artifact {
+                    Ok(CreateOutcome::AlreadyExists)
+                } else {
+                    Err(ShoreError::Message(format!(
+                        "object artifact conflict for {}",
+                        object_id.as_str()
+                    )))
+                }
+            }
+        }
+    }
+
     // --- note bodies ---
 
     /// Store a staged note-body artifact's bytes at `content_ref`. The locator is
@@ -111,6 +152,38 @@ impl ContentArtifacts {
                 } else {
                     Err(ShoreError::Message(format!(
                         "note body artifact conflict for {content_ref}"
+                    )))
+                }
+            }
+        }
+    }
+
+    /// Import a fetched note-body artifact's bytes: validate against
+    /// `expected_content_hash` (locator-hash + content-hash + schema), then store
+    /// create-if-absent. A blob already present must decode to the byte-equal
+    /// envelope (decoded compare, not raw-byte, so a byte-different-but-equal
+    /// re-encode still dedups) or it is a loud conflict.
+    pub(crate) fn import_body(
+        &self,
+        content_ref: &str,
+        expected_content_hash: &str,
+        bytes: &[u8],
+    ) -> Result<CreateOutcome> {
+        let artifact =
+            validate_note_body_artifact_bytes(content_ref, expected_content_hash, bytes)?;
+        match self.store.put_once(content_ref, bytes)? {
+            CreateOutcome::Created => Ok(CreateOutcome::Created),
+            CreateOutcome::AlreadyExists => {
+                let existing = validate_note_body_artifact_bytes(
+                    content_ref,
+                    expected_content_hash,
+                    &self.store.get(content_ref)?,
+                )?;
+                if existing == artifact {
+                    Ok(CreateOutcome::AlreadyExists)
+                } else {
+                    Err(ShoreError::Message(format!(
+                        "note body artifact conflict for {expected_content_hash}"
                     )))
                 }
             }
@@ -384,6 +457,142 @@ mod tests {
                     .unwrap_err()
                     .to_string()
                     .contains("import referenced artifacts")
+            );
+        }
+    }
+
+    #[test]
+    fn import_object_validates_locator_hash_and_dedups_or_conflicts_over_every_backend() {
+        let (artifact, bytes) = valid_object();
+        let object_id = artifact.snapshot.object_id.clone();
+        let expected = artifact.content_hash.clone();
+
+        for (_guard, backend) in each_backend() {
+            let content = ContentArtifacts::from_backend(&backend);
+
+            // First import creates; a byte-identical second import dedups.
+            assert_eq!(
+                content
+                    .import_object(&object_id, &expected, &bytes)
+                    .unwrap(),
+                CreateOutcome::Created
+            );
+            assert_eq!(
+                content
+                    .import_object(&object_id, &expected, &bytes)
+                    .unwrap(),
+                CreateOutcome::AlreadyExists
+            );
+
+            // Wrong expected content hash → "content hash mismatch".
+            let wrong = "sha256:".to_owned() + &"0".repeat(64);
+            assert!(
+                content
+                    .import_object(&object_id, &wrong, &bytes)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("content hash mismatch")
+            );
+
+            // Locator mismatch: bytes whose snapshot.object_id != the requested object_id.
+            let other = build_object_artifact_v2(DiffSnapshot::new(
+                ReviewId::new("review:other"),
+                ObjectId::new("obj:sha256:other"),
+                Vec::new(),
+            ))
+            .unwrap();
+            let other_bytes = serde_json::to_vec(&other).unwrap();
+            assert!(
+                content
+                    .import_object(&object_id, &other.content_hash, &other_bytes)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("locator mismatch")
+            );
+
+            // Conflict: a DIFFERENT valid artifact already occupies this object's locator.
+            // Two artifacts sharing object_id `collide` but differing in `review_id` hash to
+            // different content (review_id is serialized into the content hash), so the second
+            // import collides on the locator and the full-struct compare rejects it.
+            let collide = ObjectId::new("obj:sha256:collide");
+            let stored = build_object_artifact_v2(DiffSnapshot::new(
+                ReviewId::new("review:a"),
+                collide.clone(),
+                Vec::new(),
+            ))
+            .unwrap();
+            let incoming = build_object_artifact_v2(DiffSnapshot::new(
+                ReviewId::new("review:b"),
+                collide.clone(),
+                Vec::new(),
+            ))
+            .unwrap();
+            assert_ne!(
+                stored.content_hash, incoming.content_hash,
+                "the fixtures diverge"
+            );
+            content
+                .import_object(
+                    &collide,
+                    &stored.content_hash,
+                    &serde_json::to_vec(&stored).unwrap(),
+                )
+                .unwrap();
+            assert!(
+                content
+                    .import_object(
+                        &collide,
+                        &incoming.content_hash,
+                        &serde_json::to_vec(&incoming).unwrap()
+                    )
+                    .unwrap_err()
+                    .to_string()
+                    .contains("conflict")
+            );
+        }
+    }
+
+    #[test]
+    fn import_body_validates_and_dedups_or_conflicts_over_every_backend() {
+        let body = "imported body";
+        let valid = NoteBodyEnvelope::new(body.to_owned())
+            .to_json_bytes()
+            .unwrap();
+        let hash = format!("sha256:{}", sha256_bytes_hex(body.as_bytes()));
+        let content_ref = format!("artifacts/notes/{}.json", sha256_bytes_hex(body.as_bytes()));
+
+        for (_guard, backend) in each_backend() {
+            let content = ContentArtifacts::from_backend(&backend);
+
+            // First import creates; a byte-identical re-import dedups.
+            assert_eq!(
+                content.import_body(&content_ref, &hash, &valid).unwrap(),
+                CreateOutcome::Created
+            );
+            assert_eq!(
+                content.import_body(&content_ref, &hash, &valid).unwrap(),
+                CreateOutcome::AlreadyExists
+            );
+
+            // A byte-DIFFERENT but semantically-equal re-import (same body, different JSON
+            // formatting) still dedups — the dedup compares the decoded NoteBodyEnvelope, not
+            // raw bytes (matching the live import path and the decoded-content identity rule).
+            let pretty =
+                serde_json::to_vec_pretty(&NoteBodyEnvelope::new(body.to_owned())).unwrap();
+            assert_ne!(pretty, valid, "the fixture is byte-different");
+            assert_eq!(
+                content.import_body(&content_ref, &hash, &pretty).unwrap(),
+                CreateOutcome::AlreadyExists
+            );
+
+            // A wrong-schema blob is rejected before the write.
+            let wrong_schema = br#"{"schema":"wrong","version":1,"body":"x"}"#;
+            assert!(
+                content
+                    .import_body(&content_ref, &hash, wrong_schema)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("Unsupported note body artifact")
             );
         }
     }

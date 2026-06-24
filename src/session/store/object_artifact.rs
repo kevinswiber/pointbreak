@@ -189,7 +189,7 @@ pub(crate) fn object_artifact_path(store_dir: &Path, object_id: &ObjectId) -> Pa
 
 /// The store-relative locator for an object artifact (`artifacts/objects/<hash>.json`),
 /// the content-store ref the same file resolves under.
-fn object_content_ref(object_id: &ObjectId) -> String {
+pub(in crate::session::store) fn object_content_ref(object_id: &ObjectId) -> String {
     format!(
         "artifacts/objects/{}.json",
         artifact_file_stem(object_id.as_str())
