@@ -6,13 +6,15 @@ DS="$(cd "$(dirname "$0")/.." && pwd)"
 TOKENS="$DS/../assets/tokens.css"
 STYLES="$DS/styles.css"
 
-# Publish a copy of the shared tokens into the gallery dir so the synced
-# design-system project carries a real, bindable token file (the project's
-# styles.css @imports it). The baked cards still inline the tokens directly;
-# this copy is only for the project's token layer. Gitignored — regenerated
-# here, never committed.
-cp "$TOKENS" "$DS/tokens.css"
-echo "copied tokens.css"
+# Publish a token file for the synced design-system project: the shared product
+# tokens plus the self-hosted JetBrains Mono @font-face block (fonts.css). The
+# project's styles.css @imports this, so the compiler resolves both the tokens
+# and the font faces. The baked cards still inline only the product tokens
+# ($TOKENS, system --mono stack, no webfont), so the inspector and the cards stay
+# zero-webfont; this concatenated copy is solely the project's bindable layer.
+# Gitignored — regenerated here, never committed.
+cat "$TOKENS" "$DS/fonts.css" > "$DS/tokens.css"
+echo "published tokens.css (+ @font-face)"
 
 bake() {
   local body="$1" out="$2" group="$3" title="$4"
