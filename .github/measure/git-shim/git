@@ -1,0 +1,9 @@
+#!/bin/sh
+# Throwaway pass-through git shim (POSIX / Git-bash). Companion to git.cmd for any
+# `git` resolved through a shell PATH lookup rather than native CreateProcess. It COUNTS
+# each spawn (one line per invocation in GIT_SHIM_LOG), then execs the real git resolved
+# into GIT_SHIM_REAL. It is never a no-op — fixtures and production shell out to real
+# git, so a stubbed shim would break setup instead of measuring the floor. Per-spawn
+# latency is measured separately by a bare-git loop, not from this wrapper.
+printf '%s\n' "$*" >> "$GIT_SHIM_LOG"
+exec "$GIT_SHIM_REAL" "$@"

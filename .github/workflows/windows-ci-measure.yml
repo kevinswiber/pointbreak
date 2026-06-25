@@ -1,0 +1,152 @@
+name: windows ci measure
+
+# Dispatch-only measurement harness for the Windows test leg.
+# This workflow NEVER runs on push or pull_request — it only exists so the wall-time
+# levers can be measured on the real runner image and reverted. Each instrument is
+# behind its own boolean input and is meant to be dispatched ONE AT A TIME: enabling
+# several inputs in a single run lets an earlier step's posture/PATH change affect a
+# later instrument (the git spawn counter prepends to PATH; the Defender step changes
+# the runner's security posture).
+on:
+  workflow_dispatch:
+    inputs:
+      sys_user:
+        description: "Run the sys:user split (bash time)"
+        type: boolean
+        default: true
+      git_shim:
+        description: "Run the pass-through git spawn counter"
+        type: boolean
+        default: false
+      defender_toggle:
+        description: "Re-enable Defender for one run to measure headroom (reverts)"
+        type: boolean
+        default: false
+      shard_probe:
+        description: "Run the 3-shard rust-cache-warmth probe"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  measure:
+    name: measure (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@nextest
+      - uses: Swatinem/rust-cache@v2
+
+      # --- sys:user split -------------------------------------------------------
+      # The suite is parallel (CPU >> wall), so a high sys:user ratio is the
+      # spawn-bound signal. `time` writes real/user/sys (including children) to
+      # stderr; read those off the run log. This run's `real` is also the
+      # pre-change Windows wall baseline.
+      - name: (measure) sys:user split
+        if: ${{ inputs.sys_user }}
+        shell: bash
+        run: |
+          time just test-ci
+
+      # --- Defender headroom ----------------------------------------------------
+      # Restore the unmitigated posture (real-time monitoring on, drive exclusions
+      # removed) to MEASURE how much Defender costs on this suite. The runner VM is
+      # ephemeral, so nothing persists past this job; this never adds an exclusion.
+      - name: (measure) re-enable Defender (reverts at job end)
+        if: ${{ inputs.defender_toggle }}
+        shell: pwsh
+        run: |
+          Set-MpPreference -DisableRealtimeMonitoring $false
+          Remove-MpPreference -ExclusionPath "C:\" -ErrorAction SilentlyContinue
+          Remove-MpPreference -ExclusionPath "D:\" -ErrorAction SilentlyContinue
+      - name: (measure) suite with Defender on
+        if: ${{ inputs.defender_toggle }}
+        shell: bash
+        run: |
+          time just test-ci
+
+      # --- git spawn count ------------------------------------------------------
+      # Kept LAST: the counter prepends a shim dir to PATH, so running it after the
+      # other instruments keeps it from contaminating their measurements.
+      # Resolve the real git BEFORE prepending the shim dir, or the shim recurses
+      # into itself. The log lives under RUNNER_TEMP so it never dirties the
+      # worktree (which the suite captures).
+      - name: (measure) install git spawn counter
+        if: ${{ inputs.git_shim }}
+        shell: pwsh
+        run: |
+          $real = (Get-Command git).Source
+          echo "GIT_SHIM_REAL=$real" >> $env:GITHUB_ENV
+          echo "GIT_SHIM_LOG=$env:RUNNER_TEMP\git-spawns.log" >> $env:GITHUB_ENV
+          echo "$env:GITHUB_WORKSPACE\.github\measure\git-shim" >> $env:GITHUB_PATH
+      - name: (measure) run suite under the counter
+        if: ${{ inputs.git_shim }}
+        shell: bash
+        run: |
+          # The shim is pass-through (it counts each spawn then execs real git), so
+          # fixtures and production real-git must still succeed. Capture the status
+          # instead of swallowing it: a broken/non-pass-through shim MUST surface,
+          # not pass green. The summary step runs `if: always()` so the spawn log is
+          # produced even if a test trips, and re-raises the failure.
+          set +e
+          just test-ci
+          echo "TEST_CI_STATUS=$?" >> "$GITHUB_ENV"
+      - name: (measure) summarize git spawns
+        if: ${{ always() && inputs.git_shim }}
+        shell: bash
+        run: |
+          echo "total git spawns: $(wc -l < "$GIT_SHIM_LOG")"
+          echo "by subcommand:"; awk '{print $1}' "$GIT_SHIM_LOG" | sort | uniq -c | sort -rn
+          if [ "${TEST_CI_STATUS:-1}" != "0" ]; then
+            echo "::error::test-ci failed under the spawn counter (status ${TEST_CI_STATUS:-unset}); fixtures/production real-git must succeed — fix the shim before trusting counts"
+            exit "${TEST_CI_STATUS:-1}"
+          fi
+      - name: (measure) bare git per-spawn latency
+        if: ${{ inputs.git_shim }}
+        shell: bash
+        run: |
+          # Per-spawn cost measured WITHOUT the shim (its wrapper inflates durations).
+          # Use the resolved real git so PATH order does not route back into the shim.
+          real="${GIT_SHIM_REAL:-git}"
+          start=$(date +%s%N)
+          for _ in $(seq 1 200); do "$real" rev-parse HEAD >/dev/null; done
+          end=$(date +%s%N)
+          echo "200x bare git rev-parse HEAD: $(( (end - start) / 1000000 )) ms total (per-spawn ~ total/200)"
+
+  probe:
+    name: shard probe ${{ matrix.shard }}/3
+    if: ${{ inputs.shard_probe }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@nextest
+      - uses: Swatinem/rust-cache@v2
+        # Run the probe twice — once with the default (per-leg) key, once with the
+        # shared key below — and compare cache hit/miss + compile time. A shared key
+        # restores one cache entry across all Windows legs (they compile the identical
+        # test-binary set), dodging the 10GB-cap eviction when N distinct shard caches
+        # evict each other.
+        # with:
+        #   shared-key: windows-shards
+      - name: compile-only timing
+        shell: bash
+        run: time cargo nextest run --profile ci --no-run
+      - name: partitioned run timing
+        shell: bash
+        run: time just test-ci --partition slice:${{ matrix.shard }}/3
