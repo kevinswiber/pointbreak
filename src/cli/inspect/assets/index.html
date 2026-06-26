@@ -12,9 +12,9 @@
     <header id="topbar">
       <div class="brand">shore<span>inspector</span></div>
       <nav id="lens-switcher" aria-label="master pane lens">
-        <button class="lens-tab" data-lens="timeline" aria-selected="true">Timeline</button>
-        <button class="lens-tab" data-lens="list" aria-selected="false">Revisions</button>
-        <button class="lens-tab" data-lens="threads" aria-selected="false">Threads</button>
+        <button class="lens-tab" type="button" data-lens="timeline" aria-pressed="true">Timeline</button>
+        <button class="lens-tab" type="button" data-lens="list" aria-pressed="false">Revisions</button>
+        <button class="lens-tab" type="button" data-lens="threads" aria-pressed="false">Threads</button>
       </nav>
       <div class="stats">
         <span id="stat-events" class="stat" title="durable events in the store">— events</span>
@@ -91,8 +91,12 @@
           <button id="key-help-close" class="ghost">close</button>
         </header>
         <dl class="key-help-list">
+          <dt><kbd>Cmd</kbd> / <kbd>Ctrl</kbd> + <kbd>K</kbd></dt><dd>open the command palette</dd>
+          <dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd></dt><dd>open the command palette</dd>
           <dt><kbd>j</kbd> / <kbd>k</kbd></dt><dd>move the selection down / up in the active lens</dd>
           <dt><kbd>Enter</kbd></dt><dd>open the selection's snapshot diff</dd>
+          <dt><kbd>n</kbd> / <kbd>p</kbd></dt><dd>jump to the next / previous review fact in the diff</dd>
+          <dt><kbd>]</kbd> / <kbd>[</kbd></dt><dd>jump to the next / previous change in the diff</dd>
           <dt><kbd>/</kbd></dt><dd>focus the search box</dd>
           <dt><kbd>g</kbd> then <kbd>t</kbd> / <kbd>l</kbd> / <kbd>r</kbd></dt><dd>jump to the timeline / list / threads lens</dd>
           <dt><kbd>Esc</kbd></dt><dd>close the diff, then this sheet, then blur, then clear the query</dd>

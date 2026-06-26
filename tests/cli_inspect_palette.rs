@@ -113,3 +113,26 @@ fn served_app_js_opens_palette_through_the_shared_overlay_manager() {
         "opening the palette should prevent a stacked diff overlay"
     );
 }
+
+#[test]
+fn served_palette_exposes_the_active_option_to_the_combobox() {
+    let (_html, js) = served();
+    let render_palette = js
+        .split("function renderPalette()")
+        .nth(1)
+        .and_then(|tail| tail.split("function movePaletteActive").next())
+        .expect("renderPalette block exists");
+
+    assert!(
+        render_palette.contains("aria-activedescendant"),
+        "palette input should name the active option"
+    );
+    assert!(
+        render_palette.contains("id=\"cmd-option-"),
+        "palette options should receive stable DOM ids"
+    );
+    assert!(
+        render_palette.contains("aria-selected"),
+        "palette options should continue exposing listbox selection state"
+    );
+}

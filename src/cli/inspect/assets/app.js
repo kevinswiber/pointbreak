@@ -715,7 +715,12 @@ function renderTypeToggles() {
       state.enabledTypes.add(id);
     }
     const btn = document.createElement("button");
-    btn.className = "type-toggle" + (state.enabledTypes.has(id) ? "" : " off");
+    const enabled = state.enabledTypes.has(id);
+    const count = counts[id] || 0;
+    btn.type = "button";
+    btn.className = "type-toggle" + (enabled ? "" : " off");
+    btn.setAttribute("aria-pressed", String(enabled));
+    btn.setAttribute("aria-label", `${enabled ? "Hide" : "Show"} ${typeLabel(id)} events (${count})`);
     btn.innerHTML = `<span class="dot" style="background:${typeColor(id)}"></span>${escapeHtml(typeLabel(id))}<span class="type-count">${counts[id] || 0}</span>`;
     btn.title = id;
     btn.addEventListener("click", () => {
@@ -1388,21 +1393,38 @@ function ensureDiffFileBody(section) {
   body.dataset.rendered = "1";
 }
 
+function diffFileHeader(section) {
+  return section ? section.querySelector(".dfile-head") : null;
+}
+
+function diffFileExpanded(section) {
+  const head = diffFileHeader(section);
+  return head ? head.getAttribute("aria-expanded") === "true" : false;
+}
+
+function setDiffFileExpanded(section, open) {
+  if (!section) return;
+  const value = String(open);
+  section.dataset.expanded = value;
+  const head = diffFileHeader(section);
+  if (head) head.setAttribute("aria-expanded", value);
+}
+
 // Expand one accordion file section (render its body on first expand). Used by
 // navigation (navigator entry, focus jump) where the target must end up open.
 function expandDiffFile(section) {
   if (!section) return;
   ensureDiffFileBody(section);
-  section.setAttribute("aria-expanded", "true");
+  setDiffFileExpanded(section, true);
 }
 
 // Toggle one accordion file section; render its body on first expand. Transient
-// DOM state (aria-expanded), reconciled on each overlay render — not route state.
+// DOM state, reconciled on each overlay render — not route state.
 function toggleDiffFile(section) {
   if (!section) return;
-  const open = section.getAttribute("aria-expanded") === "true";
+  const open = diffFileExpanded(section);
   if (!open) ensureDiffFileBody(section);
-  section.setAttribute("aria-expanded", String(!open));
+  setDiffFileExpanded(section, !open);
 }
 
 // The file/fact navigator sidebar: one entry per file (status + path + fact
@@ -1452,9 +1474,7 @@ function jumpToTarget(targets, cursor, dir) {
   const next = (cursor + dir + targets.length) % targets.length;
   const el = targets[next];
   const section = el.closest(".dfile");
-  if (section && section.getAttribute("aria-expanded") === "false") {
-    section.setAttribute("aria-expanded", "true");
-  }
+  if (section && !diffFileExpanded(section)) expandDiffFile(section);
   el.scrollIntoView({ block: "center" });
   return next;
 }
@@ -1576,7 +1596,7 @@ function renderDiff(artifact, annotations) {
       const body = open ? renderDiffFileBody(f, anchored) : "";
       const lowCls = reason ? " dfile-lowsignal" : "";
       const lowAttr = reason ? ` data-lowsignal="${escapeHtml(reason)}"` : "";
-      return `<section class="dfile${lowCls}" data-dfile="${i}" aria-expanded="${open}"${lowAttr}>${renderDiffFileHeader(f, anchored, reason)}<div class="dfile-body" data-dfile-body="${i}"${
+      return `<section class="dfile${lowCls}" data-dfile="${i}" data-expanded="${open}"${lowAttr}>${renderDiffFileHeader(f, anchored, reason, open)}<div class="dfile-body" data-dfile-body="${i}"${
         open ? ` data-rendered="1"` : ""
       }>${body}</div></section>`;
     })
@@ -1586,11 +1606,12 @@ function renderDiff(artifact, annotations) {
 
 // The eager file header: status + path + fact-count badge. Operable as a
 // disclosure control (the delegated #diff-body listener toggles its section);
-// CSS draws the caret and drives the collapse off the section's aria-expanded.
-function renderDiffFileHeader(f, anchored, reason) {
+// CSS draws the caret from the section's internal state; the header carries the
+// authoritative aria-expanded state for the disclosure control.
+function renderDiffFileHeader(f, anchored, reason, open) {
   const n = fileFactCount(f, anchored);
   const summary = reason ? `<span class="dfile-summary">${escapeHtml(reason)}</span>` : "";
-  return `<header class="dfile-head" role="button" tabindex="0">
+  return `<header class="dfile-head" role="button" tabindex="0" aria-expanded="${open}">
     <span class="dstatus s-${escapeHtml(f.status)}">${escapeHtml(f.status)}</span>
     <span class="dpath">${escapeHtml(filePathLabel(f))}</span>${summary}
     ${n ? `<span class="dfile-notes">${n} note${n === 1 ? "" : "s"}</span>` : ""}</header>`;
@@ -1887,7 +1908,7 @@ function wireDagInteractions(card) {
 // Mark the active lens on the switcher.
 function renderLensSwitcher() {
   document.querySelectorAll(".lens-tab").forEach((t) =>
-    t.setAttribute("aria-selected", String(t.dataset.lens === state.lens)),
+    t.setAttribute("aria-pressed", String(t.dataset.lens === state.lens)),
   );
 }
 
@@ -2684,6 +2705,13 @@ function copyCurrentViewLink() {
   copyText(location.origin + location.pathname + serializeState());
 }
 
+function assignCommandOptionIds(cmds) {
+  cmds.forEach((cmd, index) => {
+    cmd.domIndex = index;
+  });
+  return cmds;
+}
+
 // The candidate commands, built over the loaded state. (When a search index
 // exists, jumps query it instead of re-deriving — the source is a single fn.)
 function buildCommands() {
@@ -2742,7 +2770,7 @@ function buildCommands() {
       run: () => navigate({ selected: { kind: "event", id: e.eventId }, diff: null, focus: null }),
     });
   }
-  return cmds;
+  return assignCommandOptionIds(cmds);
 }
 
 function selectedRevisionId() {
@@ -2834,8 +2862,10 @@ function filterPalette(query) {
 
 function renderPalette() {
   const list = $("#cmd-results");
+  const input = $("#cmd-input");
   if (!cmdFiltered.length) {
-    list.innerHTML = `<li class="cmd-empty" role="option" aria-disabled="true">No matches</li>`;
+    list.innerHTML = `<li id="cmd-option-empty" class="cmd-empty" role="option" aria-disabled="true">No matches</li>`;
+    input.setAttribute("aria-activedescendant", "cmd-option-empty");
     return;
   }
   let html = "";
@@ -2845,11 +2875,14 @@ function renderPalette() {
       lastKind = c.kind;
       html += `<li class="cmd-group" role="presentation">${escapeHtml(c.kind)}</li>`;
     }
-    html += `<li class="cmd-item${i === cmdActive ? " active" : ""}" role="option" data-idx="${i}" aria-selected="${i === cmdActive}"><span class="cmd-label">${escapeHtml(c.label)}</span>${c.hint ? `<span class="cmd-hint">${escapeHtml(c.hint)}</span>` : ""}</li>`;
+    html += `<li id="cmd-option-${escapeHtml(String(c.domIndex ?? i))}" class="cmd-item${i === cmdActive ? " active" : ""}" role="option" data-idx="${i}" aria-selected="${i === cmdActive}"><span class="cmd-label">${escapeHtml(c.label)}</span>${c.hint ? `<span class="cmd-hint">${escapeHtml(c.hint)}</span>` : ""}</li>`;
   });
   list.innerHTML = html;
   const active = list.querySelector(".cmd-item.active");
-  if (active) active.scrollIntoView({ block: "nearest" });
+  if (active) {
+    input.setAttribute("aria-activedescendant", active.id);
+    active.scrollIntoView({ block: "nearest" });
+  }
 }
 
 function movePaletteActive(delta) {

@@ -68,11 +68,18 @@ fn anchored_range_fact_still_renders_after_map_bucketing() {
 #[test]
 fn diff_files_render_as_an_accordion_with_lazy_bodies() {
     let js = served_app_js();
-    // Each file is a disclosure section: an eagerly-rendered header carrying
-    // aria-expanded, and a body container filled lazily on first expand.
+    // Each file is a disclosure section: an eagerly-rendered header is the
+    // interactive disclosure control and carries aria-expanded, while the
+    // section keeps only non-authoritative render state for CSS/lazy fill.
     assert!(
-        js.contains("aria-expanded"),
-        "diff file sections expose aria-expanded for the accordion"
+        js.contains("class=\"dfile-head\"")
+            && js.contains("aria-expanded=")
+            && js.contains("data-expanded="),
+        "diff file headers expose aria-expanded while sections keep internal state"
+    );
+    assert!(
+        !js.contains("<section class=\"dfile${lowCls}\" data-dfile=\"${i}\" aria-expanded="),
+        "diff file section wrappers should not own the disclosure aria state"
     );
     // A stable data attribute marks the lazy body container so the toggle handler
     // (and this contract) can target it without a private function name.
@@ -92,10 +99,11 @@ fn diff_files_render_as_an_accordion_with_lazy_bodies() {
 fn diff_css_styles_the_accordion_from_tokens_not_raw_hex() {
     let store = representative_store();
     let css = Inspector::spawn(store.repo.path()).get_text("/app.css");
-    // The accordion body collapses/expands keyed on aria-expanded.
+    // The accordion body collapses/expands keyed on the section's internal
+    // render state; the aria state lives on the header button.
     assert!(
-        css.contains("aria-expanded"),
-        "app.css drives the accordion body off aria-expanded state"
+        css.contains("data-expanded"),
+        "app.css drives the accordion body off internal render state"
     );
     // The clickable header signals interactivity (cursor), styled from tokens.
     assert!(

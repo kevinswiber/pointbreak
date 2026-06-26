@@ -63,6 +63,88 @@ fn served_assets_carry_a_keyboard_cheat_sheet() {
 }
 
 #[test]
+fn served_keyboard_help_lists_shipped_shortcuts() {
+    let store = representative_store();
+    let html = Inspector::spawn(store.repo.path()).get_text("/");
+    let help = html
+        .split("id=\"key-help\"")
+        .nth(1)
+        .and_then(|tail| tail.split("<script").next())
+        .expect("keyboard help overlay markup exists");
+
+    for shortcut in [
+        "<kbd>Cmd</kbd>",
+        "<kbd>Ctrl</kbd>",
+        "<kbd>Shift</kbd>",
+        "<kbd>K</kbd>",
+        "<kbd>P</kbd>",
+        "<kbd>n</kbd>",
+        "<kbd>p</kbd>",
+        "<kbd>]</kbd>",
+        "<kbd>[</kbd>",
+        "<kbd>j</kbd>",
+        "<kbd>k</kbd>",
+        "<kbd>/</kbd>",
+        "<kbd>g</kbd>",
+        "<kbd>Esc</kbd>",
+        "<kbd>?</kbd>",
+    ] {
+        assert!(
+            help.contains(shortcut),
+            "keyboard help should list {shortcut}"
+        );
+    }
+}
+
+#[test]
+fn served_app_js_exposes_filter_type_toggles_as_pressed_buttons() {
+    let js = served_app_js();
+    let render_type_toggles = js
+        .split("function renderTypeToggles()")
+        .nth(1)
+        .and_then(|tail| tail.split("function objectThreads()").next())
+        .expect("renderTypeToggles block exists");
+
+    assert!(
+        render_type_toggles.contains("aria-pressed"),
+        "type filter buttons should expose pressed state"
+    );
+    assert!(
+        render_type_toggles.contains("aria-label"),
+        "type filter buttons should expose short accessible names"
+    );
+}
+
+#[test]
+fn served_lens_buttons_do_not_use_selected_state_without_tab_semantics() {
+    let store = representative_store();
+    let html = Inspector::spawn(store.repo.path()).get_text("/");
+    let lens = html
+        .split("id=\"lens-switcher\"")
+        .nth(1)
+        .and_then(|tail| tail.split("</nav>").next())
+        .expect("lens switcher markup exists");
+    let tab_model = lens.contains("role=\"tablist\"") && lens.contains("role=\"tab\"");
+    let pressed_button_model = lens.contains("aria-pressed") && !lens.contains("aria-selected");
+
+    assert!(
+        tab_model || pressed_button_model,
+        "lens switcher should either be a real tablist or use pressed button state"
+    );
+
+    let js = served_app_js();
+    let render_lens_switcher = js
+        .split("function renderLensSwitcher()")
+        .nth(1)
+        .and_then(|tail| tail.split("function syncControls()").next())
+        .expect("renderLensSwitcher block exists");
+    assert!(
+        tab_model || render_lens_switcher.contains("aria-pressed"),
+        "lens switcher render path should update the chosen state attribute"
+    );
+}
+
+#[test]
 fn served_app_js_uses_one_overlay_focus_manager() {
     let js = served_app_js();
     assert!(
