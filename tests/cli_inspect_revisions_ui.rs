@@ -154,6 +154,85 @@ fn served_app_js_reads_the_server_revision_classification() {
 }
 
 #[test]
+fn threads_lens_keyboard_order_uses_rendered_dag_order() {
+    let app_js = served_app_js();
+
+    assert!(
+        app_js.contains("function threadRevisionOrder"),
+        "threads lens stepping should have one helper for graph-native order"
+    );
+    let order_helper = slice_between(
+        &app_js,
+        "function threadRevisionOrder",
+        "function threadLabel",
+    );
+    assert!(
+        order_helper.contains("laidOut") && order_helper.contains("nodes"),
+        "threadRevisionOrder should prefer laidOut.nodes when server geometry is present"
+    );
+    assert!(
+        order_helper.contains(".sort(")
+            && order_helper.contains(".y")
+            && order_helper.contains(".x"),
+        "rendered graph order should sort visually by y then x"
+    );
+    let lens_order = slice_between(&app_js, "function lensEntryIds", "function stepSelection");
+    assert!(
+        lens_order.contains("threadRevisionOrder(t)"),
+        "Threads-lens keyboard stepping should use the same visual order as the rendered graph"
+    );
+}
+
+#[test]
+fn supersession_current_copy_distinguishes_git_head() {
+    let app_js = served_app_js();
+
+    assert!(
+        app_js.contains("current in thread"),
+        "supersession current state should avoid bare `head` beside the Git target head row"
+    );
+    assert!(
+        app_js.contains("revision thread · current in thread"),
+        "single-head thread copy should use the same current-in-thread wording"
+    );
+    assert!(
+        !app_js.contains("<span class=\"badge head\">head</span>"),
+        "bare head badge copy should not sit next to the Git target head readback"
+    );
+    assert!(
+        !app_js.contains("revision thread · head "),
+        "single-head thread labels should avoid bare `head` copy"
+    );
+}
+
+#[test]
+fn detail_fact_sections_repeat_stale_revision_context() {
+    let app_js = served_app_js();
+
+    assert!(
+        app_js.contains("function staleFactSectionContext"),
+        "revision detail should have one helper for repeated stale context"
+    );
+    assert!(
+        app_js.contains("fact-stale-context")
+            && app_js.contains("superseded by")
+            && app_js.contains("supersededByRevision(revisionId)"),
+        "detail fact sections should repeat the same superseded-by context near stale facts"
+    );
+    for section in [
+        "factSection(\"Observations\", d.observations, renderObservationCard, staleContext)",
+        "factSection(\"Input requests\", d.inputRequests, renderInputRequestCard, staleContext)",
+        "factSection(\"Assessments\", d.assessments, renderAssessmentCard, staleContext)",
+        "Validation checks",
+    ] {
+        assert!(
+            app_js.contains(section),
+            "detail stale context should be wired near `{section}`"
+        );
+    }
+}
+
+#[test]
 fn served_app_js_renders_revision_overview_cues_from_api_payload() {
     let app_js = served_app_js();
 

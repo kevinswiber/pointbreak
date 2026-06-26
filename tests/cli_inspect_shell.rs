@@ -104,8 +104,8 @@ fn keyboard_revision_navigation_uses_the_filtered_revision_set() {
     );
     assert!(
         lens_entries.contains(".filter(threadMatchesRevisionFilters)")
-            && lens_entries.contains("filteredThreadRevisionIds(t)"),
-        "thread cursor stepping should use the same filtered threads and revisions that renderRevisions shows"
+            && lens_entries.contains("filteredThreadRevisionIds(t, threadRevisionOrder(t))"),
+        "thread cursor stepping should use the same filtered threads that renderRevisions shows, ordered by the rendered graph"
     );
 }
 

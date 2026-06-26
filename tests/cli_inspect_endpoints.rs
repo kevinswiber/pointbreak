@@ -534,6 +534,45 @@ fn design_system_gallery_covers_live_shell_and_overlay_states() {
     }
 }
 
+#[test]
+fn design_system_gallery_keeps_dag_edges_and_current_copy_in_sync() {
+    let styles = include_str!("../src/cli/inspect/design-system/styles.css");
+    let data_cards = include_str!("../src/cli/inspect/design-system/_bodies/data-cards.body.html");
+
+    assert!(
+        styles.contains("--dag-edge"),
+        "gallery DAG styles should carry the same default edge token as the live inspector"
+    );
+    let edge_block = styles
+        .split(".dag-edge {")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .expect(".dag-edge block");
+    assert!(
+        edge_block.contains("stroke: var(--dag-edge)")
+            && !edge_block.contains("stroke: var(--border)"),
+        "gallery DAG edges should not fall back to only the quiet border token: {edge_block}"
+    );
+    let arrow_block = styles
+        .split(".dag-arrow-head {")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .expect(".dag-arrow-head block");
+    assert!(
+        arrow_block.contains("fill: var(--dag-edge)")
+            && !arrow_block.contains("fill: var(--border)"),
+        "gallery DAG arrowheads should share the stronger edge token: {arrow_block}"
+    );
+    assert!(
+        data_cards.contains("current in thread"),
+        "gallery revision-card examples should use the live current-state wording"
+    );
+    assert!(
+        !data_cards.contains(">head</span>") && !data_cards.contains("revision thread · head "),
+        "gallery examples should avoid the old bare head copy"
+    );
+}
+
 // The theme flip, the OS-preference default, and the localStorage round-trip are
 // runtime client behavior; with no JS execution harness in the served envelope they
 // cannot be unit-tested. These assert the served-copy contracts that the wiring is
@@ -609,6 +648,67 @@ fn status_palette_has_a_non_color_redundancy_layer() {
         app_css.contains("tabular-nums") && app_css.contains("slashed-zero"),
         "mono/id columns disambiguate 0/O and align digits"
     );
+}
+
+#[test]
+fn positive_advisory_states_use_text_not_checkmark_glyphs() {
+    let (_repo, inspector) = served_asset_inspector();
+    let app_css = inspector.get_text("/app.css");
+    let gallery_css = include_str!("../src/cli/inspect/design-system/styles.css");
+    let gallery_bodies = [
+        include_str!("../src/cli/inspect/design-system/_bodies/data-diff.body.html"),
+        include_str!("../src/cli/inspect/design-system/_bodies/data-review-facts.body.html"),
+        include_str!("../src/cli/inspect/design-system/_bodies/data-timeline.body.html"),
+        include_str!("../src/cli/inspect/design-system/_bodies/feedback-diagnostics.body.html"),
+    ]
+    .join("\n");
+
+    for (label, css) in [("app", app_css.as_str()), ("gallery", gallery_css)] {
+        assert!(
+            !css.contains("content: \"✓\""),
+            "{label} CSS should not use a positive checkmark glyph"
+        );
+        for selector in [
+            ".fact-status.passed::before",
+            ".fact-status.responded::before",
+            ".fact-status.current::before",
+            ".verify-valid::before",
+            ".verdict-accepted .verdict-value::before",
+            ".verdict-accepted_with_follow_up .verdict-value::before",
+            ".s-added::before",
+        ] {
+            assert!(
+                !css.contains(selector),
+                "{label} CSS should leave positive state labels text-only: {selector}"
+            );
+        }
+        for glyph in [
+            "content: \"✕\"",
+            "content: \"!\"",
+            "content: \"?\"",
+            "content: \"~\"",
+            "content: \"○\"",
+        ] {
+            assert!(
+                css.contains(glyph),
+                "{label} CSS keeps non-positive status glyph redundancy: {glyph}"
+            );
+        }
+    }
+
+    for label in [
+        "accepted",
+        "passed",
+        "responded",
+        "current",
+        "signature valid",
+        "added",
+    ] {
+        assert!(
+            gallery_bodies.contains(label),
+            "gallery examples keep the positive state text label visible: {label}"
+        );
+    }
 }
 
 #[test]

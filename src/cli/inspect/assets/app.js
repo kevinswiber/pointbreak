@@ -738,6 +738,22 @@ function renderTypeToggles() {
 function objectThreads() {
   return state.objects?.threads || [];
 }
+
+function threadRevisionOrder(thread) {
+  const revisions = thread.revisions || [];
+  const nodes = thread.laidOut?.nodes || [];
+  if (!nodes.length) return revisions;
+  const known = new Set(revisions);
+  const ordered = nodes
+    .filter((n) => n && known.has(n.id))
+    .slice()
+    .sort((a, b) => a.y - b.y || a.x - b.x)
+    .map((n) => n.id);
+  if (ordered.length === revisions.length) return ordered;
+  const seen = new Set(ordered);
+  return ordered.concat(revisions.filter((id) => !seen.has(id)));
+}
+
 // The server-computed per-revision supersession classification (state +
 // direct superseders/predecessors). The client reads this field instead of
 // re-deriving head/superseded status from the edge maps every render.
@@ -790,11 +806,11 @@ function captureSupersedesBadge(e) {
   return `<span class="badge supersedes">supersedes ${predecessors.map(linkify).join(" ")}</span>`;
 }
 
-// The per-revision supersession status, for a unit card / unit page: "head" when
-// it is a current head, "superseded by <chips>" when superseded.
+// The per-revision supersession status, for a unit card / unit page: "current in
+// thread" when it is current, "superseded by <chips>" when superseded.
 function supersessionBadge(revisionId) {
   if (!revisionId) return "";
-  if (revisionIsHead(revisionId)) return `<span class="badge head">head</span>`;
+  if (revisionIsHead(revisionId)) return `<span class="badge head">current in thread</span>`;
   const successors = supersededByRevision(revisionId);
   if (successors.length) return `<span class="badge superseded">superseded by ${successors.map(linkify).join(" ")}</span>`;
   return "";
@@ -929,8 +945,7 @@ function threadMatchesRevisionFilters(thread) {
   return revisions.map(unitForRevision).filter(Boolean).some(matchesRevisionFilters);
 }
 
-function filteredThreadRevisionIds(thread) {
-  const revisions = thread.revisions || [];
+function filteredThreadRevisionIds(thread, revisions = thread.revisions || []) {
   if (!state.filterText && !state.filterObject) return revisions;
   return revisions.filter((revisionId) => {
     const unit = unitForRevision(revisionId);
@@ -1899,7 +1914,7 @@ function renderRevisions() {
 function threadLabel(thread) {
   const heads = thread.heads || [];
   if (thread.competing) return `revision thread · ${heads.length} competing heads`;
-  if (heads.length === 1) return `revision thread · head ${shortId(heads[0])}`;
+  if (heads.length === 1) return `revision thread · current in thread ${shortId(heads[0])}`;
   return "revision thread";
 }
 
@@ -2287,10 +2302,16 @@ function renderAdapterNoteCard(n) {
   });
 }
 
-function factSection(title, items, render) {
+function staleFactSectionContext(revisionId) {
+  const successors = supersededByRevision(revisionId);
+  if (!successors.length) return "";
+  return `<p class="fact-stale-context">superseded by ${successors.map(linkify).join(" ")}</p>`;
+}
+
+function factSection(title, items, render, context = "") {
   items = items || [];
   const body = items.length ? items.map(render).join("") : `<p class="up-empty">none</p>`;
-  return `<section><h2>${escapeHtml(title)} (${items.length})</h2>${body}</section>`;
+  return `<section><h2>${escapeHtml(title)} (${items.length})</h2>${context}${body}</section>`;
 }
 
 function renderUnitPage(d) {
@@ -2299,6 +2320,7 @@ function renderUnitPage(d) {
   const s = d.summary || {};
   const badge = supersessionBadge(ru.id);
   const title = `${shortId(ru.id)}${base.commitOid ? " · base " + shortId(base.commitOid) : ""}`;
+  const staleContext = staleFactSectionContext(ru.id);
 
   const stat = (label, n) => `<span class="up-stat"><b>${n ?? 0}</b> ${label}</span>`;
   const sections = [];
@@ -2323,9 +2345,9 @@ function renderUnitPage(d) {
     <button class="ghost" id="up-timeline-btn" style="margin-left:6px">show in timeline</button>
   </div></section>`);
 
-  sections.push(factSection("Observations", d.observations, renderObservationCard));
-  sections.push(factSection("Input requests", d.inputRequests, renderInputRequestCard));
-  sections.push(factSection("Assessments", d.assessments, renderAssessmentCard));
+  sections.push(factSection("Observations", d.observations, renderObservationCard, staleContext));
+  sections.push(factSection("Input requests", d.inputRequests, renderInputRequestCard, staleContext));
+  sections.push(factSection("Assessments", d.assessments, renderAssessmentCard, staleContext));
 
   // Validation checks: a first-class section after Assessments, rendered from
   // the document array (not raw events). Advisory-only — a context-only caption,
@@ -2335,7 +2357,7 @@ function renderUnitPage(d) {
     ? validationChecks.map(renderValidationCheckCard).join("") +
       `<p class="validation-note">context only — does not affect the current assessment</p>`
     : `<p class="up-empty">none</p>`;
-  sections.push(`<section><h2>Validation checks (${validationChecks.length})</h2>${validationBody}</section>`);
+  sections.push(`<section><h2>Validation checks (${validationChecks.length})</h2>${staleContext}${validationBody}</section>`);
 
   if ((d.adapterNotes || []).length) sections.push(factSection("Adapter notes", d.adapterNotes, renderAdapterNoteCard));
 
@@ -2610,7 +2632,7 @@ function lensEntryIds() {
   if (state.lens === "threads") {
     const ids = [];
     for (const t of objectThreads().filter(threadMatchesRevisionFilters)) {
-      for (const r of filteredThreadRevisionIds(t)) ids.push({ kind: "revision", id: r });
+      for (const r of filteredThreadRevisionIds(t, threadRevisionOrder(t))) ids.push({ kind: "revision", id: r });
     }
     return ids;
   }

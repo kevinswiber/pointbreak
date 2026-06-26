@@ -259,3 +259,37 @@ fn dag_edges_carry_a_directional_arrowhead_marker() {
         "the traced arrowhead marker is styled with the accent fill"
     );
 }
+
+#[test]
+fn dag_default_edges_use_a_dedicated_contrast_token() {
+    // The default graph direction should be readable before hover/focus tracing.
+    // A dedicated token lets the edge and its arrowhead move together without
+    // falling back to the very quiet border token.
+    let repo = GitRepo::new();
+    let insp = Inspector::spawn(repo.path());
+    let css = insp.get_text("/app.css");
+    assert!(
+        css.contains("--dag-edge"),
+        "the default DAG edge/arrow should have a dedicated contrast token"
+    );
+    let edge_block = css
+        .split(".dag-edge {")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .expect(".dag-edge block");
+    assert!(
+        edge_block.contains("stroke: var(--dag-edge)")
+            && !edge_block.contains("stroke: var(--border)"),
+        "default DAG edges should not use only the quiet border token: {edge_block}"
+    );
+    let arrow_block = css
+        .split(".dag-arrow-head {")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .expect(".dag-arrow-head block");
+    assert!(
+        arrow_block.contains("fill: var(--dag-edge)")
+            && !arrow_block.contains("fill: var(--border)"),
+        "default DAG arrowheads should share the stronger edge token: {arrow_block}"
+    );
+}

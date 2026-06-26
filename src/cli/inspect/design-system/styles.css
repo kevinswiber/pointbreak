@@ -234,12 +234,17 @@ body {
 /* The supersession DAG: a server-laid SVG the client only paints — one <rect>
    node per revision (head/superseded modifiers), routed <polyline> edges, and a
    directional arrowhead pointing at the superseding head. Mirrors app.css. */
-.revision-dag { max-width: 100%; height: auto; margin-top: 10px; }
-.dag-edge { fill: none; stroke: var(--border); stroke-width: 1.5; }
+.revision-dag {
+  --dag-edge: color-mix(in srgb, var(--fg-dim) 72%, var(--border));
+  max-width: 100%;
+  height: auto;
+  margin-top: 10px;
+}
+.dag-edge { fill: none; stroke: var(--dag-edge); stroke-width: 1.5; }
 .dag-edge.traced { stroke: var(--accent); stroke-width: 2.5; }
 /* A traced edge swaps to the accent marker via its marker-end attribute (a
    cross-browser alternative to context-stroke, which Safari does not paint). */
-.dag-arrow-head { fill: var(--border); }
+.dag-arrow-head { fill: var(--dag-edge); }
 .dag-arrow-head-traced { fill: var(--accent); }
 .dag-node { cursor: pointer; }
 .dag-node rect { fill: var(--bg-row); stroke: var(--border); stroke-width: 1.5; }
@@ -479,25 +484,15 @@ body {
 .endorse-attrs { font-family: var(--mono); font-size: 11px; color: var(--fg-dim); }
 
 /* ---- Status glyphs ---------------------------------------------------- */
-/* Non-color status redundancy: a per-state glyph via ::before so meaning never
-   rides on hue alone (the load-bearing accessibility layer). The glyph reinforces
-   the already-present uppercase text label — color is then a third channel, never
-   the carrier. Unicode only; no icon font, no build. The glyphs inherit the text
-   tint, so they read in both themes. These chips stay the quiet tier — the glyph
-   is a scan aid beside low-chrome text, not a filled badge or a go-light. */
+/* Non-color status redundancy for non-positive states via ::before so meaning
+   never rides on hue alone. Positive advisory states stay text-only to avoid
+   implying a gate; their labels already say accepted, passed, valid, or current.
+   Unicode only; no icon font, no build. The glyphs inherit the text tint, so
+   they read in both themes. */
 .fact-status::before,
 .verify::before,
 .verdict .verdict-value::before,
 .dstatus::before { margin-right: 4px; font-weight: 600; }
-
-/* passed / valid / accepted / present */
-.fact-status.passed::before,
-.fact-status.responded::before,
-.fact-status.current::before,
-.verify-valid::before,
-.verdict-accepted .verdict-value::before,
-.verdict-accepted_with_follow_up .verdict-value::before,
-.s-added::before { content: "✓"; }
 
 /* failed / invalid / changes-requested */
 .fact-status.failed::before,
