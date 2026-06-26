@@ -121,11 +121,11 @@ impl LocalStorage {
 
     /// Creates `path` only if it does not already exist.
     ///
-    /// Opens the target with `OpenOptions::create_new(true)`, which maps to `O_CREAT|O_EXCL` on
-    /// POSIX and `CREATE_NEW` on Windows. The open either creates the file atomically or fails
-    /// with `AlreadyExists` when the path is already present. If the open succeeds but the
-    /// subsequent write or fsync fails, the partially written target is removed on a best-effort
-    /// basis so a retry can succeed.
+    /// Returns `AlreadyExists` immediately when the final path is already
+    /// present. Otherwise writes the bytes to a same-directory temp file first,
+    /// then publishes the complete file with an atomic hard link. The link step
+    /// resolves concurrent creates without ever making an empty or partially
+    /// written final path visible to concurrent readers.
     pub fn create_file_exclusive(
         &self,
         path: &Path,
@@ -134,30 +134,30 @@ impl LocalStorage {
     ) -> Result<CreateOutcome> {
         let path = self.resolve(path);
         let parent = parent_dir(&path)?;
-        fs::create_dir_all(parent).map_err(|error| io_error("create directory", parent, error))?;
-
-        let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                return Ok(CreateOutcome::AlreadyExists);
-            }
-            Err(error) => return Err(io_error("create file exclusively", &path, error)),
-        };
-
-        if let Err(error) = file.write_all(bytes) {
-            let _ = fs::remove_file(&path);
-            return Err(io_error("write file", &path, error));
-        }
-
-        if durability == Durability::Durable
-            && let Err(error) = file.sync_all()
+        if path
+            .try_exists()
+            .map_err(|error| io_error("read file metadata", &path, error))?
         {
-            let _ = fs::remove_file(&path);
-            return Err(io_error("sync file", &path, error));
+            return Ok(CreateOutcome::AlreadyExists);
         }
 
-        sync_parent_if_durable(parent, durability)?;
-        Ok(CreateOutcome::Created)
+        let temp_path = self.write_temp_file(parent, bytes, durability)?;
+
+        match fs::hard_link(&temp_path, &path) {
+            Ok(()) => {
+                let _ = fs::remove_file(&temp_path);
+                sync_parent_if_durable(parent, durability)?;
+                Ok(CreateOutcome::Created)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let _ = fs::remove_file(&temp_path);
+                Ok(CreateOutcome::AlreadyExists)
+            }
+            Err(error) => {
+                let _ = fs::remove_file(&temp_path);
+                Err(io_error("publish temp file", &path, error))
+            }
+        }
     }
 
     /// Durable, idempotent, store-scoped removal of a content-addressed file.
@@ -303,7 +303,7 @@ fn collect_temp_files(dir: &Path, temp_files: &mut Vec<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-fn is_temp_file_path(path: &Path) -> bool {
+pub(crate) fn is_temp_file_path(path: &Path) -> bool {
     let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
         return false;
     };
@@ -498,6 +498,76 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn exclusive_create_reports_existing_without_directory_write_permission() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(root.path());
+        let dir = root.path().join("events");
+        let path = dir.join("event.json");
+
+        assert_eq!(
+            storage
+                .create_file_exclusive(&path, b"first", Durability::Durable)
+                .unwrap(),
+            CreateOutcome::Created
+        );
+
+        let original = std::fs::metadata(&dir).unwrap().permissions();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let outcome = storage.create_file_exclusive(&path, b"second", Durability::Durable);
+        std::fs::set_permissions(&dir, original).unwrap();
+
+        assert_eq!(outcome.unwrap(), CreateOutcome::AlreadyExists);
+        assert_eq!(storage.read_bytes(&path).unwrap(), b"first");
+    }
+
+    #[test]
+    fn exclusive_create_is_create_once_under_concurrent_writers() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("events/event.json");
+        let root_path = root.path().to_path_buf();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+
+        let handles = (0..8)
+            .map(|index| {
+                let barrier = barrier.clone();
+                let root_path = root_path.clone();
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    let storage = LocalStorage::new(root_path);
+                    let byte = b'a' + index as u8;
+                    let payload = vec![byte; 1024 * 1024];
+                    barrier.wait();
+                    (
+                        byte,
+                        storage.create_file_exclusive(&path, &payload, Durability::Durable),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let mut created = Vec::new();
+        let mut existing = 0usize;
+        for handle in handles {
+            let (byte, outcome) = handle.join().unwrap();
+            match outcome.unwrap() {
+                CreateOutcome::Created => created.push(byte),
+                CreateOutcome::AlreadyExists => existing += 1,
+            }
+        }
+
+        assert_eq!(created.len(), 1);
+        assert_eq!(existing, 7);
+        assert_eq!(
+            storage_file_names(&root.path().join("events")),
+            vec!["event.json".to_owned()]
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), vec![created[0]; 1024 * 1024]);
+    }
+
     #[test]
     fn remove_file_deletes_existing_and_is_idempotent() {
         let root = tempfile::tempdir().unwrap();
@@ -584,5 +654,14 @@ mod tests {
 
         assert_eq!(outcome, CreateOutcome::Created);
         assert_eq!(storage.read_bytes(&path).unwrap(), b"payload");
+    }
+
+    fn storage_file_names(dir: &Path) -> Vec<String> {
+        let mut names = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect::<Vec<_>>();
+        names.sort();
+        names
     }
 }

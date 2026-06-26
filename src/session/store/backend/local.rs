@@ -1,14 +1,14 @@
 //! File-backed implementations of the durable backend traits over
 //! [`LocalStorage`]. These preserve today's on-disk layout, hash-sorted listing
-//! order, and `O_CREAT|O_EXCL` create-if-absent exactly, so a backend swap is
-//! invisible to every stored byte.
+//! order, and atomic create-if-absent semantics, so a backend swap is invisible
+//! to every stored byte.
 
 use std::path::{Path, PathBuf};
 
 use super::{ContentStore, Journal, JournalEntry};
 use crate::error::{Result, ShoreError};
 use crate::session::store::event_store::{event_filename_stem, is_event_file};
-use crate::storage::{CreateOutcome, Durability, LocalStorage, RemoveOutcome};
+use crate::storage::{CreateOutcome, Durability, LocalStorage, RemoveOutcome, is_temp_file_path};
 
 /// The file-backed [`Journal`]: events live at
 /// `events/<sha256(idempotency_key)>.json` under the store dir.
@@ -133,6 +133,7 @@ impl ContentStore for LocalContentStore {
             .storage
             .list_dir(Path::new(prefix))?
             .into_iter()
+            .filter(|path| !is_temp_file_path(path))
             .filter_map(|path| {
                 path.file_name()
                     .and_then(|name| name.to_str())
@@ -147,5 +148,26 @@ impl ContentStore for LocalContentStore {
         // the create-side validation the wrapper performs is deliberately skipped.
         self.storage
             .write_bytes_atomic(Path::new(content_ref), bytes, Durability::Durable)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn content_list_ignores_in_flight_temp_files() {
+        let root = tempfile::tempdir().unwrap();
+        let store = LocalContentStore::new(root.path());
+        let objects_dir = root.path().join("artifacts/objects");
+        std::fs::create_dir_all(&objects_dir).unwrap();
+        std::fs::write(objects_dir.join(".shore-write.inflight.tmp"), b"partial").unwrap();
+
+        store.put_once("artifacts/objects/a.json", b"a").unwrap();
+
+        assert_eq!(
+            store.list("artifacts/objects").unwrap(),
+            vec!["artifacts/objects/a.json".to_owned()]
+        );
     }
 }
