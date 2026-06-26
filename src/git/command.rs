@@ -37,6 +37,24 @@ pub(crate) struct RefEntry {
     pub oid: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct GitInventoryPath {
+    bytes: Vec<u8>,
+}
+
+impl GitInventoryPath {
+    fn new(bytes: &[u8]) -> Self {
+        Self {
+            bytes: bytes.to_vec(),
+        }
+    }
+
+    pub(crate) fn into_utf8_string(self, description: &str) -> Result<String> {
+        String::from_utf8(self.bytes)
+            .map_err(|error| ShoreError::Message(format!("{description} is not utf-8: {error}")))
+    }
+}
+
 pub(crate) fn run_git<I, S>(cwd: &Path, args: I) -> Result<GitOutput>
 where
     I: IntoIterator<Item = S>,
@@ -228,6 +246,43 @@ pub(crate) fn git_paths_are_ignored(repo: &Path, pathspecs: &[&str]) -> Result<V
     Ok(pathspecs
         .iter()
         .map(|path| ignored.contains(path.as_bytes()))
+        .collect())
+}
+
+/// Read one Git config value with the fallback semantics writer identity needs:
+/// missing keys, empty values, non-zero Git status, and spawn failures all mean
+/// "no value" rather than aborting actor resolution.
+pub(crate) fn git_config_get(repo: &Path, key: &str) -> Option<String> {
+    let (code, stdout) = run_git_status(repo, ["config", "--get", key], &[0, 1]).ok()?;
+    if code != 0 {
+        return None;
+    }
+
+    let value = String::from_utf8_lossy(&stdout).trim().to_owned();
+    (!value.is_empty()).then_some(value)
+}
+
+pub(crate) fn git_untracked_inventory(repo: &Path) -> Result<Vec<GitInventoryPath>> {
+    git_ls_files_inventory(
+        repo,
+        ["ls-files", "--others", "--exclude-standard", "-z", "--"],
+    )
+}
+
+pub(crate) fn git_tracked_and_untracked_inventory(repo: &Path) -> Result<Vec<GitInventoryPath>> {
+    git_ls_files_inventory(repo, ["ls-files", "-co", "--exclude-standard", "-z", "--"])
+}
+
+fn git_ls_files_inventory<const N: usize>(
+    repo: &Path,
+    args: [&str; N],
+) -> Result<Vec<GitInventoryPath>> {
+    let output = run_git(repo, args)?;
+    Ok(output
+        .stdout
+        .split(|byte| *byte == b'\0')
+        .filter(|field| !field.is_empty())
+        .map(GitInventoryPath::new)
         .collect())
 }
 
@@ -743,6 +798,48 @@ mod tests {
         .unwrap();
 
         assert_eq!(verdicts, vec![true, false]);
+    }
+
+    #[test]
+    fn git_config_get_returns_values_needed_for_writer_fallback() {
+        let repo = TempDir::new().expect("create temp git repository directory");
+        git(repo.path(), ["init"]);
+
+        git(repo.path(), ["config", "user.email", ""]);
+        assert_eq!(git_config_get(repo.path(), "user.email"), None);
+
+        git(
+            repo.path(),
+            ["config", "user.email", "reviewer@example.com"],
+        );
+        assert_eq!(
+            git_config_get(repo.path(), "user.email"),
+            Some("reviewer@example.com".to_owned())
+        );
+
+        git(repo.path(), ["config", "user.name", ""]);
+        assert_eq!(git_config_get(repo.path(), "user.name"), None);
+    }
+
+    #[test]
+    fn untracked_inventory_lists_unignored_untracked_paths_in_git_order() {
+        let repo = TwoCommitRepo::new();
+        fs::create_dir_all(repo.path().join("notes")).unwrap();
+        fs::write(repo.path().join("b.txt"), "b\n").unwrap();
+        fs::write(repo.path().join("notes/a.txt"), "a\n").unwrap();
+        fs::write(repo.path().join("ignored.log"), "ignored\n").unwrap();
+        fs::write(repo.path().join(".git/info/exclude"), "ignored.log\n").unwrap();
+
+        let paths = inventory_path_strings(git_untracked_inventory(repo.path()).unwrap());
+
+        assert_eq!(paths, vec!["b.txt", "notes/a.txt"]);
+    }
+
+    fn inventory_path_strings(paths: Vec<GitInventoryPath>) -> Vec<String> {
+        paths
+            .into_iter()
+            .map(|path| path.into_utf8_string("test inventory path").unwrap())
+            .collect()
     }
 
     struct TwoCommitRepo {

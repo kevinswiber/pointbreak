@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde::Serialize;
 
 use crate::error::{Result, ShoreError};
+use crate::git::git_untracked_inventory;
 use crate::session::event::{EventType, ShoreEvent};
 use crate::session::store::body_artifact::NoteBodyEnvelope;
 use crate::session::store::object_artifact::ObjectArtifact;
@@ -219,30 +219,9 @@ fn scan_note_artifacts(
 }
 
 fn git_untracked_bytes(worktree_root: &Path) -> Result<u64> {
-    let args = ["ls-files", "--others", "--exclude-standard", "-z", "--"];
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(worktree_root)
-        .output()
-        .map_err(|error| ShoreError::Message(format!("run git {:?}: {error}", args)))?;
-
-    if !output.status.success() {
-        return Err(ShoreError::GitCommand {
-            command: format!("{args:?}"),
-            status: output.status.to_string(),
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        });
-    }
-
     let mut bytes = 0;
-    for raw_path in output.stdout.split(|byte| *byte == b'\0') {
-        if raw_path.is_empty() {
-            continue;
-        }
-        let relative_path = String::from_utf8(raw_path.to_vec()).map_err(|error| {
-            ShoreError::Message(format!("untracked inventory path is not utf-8: {error}"))
-        })?;
+    for raw_path in git_untracked_inventory(worktree_root)? {
+        let relative_path = raw_path.into_utf8_string("untracked inventory path")?;
         let path = worktree_root.join(relative_path);
         let metadata = fs::metadata(&path)
             .map_err(|error| io_error("read untracked file metadata", &path, error))?;
@@ -426,6 +405,21 @@ mod tests {
                 && snapshot.object_id == capture.object_id.as_str()
                 && snapshot.byte_size > 0
         }));
+    }
+
+    #[test]
+    fn scan_store_inventory_counts_unignored_untracked_bytes() {
+        let repo = TestRepo::new();
+        repo.write("tracked.txt", "tracked\n");
+        repo.commit_all("base");
+        repo.write("untracked.txt", "12345");
+        repo.write("ignored.txt", "ignored bytes");
+        fs::write(repo.path().join(".git/info/exclude"), "ignored.txt\n").unwrap();
+        let empty_store = TempDir::new().expect("create empty store directory");
+
+        let inventory = scan_store_inventory(empty_store.path(), Some(repo.path())).unwrap();
+
+        assert_eq!(inventory.untracked_bytes, Some(5));
     }
 
     fn directory_file_stats(dir: &Path) -> (usize, u64) {

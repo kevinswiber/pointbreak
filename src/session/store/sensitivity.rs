@@ -2,12 +2,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde::Serialize;
 
 use crate::canonical_hash::sha256_bytes_hex;
 use crate::error::{Result, ShoreError};
+use crate::git::git_tracked_and_untracked_inventory;
 
 const SCAN_READ_LIMIT: u64 = 64 * 1024;
 const LARGE_GENERATED_BYTES: u64 = 1024 * 1024;
@@ -135,32 +135,12 @@ fn combined_policy_outcome(findings: &[SensitivityFinding]) -> &'static str {
 }
 
 fn git_inventory_paths(worktree_root: &Path) -> Result<Vec<PathBuf>> {
-    let args = ["ls-files", "-co", "--exclude-standard", "-z", "--"];
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(worktree_root)
-        .output()
-        .map_err(|error| ShoreError::Message(format!("run git {:?}: {error}", args)))?;
-
-    if !output.status.success() {
-        return Err(ShoreError::GitCommand {
-            command: format!("{args:?}"),
-            status: output.status.to_string(),
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        });
-    }
-
-    output
-        .stdout
-        .split(|byte| *byte == b'\0')
-        .filter(|raw_path| !raw_path.is_empty())
+    git_tracked_and_untracked_inventory(worktree_root)?
+        .into_iter()
         .map(|raw_path| {
-            String::from_utf8(raw_path.to_vec())
+            raw_path
+                .into_utf8_string("sensitivity scan path")
                 .map(PathBuf::from)
-                .map_err(|error| {
-                    ShoreError::Message(format!("sensitivity scan path is not utf-8: {error}"))
-                })
         })
         .collect()
 }
@@ -248,12 +228,34 @@ fn io_error(action: &str, path: &Path, error: std::io::Error) -> ShoreError {
 mod tests {
     use std::ffi::OsStr;
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::process::Command;
 
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn sensitivity_inventory_preserves_git_order_and_excludes_ignored_paths() {
+        let repo = TestRepo::new();
+        repo.write("z-tracked.txt", "safe\n");
+        repo.write("a-tracked.txt", "safe\n");
+        repo.commit_all("base");
+        repo.write("m-untracked.txt", "safe\n");
+        repo.write("ignored-token.txt", "sk-test000000000000000000000000\n");
+        fs::write(repo.path().join(".git/info/exclude"), "ignored-token.txt\n").unwrap();
+
+        let paths = git_inventory_paths(repo.path()).unwrap();
+
+        assert_eq!(
+            paths,
+            vec![
+                PathBuf::from("m-untracked.txt"),
+                PathBuf::from("a-tracked.txt"),
+                PathBuf::from("z-tracked.txt"),
+            ]
+        );
+    }
 
     #[test]
     fn sensitivity_scan_reports_redacted_findings_and_policy() {
@@ -328,6 +330,11 @@ mod tests {
                 fs::create_dir_all(parent).unwrap();
             }
             fs::write(path, contents).unwrap();
+        }
+
+        fn commit_all(&self, message: &str) {
+            self.git(["add", "--all"]);
+            self.git(["commit", "-m", message]);
         }
 
         fn git<I, S>(&self, args: I)

@@ -1,7 +1,7 @@
 use std::path::Path;
-use std::process::Command;
 
 use crate::crypto::SignerId;
+use crate::git::git_config_get;
 use crate::model::ActorId;
 use crate::session::event::{Writer, WriterProducer};
 
@@ -117,28 +117,14 @@ fn shore_producer() -> WriterProducer {
 }
 
 fn actor_id_from_git_config(repo: &Path) -> ActorId {
-    git_config_value(repo, "user.email")
+    git_config_get(repo, "user.email")
         .map(|email| ActorId::new(format!("actor:git-email:{email}")))
         .or_else(|| {
-            git_config_value(repo, "user.name")
+            git_config_get(repo, "user.name")
                 .map(|name| ActorId::new(format!("actor:git-name:{name}")))
         })
         // V1 local workflows treat missing Git identity as one local actor.
         .unwrap_or_else(|| ActorId::new("actor:local"))
-}
-
-fn git_config_value(repo: &Path, key: &str) -> Option<String> {
-    let output = Command::new("git")
-        .args(["config", "--get", key])
-        .current_dir(repo)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let value = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    (!value.is_empty()).then_some(value)
 }
 
 #[cfg(test)]
@@ -227,6 +213,30 @@ mod tests {
             .unwrap();
         let local_writer = super::writer_from_options(local_repo.path(), None);
         assert_eq!(local_writer.actor_id.as_str(), "actor:local");
+    }
+
+    #[test]
+    fn writer_falls_back_to_name_when_email_is_blank() {
+        let repo = tempfile::tempdir().unwrap();
+        Command::new("git")
+            .args(["init"])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", ""])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "reviewer-name"])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+
+        let writer = super::writer_from_options(repo.path(), None);
+
+        assert_eq!(writer.actor_id.as_str(), "actor:git-name:reviewer-name");
     }
 
     fn git_repo_with_email(email: &str) -> tempfile::TempDir {
