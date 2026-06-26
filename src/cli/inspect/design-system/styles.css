@@ -382,11 +382,57 @@ body {
 .endorse-who { font-family: var(--mono); font-size: 12px; color: var(--fg); }
 .endorse-attrs { font-family: var(--mono); font-size: 11px; color: var(--fg-dim); }
 
+/* ---- Status glyphs ---------------------------------------------------- */
+/* Non-color status redundancy: a per-state glyph via ::before so meaning never
+   rides on hue alone (the load-bearing accessibility layer). The glyph reinforces
+   the already-present uppercase text label — color is then a third channel, never
+   the carrier. Unicode only; no icon font, no build. The glyphs inherit the text
+   tint, so they read in both themes. These chips stay the quiet tier — the glyph
+   is a scan aid beside low-chrome text, not a filled badge or a go-light. */
+.fact-status::before,
+.verify::before,
+.verdict .verdict-value::before,
+.dstatus::before { margin-right: 4px; font-weight: 600; }
+
+/* passed / valid / accepted / present */
+.fact-status.passed::before,
+.fact-status.responded::before,
+.fact-status.current::before,
+.verify-valid::before,
+.verdict-accepted .verdict-value::before,
+.verdict-accepted_with_follow_up .verdict-value::before,
+.s-added::before { content: "✓"; }
+
+/* failed / invalid / changes-requested */
+.fact-status.failed::before,
+.fact-status.stale::before,
+.verify-invalid::before,
+.verdict-needs_changes .verdict-value::before,
+.s-deleted::before { content: "✕"; }
+
+/* warning / open / superseded / ambiguous */
+.fact-status.open::before,
+.fact-status.superseded::before,
+.fact-status.replaced::before,
+.verify-untrusted_key::before,
+.verdict-ambiguous .verdict-value::before { content: "!"; }
+
+/* needs clarification (a question, not a warning) */
+.verdict-needs_clarification .verdict-value::before { content: "?"; }
+
+/* errored */
+.fact-status.errored::before { content: "~"; }
+
+/* skipped / unsigned / unassessed */
+.fact-status.skipped::before,
+.verify-unsigned::before,
+.verdict-unassessed .verdict-value::before { content: "○"; }
+
 /* ---- Feedback (diagnostics / error) ---------------------------------- */
-.diagnostics { background: #3a2a12; color: var(--warning-soft); border: 1px solid #5a4520; border-radius: var(--r-md); padding: 6px 16px; font-size: 13px; }
+.diagnostics { background: #3a2a12; color: var(--warning-soft); border-bottom: 1px solid #5a4520; padding: 6px 16px; font-size: var(--fs-md); }
 .diagnostics .code { font-family: var(--mono); color: var(--warning-strong); margin-right: 6px; }
 .diagnostic-card .code { font-family: var(--mono); color: var(--warning); margin-right: 8px; }
-.error { background: #3a1416; color: var(--danger); padding: 8px 16px; border: 1px solid #5a2226; border-radius: var(--r-md); font-family: var(--mono); font-size: 12px; }
+.error { background: var(--error-bg); color: var(--danger); padding: 8px 16px; border-top: 1px solid var(--error-border); font-family: var(--mono); font-size: var(--fs-sm); }
 
 /* ---- Preview scaffold (design-system pages only) --------------------- */
 .ds-page { padding: 22px; display: flex; flex-direction: column; gap: 22px; }
