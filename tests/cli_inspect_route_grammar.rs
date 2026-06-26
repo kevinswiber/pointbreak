@@ -145,3 +145,29 @@ fn diff_focus_route_is_singular() {
         "focus parsing/serialization should not preserve a set-shaped route"
     );
 }
+
+#[test]
+fn future_diff_lens_route_is_deferred_behind_a_named_seam() {
+    let js = served_app_js();
+    assert!(
+        js.contains("DIFF_LENS_ROUTE_SEAM"),
+        "app.js should carry one named seam for the future full-page diff route/data decision"
+    );
+    assert!(
+        js.contains("full-page diff lens") && js.contains("deferred"),
+        "the seam should say the full-page diff lens remains deferred"
+    );
+    assert!(
+        js.contains("diff=") && js.contains("route-preserving diff overlay"),
+        "the current diff= route stays the route-preserving quick overlay"
+    );
+    assert!(
+        !js.contains("#/diff/"),
+        "this pass must not add a dedicated #/diff/ route"
+    );
+    assert!(
+        !js.contains("lens=diff")
+            && !js.contains("[\"timeline\", \"list\", \"threads\", \"diff\"]"),
+        "this pass must not add diff as a master lens route token"
+    );
+}

@@ -1270,6 +1270,9 @@ function annotationsForUnit(revisionId) {
 // Open the route-preserving diff overlay for a captured object. The overlay is a
 // fragment param (`diff=`/`focus=`); the modal body is reconciled from state on
 // the render that follows, so a deep link or Back/Forward reopens it identically.
+// DIFF_LENS_ROUTE_SEAM: this modal remains quick readback over `diff=` route
+// state. A full-page diff lens route/data contract is deferred until it can be
+// designed as its own route and payload seam rather than inferred here.
 function openDiff(objectId, focusId = null) {
   navigate({ diff: objectId, focus: focusId || null });
 }
@@ -1299,6 +1302,7 @@ let diffCtx = null;
 // each time a new diff renders.
 let diffFactCursor = -1;
 let diffChangeCursor = -1;
+let diffNavFilter = "all";
 
 // Reconcile the diff modal DOM with `state.diff`/`state.focus`. Part of the
 // render path: it both opens (user action, deep link, Back/Forward) and closes.
@@ -1348,11 +1352,18 @@ function applyDiffFocus() {
   if (focusId) scrollToAnno(focusId);
 }
 
+function focusDiffFactRoute(id) {
+  if (!id || state.focus === id) return false;
+  navigate({ focus: id }, { replace: true });
+  return true;
+}
+
 // Scroll a review fact's annotation into view and flash it, expanding its file
 // first if it lives in a default-collapsed section. The single path a focus=
 // deep-link, a gutter click, a navigator entry, and the n/p keys all route
 // through, so they behave identically.
-function scrollToAnno(id) {
+function scrollToAnno(id, opts = {}) {
+  if (opts.updateRoute && focusDiffFactRoute(id)) return;
   const sel = `.anno[data-anno="${id}"]`;
   let target = $("#diff-body").querySelector(sel);
   if (!target && diffCtx) {
@@ -1390,6 +1401,7 @@ function ensureDiffFileBody(section) {
   if (!body || body.dataset.rendered) return;
   const idx = Number(section.dataset.dfile);
   body.innerHTML = renderDiffFileBody(diffCtx.files[idx], diffCtx.anchored);
+  body.removeAttribute("data-fact-vicinity");
   body.dataset.rendered = "1";
 }
 
@@ -1432,22 +1444,31 @@ function toggleDiffFile(section) {
 // anchored to a captured diff line — is reachable on a large changeset.
 function renderDiffNav() {
   if (!diffCtx) return "";
-  const { files, anchored, unanchored } = diffCtx;
-  const fileItems = files
-    .map((f, i) => {
-      const n = fileFactCount(f, anchored);
+  const { files, anchored, unanchored, filePaths } = diffCtx;
+  const visibleFiles = files
+    .map((f, i) => ({ f, i, factCount: fileFactCount(f, anchored) }))
+    .filter((item) => {
+      if (diffNavFilter === "with-facts") return item.factCount > 0;
+      if (diffNavFilter === "unanchored") return false;
+      return true;
+    });
+  const fileItems = visibleFiles
+    .map(({ f, i, factCount: n }) => {
       const badge = n ? `<span class="dfile-notes">${n}</span>` : "";
       return `<li><button class="diff-nav-file" data-nav-file="${i}">
         <span class="dstatus s-${escapeHtml(f.status)}">${escapeHtml(f.status)}</span>
         <span class="dpath">${escapeHtml(filePathLabel(f))}</span>${badge}</button></li>`;
     })
     .join("");
-  let html = `<ol class="diff-nav-files">${fileItems}</ol>`;
-  if (unanchored && unanchored.length) {
+  let html = renderDiffNavSummary(diffNavSummary()) + renderDiffNavFilters();
+  if (diffNavFilter !== "unanchored") {
+    html += `<ol class="diff-nav-files">${fileItems}</ol>`;
+  }
+  if (unanchored && unanchored.length && diffNavFilter !== "with-facts") {
     const entries = unanchored
       .map(
         (a) =>
-          `<li><button class="diff-nav-fact" data-anno="${escapeHtml(a.id)}">${escapeHtml(a.title)}</button></li>`,
+          `<li><button class="diff-nav-fact" data-anno="${escapeHtml(a.id)}"><span>${escapeHtml(a.title)}</span><span class="diff-nav-reason">${escapeHtml(unanchoredReason(a, filePaths))}</span></button></li>`,
       )
       .join("");
     html += `<section class="diff-unanchored" aria-label="unanchored review facts">
@@ -1455,6 +1476,46 @@ function renderDiffNav() {
       <ol>${entries}</ol></section>`;
   }
   return html;
+}
+
+function diffNavSummary() {
+  if (!diffCtx) return { fileCount: 0, factCount: 0, unanchoredCount: 0 };
+  return {
+    fileCount: diffCtx.files.length,
+    factCount: diffCtx.anchored.length + diffCtx.unanchored.length,
+    unanchoredCount: diffCtx.unanchored.length,
+  };
+}
+
+function renderDiffNavSummary(summary) {
+  return `<div class="diff-nav-summary" aria-label="diff summary">
+    <span><b>${summary.fileCount}</b> files</span>
+    <span><b>${summary.factCount}</b> facts</span>
+    <span><b>${summary.unanchoredCount}</b> unanchored</span>
+  </div>`;
+}
+
+function renderDiffNavFilters() {
+  return `<div class="diff-nav-filters" role="group" aria-label="diff navigator filters">
+    <button type="button" data-diff-nav-filter="all" aria-pressed="${diffNavFilter === "all"}">all</button>
+    <button type="button" data-diff-nav-filter="with-facts" aria-pressed="${diffNavFilter === "with-facts"}">with facts</button>
+    <button type="button" data-diff-nav-filter="unanchored" aria-pressed="${diffNavFilter === "unanchored"}">unanchored</button>
+  </div>`;
+}
+
+function setDiffNavFilter(filter) {
+  if (!["all", "with-facts", "unanchored"].includes(filter)) return;
+  diffNavFilter = filter;
+  $("#diff-nav").innerHTML = renderDiffNav();
+}
+
+function unanchoredReason(a, filePaths) {
+  const t = a.target || {};
+  if (a.kind === "assessment") return "broad assessment";
+  if (t.kind === "revision" || !t.filePath) return "revision-level";
+  if (t.kind === "range" && filePaths && filePaths.has(t.filePath)) return "line outside captured rows";
+  if (t.filePath && filePaths && !filePaths.has(t.filePath)) return "file missing from snapshot";
+  return "not anchored to a diff line";
 }
 
 // All rendered fact anchors in document order (inline annotations + unanchored
@@ -1481,9 +1542,16 @@ function jumpToTarget(targets, cursor, dir) {
 
 function jumpFact(dir) {
   const targets = diffFactTargets();
-  diffFactCursor = jumpToTarget(targets, diffFactCursor, dir);
+  if (!targets.length) return;
+  diffFactCursor = (diffFactCursor + dir + targets.length) % targets.length;
   const el = targets[diffFactCursor];
-  if (el) flashAnno(el);
+  if (el) {
+    const section = el.closest(".dfile");
+    if (section && !diffFileExpanded(section)) expandDiffFile(section);
+    if (focusDiffFactRoute(el.dataset.anno)) return;
+    el.scrollIntoView({ block: "center" });
+    flashAnno(el);
+  }
 }
 
 function jumpChange(dir) {
@@ -1517,6 +1585,10 @@ function filePathLabel(f) {
 // by default (it carries little line-by-line review value relative to its size).
 const LARGE_FILE_ROWS = 500;
 
+function fileRowCount(f) {
+  return (f.hunks || []).reduce((n, h) => n + (h.rows ? h.rows.length : 0), 0);
+}
+
 // Classify a file that carries no (or low) reviewable content, returning the
 // reason string used both as the default-collapse signal and the collapsed
 // one-line summary. `null` means a normal content-bearing file. The single
@@ -1529,8 +1601,7 @@ function classifyLowSignal(f) {
   if (renamed && !hunks.length) {
     return f.similarity != null ? `rename ${f.similarity}%` : "rename";
   }
-  const rowCount = hunks.reduce((n, h) => n + (h.rows ? h.rows.length : 0), 0);
-  if (rowCount > LARGE_FILE_ROWS) return "large file";
+  if (fileRowCount(f) > LARGE_FILE_ROWS) return "large file";
   return null;
 }
 
@@ -1547,6 +1618,37 @@ function fileFactCount(f, anchored) {
   return n;
 }
 
+function fileForFact(files, filePath) {
+  return files.find((f) => f.new_path === filePath || f.old_path === filePath) || null;
+}
+
+function rangeTouchesCapturedRows(a, file) {
+  if (!file) return false;
+  const t = a.target || {};
+  if (t.kind !== "range" || t.startLine == null) return true;
+  const side = t.side === "old" ? "old" : "new";
+  const end = t.endLine ?? t.startLine;
+  for (const h of file.hunks || []) {
+    for (const r of h.rows || []) {
+      const line = side === "old" ? r.old_line : r.new_line;
+      if (line != null && line >= t.startLine && line <= end) return true;
+    }
+  }
+  return false;
+}
+
+function renderDiffFactVicinity(f, anchored) {
+  const facts = anchored.filter((a) => {
+    const p = (a.target || {}).filePath;
+    return p === f.new_path || p === f.old_path;
+  });
+  return `<div class="diff-fact-vicinity" data-fact-vicinity="true">
+    <p>Large annotated file: showing review facts first.</p>
+    <button type="button" data-render-diff-file="true">Render all rows</button>
+    ${facts.map((a) => renderAnnotation(a, true)).join("")}
+  </div>`;
+}
+
 function renderDiff(artifact, annotations) {
   annotations = annotations || [];
   const files = (artifact.snapshot && artifact.snapshot.files) || [];
@@ -1559,16 +1661,22 @@ function renderDiff(artifact, annotations) {
   const unanchored = [];
   for (const a of annotations) {
     const t = a.target || {};
-    if ((t.kind === "range" || t.kind === "file") && t.filePath && filePaths.has(t.filePath)) anchored.push(a);
-    else unanchored.push(a);
+    if ((t.kind === "range" || t.kind === "file") && t.filePath && filePaths.has(t.filePath)) {
+      const file = fileForFact(files, t.filePath);
+      if (t.kind === "range" && !rangeTouchesCapturedRows(a, file)) unanchored.push(a);
+      else anchored.push(a);
+    } else {
+      unanchored.push(a);
+    }
   }
 
   // The render inputs the delegated #diff-body / #diff-nav listeners read to
   // fill a lazy file body or scroll to a fact. NOT state.diff (that stays the
   // object-id string the route grammar serializes).
-  diffCtx = { objectId: shownDiffObject, files, anchored, unanchored };
+  diffCtx = { objectId: shownDiffObject, files, anchored, unanchored, filePaths };
   diffFactCursor = -1;
   diffChangeCursor = -1;
+  diffNavFilter = "all";
 
   const counts = annotations.reduce((acc, a) => ((acc[a.kind] = (acc[a.kind] || 0) + 1), acc), {});
   const breakdown = Object.entries(counts)
@@ -1592,12 +1700,14 @@ function renderDiff(artifact, annotations) {
     .map((f, i) => {
       const reason = classifyLowSignal(f);
       const annotated = fileFactCount(f, anchored) > 0;
-      const open = annotated || (reason ? false : openBudget-- > 0);
-      const body = open ? renderDiffFileBody(f, anchored) : "";
+      const annotatedLarge = annotated && fileRowCount(f) > LARGE_FILE_ROWS;
+      const open = (annotated && !annotatedLarge) || (reason ? false : openBudget-- > 0);
+      const expanded = annotatedLarge || open;
+      const body = annotatedLarge ? renderDiffFactVicinity(f, anchored) : open ? renderDiffFileBody(f, anchored) : "";
       const lowCls = reason ? " dfile-lowsignal" : "";
       const lowAttr = reason ? ` data-lowsignal="${escapeHtml(reason)}"` : "";
-      return `<section class="dfile${lowCls}" data-dfile="${i}" data-expanded="${open}"${lowAttr}>${renderDiffFileHeader(f, anchored, reason, open)}<div class="dfile-body" data-dfile-body="${i}"${
-        open ? ` data-rendered="1"` : ""
+      return `<section class="dfile${lowCls}" data-dfile="${i}" data-expanded="${expanded}"${lowAttr}>${renderDiffFileHeader(f, anchored, reason, expanded)}<div class="dfile-body" data-dfile-body="${i}"${
+        annotatedLarge ? ` data-fact-vicinity="true"` : open ? ` data-rendered="1"` : ""
       }>${body}</div></section>`;
     })
     .join("");
@@ -1617,10 +1727,10 @@ function renderDiffFileHeader(f, anchored, reason, open) {
     ${n ? `<span class="dfile-notes">${n} note${n === 1 ? "" : "s"}</span>` : ""}</header>`;
 }
 
-// The lazy file body: file-level facts, metadata rows, hunks/rows with their
-// inline annotations, and the honesty-rule trailing facts. Built on first
-// expand. Each body owns its own `emitted` Set — a fact belongs to exactly one
-// file (fileFacts filters by path), so cross-file de-dup was never load-bearing.
+// The lazy file body: file-level facts, metadata rows, and hunks/rows with their
+// inline annotations. Built on first expand. Each body owns its own `emitted`
+// Set — a fact belongs to exactly one file (fileFacts filters by path), so
+// cross-file de-dup was never load-bearing.
 function renderDiffFileBody(f, anchored) {
   const oldp = f.old_path;
   const newp = f.new_path;
@@ -1697,8 +1807,8 @@ function renderDiffFileBody(f, anchored) {
     }
   }
 
-  // Range facts whose anchor line was not a captured row: surface them anyway
-  // so no review fact is silently dropped from the view.
+  // Safety fallback: if a range fact was classified as anchored but no rendered
+  // row emitted it, surface it inside the file instead of dropping it.
   for (const a of rangeFacts) {
     if (!emitted.has(a.id)) {
       html += renderAnnotation(a, true);
@@ -2929,13 +3039,22 @@ function wireControls() {
   // site, which stays route-only. A file header toggles its section; an
   // annotated row's gutter scrolls to its annotation.
   $("#diff-body").addEventListener("click", (ev) => {
+    const renderAll = ev.target.closest("[data-render-diff-file]");
+    if (renderAll) {
+      const section = renderAll.closest(".dfile");
+      if (section) {
+        ensureDiffFileBody(section);
+        setDiffFileExpanded(section, true);
+      }
+      return;
+    }
     const head = ev.target.closest(".dfile-head");
     if (head) {
       toggleDiffFile(head.closest(".dfile"));
       return;
     }
     const noted = ev.target.closest(".drow-noted[data-anno]");
-    if (noted) scrollToAnno(noted.dataset.anno);
+    if (noted) scrollToAnno(noted.dataset.anno, { updateRoute: true });
   });
   $("#diff-body").addEventListener("keydown", (ev) => {
     if (ev.key !== "Enter" && ev.key !== " ") return;
@@ -2948,12 +3067,17 @@ function wireControls() {
     const noted = ev.target.closest(".drow-noted[data-anno]");
     if (noted) {
       ev.preventDefault();
-      scrollToAnno(noted.dataset.anno);
+      scrollToAnno(noted.dataset.anno, { updateRoute: true });
     }
   });
   // The navigator sidebar: a file entry expands + scrolls its section; an
   // unanchored-fact entry scrolls to its annotation body.
   $("#diff-nav").addEventListener("click", (ev) => {
+    const filterBtn = ev.target.closest("[data-diff-nav-filter]");
+    if (filterBtn) {
+      setDiffNavFilter(filterBtn.dataset.diffNavFilter);
+      return;
+    }
     const fileBtn = ev.target.closest("[data-nav-file]");
     if (fileBtn) {
       const idx = Number(fileBtn.dataset.navFile);
@@ -2965,7 +3089,7 @@ function wireControls() {
       return;
     }
     const factBtn = ev.target.closest(".diff-nav-fact[data-anno]");
-    if (factBtn) scrollToAnno(factBtn.dataset.anno);
+    if (factBtn) scrollToAnno(factBtn.dataset.anno, { updateRoute: true });
   });
   $("#key-help-close").addEventListener("click", () => closeKeyHelp());
   $("#key-help").addEventListener("click", (ev) => {

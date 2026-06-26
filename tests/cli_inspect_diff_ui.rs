@@ -184,6 +184,23 @@ fn diff_close_replaces_history_and_focus_is_singular() {
 }
 
 #[test]
+fn diff_modal_is_declared_as_quick_readback_not_the_future_lens() {
+    let js = served_app_js();
+    assert!(
+        js.contains("DIFF_LENS_ROUTE_SEAM"),
+        "the diff renderer should share the single route/data seam marker"
+    );
+    assert!(
+        js.contains("quick readback") && js.contains("full-page diff lens"),
+        "the current modal should be documented as quick readback while the future lens is deferred"
+    );
+    assert!(
+        js.contains("diff=") && js.contains("focus="),
+        "the existing modal continues to use route-preserving diff/focus state"
+    );
+}
+
+#[test]
 fn diff_renderer_builds_navigator_entries_and_an_unanchored_panel() {
     let js = served_app_js();
     // File navigator: one clickable entry per file, carrying a fact-count badge;
@@ -258,6 +275,94 @@ fn low_signal_files_are_default_collapsed_with_a_summary() {
             "the low-signal summary names the `{reason}` reason"
         );
     }
+}
+
+#[test]
+fn annotated_large_files_render_fact_vicinity_instead_of_full_rows_by_default() {
+    let js = served_app_js();
+    assert!(
+        js.contains("renderDiffFactVicinity") && js.contains("data-fact-vicinity"),
+        "annotated large files should mount a fact-vicinity summary before full rows"
+    );
+    assert!(
+        js.contains("data-render-diff-file") && js.contains("Render all rows"),
+        "the vicinity summary should expose a direct affordance for hydrating full rows"
+    );
+    assert!(
+        !js.contains("ANNOTATED_LARGE_CONTEXT_ROWS") && !js.contains("data-context-rows"),
+        "the large-file placeholder should not promise context rows it does not render"
+    );
+    assert!(
+        js.contains("annotatedLarge") && js.contains("!annotatedLarge"),
+        "default-open logic should not render every row merely because a large file carries a fact"
+    );
+}
+
+#[test]
+fn diff_navigator_has_summary_and_basic_filters() {
+    let js = served_app_js();
+    assert!(
+        js.contains("diffNavSummary(") && js.contains("diff-nav-summary"),
+        "the diff navigator should render a file/fact/unanchored summary"
+    );
+    for filter in ["all", "with-facts", "unanchored"] {
+        assert!(
+            js.contains(&format!("data-diff-nav-filter=\"{filter}\"")),
+            "the diff navigator should expose the `{filter}` filter"
+        );
+    }
+    assert!(
+        js.contains("setDiffNavFilter("),
+        "navigator filters should update the rendered nav without adding route state"
+    );
+}
+
+#[test]
+fn diff_local_fact_navigation_updates_route_focus() {
+    let js = served_app_js();
+    assert!(
+        js.contains("function focusDiffFactRoute"),
+        "diff-local navigation should have one helper for updating the focus route"
+    );
+    assert!(
+        js.contains("navigate({ focus: id }, { replace: true })"),
+        "fact navigation should replace the current route focus rather than pushing history"
+    );
+    assert!(
+        js.contains("scrollToAnno(noted.dataset.anno, { updateRoute: true })")
+            && js.contains("scrollToAnno(factBtn.dataset.anno, { updateRoute: true })")
+            && js.contains("focusDiffFactRoute(el.dataset.anno)"),
+        "gutter, nav, and n/p fact jumps should all keep focus= in sync"
+    );
+    assert!(
+        js.contains("if (opts.updateRoute && focusDiffFactRoute(id)) return;")
+            && js.contains("if (focusDiffFactRoute(el.dataset.anno)) return;"),
+        "route-updating fact jumps should let the route render do the scroll/flash once"
+    );
+}
+
+#[test]
+fn unanchored_facts_are_labeled_by_target_reason_when_known() {
+    let js = served_app_js();
+    assert!(
+        js.contains("function unanchoredReason"),
+        "unanchored facts should be categorized by target reason"
+    );
+    for reason in [
+        "revision-level",
+        "file missing from snapshot",
+        "line outside captured rows",
+        "broad assessment",
+    ] {
+        assert!(
+            js.contains(reason),
+            "unanchored facts should distinguish `{reason}`"
+        );
+    }
+    assert!(
+        js.contains("diff-nav-reason"),
+        "the navigator should show the categorized unanchored reason"
+    );
 }
 
 #[test]

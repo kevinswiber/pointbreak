@@ -310,6 +310,42 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
   border-right: 1px solid var(--border);
   background: var(--bg-elev);
 }
+.diff-nav-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0 0 8px;
+  color: var(--fg-dim);
+  font-size: var(--fs-xs);
+}
+.diff-nav-summary span {
+  padding: 4px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg-row);
+}
+.diff-nav-summary b { color: var(--fg); font-weight: 600; }
+.diff-nav-filters {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 10px;
+}
+.diff-nav-filters button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 4px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--fg-dim);
+  font: var(--fs-xs)/var(--line) var(--mono);
+  cursor: pointer;
+}
+.diff-nav-filters button[aria-pressed="true"] {
+  color: var(--fg);
+  border-color: var(--accent);
+  background: var(--bg-row-sel);
+}
 .diff-nav ol { list-style: none; margin: 0; padding: 0; }
 .diff-nav-files { margin-bottom: 10px; }
 .diff-nav-file,
@@ -338,6 +374,7 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 .diff-nav-file .dpath { font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .diff-nav-file .dfile-notes { margin-left: auto; }
 .diff-nav-fact { font-size: var(--fs-sm); color: var(--fg-dim); }
+.diff-nav-reason { margin-left: auto; font: var(--fs-xs)/var(--line) var(--mono); color: var(--fg-dim); }
 .diff-unanchored h3 {
   font-size: var(--fs-xs);
   text-transform: uppercase;
@@ -347,6 +384,25 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
   margin: 8px 6px 4px;
 }
 .diff-body { flex: 1; min-width: 0; overflow: auto; padding: 12px 14px; }
+.diff-fact-vicinity {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-row);
+  border-top: 1px solid var(--border);
+}
+.diff-fact-vicinity p { margin: 0; color: var(--fg-dim); font-size: var(--fs-sm); }
+.diff-fact-vicinity button {
+  justify-self: start;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-elev);
+  color: var(--fg);
+  padding: 4px 8px;
+  font: var(--fs-xs)/var(--line) var(--mono);
+  cursor: pointer;
+}
+.diff-fact-vicinity button:hover { border-color: var(--accent); }
 .modal-head h2 { margin: 0; font-size: var(--fs-lg); }
 
 /* Command palette: a top-anchored search overlay. */
