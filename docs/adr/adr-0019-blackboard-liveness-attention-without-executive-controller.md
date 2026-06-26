@@ -3,8 +3,8 @@
 **Status:** Accepted (owner-approved 2026-06-19); landed via the substrate-reshape implementation work.
 **Independent** of ADR-0017/ADR-0018 (touches no identity); landed in parallel.
 **Date:** 2026-06-19
-**See also:** research 0013 synthesis + q6 liveness
-(this decision's source). Relates to: ADR-0017 §A5 / the ADR-0003 amendment (advisory-generative — a
+**See also:** [substrate language](../substrate-language.md) and
+[substrate thesis summary](../substrate-thesis-summary.md). Relates to: ADR-0017 §A5 / the ADR-0003 amendment (advisory-generative — a
 notification carries attention, never authority), ADR-0018 (a liveness signal over a fork must carry
 competing heads, not "the head moved"). In-repo `docs/adr/`: **ADR-0003** advisory-first / no-write-gate
 (the executive guardrail this ADR reads precisely, not relaxes), **ADR-0008** cross-peer conflict policy
@@ -147,7 +147,6 @@ notification.
 
 ## Related Docs
 
-- research 0013 synthesis, q6
 - In-repo `docs/`: `substrate-language.md` (the attention/executive split this ADR cites — `:68,73-82`),
   `docs/adr/adr-0003-*` (advisory-first / no-write-gate), `docs/adr/adr-0008-*` (convergence invariants).
 - Relates to ADR-0017 §A5 (advisory-generative), ADR-0018 (competing-heads attention).

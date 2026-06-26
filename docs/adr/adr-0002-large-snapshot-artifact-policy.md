@@ -144,10 +144,10 @@ instead of colliding (the #146 bug). ReviewUnit identity/endpoints bind through 
 
 **History, so it is not re-litigated** (it cost an archaeology pass to recover). V1 embedded
 `reviewUnitId`/`source`/`base`/`target` in the body+hash **deliberately, for drift/tamper detection**
-(plan 0014, "bind review unit captures to snapshot artifacts") plus replay self-containment (plan
-0013) — **not** to namespace artifacts per worktree. The per-worktree namespacing (via `review_unit_id`
-folding the canonical worktree root, and `target.worktreeRoot`) was an **unintended side effect**, first
-identified as a problem in research 0011 (2026-06-19, via a live `shore store link` conflict). V2
+(the original snapshot-artifact binding) plus replay self-containment — **not** to namespace artifacts per
+worktree. The per-worktree namespacing (via `review_unit_id` folding the canonical worktree root, and
+`target.worktreeRoot`) was an **unintended side effect**, first identified as a problem by a live
+`shore store link` conflict on 2026-06-19. V2
 **preserves the original tamper/drift guarantee** — binding moved to the event, which is the real
 authority and is itself hashed/signed — so decoupling the body removes only the accidental namespacing,
 not the validation.
@@ -158,8 +158,7 @@ V1 and V2. The single decode path validates `contentHash` over the raw stored bo
 (version-agnostic), so pre-existing V1 artifacts — including signed ones — keep validating and binding
 **without any rewrite**. There is **no in-place V1→V2 migration**: rewriting a capture event's payload
 to re-point its content hash would invalidate inline signatures and un-recreatable detached
-co-signatures, which a refusal-based migration could not carry forward (see plan 0074
-`findings/signed-v1-store-migration-gap.md`). #146 is fixed because new captures write byte-identical V2
-artifacts that dedup, and the write path dedups a new V2 capture against a pre-existing V1 artifact for
-the same snapshot. The dual-read V1 read branch is transitional and slated for removal once stores have
-converged to V2 (plan 0074 `findings/todo-remove-dual-read-after-fleet-migration.md`).
+co-signatures, which a refusal-based migration could not carry forward. #146 is fixed because new captures
+write byte-identical V2 artifacts that dedup, and the write path dedups a new V2 capture against a
+pre-existing V1 artifact for the same snapshot. The dual-read V1 read branch is transitional and slated for
+removal once stores have converged to V2.

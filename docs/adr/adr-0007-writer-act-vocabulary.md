@@ -67,7 +67,7 @@ Split the overloaded vocabulary and remove `role` from the event envelope and fr
   replaced by a predicate over verified actor identity — the response event's claimed actor and
   effective signer resolved against trust configuration — never over a writer-asserted vocabulary
   field. The concrete trust source (allowed-signers allowlist, gateway peer binding, or both) is
-  settled by the federation-gate implementation plan; this ADR fixes the invariant that no binding
+  settled by the federation-gate implementation; this ADR fixes the invariant that no binding
   decision reads a self-asserted field.
 
 ## Roles Are Claims, Not Identity
@@ -130,7 +130,7 @@ federation gate ships.
 **The original decision stands and is reinforced.** ADR-0007 removed `writer.role` from the envelope and
 made the review **act derived from `eventType`** (never stored), and the **persona derived at projection
 time** by comparing verified actor identities (never a stored or self-asserted field). The substrate
-re-architecture (research 0013; ADR-0017 §A5) depends on exactly that posture and only **refines what the
+re-architecture (ADR-0017 §A5) depends on exactly that posture and only **refines what the
 derived act names** and **removes one residual assumption**.
 
 **Context.** The re-architecture reframes the activity into three attributed **move kinds** — generative

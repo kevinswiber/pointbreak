@@ -1,20 +1,19 @@
 # ADR-0020: Pluggable Durable-Storage Backend Seam (Journal + ContentStore)
 
 **Status:** Accepted (owner-approved 2026-06-23); landed via the durable-storage backend-seam
-implementation plan (plan 0080). **Grounding re-verified against current `main` (`43bb8c6`,
-post-plans-0077/0079):** no decision changed — plan 0077 B2 (the compact re-hash-before-unlink floor) and
-plan 0079 (the strict/lenient skip-and-diagnose read surface) independently *reinforce* D2/D3 and the
-byte-not-typed design (see the notes in D3, D4, D11); a few `file:line` citations were refreshed for the
-shifted `event_store.rs`/`state.rs`.
+implementation work. **Grounding re-verified against current `main` (`43bb8c6`):** no decision changed —
+the compact re-hash-before-unlink floor and the strict/lenient skip-and-diagnose read surface independently
+*reinforce* D2/D3 and the byte-not-typed design (see the notes in D3, D4, D11); a few `file:line` citations
+were refreshed for the shifted `event_store.rs`/`state.rs`.
 **Date:** 2026-06-23
-**See also:** research 0015 synthesis (`.gumbo/research/0015-pluggable-durable-storage-backends/synthesis.md`)
-+ q1–q7 — this decision's source. Relates to: **ADR-0004** (event signatures — the layout-independence
-this relies on and preserves), **ADR-0015** (single common-dir store — the `resolve_store` choke point
+**See also:** the durable-storage backend analysis that produced this decision. Relates to: **ADR-0004**
+(event signatures — the layout-independence this relies on and preserves), **ADR-0015** (single common-dir
+store — the `resolve_store` choke point
 this threads a backend handle through), **ADR-0016** (content-targeted removal — only the
 `ContentStore` removes; the `Journal` is append-only), **ADR-0017/ADR-0018** (object identity layering,
 event-borne supersession — the content-address layer this sits beneath, untouched). Composes with
-research **0014** / the ADR-0004 amendment + plan 0078 (`contentEncoding` sits *below* the identity
-layer; see O3, composes without re-keying the store).
+the `contentEncoding` direction (`contentEncoding` sits *below* the identity layer; see O3, composes without
+re-keying the store).
 
 ## Context
 
@@ -33,18 +32,18 @@ larger than "swap `LocalStorage`."
 
 The owner wants the flexibility to **swap persistence backends and experiment with new on-disk data
 structures, with clear, measured trade-offs** — and to run in-process unit tests against an in-memory
-store. Research 0015 (synthesized, Codex research-review approved & stable) established the forces:
+store. The durable-storage backend analysis established the forces:
 
 - **Diffability is an architectural constraint, not a preference.** The durable truth layer stays
   plain-text and `git diff`-able; binary/analytical stores are allowed *only* in the derived,
   regenerable projection layer (out of scope here, D11). "Too many files" is answered by a *diffable*
   NDJSON log, never a binary truth store.
-- **Signatures and content-hashes are layout-independent (Q3, verified against code).** Every digest
+- **Signatures and content-hashes are layout-independent (verified against code).** Every digest
   (signatures, `eventRecordHash`, `payloadHash`, object `content_hash`, note-body hash) is computed from
   typed in-memory fields via `canonical_json`, **never from storage bytes**; read-time re-derivation
   rejects on mismatch (`validate_event`, `verify_event_signature`, `decode_and_validate_object_artifact`),
   so a lossless serde round-trip validates under any backend.
-- **"Too many files" is two distinct problems (Q4, measured on APFS/SSD).** A *many-small-files* event
+- **"Too many files" is two distinct problems (measured on APFS/SSD).** A *many-small-files* event
   problem (1.93× disk amplification over a 4 KB block floor; **63× slower read-all** at 10 k events:
   144.8 ms file-per-event vs 2.3 ms NDJSON) and a *few-large-files* object problem (1.02× amplification,
   max object 128 KB) — wanting **different** fixes (a diffable NDJSON log vs. transparent compression).
@@ -102,13 +101,13 @@ wrapper reads the stored bytes back and maps to today's richer `EventWriteOutcom
 (`Existing` / `ExistingDivergentSignature` / conflict) by the typed `payload_hash` / `event_record_hash`
 comparison — the classification is the wrapper's, never the backend's. **Byte-not-typed is decisive**: a
 typed surface would tempt a backend to re-canonicalize or
-re-serialize on read and silently shift the bytes a content-hash validates over — the plan-0076
-frozen-content-id class of silent signed-store break — and a dumb-byte-sink backend makes that class of
+re-serialize on read and silently shift the bytes a content-hash validates over — the frozen-content-id class
+of silent signed-store break — and a dumb-byte-sink backend makes that class of
 break *structurally impossible to introduce by adding a backend*.
 
 ### D3. Backend invariance obligations O1–O4 + the cross-process atomicity clause
 
-A backend swap must break no signature and no content-hash. The Q3-verified obligations the wrapper/traits
+A backend swap must break no signature and no content-hash. The verified obligations the wrapper/traits
 enforce:
 
 - **O1 — Events may re-serialize** in any byte layout *iff* the `ShoreEvent` serde round-trip is lossless
@@ -123,7 +122,7 @@ enforce:
   `{schema, version, snapshot}` with `contentHash` removed and re-canonicalized,
   `object_artifact.rs:197-211`; note bodies hash only `NoteBodyEnvelope.body`, `body_artifact.rs:131-138`).
   **byte-exact `ContentStore` round-trip** (`get(put(b)) == b`) is a *separate* current dedup/storage
-  obligation. Stating the address over decoded content is what lets research 0014's `contentEncoding`
+  obligation. Stating the address over decoded content is what lets `contentEncoding`
   (which makes *stored* bytes differ per store) compose with this seam **without re-keying the store**.
 - **O4 — No digest reads event position.** Signatures, content-hashes, and the `event_set_hash`
   liveness token (which sorts before hashing, `freshness.rs:23-43`) are all order-free. **This does NOT
@@ -131,7 +130,7 @@ enforce:
 
 The **cross-process atomic create-if-absent** clause (D1) is the hardest obligation and is stated as
 **cross-process**, not merely "atomic": there is no store-dir lock by design (`resolution.rs:98-101`),
-so multi-worktree write-through correctness rests on it (today `O_CREAT|O_EXCL`; measured in Q4 as
+so multi-worktree write-through correctness rests on it (today `O_CREAT|O_EXCL`; measured as
 8-racing → 1 `Created` / 7 `AlreadyExists`). A real alternative *diffable-truth* backend meets it its own
 way — e.g. **NDJSON** via an advisory lock or single-writer broker (Open Questions). (A database
 `UNIQUE`/`INSERT-OR-IGNORE` is the analogous mechanism, but a binary DB is **rejected for the truth
@@ -141,7 +140,8 @@ production, not just slower; the in-memory backend's
 single-process weakening is a deliberately-scoped non-production exception (D7), enforced by the selector
 (D8) — never a relaxation of the production contract.
 
-**Content-hash validation also guards the remove path (reinforced by plan 0077 B2, landed on main).**
+**Content-hash validation also guards the remove path (reinforced by the compact re-hash-before-unlink work
+landed on main).**
 `compact_store` (`artifact_removal/mod.rs:478`) now **re-verifies a blob's decoded-content hash before it
 erases it** (refuse-on-drift → `SweepOutcome::HashMismatchSkipped`, `artifact_removal/mod.rs:439-446`),
 and the module is explicit that "identity is over decoded content, not raw bytes" — an independent landing
@@ -244,14 +244,14 @@ Not everything is abstracted. These stay `LocalStorage`-typed by nature:
   they are bundle/inventory **consumers**, abstractable later through a `ContentStore`/`Journal` read
   surface *only if* a non-file backend needs bundle/inventory support — a consumer refactor, not a file-ism.
 
-The **inspector** and **`cli/store.rs`** are projection/repo-keyed and change nothing (Q1 friction-rank 7).
+The **inspector** and **`cli/store.rs`** are projection/repo-keyed and change nothing.
 
 ### D10. Zero-format-change: the existing suite is the regression net and the acceptance gate; staging
 
 Introducing the traits with the file impl as default is a **behavior-preserving refactor**: no on-disk
-layout change, no new event/schema/store version, **no `sigVersion` bump, no signed-store break**
-(Q7's constant-by-constant table is all "No" — every format-bearing constant lives in the typed model
-*above* storage; there is no store-version/manifest file to move). The layout strings (`events`,
+layout change, no new event/schema/store version, **no `sigVersion` bump, no signed-store break**: every
+format-bearing constant lives in the typed model *above* storage, and there is no store-version/manifest file
+to move. The layout strings (`events`,
 `artifacts/objects`, `artifacts/notes`, `state.json`) and the file backend's hash-sorted listing order
 (D4) are preserved verbatim, so `state.json` is byte-identical. Consequently the **existing capture /
 idempotency / co-signature / gc-compact / inventory / migrate / bundle / resolver / freshness suites pin
@@ -283,7 +283,7 @@ secondary index, and no measured query pain, so designing it now is premature.
 The read surface keeps it open: full iteration (`list_event_bytes`, D4) plus the pure, order-independent
 `event_set_hash` (`freshness.rs:23-43`). Note the read surface now has **strict** (`list_events`,
 `event_store.rs:129`) **and lenient** (`list_events_lenient`, `event_store.rs:140`, feeding
-`read_events_for_display`, `read.rs:170`) decode variants — plan 0079's skip-and-diagnose for
+`read_events_for_display`, `read.rs:170`) decode variants — the skip-and-diagnose path for
 schema-broken events. Both decode the *same* `Journal::list_event_bytes`; the strict-vs-lenient policy is
 **wrapper/projection-level, not a `Journal` concern**, which confirms byte-not-typed (D2) — the byte trait
 needs no lenient variant. An incremental projector's "events since H" / stable cursor is a
@@ -324,7 +324,7 @@ rebuildable from the journal.
   segments survive only as prior art proving NDJSON is the *diffable* way to pack.
 - **FastCDC content-defined chunking now** — byte-stable only with deterministic reassembly+rehash (high
   blast radius vs O1–O3) and it destroys per-object diffability; no fixture shows the multi-MB pain it
-  solves. Prefer research-0014 `contentEncoding` compression if object size ever bites (D7).
+  solves. Prefer `contentEncoding` compression if object size ever bites (D7).
 - **The `.shore/store.json` config-file selector now** — a backend is an experiment toggle, not yet a
   durable per-store property; held in reserve (D8).
 - **`SHORE_BACKEND=memory` as an env-reachable value** — it would let a spawned child inherit an empty,
@@ -347,7 +347,7 @@ rebuildable from the journal.
   prefix-filter, SQL `LIKE`), but a cleaner shape would have the **wrapper** own object-vs-note namespacing
   — an opaque content address + a `kind` discriminator — so the backend never models file prefixes. Decide
   at the first non-file `ContentStore` backend; the file impl is fine as-is.
-- **The put/get decoded-vs-encoded boundary (the 0015 ↔ 0014/0078 seam)** — does `ContentStore::put`/`get`
+- **The put/get decoded-vs-encoded boundary** — does `ContentStore::put`/`get`
   operate over decoded bytes (wrapper owns hashing/address; encoding is an internal backend concern) or
   already-encoded bytes? Likely "wrapper computes the decoded-content hash + address; backend stores opaque
   (possibly encoded) bytes under that address and returns decoded bytes." Confirm when `contentEncoding`
@@ -357,26 +357,27 @@ rebuildable from the journal.
   events to a canonical order in the wrapper before reducing? Decide when an out-of-hash-order backend is
   actually built; the file impl needs neither.
 - **Tamper-hook trait shape** — a `#[cfg(test)]`-gated trait method vs a separate `TamperJournal` test
-  trait vs a free function. Decide in the plan (D10).
+  trait vs a free function. Decide in the implementation work (D10).
 - **`store status` reporting the effective backend** — `SHORE_BACKEND` is env-only (no committed source to
-  report), but surfacing the *effective* backend aids experiment hygiene. Cheap; defer to the plan.
+  report), but surfacing the *effective* backend aids experiment hygiene. Cheap; defer to the implementation
+  work.
 - **Cross-store format mismatch under env selection** — a store written by `local` and re-read under
   `ndjson` mismatches on-disk format; the experiment surface needs a documented rule (a distinct on-disk
   subtree per backend, or developer-owned consistency).
-- **Append-latency on slow/networked storage** — all Q4 append numbers are APFS/SSD, where the two layouts
+- **Append-latency on slow/networked storage** — all append measurements are APFS/SSD, where the two layouts
   are within fsync noise; the file-per-event double fsync could widen on a slow/networked FS. Direction
   unchanged; magnitude unmeasured.
 
 ## Revisit Triggers
 
 - A measured read-all or write-amplification pain on a real store crosses a threshold worth NDJSON's
-  concurrency cost → build the NDJSON backend (stage 3 → its own plan).
-- Research 0014's `contentEncoding` lands and makes *stored* bytes differ per store → confirm the dedup key
+  concurrency cost → build the NDJSON backend as its own implementation effort.
+- `contentEncoding` lands and makes *stored* bytes differ per store → confirm the dedup key
   has moved to the decoded-content `sha256` (O3) and the put/get encoded boundary is settled.
 - A backend stops being an experiment and becomes a durable per-store fact → promote the selector from the
   `SHORE_BACKEND` env var to the `.shore/store.json` config-file mechanism (D8).
 - A concrete slow read path, or an analytical query the on-the-fly reducer serves poorly, emerges → open
-  the deferred `ProjectionStore` seam as its own research → ADR → plan (D11), DuckDB the lead candidate.
+  the deferred `ProjectionStore` seam as its own ADR and implementation effort (D11), DuckDB the lead candidate.
 - A non-file backend with a different listing order is proposed → resolve the D4 order-audit-vs-canonicalize
   question before it lands.
 - Any proposal to add a typed method, a `remove` on the `Journal`, or a binary truth store → reopen here;
@@ -384,10 +385,9 @@ rebuildable from the journal.
 
 ## Related Docs
 
-- research 0015 synthesis + q1–q7 (`.gumbo/research/0015-pluggable-durable-storage-backends/`).
+- The durable-storage backend analysis that produced this decision.
 - In-repo `docs/`: `storage-model.md` (the consumer contract this seam preserves), `store-migration.md`
   (the §8 convergence rule any real backend format is gated by), `substrate-language.md`
   (store = log/journal; the three-layer framing).
 - In-repo `docs/adr/`: ADR-0004, ADR-0015, ADR-0016, ADR-0017/ADR-0018 (see header).
-- Composes with research 0014 / the ADR-0004 amendment + plan 0078 (`contentEncoding` below the identity
-  layer, no re-keying).
+- Composes with the `contentEncoding` direction below the identity layer, with no re-keying.

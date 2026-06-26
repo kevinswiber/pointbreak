@@ -12,7 +12,7 @@ relay ADR-0001 (peer-to-actor binding, shoreline-relay repo)
 ADR-0007 removed `writer.role` from the envelope and fixed the invariant that no binding decision
 reads a self-asserted field. It deliberately reserved the replacement: "the concrete trust source
 (allowed-signers allowlist, gateway peer binding, or both) is settled by the federation-gate
-implementation plan." The interim that landed with ADR-0007 is deny-all:
+implementation." The interim that landed with ADR-0007 is deny-all:
 `response_identity_is_binding` (`src/session/projection/task.rs`) is a constant `false`, every
 responded operative input request projects as `Blocked`, and the diagnostic
 `agent_resumption_response_identity_not_binding` reports that no binding trust source is
@@ -312,8 +312,8 @@ original decisions stand — **Status:** stays Accepted; this is a landing recor
 clause, not a re-decision. **Neither arm's trust basis, the ingest provenance marker, the policy
 presets, nor the diagnostic vocabulary change** except for the set generalization stated here, and it
 **composes under** [ADR-0010](./adr-0010-actor-identity-and-delegation.md)'s principal policy
-unchanged. It lands via shoreline plan 0068 (owner-approved 2026-06-17), bundled with the family the
-predicate reads, the same `## Amendment` mechanism plan 0066 used for ADR-0010.
+unchanged. It landed with the co-signature event family (owner-approved 2026-06-17), bundled with the family
+the predicate reads, using the same `## Amendment` mechanism ADR-0010 used.
 
 ### Context recap
 

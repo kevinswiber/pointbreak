@@ -246,8 +246,9 @@ reserved `eventRecordHash` name into a concrete, **back-compatible** contract: s
 Shoreline event form a **set of attestations** keyed to the event's signature-exclusive identity, and
 multiple signatures over one fact are **co-signers, not a conflict**. The original decisions stand —
 **Status:** stays Accepted; this is a landing record, not a re-decision. It introduces **no new
-`sigVersion`** and **migrates no stored bytes**. It lands via shoreline plan 0068 (owner-approved
-2026-06-17), the same `## Amendment` mechanism plan 0066 used for ADR-0010's "Key Custody Landing".
+`sigVersion`** and **migrates no stored bytes**. It landed with the co-signature event family
+(owner-approved 2026-06-17), using the same `## Amendment` mechanism ADR-0010 used for "Key Custody
+Landing".
 The governing definition of `eventRecordHash` lives in
 [ADR-0008](./adr-0008-cross-peer-conflict-policy.md); the binding generalization it enables is the
 amendment to [ADR-0009](./adr-0009-resumption-binding-trust-source.md); it composes under
@@ -464,7 +465,7 @@ to follow: populating it provably **changes `payloadHash`** while leaving identi
 reserved field** — any future activation must explicitly handle its `payloadHash`/`eventSetHash` effect and
 must **not** be used to carry co-signature member meaning. This is the substrate reason ADR-0013's
 classification is derived (not a stored `relation` marker); a future explicit marker, if ever needed, must
-be **identity-bearing**. The landing implementation plan **must add a cross-mirror convergence test**: for
+be **identity-bearing**. The landing implementation **must add a cross-mirror convergence test**: for
 one attestation triple, independently-minted carriers carry **no payload meaning/relation field** and keep
 **identical `idempotencyKey`, `eventId`, `payloadHash`, and `eventSetHash`**, while envelope-only fields
 (e.g. the carrier `writer`) may differ without affecting convergence (`eventSetHash` ignores them,

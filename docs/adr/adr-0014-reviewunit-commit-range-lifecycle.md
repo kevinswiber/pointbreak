@@ -1,13 +1,13 @@
 # ADR-0014: ReviewUnit Commit-Range Lifecycle — Ref/Commit Association Events
 
 **Status:** Accepted (owner-approved 2026-06-19); landed via the ReviewUnit commit-range lifecycle
-implementation plan.
+implementation work.
 **Date:** 2026-06-19
 **See also:** [ADR-0004](./adr-0004-event-signatures.md) (generic `EventToBeSigned` — consumed unchanged,
 no new `sigVersion`), [ADR-0005](./adr-0005-review-unit-lineage.md) (lineage supersession — kept
 distinct), [ADR-0008](./adr-0008-cross-peer-conflict-policy.md) (cross-peer conflict policy — first
-consumer of the reserved class-(c) codes), ADR-0015 (single-common-dir store/topology — independent axis,
-draft; this family supplies the reachability projection its §5 names).
+consumer of the reserved class-(c) codes), ADR-0015 (single-common-dir store/topology — independent axis;
+this family supplies the reachability projection its §5 names).
 
 ## Context
 
@@ -26,7 +26,7 @@ Three substrate facts constrain the design:
   `review_unit_captured:<review_unit_id>`; `event_id` derives from the idempotency key **alone**;
   `record_event_once` **hard-conflicts** on same-key/different-`payloadHash`. Therefore any capture-context
   or commit relationship **must be a separate event**, never a field grafted onto
-  `ReviewUnitCapturedPayload` (B1).
+  `ReviewUnitCapturedPayload` (the capture-context identity constraint).
 - **Convergence is over `{event_id, payload_hash}`.** `eventSetHash` is computed over
   `{event_id, payload_hash}`; load-bearing meaning must live in the identity/idempotency key, never an
   excluded-from-identity payload field (ADR-0004 convergence invariant).
@@ -61,7 +61,7 @@ Payloads (new module `src/session/event/association.rs`, each referencing the un
 - **`ReviewUnitRefWithdrawnPayload`** / **`ReviewUnitCommitWithdrawnPayload`** —
   `{ <axis>_withdrawal_id, target, <axis>_association_id }`, naming the association they retract.
 
-### 2. B1-safe idempotency keys; the distinguisher is in the key; writer and track are excluded
+### 2. Capture-identity-safe idempotency keys; the distinguisher is in the key; writer and track are excluded
 
 - Associations follow the house key shape with the **edge distinguisher in the key**:
   `review_unit_<axis>_associated:<review_unit_id>:<source_key>`, where `source_key` is the edge
@@ -176,8 +176,8 @@ The CLI provides these capabilities:
   capture. Commit-range captures get no auto-association.
 - **Branch-filtered history** ("history for `feat/X`") as a read-side filter selecting units by ref
   association, with a **label-vs-liveness** selector (label = recorded ref association, offline; liveness =
-  reachability), and the four events filterable in `review history`. This **supersedes** held plan-0072
-  Facet-2's `worktree_root` scoping proxy.
+  reachability), and the four events filterable in `review history`. This **supersedes** the earlier
+  `worktree_root` scoping proxy.
 
 The landed spelling is a `shore review association` noun with flat verbs `associate-commit` /
 `withdraw-commit` / `associate-ref` / `withdraw-ref` / `list`; `--ref` (alias `--branch`) + `--by
@@ -199,8 +199,8 @@ does not touch the `review_unit_lineage_*` events.
   federation-correct: same edge converges across writers; missing referents self-heal; no winner-picking.
 - Net-new cost is bounded: the pure fold is O(events) like the existing reducers; reachability is a
   batched, cached, read-time enrichment paid only when liveness is requested.
-- Lands **independent of and before** the ADR-0015 topology collapse (no topology dependency, no new
-  `sigVersion`, no ADR amendment); resolves research 0011's B1 and supplies ADR-0015 §5's reachability
+- Landed **independent of** the ADR-0015 topology collapse (no topology dependency, no new `sigVersion`, no
+  ADR amendment); resolves the capture-context identity problem and supplies ADR-0015 §5's reachability
   projection.
 
 ### Rejected
@@ -216,8 +216,8 @@ does not touch the `review_unit_lineage_*` events.
 - **Folding `writer` or `track` into the association id** — would prevent the same edge from converging
   across writers. Both are envelope-only (§2).
 - **Folding this into ADR-0015** — topology (where the store lives) and lifecycle (how a unit relates to the
-  commit graph) are independent axes; folding would couple a ratify-ready, parallel-safe decision to a draft
-  blocked on three unrelated preconditions (B2/privacy/SF2). They are siblings with a consumer/supplier
+  commit graph) are independent axes; folding would have coupled a parallel-safe decision to unrelated
+  commit-grouping, privacy, and store-rebuild preconditions. They are siblings with a consumer/supplier
   cross-reference.
 - **Auto-recording a commit association at capture** — a worktree capture is born floating; its target
   commit does not exist yet. Only `ReviewUnitRefAssociated` is auto-recorded (§9).
@@ -226,7 +226,7 @@ does not touch the `review_unit_lineage_*` events.
 
 - A real **revive-the-same-edge** use case emerges (would reopen the terminal-withdrawal / no-revival rule).
 - **Substrate retraction** lands (re-evaluate the domain-scoped withdrawal against the generic primitive).
-- **ADR-0015 topology** ratifies (confirm the reachability-projection consumer seam still holds).
+- **ADR-0015 topology** changes in a way that pressures the reachability-projection consumer seam.
 
 ## Resolved in implementation
 
@@ -300,7 +300,7 @@ fail-open stays in place as the complementary safety net.
 ## Amendment: Rename the Association Event Family `review_unit_*` → `revision_*` (2026-06-21)
 
 **The original decision stands; this is a vocabulary rename only.** ADR-0014's model — the symmetric
-four-event family on two axes (§1), the B1-safe writer/track-free idempotency keys (§2), withdraw-only
+four-event family on two axes (§1), the capture-identity-safe writer/track-free idempotency keys (§2), withdraw-only
 terminality (§3), all-statuses-derived (§4), the git-free projection + read-time reachability enrichment
 (§5/§6), the ADR-0008 conflict diagnostics (§7), signing/convergence with **no new `sigVersion`** (§8), the
 CLI surface (§9, the `shore review association` noun), and the prior 2026-06-19 conditional-auto-record
@@ -336,7 +336,7 @@ migration.
 `ref_name@head_oid` on the ref axis); withdrawals become `revision_<axis>_withdrawn:<association_id>`. Because
 `event_id` derives from the idempotency key alone, **this changes the derived `event_id` of every event in
 this family** — which is exactly what the one-shot owner-run migration re-keys for the whole store (ADR-0017 §A6
-/ the migrator), so it is absorbed there and is **not** a separate migration. The B1-safe key discipline
+/ the migrator), so it is absorbed there and is **not** a separate migration. The capture-identity-safe key discipline
 (§2: edge distinguisher in the key; `writer`/`track` excluded; `*_association_id` as a writer-free sha256
 over `{ revision_id, edge distinguisher }`) is **unchanged** — only the literal `review_unit_`→`revision_`
 prefix moves. The payload **field** names (`ref_association_id`, `commit_association_id`,

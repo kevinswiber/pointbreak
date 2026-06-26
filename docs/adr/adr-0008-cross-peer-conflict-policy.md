@@ -3,8 +3,8 @@
 **Status:** Accepted 2026-06-11 — **REVISED 2026-06-16** per the owner's co-signature direction:
 conflict **class (b) divergent-signature dissolves** into signature-set union, and signature-exclusive
 `eventRecordHash` is **re-affirmed** as the precondition that makes the union well-defined. **Revision
-re-approved (owner-approved 2026-06-17);** landed in-repo via shoreline plan 0068 (the co-signature
-event family) whose ADR-0004 amendment this revision depends on. **Correction owner-ratified
+re-approved (owner-approved 2026-06-17);** landed in-repo with the co-signature event family whose ADR-0004
+amendment this revision depends on. **Correction owner-ratified
 2026-06-17:** `eventRecordHash` excludes `ingest` (per-hop metadata) in addition to
 `signer`/`signature`/`sourceRef` — see §"Event-Set Root And Signature Divergence" (without it the
 section's own convergence claim fails); this is part of the accepted decision.
@@ -189,7 +189,7 @@ record excluding `signer`, `signature`, `sourceRef`, **and `ingest`**.
 > contradicting the convergence this very section claims (and breaking class-(b) transcription, which
 > matches the kept local copy against the incoming stamped copy by `eventRecordHash`). Excluding
 > `ingest` is what the section's own logic requires; it is grouped with `sourceRef` as hop metadata.
-> Surfaced by external review of shoreline plan 0068 (the `eventRecordHash` implementer); **ratified by
+> Surfaced by external review of the `eventRecordHash` implementation; **ratified by
 > the owner 2026-06-17.** The rule is now: `eventRecordHash` excludes **the signature and all
 > per-hop/per-mirror metadata** (`signer`, `signature`, `sourceRef`, `ingest`). This is part of the
 > accepted decision.

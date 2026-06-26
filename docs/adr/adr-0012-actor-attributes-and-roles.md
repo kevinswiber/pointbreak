@@ -135,8 +135,8 @@ responsibility, they only let a consumer *read what an actor is*.
 ### Out of scope here
 
 - The **write CLI** (`shore identity attest` + a `stage_actor_attributes` writer mirroring
-  `stage_enrollment`) is specified in research 0010 Q5 and lands via the *identity + endorse creation CLIs*
-  implementation plan, not this ADR. v1 can be hand-edited like any other `.shore/` config.
+  `stage_enrollment`) lands via the *identity + endorse creation CLIs*, not this ADR. v1 can be hand-edited
+  like any other `.shore/` config.
 - **How endorsement classification consumes attributes** (the relationship + attribute reads, the policy
   presets) is ADR-0013's decision; this ADR only provides the substrate.
 

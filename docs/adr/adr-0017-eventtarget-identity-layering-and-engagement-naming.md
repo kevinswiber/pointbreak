@@ -13,9 +13,9 @@ surface exception. Landed via the substrate-reshape implementation work, which a
 already-landed ADR-0016 to this ADR's target shape via an **ADR-0016 amendment** (ADR-0016's `session_id`
 anchor predates this ADR's `session_id`→`journal_id` rename).
 **Date:** 2026-06-19
-**See also:** research 0013 synthesis (this decision's source) + question findings q1 (identity layering),
-q2 (activity + naming), q3 (supersession), q4 (object identity). This ADR **combines** the synthesis's two
-identity-and-naming proposals into one record: identity layering is §A1–A3, and the Engagement/Journal
+**See also:** [substrate thesis summary](../substrate-thesis-summary.md) and
+[substrate language](../substrate-language.md), plus ADR-0018 for supersession. This ADR **combines** the
+identity-and-naming analysis into one record: identity layering is §A1–A3, and the Engagement/Journal
 naming + the advisory-generative rule are §A4–A5. **Amends** in-repo ADR-0003 (advisory-first → extends to
 generative moves; its Revisit Trigger 4 is the named hook) and ADR-0007 (writer-act vocabulary → capture is
 the generative move any actor performs), each via its own appended amendment. **Coupled ADRs:** ADR-0018
@@ -57,14 +57,14 @@ meant to converge is the one place they diverged — review kept its bespoke tri
 
 This ADR is written **abstraction-down**: Shoreline is a canonical tamper-evident *agent-work
 code-review* journal. The substrate's generality beyond code review is an open, falsifiable test
-(research 0013 Q5 found the owner does not in practice route prose through the journal), **not** an
+(the owner does not in practice route prose through the journal), **not** an
 established platform. Nothing here is decided as if a general coordination substrate were proven.
 
 Breaking changes are welcome: Shoreline has only a very early release, is unpromoted, and the owner is
-the sole user. The migration's in-scope stores are the owner's working repos (corrected from Q8's
-fixtures); their signing keys are **all held locally**, so re-signing and co-signature
-re-attestation are real but **lossless** and the signature blast radius does not constrain the reshape.
-The migration is handled by the one-time owner-run store migrations.
+the sole user. The migration's in-scope stores are the owner's working repos; their signing keys are **all
+held locally**, so re-signing and co-signature re-attestation are real but **lossless** and the signature
+blast radius does not constrain the reshape. The migration is handled by the one-time owner-run store
+migrations.
 
 ## Decision
 
@@ -186,7 +186,7 @@ vocabulary** (`journal_id`, `TargetRef::Journal`) — **no primary `shore review
 `shore inspect` substrate-inspector excepted — §A4 (viii)); the wire rename rides a
 second signed-store break (§A6), whose throwaway re-keying migrator maps `ledger_id`→`journal_id` (and the
 value prefix `ledger:`/`session:` → `journal:`). (The earlier choice
-"Ledger" — research 0013 Q2 — was only to free "session" and because it was the dialogue's word, never a
+"Ledger" was only to free "session" and because it was the dialogue's word, never a
 technical claim, so nothing load-bearing is lost.)
 
 **`Review` is the `Engagement` type, not the unit.** "Review" names the *domain/activity* (sibling to
@@ -205,7 +205,7 @@ on top (`fingerprint.rs:186-200`). They converge **only because A3 redefines the
 move into the Revision** (as `git_provenance`) and the **content moves into the Object**, after which
 review_unit and revision fold *identical* material (`object_id` + git provenance). `source_repo_namespace`
 leaves identity (A3); the `source` worktree-vs-range bit is recoverable from the endpoint *types* and the
-single-variant capture-mode discriminants retire (research 0013 Q7), so nothing review_unit folded
+single-variant capture-mode discriminants retire, so nothing review_unit folded
 survives outside the reshaped Revision. The **semantic clincher**: ADR-0018 removes the lineage container, so
 no handle survives *above* the captured position — the position **is** the unit. Therefore
 `ReviewUnit ≡ Revision`. (The wire-level rename — `review_unit_id`→`revision_id`, `ReviewTargetRef::ReviewUnit`
@@ -233,9 +233,9 @@ do not re-create it one layer up.
 
 **The typed `Engagement` is abstraction-down, not a platform.** `EngagementType` is closed at
 `{ Review, Task }` because those are the **two domains that exist** — code review and the task-supervision
-vertical research 0013 Q7 directs us to keep (folded in as a flat work object). A third type (e.g. prose)
-is a future *stress test* the enum could admit **without claiming or building it** (research 0013 Q5: the
-generality thesis is doubted). Add no machinery that only a hypothetical third type would need.
+prototype the substrate thesis keeps as a flat work object. A third type (e.g. prose) is a future *stress
+test* the enum could admit **without claiming or building it**. Add no machinery that only a hypothetical
+third type would need.
 
 `engagement_id` is **carried in the generative move's payload, not the envelope** (owner-ratified
 2026-06-19: `journal_id` on the envelope, `engagement_id` in payload). It is the activity binding that
@@ -243,10 +243,9 @@ co-locates competing revisions of the same engagement; projections may use it as
 **authoritative grouping derives from the supersession DAG** (see the engagement-derivation rules below).
 This keeps the envelope
 minimal, matches the `supersedes`-in-payload placement (ADR-0018), and follows the substrate's
-project-over-store discipline; the surface is indifferent to the placement (research 0013 Q9).
+project-over-store discipline; the surface is indifferent to the placement.
 
-**An Engagement is *derived*, never *initiated* (resolving research 0013 Q2's "what seeds the
-engagement").** `capture` is the revision-layer generative move — it records a `Revision`; it does **not**
+**An Engagement is *derived*, never *initiated*.** `capture` is the revision-layer generative move — it records a `Revision`; it does **not**
 "open" an activity. There is **no `EngagementInitiated` event and no stored "current open activity"
 scalar**; the Engagement is the **supersession-connected component of revisions within a `Journal`**
 (ADR-0018), a **derived, authoritative** grouping. The payload `engagement_id` is a **write-time-derived
@@ -295,19 +294,19 @@ substrate forbids, and "closed" would be either a derivable signal or a write-ga
 have no enforceable "end"). The three move kinds bracket the lifecycle — generative opens/advances,
 evaluative (assessment) is the terminal, coordinative pauses — so Shoreline **observes** the lifecycle from
 the domain moves rather than imposing one. (A future need for an *authoritative* archived state is a named
-ADR-0003 executive-policy Revisit Trigger, deferred per Q5, not a default.)
+ADR-0003 executive-policy Revisit Trigger, not a default.)
 
 **The generative move is internally `WorkObjectProposed`; `capture` is a surface verb only.** The
 domain-neutral generative move/event is **`WorkObjectProposed`** — it produces a **work object** (a
 `Revision` in the review domain, a `TaskAttempt` in the task domain: the two `WorkObjectType` variants),
 and the `…Proposed` suffix foregrounds the advisory-generative rule (§A5: the produced work object is a
 *proposal*, never operative). The name **ranges over `WorkObjectType { Revision, TaskAttempt }` rather than
-either variant**, because the generative move is **not review-specific** (research 0013 Q2: the task
-domain's capture is equally a generative move over a different object). It replaces the per-domain
+either variant**, because the generative move is **not review-specific**: the task
+domain's capture is equally a generative move over a different object. It replaces the per-domain
 `ReviewUnitCaptured` / `TaskAttemptCaptured` families §A2 collapses into one generative family; *which*
 work object a given move produced is carried by the payload's `subject` (`TargetRef`), not encoded in the
-event name. **`shore review capture` stays the user-facing review surface verb** (Q9: the surface stays
-domain-named while internal vocabulary differs). "capture" / "the generative move" wherever it appears in
+event name. **`shore review capture` stays the user-facing review surface verb**: the surface stays
+domain-named while internal vocabulary differs. "capture" / "the generative move" wherever it appears in
 §A2/§A5, ADR-0018, and the ADR-0007 amendment all denote `WorkObjectProposed`. (Naming the move
 `RevisionProposed` after the **review** work object — a *sibling* of `TaskAttempt`, not their genus — is
 **rejected**: a single collapsed move named after one `WorkObjectType` variant privileges one domain and
@@ -327,16 +326,16 @@ domain, or its **own non-work-object concept** (`InputRequest…`, `ValidationCh
 `EventSignatureRecorded`, `ArtifactRemoved`) when it is not about a work object at all. So
 `WorkObjectProposed` is **not an exception**: it is the sole current member of the *cross-domain,
 load-bearing* category, and domain-specific families are **not** to be renamed up to `WorkObject*` — that
-would be the abstraction-up the reshape rejects (Q5), claiming a generality that does not exist (e.g. there
+would be the abstraction-up the reshape rejects, claiming a generality that does not exist (e.g. there
 is no task-domain commit/ref association). Internal wire vocabulary may be substrate-flavored (`object_id`,
-`engagement_id`); the **primary surface** stays domain-named regardless (Q9; the `shore inspect`
+`engagement_id`); the **primary surface** stays domain-named regardless (the `shore inspect`
 substrate-inspector is the one deliberate exception — see the surface rule below).
 
 **"review" stays the only user-facing surface verb** (`shore review …`). The `unit` noun retires: within
 the `shore review` namespace the captured unit is a **`revision`** (`shore review capture` creates one;
-`shore review revisions` / `show <revision>` / `--revision` / `--object` per ADR-0018/Q9). `Journal` /
+`shore review revisions` / `show <revision>` / `--revision` / `--object` per ADR-0018). `Journal` /
 `Engagement` / `EngagementType` and the generative/evaluative/coordinative move vocabulary are
-**internal**; `object` / `revision` are permitted domain surface terms (Q9). None of the internal
+**internal**; `object` / `revision` are permitted domain surface terms. None of the internal
 vocabulary reaches a CLI flag or a rendered UI label **on the primary `shore review` surface**. The
 **`shore inspect` substrate-inspector is a deliberate exception**: its served documents and UI intentionally
 expose substrate vocabulary (`journal`, `engagement`, `revision`, `object`) because inspecting the substrate
@@ -403,7 +402,7 @@ store's read path stays strict — a loud rejection of any stray old-shape file 
 
 - **One shared identity, finally.** Review and task objects address through a single non-optional
   `subject`; the diverged `WorkObjectId` claim is resolved by the type, not papered over. The
-  substrate-thesis-summary doc must be corrected accordingly (Q10 doc map).
+  substrate-thesis-summary doc must reflect that correction.
 - **Clone convergence and git-optional generality.** Dropping `source_repo_namespace` and git OIDs from
   identity makes two clones converge and makes a non-git object expressible. (Generality remains an open
   test — this enables it; it does not prove it.)
@@ -418,7 +417,7 @@ excepted — §A4 (viii)); "review" stays the only verb.
   constructor, projection, and idempotency-key builder is touched; the golden fixtures and the
   legacy-rejection tests are regenerated/deleted; `shore review history` output changes (the
   `change_id` and duplicated-`subject` fields are decision-dead but output-live — their removal is a
-  visible output diff taken at the break, per Q7/Q9).
+  visible output diff taken at the break).
 
 ### Rejected
 
@@ -431,18 +430,18 @@ excepted — §A4 (viii)); "review" stays the only verb.
   strictly dominates. The store is unreleased; there is no reader to keep compatible.
 - **`engagement_id` on the signed envelope.** It would enlarge the signed/convergence-bound target for
   envelope-level grouping the projection provides anyway; the payload placement is smaller and the
-  surface is indifferent (Q9).
-- **Framing this as a general coordination substrate.** Abstraction-up is the graveyard the research
+  surface is indifferent.
+- **Framing this as a general coordination substrate.** Abstraction-up is the failure mode the earlier
   challenges name; this ADR hardens the agent-work code-review journal and leaves generality an open test.
 
 ## Revisit Triggers
 
-- A second object-domain is admitted for real (e.g. the gumbo-prose test passes its marginal-cost bar,
-  research 0013 Q5/Q7) and needs identity or addressing shapes this `subject`/`Object`/`Revision` model
+- A second object-domain is admitted for real and passes the substrate thesis's marginal-cost bar, then needs
+  identity or addressing shapes this `subject`/`Object`/`Revision` model
   cannot express without a per-domain special case — i.e. the layering would merely *rename* a new
   divergence.
 - A non-local repo-namespace model lands and convergence needs a namespace concept back **outside** the
-  object identity (research 0013 Q4 flagged `source_repo_namespace` as a deliberate V1-local seam).
+  object identity.
 - The advisory-generative line is pressured: a real workflow needs a proposal treated as operative —
   reopen via ADR-0003's executive-policy exception, naming it directly, never as ordinary metadata.
 - A released contract or a second user appears, so "breaking changes welcome / one-shot migrate" no
@@ -450,11 +449,9 @@ excepted — §A4 (viii)); "review" stays the only verb.
 
 ## Related Docs
 
-- research 0013 synthesis, q1,
-  q2,
-  q4
+- [Substrate thesis summary](../substrate-thesis-summary.md)
+- [Substrate language](../substrate-language.md)
 - In-repo `docs/adr/`: **ADR-0003** advisory-first (amended by §A5), **ADR-0007**
   writer-act vocabulary (amended), **ADR-0005** lineage (superseded by ADR-0018).
-- In-repo `docs/`: `substrate-language.md`, `substrate-thesis-summary.md` — both
-  rewritten per the research 0013 Q10 doc map (`substrate-thesis-summary.md:32`'s diverged-`WorkObjectId`
-  claim is the load-bearing correction).
+- In-repo `docs/`: `substrate-language.md`, `substrate-thesis-summary.md` — the thesis summary's
+  diverged-`WorkObjectId` claim is the load-bearing correction.

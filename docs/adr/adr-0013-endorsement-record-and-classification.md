@@ -114,8 +114,8 @@ Reason codes (small, closed for v1):
 - **`authoring_not_endorsement`** — a *detached* signer is authorized for the event's actor, so the member
   is authoring authority, *deliberately not* counted as an endorsement even though the key also maps to a
   distinct actor. The laundering guard surfaced: a key enrolled under the agent's actor cannot be laundered
-  into an independent endorsement. **This sharpens — and supersedes — research 0010 Q3's earlier wording**,
-  which described the dual-enrollment case as "flagged ambiguous": this ADR decides target-actor
+  into an independent endorsement. **This sharpens the earlier dual-enrollment wording**,
+  which described the case as "flagged ambiguous": this ADR decides target-actor
   authorization has **precedence**, and the distinct-actor mapping is surfaced as `authoring_not_endorsement`,
   not as an endorsement ambiguity.
 - **`unknown_endorser`** — the signer verifies but resolves to no known actor (not enrolled in
@@ -187,13 +187,13 @@ reads to gate an action — Shoreline **computes the classification always and d
 `require-endorsement` (any trusted actor), `require-principal-endorsement` (the resolved principal),
 `require-endorsement[kind=human]`, `require-endorsement[role=reviewer]`, deferred `require-k-endorsers`
 and `require-verified-endorsement` — is a reusable predicate library over `has_trusted_endorsement` +
-relationship + attributes (research 0010 Q4). The presets are not Shoreline gates and are specified by
+relationship + attributes. The presets are not Shoreline gates and are specified by
 the policy work, not minted here; this ADR only provides the classification they read.
 
 ### Out of scope (deferred — would change the primitive)
 
 This ADR recognizes the **bare** endorsement (a content-free vouch for exact bytes). The following are
-real but each would drag 0013 into a *different* primitive and are deferred (research 0010 addendum):
+real but each would drag this ADR into a *different* primitive and are deferred:
 
 - **A value/verdict (approve/reject/neutral), a comment, or a confidence.** A bare co-signature is
   affirmative-only and carries no signer-authored content; a verdict/comment/confidence must be **signed

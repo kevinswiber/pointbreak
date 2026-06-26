@@ -6,8 +6,8 @@
 **Supersedes in-repo ADR-0005** (ReviewUnit Lineage). Sequenced **after ADR-0017** (it depends on
 ADR-0017's `Revision` layer).
 **Date:** 2026-06-19
-**See also:** research 0013 synthesis + q3 supersession
-(this decision's source). **Depends on ADR-0017** (identity layering — supplies `Revision`/`Object`, the
+**See also:** [ADR-0017](./adr-0017-eventtarget-identity-layering-and-engagement-naming.md) and
+[substrate language](../substrate-language.md). **Depends on ADR-0017** (identity layering — supplies `Revision`/`Object`, the
 generative move, and the advisory-generative rule this ADR builds on). Coupled set: ADR-0017 (anchor), ADR-0019
 (blackboard, independent), and the one-time owner-run store migration (translates existing lineage edges to
 `supersedes`). In-repo `docs/adr/`: **ADR-0005** ReviewUnit lineage (superseded here), **ADR-0014**
@@ -114,7 +114,7 @@ The projection is the observation fold (`observation/view.rs:142-146`) generaliz
 Delete the two lineage event families (`ReviewUnitLineageDeclared`, `ReviewUnitLineageRoundRecorded`), the
 two id types (`ReviewUnitLineageId`, `ReviewUnitLineageRoundId`), and the basis (`ReviewUnitLineageBasisV1`),
 along with the `change_id` enrichment (decision-dead, though it is an output-only field in
-`shore review history` — its removal is a visible output diff taken at the break, per research 0013 Q7/Q9).
+`shore review history` — its removal is a visible output diff taken at the break).
 There is no `lineage_id`, no `declared` event, no round-id: two revisions are in the same thread iff a
 `supersedes` path connects them — the relationship is intrinsic to the edges, derived, not declared. This
 **supersedes ADR-0005**, whose core decisions (the lineage event family, `headReviewUnitId`, the
@@ -133,7 +133,7 @@ malformed-lineage-nulls-head rule, `stale_by_newer_round`) are all replaced here
   (`revisions --object` lists every revision sharing the content, grouped by thread, each marked with its
   head status), **never a head-selector**; a content-`Object` that spans threads is *coincident content*,
   surfaced as a multi-thread listing, and is **never** `competing_revisions` (which denotes only intra-thread
-  forks). (The exact CLI shape is a surface decision, research 0013 Q9.)
+  forks). (The exact CLI shape is a surface decision.)
 - **`stale_by_newer_round`** → renamed **`stale_by_superseding_revision`**: a fact targeting a revision that
   is in the `superseded` set is flagged, naming *all* superseding successors (improves on today's single
   HEAD). A direct membership test against the `superseded` set; no container needed.
@@ -165,8 +165,8 @@ content bytes — ADR-0016). `supersedes` references a **`Revision`** (logical p
   not the `supersedes` set) and a successor never re-keys its predecessor.
 - **Costs accepted:** retiring lineage is a store-format and a `shore review history` output change (the
   lineage event types and `change_id` leave the history document — a visible diff taken at the one-time
-  break, Q7/Q9); the lineage CLI (`lineage attach/show`) and the inspector Lineages tab retire/reshape (a
-  surface change owned by the Q9 surface ADR/plan, not this one); existing lineage events are migrated by
+  break); the lineage CLI (`lineage attach/show`) and the inspector Lineages tab retire/reshape (a
+  separate surface decision, not this one); existing lineage events are migrated by
   re-expressing each `predecessor_review_unit_id` as a `supersedes` pointer on the successor's re-emitted
   generative event (a lossless 1:1 translation handled by the one-time owner-run store migration).
 
@@ -182,7 +182,7 @@ content bytes — ADR-0016). `supersedes` references a **`Revision`** (logical p
 - **Keeping the single-HEAD fiction under forks.** The one thing genuinely retired. Pretending a forked DAG
   has one head is exactly the ambiguity-collapse this ADR fixes.
 - **Folding base auto-grouping into supersession.** They are orthogonal; base-grouping is a separate,
-  optional, git-provenance-only projection. (This resolves research 0013's §5/fork-7 caveat: not subsumed.)
+  optional, git-provenance-only projection; it is not subsumed by supersession.
 - **A standalone `Lineage`/graph primitive or a stored `supersedes` index.** No new id types or containers;
   the DAG is derived. A cached `revisions_by_base` index is a permissible later read-time optimization but
   must stay derived, never an authoritative declared basis (which is what made lineage git-coupled).
@@ -200,7 +200,7 @@ content bytes — ADR-0016). `supersedes` references a **`Revision`** (logical p
 
 ## Related Docs
 
-- research 0013 synthesis, q3
+- [Substrate language](../substrate-language.md)
 - [ADR-0017](./adr-0017-eventtarget-identity-layering-and-engagement-naming.md) (the dependency / shared seam)
 - In-repo `docs/adr/`: **ADR-0005** lineage (superseded), **ADR-0014** association/withdrawal
   (the §3 discriminator; withdrawal family untouched), **ADR-0008** cross-peer conflict (diagnostic posture).

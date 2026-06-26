@@ -83,7 +83,7 @@ re-architecture introduces, exactly the case ADR-0003's **Revisit Trigger 4** an
 multi-agent workflow needs scope-bounded authority that cannot be expressed through actor, target,
 assertion mode, source provenance, and projection policy").
 
-**Context.** The re-architecture (research 0013; ADR-0017) reframes the review activity as three attributed
+**Context.** The substrate re-architecture (ADR-0017) reframes the review activity as three attributed
 move kinds — **generative** (propose/capture a revision), **evaluative** (observation, assessment,
 validation), and **coordinative** (input request / response). `capture` becomes the generative move,
 performable by *any* actor, and it carries a `supersedes` pointer (ADR-0018, the supersession-replaces-lineage
