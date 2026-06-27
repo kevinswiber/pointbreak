@@ -170,7 +170,7 @@ fn diff_close_replaces_history_and_focus_is_singular() {
         "diff close has a single route-owned close path"
     );
     assert!(
-        js.contains("navigate({ diff: null, focus: null }, { replace: true })"),
+        js.contains("navigate({ diff: null, diffHash: null, focus: null }, { replace: true })"),
         "in-app diff close replaces the current route so Back does not reopen the closed diff"
     );
     assert!(

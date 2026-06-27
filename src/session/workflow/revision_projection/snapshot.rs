@@ -157,7 +157,16 @@ mod tests {
         let repo = committed_repo();
         let captured = capture_range(&repo);
         let mut tampered = identity_from(&captured, repo.path());
-        tampered.object_artifact_content_hash = "sha256:not-the-real-hash".to_owned();
+        let bad_hash = format!("sha256:{}", "0".repeat(64));
+        tampered.object_artifact_content_hash = bad_hash.clone();
+        let store_dir = resolved_store_dir(repo.path());
+        let authentic_path = crate::session::object_artifact::object_artifact_path_for_hash(
+            &store_dir,
+            &captured.object_artifact_content_hash,
+        );
+        let bad_path =
+            crate::session::object_artifact::object_artifact_path_for_hash(&store_dir, &bad_hash);
+        fs::copy(authentic_path, bad_path).expect("stage mismatched bound artifact");
         let err = load_bound_object_artifact(repo.path(), &tampered).unwrap_err();
         assert!(err.to_string().contains("content hash"));
     }

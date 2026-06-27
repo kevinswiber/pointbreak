@@ -510,10 +510,8 @@ mod tests {
                     .contains("locator mismatch")
             );
 
-            // Conflict: a DIFFERENT valid artifact already occupies this object's locator.
-            // Two artifacts sharing object_id `collide` but differing in `review_id` hash to
-            // different content (review_id is serialized into the content hash), so the second
-            // import collides on the locator and the full-struct compare rejects it.
+            // Distinct valid artifacts for the same object id occupy distinct
+            // content-addressed locators.
             let collide = ObjectId::new("obj:sha256:collide");
             let stored = build_object_artifact_v2(DiffSnapshot::new(
                 ReviewId::new("review:a"),
@@ -538,17 +536,28 @@ mod tests {
                     &serde_json::to_vec(&stored).unwrap(),
                 )
                 .unwrap();
-            assert!(
+            assert_eq!(
                 content
                     .import_object(
                         &collide,
                         &incoming.content_hash,
                         &serde_json::to_vec(&incoming).unwrap()
                     )
-                    .unwrap_err()
-                    .to_string()
-                    .contains("conflict")
+                    .unwrap(),
+                CreateOutcome::Created
             );
+            let stored_ref = object_content_ref_for_hash(&stored.content_hash);
+            let incoming_ref = object_content_ref_for_hash(&incoming.content_hash);
+            let stored_read = decode_and_validate_object_artifact(
+                &content.read_object_bytes(&stored_ref, &collide).unwrap(),
+            )
+            .unwrap();
+            let incoming_read = decode_and_validate_object_artifact(
+                &content.read_object_bytes(&incoming_ref, &collide).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(stored_read, stored);
+            assert_eq!(incoming_read, incoming);
         }
     }
 
