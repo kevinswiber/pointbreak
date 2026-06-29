@@ -464,6 +464,7 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 .s-added { color: var(--success); }
 .s-deleted { color: var(--danger); }
 .s-renamed, .s-copied { color: var(--warning); }
+.s-modified { color: var(--info); }
 
 .dhunk { font-family: var(--mono); font-size: var(--fs-sm); color: var(--info); background: var(--hunk-bg); padding: 3px 12px; border-top: 1px solid var(--border); }
 .drow {
@@ -499,6 +500,7 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 .anno-observation { border-left-color: var(--success-deep); background: rgba(70, 170, 110, 0.08); }
 .anno-input-request { border-left-color: #7a5e2a; background: color-mix(in srgb, var(--warning) 8%, transparent); }
 .anno-assessment { border-left-color: #5a3a7a; background: color-mix(in srgb, var(--assess) 8%, transparent); }
+.anno-validation { border-left-color: color-mix(in srgb, var(--validation) 55%, #000); background: color-mix(in srgb, var(--validation) 8%, transparent); }
 .anno-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: var(--fs-sm); }
 .anno-kind {
   font-family: var(--mono);

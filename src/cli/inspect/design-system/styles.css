@@ -310,6 +310,7 @@ body {
 .anno-observation { border-left-color: var(--success-deep); background: color-mix(in srgb, var(--success) 8%, transparent); }
 .anno-input-request { border-left-color: color-mix(in srgb, var(--warning) 55%, #000); background: color-mix(in srgb, var(--warning) 8%, transparent); }
 .anno-assessment { border-left-color: color-mix(in srgb, var(--assess) 45%, #000); background: color-mix(in srgb, var(--assess) 8%, transparent); }
+.anno-validation { border-left-color: color-mix(in srgb, var(--validation) 55%, #000); background: color-mix(in srgb, var(--validation) 8%, transparent); }
 .anno-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 12px; }
 .anno-kind {
   font-family: var(--mono);
@@ -446,6 +447,7 @@ body {
 .s-added { color: var(--success); }
 .s-deleted { color: var(--danger); }
 .s-renamed, .s-copied { color: var(--warning); }
+.s-modified { color: var(--info); }
 .dfile-notes { margin-left: auto; font-family: var(--mono); font-size: var(--fs-xs); color: var(--fg-dim); }
 .dhunk { font-family: var(--mono); font-size: var(--fs-sm); color: var(--info); background: var(--hunk-bg); padding: 3px 12px; border-top: 1px solid var(--border); }
 .drow { display: grid; grid-template-columns: 52px 52px 16px 1fr; font-family: var(--mono); font-size: var(--fs-sm); line-height: 1.5; }

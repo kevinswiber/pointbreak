@@ -14,14 +14,12 @@ const APP_CSS_PATH = resolve(process.cwd(), "../assets/app.css");
 // test green while that decision is owned there. An emitted class with no rule
 // and no entry here fails the test — that is the JS-vs-CSS drift catch.
 const REF_BASE_STYLED =
-  "uses base `.ref` styling; only commit/hash are colored — see #296";
+  "clickable ref chip; styled via `.ref[data-ref-kind]` (accent), the per-kind class is only a hook — intentional, the `.ref-commit`/`.ref-hash` rules exist to dim the non-clickable kinds (#296)";
 const CSS_LESS_ALLOWLIST: Record<string, string> = {
-  "anno-validation":
-    "validation fact-card container; the other 3 anno kinds have a container rule, this inherits base `.anno` (odd-one-out, likely a real gap) — see #296",
-  "s-modified":
-    "modified diff-file status chip; the other 4 statuses have colored rules, this inherits base `.dstatus` (odd-one-out, likely a real gap) — see #296",
+  // anno-validation and s-modified were #296 gaps and now have app.css rules, so
+  // they are NOT allowlisted here (the guard test below would flag them if they were).
   resolved:
-    "`fact-status resolved` cue; inherits base `.fact-status` (likely intentional) — see #296",
+    "`fact-status resolved` cue; inherits base `.fact-status` (intentional — only emits for a resolved assessment with no value) — see #296",
   "ref-review-unit": REF_BASE_STYLED,
   "ref-input-request-response": REF_BASE_STYLED,
   "ref-input-request": REF_BASE_STYLED,

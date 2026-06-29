@@ -42,7 +42,7 @@
   </div>
 
   <div class="ds-group">
-    <p class="ds-label">Annotations — observation / input-request / assessment</p>
+    <p class="ds-label">Annotations — observation / input-request / assessment / validation</p>
     <div class="anno anno-observation">
       <div class="anno-head"><span class="anno-kind anno-kind-observation">observation</span><span class="anno-track">agent:claude-code-0080</span><span class="anno-title">Core rename keeps the commit separate</span> <span class="anno-time">6/11/2026</span></div>
       <div class="anno-body">The migrator branch keeps this commit separate from the throwaway migrator commit so it can land Tier-A as a clean-main PR.</div>
@@ -54,6 +54,10 @@
     <div class="anno anno-assessment">
       <div class="anno-head"><span class="anno-kind anno-kind-assessment">assessment</span><span class="anno-track">agent:codex-storage</span><span class="anno-title">needs-changes</span></div>
       <div class="anno-body">The byte-only list_event_bytes path dropped the filename/key stem check on replay; re-check the digest in the wrapper.</div>
+    </div>
+    <div class="anno anno-validation">
+      <div class="anno-head"><span class="anno-kind anno-kind-validation">validation</span><span class="anno-track">agent:codex-storage</span><span class="anno-title">just check</span> <span class="fact-status passed">passed</span><span class="anno-time">6/29/2026</span></div>
+      <div class="anno-body">cog check + build + fmt + clippy + nextest (1760 passed). Advisory evidence — context only, never a verdict.</div>
     </div>
   </div>
 
