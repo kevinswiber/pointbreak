@@ -132,11 +132,16 @@ Good observation titles are short and specific. The body should explain why the 
 reviewer. Do not paste a transcript, summarize every hunk, or claim verification that you did not
 actually run.
 
-**Body content type.** Observation and input-request `--body`, and validation `--summary`, default to
-plain text. Add `--body-content-type text/markdown` (or `--summary-content-type text/markdown`) only
-when structure genuinely helps — a short risk list, a code fence, or a reference link the reviewer
-will follow — and it renders as Markdown in the inspector. Keep bodies concise; Markdown is for
-clarity, not license to write a document.
+**Body content type — prefer Markdown for review content.** Observation and input-request `--body`,
+and validation `--summary`, default to plain text, but the inspector renders Markdown and the human
+reviews there, so **author review content as Markdown** whenever it names code. Pass
+`--body-content-type text/markdown` (or `--summary-content-type text/markdown`) and:
+
+- backtick file paths, code/identifier/type references, and function signatures
+  (e.g. `` `src/parser.rs` ``, `` `parse_tokens` ``, `` `Option<&str>` ``);
+- prefer short bullet lists over long paragraphs.
+
+Keep bodies concise — Markdown is for scannability, not license to write a document.
 
 ## Record validation evidence
 

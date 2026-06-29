@@ -187,10 +187,12 @@ shore review observation add \
 Do not add, replace, or update an assessment. If the reviewer needs to revise the review call after
 your response, the reviewer records that later on the reviewer track.
 
-**Body content type.** Author response `--body` and input-request `--reason` default to plain text.
-Add `--body-content-type text/markdown` (or `--reason-content-type text/markdown`) only when structure
-genuinely helps — a short list, a code fence, or a reference link — and it renders as Markdown in the
-inspector. Keep responses concise; Markdown is for clarity, not license to write a document.
+**Body content type — prefer Markdown for review content.** Author response `--body` and input-request
+`--reason` default to plain text, but the inspector renders Markdown and the human reviews there, so
+**author review content as Markdown** whenever it names code. Pass `--body-content-type text/markdown`
+(or `--reason-content-type text/markdown`) and: backtick file paths, code/identifier/type references,
+and function signatures; prefer short bullet lists over long paragraphs. Keep responses concise —
+Markdown is for scannability, not license to write a document.
 
 ## Record the landing commit
 
