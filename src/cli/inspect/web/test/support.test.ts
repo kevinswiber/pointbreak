@@ -1,10 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { mountInspectorDom, resetDom } from "./support/dom";
-import { installFetchMock, uninstallFetchMock } from "./support/fetch";
+import {
+  installFetchMock,
+  resetFreshnessResponse,
+  setFreshnessResponse,
+  uninstallFetchMock,
+} from "./support/fetch";
 
 afterEach(() => {
   resetDom();
   uninstallFetchMock();
+  resetFreshnessResponse();
 });
 
 // The fixed ids the harness must mount (mirror of assets/index.html). This list
@@ -108,9 +114,30 @@ describe("the fetch mock", () => {
 
   it("serves a 404 for a route with no committed fixture", async () => {
     installFetchMock();
-    const res = await fetch("/api/freshness");
+    const res = await fetch("/api/nonexistent");
     expect(res.ok).toBe(false);
     expect(res.status).toBe(404);
+  });
+
+  it("serves a default freshness probe and honors an override", async () => {
+    installFetchMock();
+    const def: Record<string, unknown> = await (
+      await fetch("/api/freshness")
+    ).json();
+    // Defaults to history.json's hash + diagnostic count (so a poll right after
+    // load reports unchanged).
+    expect(def.eventSetHash).toBeTypeOf("string");
+    expect(def.diagnosticCount).toBe(0);
+
+    setFreshnessResponse({
+      eventSetHash: "sha256:changed",
+      diagnosticCount: 2,
+    });
+    const overridden: Record<string, unknown> = await (
+      await fetch("/api/freshness")
+    ).json();
+    expect(overridden.eventSetHash).toBe("sha256:changed");
+    expect(overridden.diagnosticCount).toBe(2);
   });
 
   it("uninstall restores the prior global fetch", () => {

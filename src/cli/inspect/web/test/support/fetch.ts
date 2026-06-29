@@ -21,6 +21,30 @@ const FIXTURES: Record<string, unknown> = {
   "/api/revision": revisionJson,
 };
 
+// The freshness probe is not a captured fixture (it is a tiny derived summary):
+// default it to history.json's hash + diagnostic count so a poll right after
+// `load()` reports "unchanged", and let a test override it to drive the
+// changed/reload path via {@link setFreshnessResponse}.
+const historyDoc = historyJson as {
+  eventSetHash?: string;
+  diagnostics?: unknown[];
+};
+const DEFAULT_FRESHNESS: unknown = {
+  eventSetHash: historyDoc.eventSetHash,
+  diagnosticCount: (historyDoc.diagnostics ?? []).length,
+};
+let freshness: unknown = DEFAULT_FRESHNESS;
+
+/** Override the `/api/freshness` response the mock returns (changed-hash tests). */
+export function setFreshnessResponse(payload: unknown): void {
+  freshness = payload;
+}
+
+/** Restore the default freshness response (history.json's hash + diagnostic count). */
+export function resetFreshnessResponse(): void {
+  freshness = DEFAULT_FRESHNESS;
+}
+
 /** The request target as a string, accepting the full `fetch` input union. */
 function urlOf(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;
@@ -34,10 +58,19 @@ function pathnameOf(input: RequestInfo | URL): string {
 }
 
 const mockFetch: typeof fetch = (input) => {
-  const data = FIXTURES[pathnameOf(input)];
+  const pathname = pathnameOf(input);
+  if (pathname === "/api/freshness") {
+    return Promise.resolve(
+      new Response(JSON.stringify(freshness), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  }
+  const data = FIXTURES[pathname];
   if (data === undefined) {
     return Promise.resolve(
-      new Response(`no fixture for ${pathnameOf(input)}`, { status: 404 }),
+      new Response(`no fixture for ${pathname}`, { status: 404 }),
     );
   }
   return Promise.resolve(

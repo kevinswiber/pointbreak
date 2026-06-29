@@ -23,6 +23,9 @@ import { TYPES } from "./types";
 export interface HistoryDoc {
   entries: HistoryEntry[];
   diagnostics: unknown[];
+  // The event-set hash the data loader seeds as the freshness baseline (present
+  // in the committed fixture; the poller compares the probe's hash against it).
+  eventSetHash?: string;
 }
 
 /** The `/api/revisions` document: one entry per captured revision. */
