@@ -89,3 +89,13 @@ migrate-store-common-dir repo="." include-ephemeral="false":
 
 # Check commit messages, compile, lint, and tests.
 check: commit-check build lint test
+
+# Install the inspector front-end dev toolchain (Node) from the committed lockfile.
+web-install:
+    cd src/cli/inspect/web && npm ci
+
+# Node-only; intentionally NOT part of `just check` (the Rust gate stays Node-free). CI runs this
+# as its own ubuntu leg.
+# Front-end gate: Biome-lint the served app.js (lint-only, never format) + strict tsc --noEmit.
+web-check:
+    cd src/cli/inspect/web && npm run check

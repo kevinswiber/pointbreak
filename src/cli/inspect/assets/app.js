@@ -1,3 +1,28 @@
+// @ts-check
+/** @typedef {{ entries: any[], diagnostics: any[] }} HistoryDoc */
+/** @typedef {{ entries: any[] }} UnitsDoc */
+/** @typedef {{ entries: any[], threads: any[], revisionClassification: * }} ObjectsDoc */
+/** @typedef {{ files: any[], anchored: any[], unanchored: any[] }} DiffContext */
+/**
+ * @typedef {Object} AppState
+ * @property {HistoryDoc|null} history
+ * @property {UnitsDoc|null} units
+ * @property {ObjectsDoc|null} objects
+ * @property {string} lens
+ * @property {*} selected
+ * @property {Set<string>} enabledTypes
+ * @property {Set<string>} seenTypes
+ * @property {string} filterText
+ * @property {string} filterTrack
+ * @property {string} filterObject
+ * @property {string} order
+ * @property {*} diff
+ * @property {*} diffHash
+ * @property {*} focus
+ * @property {*} lastHash
+ * @property {*} lastDiagnosticCount
+ */
+// biome-ignore lint/suspicious/noRedundantUseStrict: classic <script>, not an ES module
 "use strict";
 
 // Known durable event types, with display labels and timeline colors. The colors
@@ -16,6 +41,7 @@ const TYPES = [
 ];
 const TYPE_MAP = Object.fromEntries(TYPES.map((t) => [t.id, t]));
 
+/** @type {AppState} */
 const state = {
   history: null,
   units: null,
@@ -45,6 +71,9 @@ const state = {
   lastDiagnosticCount: null,
 };
 
+/**
+ * @param {*} [sel]
+ */
 const $ = (sel) => document.querySelector(sel);
 
 // Local display preferences (theme/density). These are reader-local choices,
@@ -57,6 +86,9 @@ function preferredTheme() {
   if (stored === "light" || stored === "dark") return stored;
   return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
+/**
+ * @param {string} theme
+ */
 function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
 }
@@ -69,6 +101,9 @@ function toggleTheme() {
 applyTheme(preferredTheme());
 
 const DENSITY_KEY = "shore-inspect-density";
+/**
+ * @param {string} mode
+ */
 function applyDensity(mode) {
   document.documentElement.classList.toggle("compact", mode === "compact");
 }
@@ -80,13 +115,25 @@ function toggleDensity() {
 }
 applyDensity(localStorage.getItem(DENSITY_KEY) || "comfortable");
 
+/**
+ * @param {string} id
+ * @returns {string}
+ */
 function typeColor(id) {
   return (TYPE_MAP[id] || {}).color || "var(--evt-note)";
 }
+/**
+ * @param {string} id
+ * @returns {string}
+ */
 function typeLabel(id) {
   return (TYPE_MAP[id] || {}).label || id;
 }
 
+/**
+ * @param {string} id
+ * @returns {string}
+ */
 function shortId(id) {
   if (!id) return "";
   const tail = String(id).split(":").pop() || "";
@@ -95,6 +142,10 @@ function shortId(id) {
 
 // Git-style short form for Shoreline IDs and hashes, keeping the meaningful
 // kind prefix: `review-unit:sha256:1ace…` -> `review-unit:1ace028b`.
+/**
+ * @param {string} id
+ * @returns {string}
+ */
 function shortRef(id) {
   const s = String(id);
   let m = s.match(/^([a-z][a-z-]*):(?:git:)?sha256:([0-9a-f]{6,})$/i);
@@ -109,6 +160,9 @@ function shortRef(id) {
 // "working tree" for pre-upgrade payloads that lack the block. Returns escaped
 // HTML, so callers must not re-escape it. (Distinct from `targetLabel` below,
 // which renders ReviewTargetRef kinds for note/observation anchors.)
+/**
+ * @param {*} [td]
+ */
 function targetDisplayLabel(td) {
   if (!td) return "working tree"; // floor fallback (pre-upgrade payloads)
   return escapeHtml(td.label || "working tree");
@@ -117,6 +171,9 @@ function targetDisplayLabel(td) {
 // Ready-to-insert head badge (escaped, safe HTML) for the captured base commit,
 // or "" when no head is available. A live branch, if ever present, is shown as
 // a current/live qualifier — never as capture-time provenance.
+/**
+ * @param {*} [td]
+ */
 function targetHeadBadge(td) {
   const head = td && td.head;
   if (!head || !head.label) return "";
@@ -127,12 +184,16 @@ function targetHeadBadge(td) {
 
 // Classify a token as a navigable Shoreline reference, a non-navigable hash,
 // or a track lane. Returns null if it is not a recognized id.
+/**
+ * @param {*} [token]
+ */
 function refInfo(token) {
   // Validation check ids have no resolver, so they render as a non-clickable
   // chip rather than dead navigation. Classify before the generic match.
   if (/^validation:(?:git:)?sha256:[0-9a-f]+$/i.test(token)) {
     return { kind: "validation", clickable: false };
   }
+  // biome-ignore lint/style/useConst: legacy let; const-correctness handled when this moves to a .ts module
   let m = token.match(/^([a-z][a-z-]*):(?:git:)?sha256:[0-9a-f]+$/i);
   if (m) return { kind: m[1].toLowerCase(), clickable: true };
   if (/^sha256:[0-9a-f]+$/i.test(token)) return { kind: "hash", clickable: false };
@@ -152,6 +213,10 @@ const SUPERSEDABLE_FACT_TYPES = new Set(["review_observation_recorded", "review_
 // Navigable kinds carry data attributes that the delegated click handler
 // resolves; hashes/commits render as truncated text with the full value on
 // hover.
+/**
+ * @param {string} escaped
+ * @returns {string}
+ */
 function linkifyEscaped(escaped) {
   return escaped.replace(REF_RE, (token) => {
     const info = refInfo(token);
@@ -164,29 +229,54 @@ function linkifyEscaped(escaped) {
   });
 }
 
+/**
+ * @param {string} text
+ * @returns {string}
+ */
 function linkify(text) {
   return linkifyEscaped(escapeHtml(String(text ?? "")));
 }
 
+/**
+ * @param {string} contentType
+ * @returns {boolean}
+ */
 function isMarkdownContentType(contentType) {
   return contentType === "text/markdown";
 }
 
+/**
+ * @param {string} text
+ * @param {string} contentType
+ * @returns {string}
+ */
 function renderBodyContent(text, contentType) {
   if (!text) return "";
   const cls = isMarkdownContentType(contentType) ? " anno-body markdown-body" : "anno-body";
   return `<div class="${cls}">${renderContentHtml(text, contentType)}</div>`;
 }
 
+/**
+ * @param {string} text
+ * @param {string} contentType
+ * @returns {string}
+ */
 function renderContentHtml(text, contentType) {
   return isMarkdownContentType(contentType) ? renderMarkdown(text) : linkify(text);
 }
 
+/**
+ * @param {string} text
+ * @returns {string}
+ */
 function renderMarkdown(text) {
   const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
   const out = [];
+  /** @type {any[]} */
   let paragraph = [];
+  /** @type {*} */
   let listKind = null;
+  /** @type {any[]} */
   let listItems = [];
 
   const flushParagraph = () => {
@@ -253,8 +343,16 @@ function renderMarkdown(text) {
   return out.join("");
 }
 
+/**
+ * @param {string} text
+ * @returns {string}
+ */
 function renderMarkdownInline(text) {
+  /** @type {any[]} */
   const placeholders = [];
+  /**
+   * @param {string} html
+   */
   const stash = (html) => {
     const token = `\u0000MD${placeholders.length}\u0000`;
     placeholders.push([token, html]);
@@ -282,12 +380,20 @@ const OVERLAY_SELECTORS = {
   palette: "#cmd-palette",
   help: "#key-help",
 };
+/** @type {*} */
 let activeOverlay = null;
 
+/**
+ * @param {*} [name]
+ */
 function overlayNode(name) {
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   return $(OVERLAY_SELECTORS[name]);
 }
 
+/**
+ * @param {*} [node]
+ */
 function overlayFocusable(node) {
   if (!node) return [];
   return Array.from(
@@ -297,6 +403,10 @@ function overlayFocusable(node) {
   ).filter((el) => el.getClientRects().length > 0 || el === document.activeElement);
 }
 
+/**
+ * @param {*} [name]
+ * @param {*} [initialSelector]
+ */
 function openOverlay(name, initialSelector) {
   const node = overlayNode(name);
   if (!node) return;
@@ -308,6 +418,9 @@ function openOverlay(name, initialSelector) {
   if (target && target.focus) target.focus();
 }
 
+/**
+ * @param {*} [opts]
+ */
 function closeActiveOverlay(opts = {}) {
   if (!activeOverlay) return;
   const current = activeOverlay;
@@ -323,6 +436,10 @@ function closeActiveOverlay(opts = {}) {
   }
 }
 
+/**
+ * @param {*} [name]
+ * @param {*} [opts]
+ */
 function closeOverlay(name, opts = {}) {
   const node = overlayNode(name);
   if (activeOverlay?.name === name) {
@@ -332,6 +449,9 @@ function closeOverlay(name, opts = {}) {
   }
 }
 
+/**
+ * @param {*} [ev]
+ */
 function trapOverlayFocus(ev) {
   if (ev.key !== "Tab" || !activeOverlay) return false;
   const focusable = overlayFocusable(activeOverlay.node);
@@ -359,6 +479,10 @@ function trapOverlayFocus(ev) {
   return false;
 }
 
+/**
+ * @param {string} href
+ * @returns {string}
+ */
 function safeMarkdownHref(href) {
   const raw = String(href ?? "").trim();
   if (/^(https?:|mailto:)/i.test(raw) || raw.startsWith("#")) return escapeHtml(raw);
@@ -368,6 +492,10 @@ function safeMarkdownHref(href) {
 // A reference chip resolves to a navigation through the router (set the
 // selection / scope and push a hash), never an in-place filter mutation.
 // Navigating to a named reference also dismisses any open diff overlay.
+/**
+ * @param {*} [kind]
+ * @param {*} [id]
+ */
 function resolveRef(kind, id) {
   switch (kind) {
     // The revision and the (retired) review-unit prefix both address a revision's
@@ -403,6 +531,9 @@ function resolveRef(kind, id) {
 // structured query `revision:<id>`, so it is shareable like the rest of the
 // query; clear the cross-lens scope that could otherwise leave the timeline
 // empty and switch to the timeline lens through the router.
+/**
+ * @param {*} [id]
+ */
 function navigateToUnit(id) {
   navigate({
     lens: "timeline",
@@ -412,10 +543,16 @@ function navigateToUnit(id) {
   });
 }
 
+/**
+ * @param {*} [id]
+ */
 function navigateToTrack(id) {
   navigate({ lens: "timeline", filterTrack: id, diff: null, diffHash: null, focus: null });
 }
 
+/**
+ * @param {(e: any) => any} predicate
+ */
 function revealBy(predicate) {
   const e = (state.history?.entries || []).find(predicate);
   if (e) revealEvent(e.eventId);
@@ -424,6 +561,9 @@ function revealBy(predicate) {
 // Make an event visible (clearing filters that would hide it) and select it, all
 // through the router so the URL is the single source of truth. The
 // selection-scroll happens on the render that follows.
+/**
+ * @param {*} [eventId]
+ */
 function revealEvent(eventId) {
   const e = (state.history?.entries || []).find((x) => x.eventId === eventId);
   if (!e) return;
@@ -445,17 +585,31 @@ function revealEvent(eventId) {
   });
 }
 
+/**
+ * @param {string} occurredAt
+ * @returns {number}
+ */
 function parseMs(occurredAt) {
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   if (typeof occurredAt !== "string") return null;
   const m = occurredAt.match(/(\d+)\s*$/);
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   return m ? Number(m[1]) : null;
 }
+/**
+ * @param {string} occurredAt
+ * @returns {string}
+ */
 function fmtTime(occurredAt) {
   const ms = parseMs(occurredAt);
   if (ms == null) return occurredAt || "";
   const d = new Date(ms);
   return d.toLocaleTimeString([], { hour12: false }) + "." + String(ms % 1000).padStart(3, "0");
 }
+/**
+ * @param {string} occurredAt
+ * @returns {string}
+ */
 function fmtDateTime(occurredAt) {
   const ms = parseMs(occurredAt);
   if (ms == null) return occurredAt || "";
@@ -465,12 +619,18 @@ function fmtDateTime(occurredAt) {
 // The typed, type-specific detail of an entry lives in the top-level `summary`
 // object (title, body, assessment value, target, tags); `trackId` is also
 // top-level. `subject` only carries the target ref, so we read from `summary`.
+/**
+ * @param {*} [e]
+ */
 function entryTrack(e) {
   return e.trackId || (e.writer && e.writer.actorId) || "";
 }
 // The revision a history entry addresses. The entry carries it through its
 // subject (the ReviewTargetRef) — every review subject variant keys on
 // revisionId — so there is no top-level id to read.
+/**
+ * @param {*} [e]
+ */
 function entryRevisionId(e) {
   return (e.subject && e.subject.revisionId) || "";
 }
@@ -479,6 +639,9 @@ function entryRevisionId(e) {
 // ambiguous/none entries fall back to the raw actor id at the call site. The
 // lane fallback in entryTrack deliberately never reads e.principal — lanes need
 // stable strings.
+/**
+ * @param {*} [e]
+ */
 function principalLabel(e) {
   if (!e.principal || e.principal.status !== "resolved" || !e.principal.actorId) return null;
   const agent = (e.writer && e.writer.actorId ? e.writer.actorId : "").replace(/^actor:agent:/, "");
@@ -497,8 +660,13 @@ const VERIFICATION_LABELS = {
   unsigned: "unsigned",
 };
 
+/**
+ * @param {string} status
+ * @returns {string}
+ */
 function verificationChip(status) {
   if (!status) return "";
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   const label = VERIFICATION_LABELS[status] || status;
   return `<span class="verify verify-${escapeHtml(status)}" title="advisory signature readback — reader-relative, never gates a write">${escapeHtml(label)}</span>`;
 }
@@ -516,12 +684,20 @@ const ASSESSMENT_LABELS = {
 };
 
 // Strip the actor namespace for display, matching principalLabel's posture.
+/**
+ * @param {string} actorId
+ * @returns {string}
+ */
 function endorserDisplay(actorId) {
   return actorId.replace(/^actor:git-(email|name):/, "");
 }
 
+/**
+ * @param {*} [en]
+ */
 function endorsementRow(en) {
   const cls = en.classification || "";
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   const label = ENDORSEMENT_LABELS[cls] || cls;
   const parts = [`<span class="endorse-label">${escapeHtml(label)}</span>`];
   if (en.endorser) parts.push(`<span class="endorse-who">${escapeHtml(endorserDisplay(en.endorser))}</span>`);
@@ -535,6 +711,9 @@ function endorsementRow(en) {
 
 // Advisory, reader-relative endorsement readback (#171). One row per attestation
 // (one per endorsing signer/key) — never collapsed, mirroring the API.
+/**
+ * @param {any[]} endorsements
+ */
 function endorsementsBlock(endorsements) {
   endorsements = endorsements || [];
   if (!endorsements.length) return "";
@@ -545,10 +724,18 @@ function endorsementsBlock(endorsements) {
   </div>`;
 }
 
+/**
+ * @param {string} value
+ * @returns {string}
+ */
 function assessmentDisplayLabel(value) {
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   return ASSESSMENT_LABELS[value] || value || "";
 }
 
+/**
+ * @param {*} [e]
+ */
 function entryTitle(e) {
   const s = e.summary || {};
   if (s.title) return s.title;
@@ -565,10 +752,16 @@ function entryTitle(e) {
   }
   return typeLabel(e.eventType);
 }
+/**
+ * @param {*} [e]
+ */
 function entryTags(e) {
   const s = e.summary || {};
   return Array.isArray(s.tags) ? s.tags : [];
 }
+/**
+ * @param {*} [e]
+ */
 function entryAnchor(e) {
   const t = (e.summary || {}).target || {};
   if (!t.filePath) return "";
@@ -576,6 +769,9 @@ function entryAnchor(e) {
   return t.filePath;
 }
 
+/**
+ * @param {*} [path]
+ */
 async function fetchJSON(path) {
   const res = await fetch(path, { cache: "no-store" });
   const text = await res.text();
@@ -591,6 +787,9 @@ async function fetchJSON(path) {
   return data;
 }
 
+/**
+ * @param {string} message
+ */
 function showError(message) {
   const el = $("#error");
   if (!message) {
@@ -630,9 +829,11 @@ async function load() {
         status: (e.summary || {}).status || "",
       };
     }
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     showError(null);
     renderAll();
   } catch (err) {
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     showError(err.message);
   }
 }
@@ -676,9 +877,13 @@ function renderStats() {
   const h = state.history || {};
   const u = state.units || {};
   const o = state.objects || {};
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   $("#stat-events").textContent = `${h.eventCount ?? "—"} events`;
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   $("#stat-units").textContent = `${u.revisionCount ?? "—"} units`;
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   $("#stat-threads").textContent = `${o.threadCount ?? "—"} threads`;
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   $("#stat-hash").textContent = shortId(h.eventSetHash);
 }
 
@@ -718,11 +923,13 @@ function renderTypeToggles() {
     }
     const btn = document.createElement("button");
     const enabled = state.enabledTypes.has(id);
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     const count = counts[id] || 0;
     btn.type = "button";
     btn.className = "type-toggle" + (enabled ? "" : " off");
     btn.setAttribute("aria-pressed", String(enabled));
     btn.setAttribute("aria-label", `${enabled ? "Hide" : "Show"} ${typeLabel(id)} events (${count})`);
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     btn.innerHTML = `<span class="dot" style="background:${typeColor(id)}"></span>${escapeHtml(typeLabel(id))}<span class="type-count">${counts[id] || 0}</span>`;
     btn.title = id;
     btn.addEventListener("click", () => {
@@ -741,33 +948,52 @@ function objectThreads() {
   return state.objects?.threads || [];
 }
 
+/**
+ * @param {*} [thread]
+ */
 function threadRevisionOrder(thread) {
   const revisions = thread.revisions || [];
   const nodes = thread.laidOut?.nodes || [];
   if (!nodes.length) return revisions;
   const known = new Set(revisions);
   const ordered = nodes
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     .filter((n) => n && known.has(n.id))
     .slice()
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     .sort((a, b) => a.y - b.y || a.x - b.x)
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     .map((n) => n.id);
   if (ordered.length === revisions.length) return ordered;
   const seen = new Set(ordered);
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   return ordered.concat(revisions.filter((id) => !seen.has(id)));
 }
 
 // The server-computed per-revision supersession classification (state +
 // direct superseders/predecessors). The client reads this field instead of
 // re-deriving head/superseded status from the edge maps every render.
+/**
+ * @param {*} [revisionId]
+ */
 function revisionClassification(revisionId) {
   return (state.objects?.revisionClassification && state.objects.revisionClassification[revisionId]) || null;
 }
+/**
+ * @param {*} [revisionId]
+ */
 function supersededByRevision(revisionId) {
   return revisionClassification(revisionId)?.supersededBy || [];
 }
+/**
+ * @param {*} [revisionId]
+ */
 function supersedesRevision(revisionId) {
   return revisionClassification(revisionId)?.supersedes || [];
 }
+/**
+ * @param {*} [revisionId]
+ */
 function revisionIsHead(revisionId) {
   const klass = revisionClassification(revisionId)?.state;
   // A lone root (isolated) is a current head with no incident edges.
@@ -776,26 +1002,42 @@ function revisionIsHead(revisionId) {
 
 // The content object id captured for a revision, via the units list (its
 // snapshot id is the content-addressed object).
+/**
+ * @param {*} [revisionId]
+ */
 function objectIdForRevision(revisionId) {
   const unit = unitForRevision(revisionId);
   return unit ? unit.objectId : "";
 }
 
+/**
+ * @param {*} [revisionId]
+ */
 function objectArtifactHashForRevision(revisionId) {
   return unitForRevision(revisionId)?.objectArtifactContentHash || "";
 }
 
+/**
+ * @param {*} [e]
+ * @param {*} [objectId]
+ */
 function eventMatchesObject(e, objectId) {
   if (!objectId) return true;
   return objectIdForRevision(entryRevisionId(e)) === objectId;
 }
 
+/**
+ * @param {*} [e]
+ */
 function isSupersedableFact(e) {
   return SUPERSEDABLE_FACT_TYPES.has(e.eventType);
 }
 
 // A fact targeting a superseded revision is stale; the badge names every
 // superseding successor (fork-tolerant), never a single head.
+/**
+ * @param {*} [e]
+ */
 function supersessionStaleBadge(e) {
   if (!isSupersedableFact(e)) return "";
   const successors = supersededByRevision(entryRevisionId(e));
@@ -805,6 +1047,9 @@ function supersessionStaleBadge(e) {
 
 // The capture row shows the supersession edge it declared (the predecessors it
 // supersedes), reusing the navigable revision chip.
+/**
+ * @param {*} [e]
+ */
 function captureSupersedesBadge(e) {
   if (e.eventType !== "work_object_proposed") return "";
   const predecessors = supersedesRevision(entryRevisionId(e));
@@ -814,6 +1059,9 @@ function captureSupersedesBadge(e) {
 
 // The per-revision supersession status, for a unit card / unit page: "current in
 // thread" when it is current, "superseded by <chips>" when superseded.
+/**
+ * @param {*} [revisionId]
+ */
 function supersessionBadge(revisionId) {
   if (!revisionId) return "";
   if (revisionIsHead(revisionId)) return `<span class="badge head">current in thread</span>`;
@@ -822,19 +1070,32 @@ function supersessionBadge(revisionId) {
   return "";
 }
 
+/**
+ * @param {*} [revisionId]
+ */
 function unitForRevision(revisionId) {
   return (state.units?.entries || []).find((u) => u.revisionId === revisionId) || null;
 }
 
+/**
+ * @param {*} [revisionId]
+ */
 function overviewForRevision(revisionId) {
   return unitForRevision(revisionId)?.overview || null;
 }
 
+/**
+ * @param {string} value
+ * @returns {string}
+ */
 function assessmentLabel(value) {
   if (!value) return "";
   return String(value).replaceAll("_", " ");
 }
 
+/**
+ * @param {*} [overview]
+ */
 function assessmentCue(overview) {
   const currentAssessment = overview?.currentAssessment || {};
   const status = currentAssessment.status || "unassessed";
@@ -846,10 +1107,19 @@ function assessmentCue(overview) {
   return `<span class="overview-assessment"><span>current assessment</span><span class="fact-status ${escapeHtml(cls)}">${escapeHtml(assessmentLabel(label))}</span></span>`;
 }
 
+/**
+ * @param {number} n
+ * @param {string} singular
+ * @param {string} [pluralLabel]
+ * @returns {string}
+ */
 function plural(n, singular, pluralLabel = singular + "s") {
   return `${n} ${n === 1 ? singular : pluralLabel}`;
 }
 
+/**
+ * @param {*} [overview]
+ */
 function attentionTokens(overview) {
   const attention = overview?.attention || {};
   const tokens = [];
@@ -877,6 +1147,9 @@ function attentionTokens(overview) {
   return tokens;
 }
 
+/**
+ * @param {*} [overview]
+ */
 function attentionCues(overview) {
   const tokens = attentionTokens(overview);
   if (!tokens.length) return `<span class="overview-muted">no attention cues</span>`;
@@ -888,6 +1161,9 @@ function attentionCues(overview) {
     .join("");
 }
 
+/**
+ * @param {*} [overview]
+ */
 function overviewStats(overview) {
   const counts = overview?.counts || {};
   const facts =
@@ -896,10 +1172,17 @@ function overviewStats(overview) {
     (counts.assessments || 0) +
     (counts.validationChecks || 0) +
     (counts.adapterNotes || 0);
+  /**
+   * @param {string} label
+   * @param {*} [value]
+   */
   const stat = (label, value) => `<span class="overview-stat"><b>${value ?? 0}</b> ${escapeHtml(label)}</span>`;
   return `<div class="overview-stats">${stat("files", counts.files)}${stat("rows", counts.rows)}${stat("facts", facts)}</div>`;
 }
 
+/**
+ * @param {*} [overview]
+ */
 function latestActivityLine(overview) {
   const latest = overview?.latestActivity;
   if (!latest) return "";
@@ -907,6 +1190,9 @@ function latestActivityLine(overview) {
   return `<div class="overview-latest"><span>latest</span><b>${escapeHtml(title)}</b><span>${escapeHtml(fmtDateTime(latest.at))}</span></div>`;
 }
 
+/**
+ * @param {*} [u]
+ */
 function revisionSearchIndex(u) {
   const overview = u.overview || {};
   const currentAssessment = overview.currentAssessment || {};
@@ -940,17 +1226,27 @@ function revisionSearchIndex(u) {
   };
 }
 
+/**
+ * @param {*} [u]
+ */
 function matchesRevisionFilters(u) {
   if (state.filterObject && u.objectId !== state.filterObject) return false;
   return matchesQuery(revisionSearchIndex(u), currentClauses());
 }
 
+/**
+ * @param {*} [thread]
+ */
 function threadMatchesRevisionFilters(thread) {
   const revisions = thread.revisions || [];
   if (!state.filterText && !state.filterObject) return true;
   return revisions.map(unitForRevision).filter(Boolean).some(matchesRevisionFilters);
 }
 
+/**
+ * @param {*} [thread]
+ * @param {any[]} [revisions]
+ */
 function filteredThreadRevisionIds(thread, revisions = thread.revisions || []) {
   if (!state.filterText && !state.filterObject) return revisions;
   return revisions.filter((revisionId) => {
@@ -959,8 +1255,13 @@ function filteredThreadRevisionIds(thread, revisions = thread.revisions || []) {
   });
 }
 
+/**
+ * @param {*} [root]
+ */
 function wireOverviewCueFilters(root) {
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   root.querySelectorAll("[data-attention-query]").forEach((button) => {
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     button.addEventListener("click", (ev) => {
       ev.stopPropagation();
       const query = button.getAttribute("data-attention-query");
@@ -969,6 +1270,10 @@ function wireOverviewCueFilters(root) {
   });
 }
 
+/**
+ * @param {*} [u]
+ * @param {*} [overview]
+ */
 function renderRevisionOverview(u, overview = u.overview) {
   return `<div class="overview-summary">
     <div class="overview-main">${assessmentCue(overview)}${overviewStats(overview)}</div>
@@ -977,6 +1282,9 @@ function renderRevisionOverview(u, overview = u.overview) {
   </div>`;
 }
 
+/**
+ * @param {*} [revisionId]
+ */
 function renderThreadRevisionOverview(revisionId) {
   const unit = unitForRevision(revisionId);
   const overview = overviewForRevision(revisionId);
@@ -1006,6 +1314,9 @@ const QUERY_FIELDS = ["type", "track", "revision", "object", "status", "attentio
 
 // The lowercased haystack of an entry's human-relevant fields (not the whole
 // serialized object).
+/**
+ * @param {*} [e]
+ */
 function buildHaystack(e) {
   const s = e.summary || {};
   const parts = [
@@ -1032,10 +1343,14 @@ function buildHaystack(e) {
 
 // Split a query into tokens, honoring "quoted phrases" (optionally negated /
 // field-prefixed) and bare runs.
+/**
+ * @param {string} q
+ */
 function tokenizeQuery(q) {
   const out = [];
   const re = /-?(?:[a-z]+:)?"[^"]*"|\S+/gi;
   let m;
+  // biome-ignore lint/suspicious/noAssignInExpressions: legacy assign-in-expression; refactored when this moves to a .ts module
   while ((m = re.exec(q)) !== null) out.push(m[0]);
   return out;
 }
@@ -1043,6 +1358,9 @@ function tokenizeQuery(q) {
 // Parse a query string into a list of clauses. A `field:value` whose field is a
 // recognized id-shaped field reuses refInfo's classification; everything else is
 // a free-text clause.
+/**
+ * @param {*} [q]
+ */
 function parseSearchQuery(q) {
   const clauses = [];
   for (let tok of tokenizeQuery(q || "")) {
@@ -1067,6 +1385,11 @@ function parseSearchQuery(q) {
   return clauses;
 }
 
+/**
+ * @param {*} [idx]
+ * @param {*} [field]
+ * @param {*} [value]
+ */
 function fieldMatches(idx, field, value) {
   if (field === "type") {
     // Accept the human label (e.g. "observation") or the raw event-type id.
@@ -1076,6 +1399,10 @@ function fieldMatches(idx, field, value) {
   return (idx[field] || "").toLowerCase().includes(value);
 }
 
+/**
+ * @param {*} [idx]
+ * @param {*} [clauses]
+ */
 function matchesQuery(idx, clauses) {
   for (const c of clauses) {
     const hit = c.kind === "field" ? fieldMatches(idx, c.field, c.value) : idx.text.includes(c.value);
@@ -1086,6 +1413,7 @@ function matchesQuery(idx, clauses) {
 
 // Parse the query once per render and memoize on the raw string (matchesFilters
 // is called per entry).
+/** @type {*} */
 let queryCache = { raw: null, clauses: [] };
 function currentClauses() {
   if (queryCache.raw !== state.filterText) {
@@ -1094,6 +1422,9 @@ function currentClauses() {
   return queryCache.clauses;
 }
 
+/**
+ * @param {*} [e]
+ */
 function matchesFilters(e) {
   if (!state.enabledTypes.has(e.eventType)) return false;
   if (state.filterTrack && entryTrack(e) !== state.filterTrack) return false;
@@ -1110,6 +1441,7 @@ function facetCounts() {
     if (state.filterTrack && entryTrack(e) !== state.filterTrack) continue;
     if (state.filterObject && !eventMatchesObject(e, state.filterObject)) continue;
     if (!matchesQuery(e.__search || {}, clauses)) continue;
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     counts[e.eventType] = (counts[e.eventType] || 0) + 1;
   }
   return counts;
@@ -1135,6 +1467,7 @@ function renderTimeline() {
     li.dataset.eventId = e.eventId;
     if (e.eventId === selectedEventId()) li.setAttribute("aria-selected", "true");
     const tags = entryTags(e)
+      // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
       .map((t) => `<span class="badge">${escapeHtml(t)}</span>`)
       .join(" ");
     const revisionId = entryRevisionId(e);
@@ -1154,6 +1487,7 @@ function renderTimeline() {
         </span>
       </span>`;
     li.addEventListener("click", (ev) => {
+      // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
       if (ev.target.closest("[data-ref-kind]")) return; // let the ref handler navigate
       navigate({ selected: { kind: "event", id: e.eventId } });
     });
@@ -1232,6 +1566,9 @@ function renderDetail() {
   }
 }
 
+/**
+ * @param {*} [e]
+ */
 function eventBodyBlock(e) {
   const s = e.summary || {};
   if (s.body) return renderBodyContent(s.body, s.bodyContentType);
@@ -1240,6 +1577,9 @@ function eventBodyBlock(e) {
   return "";
 }
 
+/**
+ * @param {*} [revisionId]
+ */
 function snapshotIdForRevision(revisionId) {
   const unit = (state.units?.entries || []).find((u) => u.revisionId === revisionId);
   return unit ? unit.objectId : null;
@@ -1247,6 +1587,9 @@ function snapshotIdForRevision(revisionId) {
 
 // Gather the review facts on a revision — observations, input requests, and
 // assessments — into one annotation list with a shared shape.
+/**
+ * @param {*} [revisionId]
+ */
 function annotationsForUnit(revisionId) {
   const out = [];
   for (const e of state.history?.entries || []) {
@@ -1298,10 +1641,19 @@ function annotationsForUnit(revisionId) {
 // DIFF_LENS_ROUTE_SEAM: this modal remains quick readback over `diff=` route
 // state. A full-page diff lens route/data contract is deferred until it can be
 // designed as its own route and payload seam rather than inferred here.
+/**
+ * @param {*} [objectId]
+ * @param {*} [focusId]
+ * @param {*} [contentHash]
+ */
 function openDiff(objectId, focusId = null, contentHash = null) {
   navigate({ diff: objectId, diffHash: contentHash || null, focus: focusId || null });
 }
 
+/**
+ * @param {*} [revisionId]
+ * @param {*} [focusId]
+ */
 function openRevisionDiff(revisionId, focusId = null) {
   const objectId = objectIdForRevision(revisionId);
   if (objectId) openDiff(objectId, focusId, objectArtifactHashForRevision(revisionId));
@@ -1314,6 +1666,10 @@ function closeDiff() {
 
 // The revision that captured an object artifact, via the units list. The content
 // hash disambiguates rebased recaptures with the same stable object id.
+/**
+ * @param {*} [objectId]
+ * @param {*} [contentHash]
+ */
 function revisionIdForObject(objectId, contentHash = null) {
   const entries = state.units?.entries || [];
   const unit =
@@ -1327,13 +1683,16 @@ function revisionIdForObject(objectId, contentHash = null) {
 
 // The object artifact currently painted in the modal, so a re-render with an
 // unchanged overlay does not re-fetch.
+/** @type {*} */
 let shownDiffObject = null;
+/** @type {*} */
 let shownDiffHash = null;
 
 // Module-local render context for the open diff: the files + anchored facts the
 // delegated #diff-body / #diff-nav listeners read to lazily fill a collapsed
 // file body or expand-then-scroll to a fact. Set by renderDiff, cleared when the
 // overlay closes. NOT route state (state.diff stays the object-id string | null).
+/** @type {DiffContext|null} */
 let diffCtx = null;
 // Cursors for the diff-local jump keys (next/prev fact, next/prev change), reset
 // each time a new diff renders.
@@ -1394,6 +1753,9 @@ function applyDiffFocus() {
   if (focusId) scrollToAnno(focusId);
 }
 
+/**
+ * @param {*} [id]
+ */
 function focusDiffFactRoute(id) {
   if (!id || state.focus === id) return false;
   navigate({ focus: id }, { replace: true });
@@ -1404,6 +1766,10 @@ function focusDiffFactRoute(id) {
 // first if it lives in a default-collapsed section. The single path a focus=
 // deep-link, a gutter click, a navigator entry, and the n/p keys all route
 // through, so they behave identically.
+/**
+ * @param {*} [id]
+ * @param {*} [opts]
+ */
 function scrollToAnno(id, opts = {}) {
   if (opts.updateRoute && focusDiffFactRoute(id)) return;
   const sel = `.anno[data-anno="${id}"]`;
@@ -1430,6 +1796,9 @@ function scrollToAnno(id, opts = {}) {
 
 // Restart the flash animation even if the element was flashed before (n/p may
 // land on it twice).
+/**
+ * @param {*} [el]
+ */
 function flashAnno(el) {
   el.classList.remove("anno-flash");
   void el.offsetWidth;
@@ -1437,6 +1806,9 @@ function flashAnno(el) {
 }
 
 // Fill a collapsed file's lazy body on first expand, cached via a rendered flag.
+/**
+ * @param {*} [section]
+ */
 function ensureDiffFileBody(section) {
   if (!diffCtx) return;
   const body = section.querySelector("[data-dfile-body]");
@@ -1447,15 +1819,25 @@ function ensureDiffFileBody(section) {
   body.dataset.rendered = "1";
 }
 
+/**
+ * @param {*} [section]
+ */
 function diffFileHeader(section) {
   return section ? section.querySelector(".dfile-head") : null;
 }
 
+/**
+ * @param {*} [section]
+ */
 function diffFileExpanded(section) {
   const head = diffFileHeader(section);
   return head ? head.getAttribute("aria-expanded") === "true" : false;
 }
 
+/**
+ * @param {*} [section]
+ * @param {*} [open]
+ */
 function setDiffFileExpanded(section, open) {
   if (!section) return;
   const value = String(open);
@@ -1466,6 +1848,9 @@ function setDiffFileExpanded(section, open) {
 
 // Expand one accordion file section (render its body on first expand). Used by
 // navigation (navigator entry, focus jump) where the target must end up open.
+/**
+ * @param {*} [section]
+ */
 function expandDiffFile(section) {
   if (!section) return;
   ensureDiffFileBody(section);
@@ -1474,6 +1859,9 @@ function expandDiffFile(section) {
 
 // Toggle one accordion file section; render its body on first expand. Transient
 // DOM state, reconciled on each overlay render — not route state.
+/**
+ * @param {*} [section]
+ */
 function toggleDiffFile(section) {
   if (!section) return;
   const open = diffFileExpanded(section);
@@ -1486,6 +1874,7 @@ function toggleDiffFile(section) {
 // anchored to a captured diff line — is reachable on a large changeset.
 function renderDiffNav() {
   if (!diffCtx) return "";
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   const { files, anchored, unanchored, filePaths } = diffCtx;
   const visibleFiles = files
     .map((f, i) => ({ f, i, factCount: fileFactCount(f, anchored) }))
@@ -1529,6 +1918,9 @@ function diffNavSummary() {
   };
 }
 
+/**
+ * @param {*} [summary]
+ */
 function renderDiffNavSummary(summary) {
   return `<div class="diff-nav-summary" aria-label="diff summary">
     <span><b>${summary.fileCount}</b> files</span>
@@ -1545,17 +1937,26 @@ function renderDiffNavFilters() {
   </div>`;
 }
 
+/**
+ * @param {*} [filter]
+ */
 function setDiffNavFilter(filter) {
   if (!["all", "with-facts", "unanchored"].includes(filter)) return;
   diffNavFilter = filter;
   $("#diff-nav").innerHTML = renderDiffNav();
 }
 
+/**
+ * @param {*} a
+ * @param {any[]} filePaths
+ */
 function unanchoredReason(a, filePaths) {
   const t = a.target || {};
   if (a.kind === "assessment") return "broad assessment";
   if (t.kind === "revision" || !t.filePath) return "revision-level";
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   if (t.kind === "range" && filePaths && filePaths.has(t.filePath)) return "line outside captured rows";
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   if (t.filePath && filePaths && !filePaths.has(t.filePath)) return "file missing from snapshot";
   return "not anchored to a diff line";
 }
@@ -1572,6 +1973,11 @@ function diffChangeTargets() {
   return Array.from($("#diff-body").querySelectorAll(".dhunk"));
 }
 
+/**
+ * @param {any[]} targets
+ * @param {*} [cursor]
+ * @param {*} [dir]
+ */
 function jumpToTarget(targets, cursor, dir) {
   if (!targets.length) return cursor;
   const next = (cursor + dir + targets.length) % targets.length;
@@ -1582,6 +1988,9 @@ function jumpToTarget(targets, cursor, dir) {
   return next;
 }
 
+/**
+ * @param {*} [dir]
+ */
 function jumpFact(dir) {
   const targets = diffFactTargets();
   if (!targets.length) return;
@@ -1596,11 +2005,19 @@ function jumpFact(dir) {
   }
 }
 
+/**
+ * @param {*} [dir]
+ */
 function jumpChange(dir) {
   diffChangeCursor = jumpToTarget(diffChangeTargets(), diffChangeCursor, dir);
 }
 
+/**
+ * @param {*} [a]
+ * @param {*} [showLocation]
+ */
 function renderAnnotation(a, showLocation) {
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   const tags = (a.tags || []).map((t) => `<span class="badge">${escapeHtml(t)}</span>`).join(" ");
   const body = renderBodyContent(a.body, a.bodyContentType);
   const t = a.target || {};
@@ -1617,6 +2034,9 @@ function renderAnnotation(a, showLocation) {
 const DEFAULT_OPEN_FILES = 10;
 
 // The display path for a diff file (a rename shows both sides).
+/**
+ * @param {*} [f]
+ */
 function filePathLabel(f) {
   const oldp = f.old_path;
   const newp = f.new_path;
@@ -1627,7 +2047,11 @@ function filePathLabel(f) {
 // by default (it carries little line-by-line review value relative to its size).
 const LARGE_FILE_ROWS = 500;
 
+/**
+ * @param {*} [f]
+ */
 function fileRowCount(f) {
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   return (f.hunks || []).reduce((n, h) => n + (h.rows ? h.rows.length : 0), 0);
 }
 
@@ -1635,6 +2059,9 @@ function fileRowCount(f) {
 // reason string used both as the default-collapse signal and the collapsed
 // one-line summary. `null` means a normal content-bearing file. The single
 // source of the reason text (the body's no-content note reuses it).
+/**
+ * @param {*} [f]
+ */
 function classifyLowSignal(f) {
   if (f.is_binary) return "binary";
   if (f.is_mode_only) return "mode change only";
@@ -1649,6 +2076,10 @@ function classifyLowSignal(f) {
 
 // The anchored facts (range + file-level) that belong to one file. The single
 // source of the per-file count the header badge and navigator both read.
+/**
+ * @param {*} f
+ * @param {any[]} anchored
+ */
 function fileFactCount(f, anchored) {
   const oldp = f.old_path;
   const newp = f.new_path;
@@ -1660,10 +2091,18 @@ function fileFactCount(f, anchored) {
   return n;
 }
 
+/**
+ * @param {any[]} files
+ * @param {*} [filePath]
+ */
 function fileForFact(files, filePath) {
   return files.find((f) => f.new_path === filePath || f.old_path === filePath) || null;
 }
 
+/**
+ * @param {*} [a]
+ * @param {*} [file]
+ */
 function rangeTouchesCapturedRows(a, file) {
   if (!file) return false;
   const t = a.target || {};
@@ -1679,6 +2118,10 @@ function rangeTouchesCapturedRows(a, file) {
   return false;
 }
 
+/**
+ * @param {*} f
+ * @param {any[]} anchored
+ */
 function renderDiffFactVicinity(f, anchored) {
   const facts = anchored.filter((a) => {
     const p = (a.target || {}).filePath;
@@ -1691,6 +2134,10 @@ function renderDiffFactVicinity(f, anchored) {
   </div>`;
 }
 
+/**
+ * @param {*} artifact
+ * @param {any[]} annotations
+ */
 function renderDiff(artifact, annotations) {
   annotations = annotations || [];
   const files = (artifact.snapshot && artifact.snapshot.files) || [];
@@ -1699,6 +2146,7 @@ function renderDiff(artifact, annotations) {
     if (f.new_path) filePaths.add(f.new_path);
     if (f.old_path) filePaths.add(f.old_path);
   }
+  /** @type {any[]} */
   const anchored = [];
   const unanchored = [];
   for (const a of annotations) {
@@ -1715,11 +2163,14 @@ function renderDiff(artifact, annotations) {
   // The render inputs the delegated #diff-body / #diff-nav listeners read to
   // fill a lazy file body or scroll to a fact. NOT state.diff (that stays the
   // object-id string the route grammar serializes).
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   diffCtx = { objectId: shownDiffObject, files, anchored, unanchored, filePaths };
   diffFactCursor = -1;
   diffChangeCursor = -1;
   diffNavFilter = "all";
 
+  // biome-ignore lint/complexity/noCommaOperator: legacy comma operator; refactored when this moves to a .ts module
+  // biome-ignore lint/suspicious/noAssignInExpressions: legacy assign-in-expression; refactored when this moves to a .ts module
   const counts = annotations.reduce((acc, a) => ((acc[a.kind] = (acc[a.kind] || 0) + 1), acc), {});
   const breakdown = Object.entries(counts)
     .map(([k, n]) => `${n} ${k}${n === 1 ? "" : "s"}`)
@@ -1739,6 +2190,7 @@ function renderDiff(artifact, annotations) {
   // default — unless they carry a fact, which always wins so the fact is visible.
   let openBudget = DEFAULT_OPEN_FILES;
   html += files
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     .map((f, i) => {
       const reason = classifyLowSignal(f);
       const annotated = fileFactCount(f, anchored) > 0;
@@ -1760,6 +2212,12 @@ function renderDiff(artifact, annotations) {
 // disclosure control (the delegated #diff-body listener toggles its section);
 // CSS draws the caret from the section's internal state; the header carries the
 // authoritative aria-expanded state for the disclosure control.
+/**
+ * @param {*} f
+ * @param {any[]} anchored
+ * @param {*} [reason]
+ * @param {*} [open]
+ */
 function renderDiffFileHeader(f, anchored, reason, open) {
   const n = fileFactCount(f, anchored);
   const summary = reason ? `<span class="dfile-summary">${escapeHtml(reason)}</span>` : "";
@@ -1773,6 +2231,10 @@ function renderDiffFileHeader(f, anchored, reason, open) {
 // inline annotations. Built on first expand. Each body owns its own `emitted`
 // Set — a fact belongs to exactly one file (fileFacts filters by path), so
 // cross-file de-dup was never load-bearing.
+/**
+ * @param {*} f
+ * @param {any[]} anchored
+ */
 function renderDiffFileBody(f, anchored) {
   const oldp = f.old_path;
   const newp = f.new_path;
@@ -1817,8 +2279,12 @@ function renderDiffFileBody(f, anchored) {
     for (const r of h.rows || []) {
       // Look up this row's facts in O(1): a row matches a range fact on the
       // captured side whose line falls in [startLine, endLine].
+      /** @type {any[]} */
       const matching = [];
       const seen = new Set();
+      /**
+       * @param {string} key
+       */
       const collect = (key) => {
         const bucket = factsByLine.get(key);
         if (!bucket) return;
@@ -1891,6 +2357,7 @@ function renderUnits() {
       ["base", base.commitOid ? shortId(base.commitOid) + " (" + (base.kind || "") + ")" : base.kind || "—"],
     ];
     const tail = [["snapshot", shortId(u.objectId)]];
+    /** @type {(pair: any[]) => string} */
     const kv = ([k, v]) => `<span>${escapeHtml(k)}</span><b>${escapeHtml(String(v))}</b>`;
     // The target cell carries pre-escaped derived HTML (label + head badge), so
     // it bypasses the generic escaping cell renderer rather than double-escaping.
@@ -1902,6 +2369,7 @@ function renderUnits() {
       <div class="kv">${rows.map(kv).join("")}${targetCell}${tail.map(kv).join("")}</div>`;
     card.title = u.revisionId + "\nclick to open the revision page";
     card.addEventListener("click", (ev) => {
+      // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
       if (ev.target.closest("[data-ref-kind]")) return;
       navigate({ selected: { kind: "revision", id: u.revisionId } });
     });
@@ -1938,6 +2406,9 @@ function renderRevisions() {
   }
 }
 
+/**
+ * @param {*} [thread]
+ */
 function threadLabel(thread) {
   const heads = thread.heads || [];
   if (thread.competing) return `revision thread · ${heads.length} competing heads`;
@@ -1945,6 +2416,9 @@ function threadLabel(thread) {
   return "revision thread";
 }
 
+/**
+ * @param {*} [thread]
+ */
 function renderThreadCard(thread) {
   const revisions = thread.revisions || [];
   const heads = thread.heads || [];
@@ -1953,6 +2427,7 @@ function renderThreadCard(thread) {
   card.className = "unit-card thread-card" + (thread.competing ? " competing" : "");
   // A fork surfaces every competing head as a navigable chip — never a null head.
   const competingBadge = thread.competing
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     ? `<div class="thread-competing"><span class="fact-status competing">competing revisions (${heads.length})</span> ${heads.map((h) => linkify(h)).join(" ")}</div>`
     : "";
   const overviewBlocks = heads.map(renderThreadRevisionOverview).filter(Boolean).join("");
@@ -1977,6 +2452,9 @@ function renderThreadCard(thread) {
 // (0,0) origin, so the viewBox contains the whole graph with no clipping. Heads
 // carry no centering/bold/sort-first (peer-equal); the head-vs-superseded shape
 // cue lives in the CSS, not in color alone.
+/**
+ * @param {*} [laid]
+ */
 function renderThreadSvg(laid) {
   if (!laid || !(laid.nodes && laid.nodes.length)) return "";
   const w = laid.bounds.w;
@@ -1984,14 +2462,20 @@ function renderThreadSvg(laid) {
   // Node centers, so each edge's arrowhead is oriented by node identity: the
   // arrow points at the superseding `from` head, never by raw points order (a
   // reversed/cycle edge still renders correctly).
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   const center = new Map(laid.nodes.map((n) => [n.id, [n.x, n.y]]));
   // Two shared arrowhead markers: a default (border-colored) and a traced
   // (accent-colored) one. CSS swaps a traced edge to the accent marker — a
   // cross-browser alternative to `context-stroke` (which Safari does not paint).
+  /**
+   * @param {string} id
+   * @param {string} cls
+   */
   const marker = (id, cls) =>
     `<marker id="${id}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path class="${cls}" d="M0,0 L7,4 L0,8 z" /></marker>`;
   const defs = `<defs>${marker("dag-arrow", "dag-arrow-head")}${marker("dag-arrow-traced", "dag-arrow-head-traced")}</defs>`;
   const edges = (laid.edges || [])
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     .map((e) => {
       // Draw so the LAST point is nearest the `from` (superseding head) node;
       // marker-end then points the arrowhead at that head, so succession reads
@@ -1999,14 +2483,19 @@ function renderThreadSvg(laid) {
       let path = e.path;
       const from = center.get(e.from);
       if (from && path.length > 1) {
+        /**
+         * @param {number[]} p
+         */
         const dist2 = (p) => (p[0] - from[0]) ** 2 + (p[1] - from[1]) ** 2;
         if (dist2(path[0]) < dist2(path[path.length - 1])) path = [...path].reverse();
       }
+      // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
       const pts = path.map(([x, y]) => `${x},${y}`).join(" ");
       return `<polyline class="dag-edge" data-from="${escapeHtml(e.from)}" data-to="${escapeHtml(e.to)}" points="${pts}" marker-end="url(#dag-arrow)" />`;
     })
     .join("");
   const nodes = laid.nodes
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     .map((n) => {
       const sel = state.selected.kind === "revision" && state.selected.id === n.id;
       const cls = `dag-node${n.isHead ? " head" : ""}${n.isSuperseded ? " superseded" : ""}`;
@@ -2025,24 +2514,36 @@ function renderThreadSvg(laid) {
 // Wire the DAG nodes into the IA: click / Enter / Space navigate to the
 // revision via the router; hover/focus traces the node and its incident edges
 // by class toggle (no re-render).
+/**
+ * @param {*} [card]
+ */
 function wireDagInteractions(card) {
+  /**
+   * @param {*} [node]
+   */
   const nav = (node) => {
     const id = node.getAttribute("data-revision-id");
     if (id) navigate({ selected: { kind: "revision", id }, diff: null, diffHash: null, focus: null });
   };
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   card.querySelectorAll(".dag-node").forEach((node) => {
     node.addEventListener("click", () => nav(node));
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     node.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" || ev.key === " ") {
         ev.preventDefault();
         nav(node);
       }
     });
+    /**
+     * @param {*} [on]
+     */
     const trace = (on) => {
       const id = node.getAttribute("data-revision-id");
       node.classList.toggle("traced", on);
       card
         .querySelectorAll(`.dag-edge[data-from="${id}"], .dag-edge[data-to="${id}"]`)
+        // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
         .forEach((edge) => {
           edge.classList.toggle("traced", on);
           // Swap the arrowhead to the accent marker via the marker-end attribute
@@ -2059,7 +2560,9 @@ function wireDagInteractions(card) {
 
 // Mark the active lens on the switcher.
 function renderLensSwitcher() {
+  // biome-ignore lint/suspicious/useIterableCallbackReturn: legacy forEach side-effect callback; refactored when this moves to a .ts module
   document.querySelectorAll(".lens-tab").forEach((t) =>
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     t.setAttribute("aria-pressed", String(t.dataset.lens === state.lens)),
   );
 }
@@ -2081,6 +2584,7 @@ function syncControls() {
 // rebuilt only on a lens change; the populate runs every render so the lens
 // reflects the current filters/selection. The threads-lens body is a clean,
 // replaceable seam (its flat node list becomes a laid-out graph later).
+/** @type {*} */
 let lastMasterLens = null;
 function renderMaster() {
   const master = $("#master");
@@ -2141,13 +2645,20 @@ function scrollSelectionIntoView() {
 
 // The revision whose composite is currently shown, so a re-render with an
 // unchanged revision selection does not re-fetch.
+/** @type {*} */
 let shownCompositeId = null;
+/**
+ * @param {*} [revisionId]
+ */
 function showComposite(revisionId) {
   if (revisionId === shownCompositeId) return;
   shownCompositeId = revisionId;
   openUnit(revisionId);
 }
 
+/**
+ * @param {*} [revisionId]
+ */
 async function openUnit(revisionId) {
   const detail = $("#detail");
   detail.innerHTML = `<p class="up-empty">loading…</p>`;
@@ -2158,11 +2669,15 @@ async function openUnit(revisionId) {
     renderUnitPage(d);
   } catch (err) {
     if (state.selected.kind === "revision" && state.selected.id === revisionId) {
+      // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
       detail.innerHTML = `<p class="up-empty">error: ${escapeHtml(err.message)}</p>`;
     }
   }
 }
 
+/**
+ * @param {*} [ca]
+ */
 function verdictBadge(ca) {
   const status = (ca && ca.status) || "unassessed";
   let value;
@@ -2180,9 +2695,13 @@ function verdictBadge(ca) {
   return `<div class="verdict ${cls}"><span class="verdict-status">current assessment</span><span class="verdict-value">${escapeHtml(value)}</span></div>`;
 }
 
+/**
+ * @param {*} [d]
+ */
 function currentAssessmentSummary(d) {
   const ca = d.currentAssessment || {};
   if (ca.status === "resolved" && ca.assessmentId) {
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     const a = (d.assessments || []).find((x) => x.id === ca.assessmentId);
     if (a && a.summary) {
       const cls = isMarkdownContentType(a.summaryContentType) ? "verdict-summary markdown-body" : "verdict-summary";
@@ -2195,6 +2714,9 @@ function currentAssessmentSummary(d) {
   return "";
 }
 
+/**
+ * @param {*} [t]
+ */
 function targetLabel(t) {
   t = t || {};
   switch (t.kind) {
@@ -2217,7 +2739,12 @@ function targetLabel(t) {
   }
 }
 
+/**
+ * @param {*} [kind]
+ * @param {*} [opts]
+ */
 function factCard(kind, opts) {
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   const tags = (opts.tags || []).filter(Boolean).map((t) => `<span class="badge">${escapeHtml(t)}</span>`).join(" ");
   const body = renderBodyContent(opts.body, opts.bodyContentType);
   return `<div class="anno anno-${kind}">
@@ -2236,6 +2763,9 @@ function factCard(kind, opts) {
     ${opts.extra || ""}</div>`;
 }
 
+/**
+ * @param {*} [o]
+ */
 function renderObservationCard(o) {
   const extra = (o.supersedes || []).length
     ? `<div class="fact-rel">supersedes ${o.supersedes.map(linkify).join(", ")}</div>`
@@ -2255,9 +2785,13 @@ function renderObservationCard(o) {
   });
 }
 
+/**
+ * @param {*} [ir]
+ */
 function renderInputRequestCard(ir) {
   const responses = (ir.responses || [])
     .map(
+      // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
       (r) =>
         `<div class="fact-response"><span class="outcome">${escapeHtml(r.outcome)}</span>${r.reason ? renderBodyContent(r.reason, r.reasonContentType) : ""} ${verificationChip(r.verificationStatus)}${endorsementsBlock(r.endorsements)}</div>`,
     )
@@ -2277,6 +2811,9 @@ function renderInputRequestCard(ir) {
   });
 }
 
+/**
+ * @param {*} [a]
+ */
 function renderAssessmentCard(a) {
   const rel = [];
   if ((a.replaces || []).length) rel.push(`replaces ${a.replaces.map(linkify).join(", ")}`);
@@ -2299,6 +2836,9 @@ function renderAssessmentCard(a) {
 // Validation evidence is advisory: it renders with the shared factCard shape
 // (status maps to .fact-status.<status>) but never as a verdict aggregate, and
 // the unit-page section caption keeps it "context only".
+/**
+ * @param {*} [v]
+ */
 function renderValidationCheckCard(v) {
   const rel = [];
   if (v.command) rel.push(escapeHtml(v.command));
@@ -2318,6 +2858,9 @@ function renderValidationCheckCard(v) {
   });
 }
 
+/**
+ * @param {*} [n]
+ */
 function renderAdapterNoteCard(n) {
   return factCard("observation", {
     track: n.author || "imported",
@@ -2329,18 +2872,30 @@ function renderAdapterNoteCard(n) {
   });
 }
 
+/**
+ * @param {*} [revisionId]
+ */
 function staleFactSectionContext(revisionId) {
   const successors = supersededByRevision(revisionId);
   if (!successors.length) return "";
   return `<p class="fact-stale-context">superseded by ${successors.map(linkify).join(" ")}</p>`;
 }
 
+/**
+ * @param {*} title
+ * @param {any[]} items
+ * @param {*} [render]
+ * @param {*} [context]
+ */
 function factSection(title, items, render, context = "") {
   items = items || [];
   const body = items.length ? items.map(render).join("") : `<p class="up-empty">none</p>`;
   return `<section><h2>${escapeHtml(title)} (${items.length})</h2>${context}${body}</section>`;
 }
 
+/**
+ * @param {*} [d]
+ */
 function renderUnitPage(d) {
   const ru = d.revision || {};
   const base = ru.base || {};
@@ -2349,6 +2904,10 @@ function renderUnitPage(d) {
   const title = `${shortId(ru.id)}${base.commitOid ? " · base " + shortId(base.commitOid) : ""}`;
   const staleContext = staleFactSectionContext(ru.id);
 
+  /**
+   * @param {string} label
+   * @param {*} [n]
+   */
   const stat = (label, n) => `<span class="up-stat"><b>${n ?? 0}</b> ${label}</span>`;
   const sections = [];
 
@@ -2400,7 +2959,12 @@ function renderUnitPage(d) {
   if (tlBtn) tlBtn.addEventListener("click", () => navigateToUnit(ru.id));
 }
 
+/**
+ * @param {*} [s]
+ * @returns {string}
+ */
 function escapeHtml(s) {
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
@@ -2429,16 +2993,23 @@ const LENSES = ["timeline", "list", "threads"];
 const DEFAULT_LENS = "timeline";
 
 // Guards re-deriving the view from a fragment this router just wrote.
+// biome-ignore lint/correctness/noUnusedVariables: legacy write-only field; removed when this moves to a .ts module
 let routerLastHash = null;
 
 // Classify a selection id as a revision or an event (a `rev:`/`review-unit:` id
 // is a revision; anything else is treated as an event).
+/**
+ * @param {*} [id]
+ */
 function selectionKind(id) {
   const info = refInfo(id);
   if (info && (info.kind === "rev" || info.kind === "review-unit")) return "revision";
   return "event";
 }
 
+/**
+ * @param {*} [queryString]
+ */
 function parseQuery(queryString) {
   const params = {};
   for (const pair of String(queryString || "").split("&")) {
@@ -2446,6 +3017,7 @@ function parseQuery(queryString) {
     const eq = pair.indexOf("=");
     const key = decodeURIComponent(eq < 0 ? pair : pair.slice(0, eq));
     const value = eq < 0 ? "" : decodeURIComponent(pair.slice(eq + 1));
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     params[key] = value;
   }
   return params;
@@ -2454,6 +3026,9 @@ function parseQuery(queryString) {
 // Parse a fragment into a complete state patch. Absent params resolve to their
 // defaults so the fragment fully determines the filter/selection state (so
 // Back/Forward to a barer fragment clears what it omits).
+/**
+ * @param {*} [hash]
+ */
 function parseHash(hash) {
   const raw = String(hash || "").replace(/^#/, "");
   const q = raw.indexOf("?");
@@ -2462,33 +3037,52 @@ function parseHash(hash) {
 
   const patch = {
     selected: { kind: null, id: null },
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     filterTrack: p.track != null ? p.track : "",
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     filterObject: p.object != null ? p.object : "",
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     order: p.order === "asc" || p.order === "desc" ? p.order : "desc",
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     filterText: p.q != null ? p.q : "",
     enabledTypes:
+      // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
       p.types != null ? new Set(p.types.split(",").filter(Boolean)) : new Set(presentTypes()),
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     diff: p.diff || null,
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     diffHash: p.diffHash || null,
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     focus: p.focus ? p.focus : null,
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     unsupportedAsOf: p.asof != null ? p.asof || true : null,
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     unsupportedJournal: p.journal != null ? p.journal || true : null,
   };
 
   const segs = path.split("/").filter(Boolean); // "/timeline" -> ["timeline"]
   if (segs.length === 0) {
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     patch.lens = DEFAULT_LENS;
   } else if (segs[0] === "revision" && segs[1]) {
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     patch.selected = { kind: "revision", id: decodeURIComponent(segs[1]) };
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     patch.lens = LENSES.includes(p.lens) ? p.lens : DEFAULT_LENS;
   } else if (segs[0] === "event" && segs[1]) {
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     patch.selected = { kind: "event", id: decodeURIComponent(segs[1]) };
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     patch.lens = LENSES.includes(p.lens) ? p.lens : DEFAULT_LENS;
   } else if (LENSES.includes(segs[0])) {
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     patch.lens = segs[0];
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     if (p.sel) patch.selected = { kind: selectionKind(p.sel), id: p.sel };
   } else {
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     patch.lens = DEFAULT_LENS;
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     patch.unknownPath = path; // resolve() surfaces a visible fallback diagnostic
   }
   return patch;
@@ -2526,6 +3120,10 @@ function serializeState() {
 
 // The single mutation + history + render choke point. Distinct navigations push
 // history; refinements (search-as-you-type, cursor steps) replace it.
+/**
+ * @param {*} [patch]
+ * @param {*} [opts]
+ */
 function navigate(patch, opts) {
   opts = opts || {};
   Object.assign(state, patch);
@@ -2549,6 +3147,9 @@ function applyHash() {
 // Resolve a parsed patch against the loaded data, falling back up the hierarchy
 // (revision → its thread → the lens → timeline) with a visible diagnostic when a
 // deep link names an absent entity — never a 404, never a blank view.
+/**
+ * @param {*} [patch]
+ */
 function resolve(patch) {
   const freshnessDiagnostic = liveStateDiagnostic(patch);
   if (patch.unknownPath != null) {
@@ -2603,6 +3204,9 @@ function resolve(patch) {
   return patch;
 }
 
+/**
+ * @param {*} [patch]
+ */
 function liveStateDiagnostic(patch) {
   const unsupported = [];
   if (patch.unsupportedAsOf != null) unsupported.push("as-of links are not supported by this server");
@@ -2612,20 +3216,36 @@ function liveStateDiagnostic(patch) {
   return unsupported.length ? "showing live state — " + unsupported.join("; ") : "";
 }
 
+/**
+ * @param {*} [primary]
+ * @param {*} [secondary]
+ */
 function routeDiagnostic(primary, secondary) {
   return secondary ? primary + " — " + secondary : primary;
 }
 
+/**
+ * @param {*} [id]
+ */
 function revisionExists(id) {
   return (state.units?.entries || []).some((u) => u.revisionId === id);
 }
+/**
+ * @param {*} [id]
+ */
 function revisionInAnyThread(id) {
   return objectThreads().some((t) => (t.revisions || []).includes(id));
 }
+/**
+ * @param {*} [id]
+ */
 function eventExists(id) {
   return (state.history?.entries || []).some((e) => e.eventId === id);
 }
 
+/**
+ * @param {string} message
+ */
 function showRouteDiagnostic(message) {
   const el = $("#route-diagnostic");
   if (!el) return;
@@ -2650,6 +3270,9 @@ function clearRouteDiagnostic() {
 // ---------------------------------------------------------------------------
 
 // Whether the focused element is a text field, so the layer yields to typing.
+/**
+ * @param {*} [el]
+ */
 function isTypingTarget(el) {
   if (!el) return false;
   const tag = el.tagName;
@@ -2678,6 +3301,9 @@ function lensEntryIds() {
 
 // Move the selection by delta within the active lens (replaceState — stepping a
 // cursor is a refinement, not a distinct navigation).
+/**
+ * @param {*} [delta]
+ */
 function stepSelection(delta) {
   const ids = lensEntryIds();
   if (!ids.length) return;
@@ -2717,6 +3343,9 @@ function openKeyHelp() {
   openOverlay("help", "#key-help-close");
 }
 
+/**
+ * @param {*} [opts]
+ */
 function closeKeyHelp(opts = {}) {
   closeOverlay("help", opts);
 }
@@ -2740,6 +3369,7 @@ function handleEscape() {
   }
   const active = document.activeElement;
   if (isTypingTarget(active)) {
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     active.blur();
     return;
   }
@@ -2747,8 +3377,13 @@ function handleEscape() {
 }
 
 // A short-lived two-key chord (g-then-…). Cleared after ~1s.
+/** @type {*} */
 let pendingChord = null;
+/** @type {*} */
 let chordTimer = null;
+/**
+ * @param {*} [key]
+ */
 function setChord(key) {
   pendingChord = key;
   if (chordTimer) clearTimeout(chordTimer);
@@ -2757,6 +3392,9 @@ function setChord(key) {
   }, 1000);
 }
 
+/**
+ * @param {*} [ev]
+ */
 function onKey(ev) {
   if (trapOverlayFocus(ev)) return;
   // A focused reference chip activates on Enter/Space (it carries role=link +
@@ -2858,10 +3496,15 @@ function onKey(ev) {
 // the router or runs a read/copy action — none is operative or gating.
 // ---------------------------------------------------------------------------
 let cmdOpen = false;
+/** @type {any[]} */
 let cmdItems = [];
+/** @type {any[]} */
 let cmdFiltered = [];
 let cmdActive = 0;
 
+/**
+ * @param {string} text
+ */
 function copyText(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text);
 }
@@ -2870,6 +3513,9 @@ function copyCurrentViewLink() {
   copyText(location.origin + location.pathname + serializeState());
 }
 
+/**
+ * @param {any[]} cmds
+ */
 function assignCommandOptionIds(cmds) {
   cmds.forEach((cmd, index) => {
     cmd.domIndex = index;
@@ -3003,6 +3649,9 @@ function sortedRevisionEntriesForCommands() {
   });
 }
 
+/**
+ * @param {*} [u]
+ */
 function revisionCommandLabel(u) {
   const targetDisplay = u.targetDisplay || {};
   const overview = u.overview || {};
@@ -3012,6 +3661,9 @@ function revisionCommandLabel(u) {
   return `${target} · ${assessment} · ${shortId(u.revisionId)}`;
 }
 
+/**
+ * @param {*} [u]
+ */
 function revisionCommandHint(u) {
   const overview = u.overview || {};
   const cues = attentionTokens(overview).map((cue) => cue.label);
@@ -3035,11 +3687,17 @@ function openPalette() {
   openOverlay("palette", "#cmd-input");
 }
 
+/**
+ * @param {*} [opts]
+ */
 function closePalette(opts = {}) {
   cmdOpen = false;
   closeOverlay("palette", opts);
 }
 
+/**
+ * @param {*} [query]
+ */
 function filterPalette(query) {
   const needle = query.trim().toLowerCase();
   cmdFiltered = needle
@@ -3058,6 +3716,7 @@ function renderPalette() {
     return;
   }
   let html = "";
+  /** @type {*} */
   let lastKind = null;
   cmdFiltered.forEach((c, i) => {
     if (c.kind !== lastKind) {
@@ -3074,6 +3733,9 @@ function renderPalette() {
   }
 }
 
+/**
+ * @param {*} [delta]
+ */
 function movePaletteActive(delta) {
   if (!cmdFiltered.length) return;
   cmdActive = (cmdActive + delta + cmdFiltered.length) % cmdFiltered.length;
@@ -3087,9 +3749,12 @@ function runPaletteActive() {
 }
 
 function wireControls() {
+  // biome-ignore lint/suspicious/useIterableCallbackReturn: legacy forEach side-effect callback; refactored when this moves to a .ts module
   document.querySelectorAll(".lens-tab").forEach((tab) =>
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     tab.addEventListener("click", () => navigate({ lens: LENSES.includes(tab.dataset.lens) ? tab.dataset.lens : DEFAULT_LENS })),
   );
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   $("#filter-text").addEventListener("input", (ev) => {
     navigate({ filterText: ev.target.value }, { replace: true });
   });
@@ -3110,6 +3775,7 @@ function wireControls() {
     navigate({ order: state.order === "desc" ? "asc" : "desc" }, { replace: true });
   });
   $("#diff-close").addEventListener("click", closeDiff);
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   $("#diff-modal").addEventListener("click", (ev) => {
     if (ev.target === $("#diff-modal")) closeDiff();
   });
@@ -3117,6 +3783,7 @@ function wireControls() {
   // module-local diffCtx renderDiff sets) — never wired at the openDiff call
   // site, which stays route-only. A file header toggles its section; an
   // annotated row's gutter scrolls to its annotation.
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   $("#diff-body").addEventListener("click", (ev) => {
     const renderAll = ev.target.closest("[data-render-diff-file]");
     if (renderAll) {
@@ -3135,6 +3802,7 @@ function wireControls() {
     const noted = ev.target.closest(".drow-noted[data-anno]");
     if (noted) scrollToAnno(noted.dataset.anno, { updateRoute: true });
   });
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   $("#diff-body").addEventListener("keydown", (ev) => {
     if (ev.key !== "Enter" && ev.key !== " ") return;
     const head = ev.target.closest(".dfile-head");
@@ -3151,6 +3819,7 @@ function wireControls() {
   });
   // The navigator sidebar: a file entry expands + scrolls its section; an
   // unanchored-fact entry scrolls to its annotation body.
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   $("#diff-nav").addEventListener("click", (ev) => {
     const filterBtn = ev.target.closest("[data-diff-nav-filter]");
     if (filterBtn) {
@@ -3171,10 +3840,13 @@ function wireControls() {
     if (factBtn) scrollToAnno(factBtn.dataset.anno, { updateRoute: true });
   });
   $("#key-help-close").addEventListener("click", () => closeKeyHelp());
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   $("#key-help").addEventListener("click", (ev) => {
     if (ev.target === $("#key-help")) closeKeyHelp();
   });
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   $("#cmd-input").addEventListener("input", (ev) => filterPalette(ev.target.value));
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   $("#cmd-input").addEventListener("keydown", (ev) => {
     if (ev.key === "ArrowDown") {
       ev.preventDefault();
@@ -3187,6 +3859,7 @@ function wireControls() {
       runPaletteActive();
     }
   });
+  // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
   $("#cmd-palette").addEventListener("click", (ev) => {
     if (ev.target === $("#cmd-palette")) {
       closePalette();
@@ -3202,6 +3875,7 @@ function wireControls() {
   // Delegated handler: any reference chip anywhere (timeline, detail, diff)
   // navigates to the resource it names.
   document.addEventListener("click", (ev) => {
+    // @ts-expect-error legacy DOM/dynamic access; typed when this moves to a .ts module
     const ref = ev.target.closest("[data-ref-kind]");
     if (!ref) return;
     ev.preventDefault();

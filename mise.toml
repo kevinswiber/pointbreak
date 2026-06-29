@@ -8,6 +8,7 @@ _.path = [
 github-cli = "latest"
 jq = "latest"
 just = "latest"
+node = "22"
 "cargo:cargo-edit" = "latest"
 "cargo:cargo-nextest" = "latest"
 

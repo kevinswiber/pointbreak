@@ -21,6 +21,7 @@ exclude = [
     "mise.toml",
     "scripts/**",
     "src/cli/inspect/design-system/**",
+    "src/cli/inspect/web/**",
 ]
 
 [lib]
