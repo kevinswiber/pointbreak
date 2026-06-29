@@ -167,6 +167,15 @@ export interface EntrySummary {
   bodyContentType?: string;
   summaryContentType?: string;
   mode?: string;
+  // The validation-check trigger and exit code surfaced in the event detail
+  // table, and the input-request reason fields the detail body block falls back
+  // to. Optional where the carrier tolerates absence (the detail renderer reads
+  // a validation event's `trigger`/`exitCode`; `reason`/`reasonContentType` are
+  // the third body fallback).
+  trigger?: string;
+  exitCode?: number;
+  reason?: string;
+  reasonContentType?: string;
 }
 
 /** The actor (and producer) that wrote a history entry. */
@@ -198,6 +207,11 @@ export interface HistoryEntry {
   // advisory signature-status chip off each entry.
   occurredAt?: string;
   verificationStatus?: string;
+  // The payload hash shown in the event detail table, and the advisory
+  // endorsement readback the detail readback region renders (optional where the
+  // carrier tolerates absence — an unsigned event carries no endorsements).
+  payloadHash?: string;
+  endorsements?: Endorsement[];
   // Computed once per load (not a wire field): the search record the state-bound
   // timeline filter matches against, so a keystroke never re-serializes the event.
   __search?: SearchIndex;

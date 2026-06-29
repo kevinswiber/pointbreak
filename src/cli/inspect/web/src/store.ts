@@ -26,17 +26,23 @@ export interface HistoryDoc {
   // The event-set hash the data loader seeds as the freshness baseline (present
   // in the committed fixture; the poller compares the probe's hash against it).
   eventSetHash?: string;
+  // The durable-event count the stat row reads (present in the committed fixture).
+  eventCount?: number;
 }
 
 /** The `/api/revisions` document: one entry per captured revision. */
 export interface RevisionsDoc {
   entries: Revision[];
+  // The captured-revision count the stat row reads (present in the committed fixture).
+  revisionCount?: number;
 }
 
 /** The `/api/objects` document: the laid-out threads plus the supersession map. */
 export interface ObjectsDoc {
   threads: unknown[];
   revisionClassification: Record<string, unknown>;
+  // The supersession-thread count the stat row reads (present in the committed fixture).
+  threadCount?: number;
 }
 
 /**
