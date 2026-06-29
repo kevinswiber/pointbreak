@@ -98,6 +98,36 @@ describe("renderDetail (event detail / empty prompt)", () => {
     expect(btn?.dataset.diffHash).toBe(ARTIFACT);
     expect(btn?.dataset.diffFocus).toBe(OBS_ID);
   });
+
+  it("derives the writer readback from the actor id, never the writer role", () => {
+    const eventId = "evt:sha256:writerrolecharacterization";
+    store.commit({
+      history: {
+        entries: [
+          {
+            eventType: "review_observation_recorded",
+            eventId,
+            occurredAt: "unix-ms:1782699185488",
+            // An envelope that also carries a role — the readback must ignore it.
+            writer: { actorId: "actor:agent:codex", role: "admin" },
+            subject: { revisionId: REV },
+            summary: { observationId: "obs:x", title: "obs" },
+          },
+        ],
+        diagnostics: [],
+      } as unknown as HistoryDoc,
+      selected: { kind: "event", id: eventId },
+    });
+    detail.renderDetail();
+    // The writer identity line renders the actor id; the role is never surfaced in
+    // the readback (the raw payload dump is a separate, faithful echo).
+    const writerDt = Array.from(
+      document.querySelectorAll<HTMLElement>("#detail dl.kv dt"),
+    ).find((dt) => dt.textContent === "writer");
+    const writerReadback = writerDt?.nextElementSibling?.textContent ?? "";
+    expect(writerReadback).toContain("codex");
+    expect(writerReadback).not.toContain("admin");
+  });
 });
 
 describe("the #detail open-diff delegate (installed once, delegates to diff/controller)", () => {

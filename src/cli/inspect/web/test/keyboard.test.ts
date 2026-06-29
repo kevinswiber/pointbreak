@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HistoryDoc, RevisionsDoc } from "../src/store";
+import type { Thread } from "../src/model";
+import type { HistoryDoc, ObjectsDoc, RevisionsDoc } from "../src/store";
 import historyJson from "./fixtures/history.json";
 import revisionsJson from "./fixtures/revisions.json";
 import { mountInspectorDom, resetDom } from "./support/dom";
@@ -16,10 +17,12 @@ type Store = typeof import("../src/store");
 type Overlay = typeof import("../src/overlay");
 type Controller = typeof import("../src/diff/controller");
 type Keyboard = typeof import("../src/keyboard");
+type Model = typeof import("../src/model");
 let store: Store;
 let overlay: Overlay;
 let controller: Controller;
 let keyboard: Keyboard;
+let model: Model;
 
 const REV =
   "rev:sha256:9a7626ca7cb2801721ed992402184460210477aadfd4f7228628b65ff11a6efd";
@@ -40,6 +43,7 @@ beforeEach(async () => {
   overlay = await import("../src/overlay");
   controller = await import("../src/diff/controller");
   keyboard = await import("../src/keyboard");
+  model = await import("../src/model");
   mountInspectorDom();
   installFetchMock();
   history.replaceState(null, "", "/");
@@ -154,5 +158,139 @@ describe("diff-local jump keys (only while the diff overlay is open)", () => {
       "#diff-body .anno[data-anno]",
     );
     expect(store.getState().focus).toBe(firstAnno?.dataset.anno);
+  });
+});
+
+// A forked thread whose laid-out DAG order (by node y, then x) differs from its
+// insertion order, so a regression that fell back to insertion order would be
+// caught. B and C each supersede the root A; B/C sit at y=50 (B left of C), A at
+// y=150 → DAG order [B, C, A], insertion order [A, B, C].
+const FA =
+  "rev:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const FB =
+  "rev:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const FC =
+  "rev:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+const FORK: Thread = {
+  revisions: [FA, FB, FC],
+  heads: [FB, FC],
+  superseded: [FA],
+  competing: true,
+  laidOut: {
+    bounds: { w: 300, h: 200 },
+    nodes: [
+      {
+        id: FA,
+        x: 150,
+        y: 150,
+        w: 120,
+        h: 40,
+        isHead: false,
+        isSuperseded: true,
+      },
+      {
+        id: FB,
+        x: 80,
+        y: 50,
+        w: 120,
+        h: 40,
+        isHead: true,
+        isSuperseded: false,
+      },
+      {
+        id: FC,
+        x: 220,
+        y: 50,
+        w: 120,
+        h: 40,
+        isHead: true,
+        isSuperseded: false,
+      },
+    ],
+    edges: [],
+  },
+};
+
+// Two revisions present in the loaded list, with distinct captured objects, plus a
+// thread that contains both. An object filter on the first excludes the second from
+// every lens's keyboard-stepping set.
+const KR1 =
+  "rev:sha256:1111111111111111111111111111111111111111111111111111111111111111";
+const KR2 =
+  "rev:sha256:2222222222222222222222222222222222222222222222222222222222222222";
+const KO1 =
+  "obj:sha256:1111111111111111111111111111111111111111111111111111111111111111";
+const KO2 =
+  "obj:sha256:2222222222222222222222222222222222222222222222222222222222222222";
+const FILTERED_REVISIONS = {
+  entries: [
+    { revisionId: KR1, objectId: KO1 },
+    { revisionId: KR2, objectId: KO2 },
+  ],
+};
+const FILTERED_THREAD: Thread = {
+  revisions: [KR1, KR2],
+  heads: [KR2],
+  superseded: [KR1],
+  laidOut: {
+    bounds: { w: 200, h: 160 },
+    nodes: [
+      { id: KR1, x: 100, y: 50, w: 120, h: 40 },
+      { id: KR2, x: 100, y: 110, w: 120, h: 40 },
+    ],
+    edges: [],
+  },
+};
+
+// Drive `j` (next-selection) `steps` times, collecting the selection id after each.
+function stepDown(steps: number): (string | null)[] {
+  const visited: (string | null)[] = [];
+  for (let i = 0; i < steps; i++) {
+    key({ key: "j" });
+    visited.push(store.getState().selected.id);
+  }
+  return visited;
+}
+
+describe("keyboard stepping order follows the rendered DAG order", () => {
+  it("threads-lens stepping visits revisions in rendered DAG order, not insertion order", () => {
+    store.commit({
+      revisions: revisionsJson as unknown as RevisionsDoc,
+      objects: { threads: [FORK] } as unknown as ObjectsDoc,
+      lens: "threads",
+      selected: { kind: null, id: null },
+    });
+    const dagOrder = model.threadRevisionOrder(FORK);
+    expect(stepDown(3)).toEqual(dagOrder);
+    // The DAG order must genuinely differ from insertion order, or the assertion
+    // above would pass for an insertion-order regression too.
+    expect(dagOrder).not.toEqual(FORK.revisions);
+  });
+});
+
+describe("keyboard stepping visits only the filtered revision set", () => {
+  it("skips a revision excluded by the active object filter (list and threads lenses)", () => {
+    store.commit({
+      revisions: FILTERED_REVISIONS as unknown as RevisionsDoc,
+      objects: { threads: [FILTERED_THREAD] } as unknown as ObjectsDoc,
+      filterObject: KO1,
+      lens: "list",
+      selected: { kind: null, id: null },
+    });
+    // The list lens steps the filtered revision set — KR2 (a different object) is skipped.
+    const listVisited = stepDown(3);
+    expect(listVisited).toContain(KR1);
+    expect(listVisited).not.toContain(KR2);
+
+    // The threads lens steps the filtered set in rendered DAG order.
+    store.commit({ lens: "threads", selected: { kind: null, id: null } });
+    const threadsVisited = stepDown(3);
+    expect(threadsVisited).not.toContain(KR2);
+    expect([...new Set(threadsVisited)]).toEqual(
+      model.filteredThreadRevisionIds(
+        FILTERED_THREAD,
+        model.threadRevisionOrder(FILTERED_THREAD),
+      ),
+    );
   });
 });
