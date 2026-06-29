@@ -12,6 +12,7 @@
 // kept is `wireDagInteractions`: the DAG node hover/focus tracing toggles `.traced`
 // on a node and its incident edges, which does not delegate, so it stays imperative.
 
+import { CLASS, dagNodeClass } from "../classNames";
 import { $ } from "../dom";
 import { escapeHtml } from "../escape";
 import { fmtDateTime } from "../format";
@@ -43,7 +44,7 @@ export function renderRevisionList(): void {
     matchesRevisionFilters,
   );
   if (!entries.length) {
-    el.innerHTML = `<p class="empty" style="color:var(--fg-dim)">${
+    el.innerHTML = `<p class="${CLASS.empty}" style="color:var(--fg-dim)">${
       state.filterText || state.filterObject
         ? "No revisions match the current filters."
         : "No captured revisions in this store."
@@ -78,14 +79,14 @@ export function renderRevisionList(): void {
       // delegate (wired by the composition root) opens the diff and selects the
       // card. The data-open-diff value is the captured object id, paired with its
       // artifact content hash for rebased-recapture disambiguation.
-      return `<div class="unit-card" data-revision-id="${escapeHtml(revisionId)}"${
+      return `<div class="${CLASS.unitCard}" data-revision-id="${escapeHtml(revisionId)}"${
         isSelected ? ' aria-selected="true"' : ""
       } title="${escapeHtml(revisionId)}\nclick to open the revision page">
       <h3>${escapeHtml(shortId(revisionId))}</h3>
-      ${badge ? `<div class="supersession-badges">${badge}</div>` : ""}
+      ${badge ? `<div class="${CLASS.supersessionBadges}">${badge}</div>` : ""}
       ${renderRevisionOverview(u, overview)}
-      <div class="kv">${rows.map(kv).join("")}${targetCell}${tail.map(kv).join("")}</div>
-      <div class="actions"><button class="ghost diff-btn" data-open-diff="${escapeHtml(u.objectId ?? "")}" data-diff-hash="${escapeHtml(u.objectArtifactContentHash ?? "")}">view snapshot diff</button></div>
+      <div class="${CLASS.kv}">${rows.map(kv).join("")}${targetCell}${tail.map(kv).join("")}</div>
+      <div class="${CLASS.actions}"><button class="${CLASS.ghost} ${CLASS.diffBtn}" data-open-diff="${escapeHtml(u.objectId ?? "")}" data-diff-hash="${escapeHtml(u.objectArtifactContentHash ?? "")}">view snapshot diff</button></div>
     </div>`;
     })
     .join("");
@@ -105,7 +106,7 @@ export function renderRevisions(): void {
   const state = getState();
   const threads = objectThreads().filter(threadMatchesRevisionFilters);
   if (!threads.length) {
-    el.innerHTML = `<p class="empty" style="color:var(--fg-dim)">${
+    el.innerHTML = `<p class="${CLASS.empty}" style="color:var(--fg-dim)">${
       state.filterText || state.filterObject
         ? "No revision threads match the current filters."
         : "No captured revisions in this store."
@@ -135,7 +136,7 @@ export function renderThreadCard(thread: Thread): HTMLElement {
   card.className = `unit-card thread-card${thread.competing ? " competing" : ""}`;
   // A fork surfaces every competing head as a navigable chip — never a null head.
   const competingBadge = thread.competing
-    ? `<div class="thread-competing"><span class="fact-status competing">competing revisions (${heads.length})</span> ${heads.map((h) => linkify(h)).join(" ")}</div>`
+    ? `<div class="${CLASS.threadCompeting}"><span class="${CLASS.factStatus} ${CLASS.competing}">competing revisions (${heads.length})</span> ${heads.map((h) => linkify(h)).join(" ")}</div>`
     : "";
   const overviewBlocks = heads
     .map((h) => renderThreadRevisionOverview(h))
@@ -144,8 +145,8 @@ export function renderThreadCard(thread: Thread): HTMLElement {
   card.innerHTML = `
     <h3>${escapeHtml(threadLabel(thread))}</h3>
     ${competingBadge}
-    ${overviewBlocks ? `<div class="thread-overviews">${overviewBlocks}</div>` : ""}
-    <div class="kv">
+    ${overviewBlocks ? `<div class="${CLASS.threadOverviews}">${overviewBlocks}</div>` : ""}
+    <div class="${CLASS.kv}">
       <span>revisions</span><b>${escapeHtml(String(revisions.length))}</b>
       <span>heads</span><b>${escapeHtml(String(heads.length))}</b>
       <span>superseded</span><b>${escapeHtml(String(superseded.length))}</b>
@@ -181,7 +182,7 @@ export function renderThreadSvg(laid: ThreadLayout | null | undefined): string {
   // — a cross-browser alternative to `context-stroke` (which Safari does not paint).
   const marker = (id: string, cls: string): string =>
     `<marker id="${id}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path class="${cls}" d="M0,0 L7,4 L0,8 z" /></marker>`;
-  const defs = `<defs>${marker("dag-arrow", "dag-arrow-head")}${marker("dag-arrow-traced", "dag-arrow-head-traced")}</defs>`;
+  const defs = `<defs>${marker("dag-arrow", CLASS.dagArrowHead)}${marker("dag-arrow-traced", CLASS.dagArrowHeadTraced)}</defs>`;
   const edges = (laid.edges ?? [])
     .map((e) => {
       // Draw so the LAST point is nearest the `from` (superseding head) node;
@@ -196,7 +197,7 @@ export function renderThreadSvg(laid: ThreadLayout | null | undefined): string {
           path = [...path].reverse();
       }
       const pts = path.map(([x, y]) => `${x},${y}`).join(" ");
-      return `<polyline class="dag-edge" data-from="${escapeHtml(e.from ?? "")}" data-to="${escapeHtml(e.to ?? "")}" points="${pts}" marker-end="url(#dag-arrow)" />`;
+      return `<polyline class="${CLASS.dagEdge}" data-from="${escapeHtml(e.from ?? "")}" data-to="${escapeHtml(e.to ?? "")}" points="${pts}" marker-end="url(#dag-arrow)" />`;
     })
     .join("");
   const selected = getState().selected;
@@ -207,7 +208,10 @@ export function renderThreadSvg(laid: ThreadLayout | null | undefined): string {
       const nodeH = n.h ?? 0;
       const nx = n.x ?? 0;
       const ny = n.y ?? 0;
-      const cls = `dag-node${n.isHead ? " head" : ""}${n.isSuperseded ? " superseded" : ""}`;
+      const cls = dagNodeClass({
+        isHead: !!n.isHead,
+        isSuperseded: !!n.isSuperseded,
+      });
       return `<g class="${cls}" data-revision-id="${escapeHtml(n.id ?? "")}" tabindex="0" role="link"${sel ? ' aria-selected="true"' : ""} aria-label="revision ${escapeHtml(shortId(n.id))}">
         <rect x="${nx - nodeW / 2}" y="${ny - nodeH / 2}" width="${nodeW}" height="${nodeH}" rx="6" />
         <text x="${nx}" y="${ny}" text-anchor="middle" dominant-baseline="middle">${escapeHtml(shortId(n.id))}</text>
@@ -216,7 +220,7 @@ export function renderThreadSvg(laid: ThreadLayout | null | undefined): string {
     .join("");
   // Render at natural pixel size (1 user unit = 1px) so the node text is not scaled
   // to illegibility; CSS `max-width:100%` shrinks an oversized graph proportionally.
-  return `<svg class="revision-dag" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMinYMin meet" role="group" aria-label="supersession graph">${defs}${edges}${nodesHtml}</svg>`;
+  return `<svg class="${CLASS.revisionDag}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMinYMin meet" role="group" aria-label="supersession graph">${defs}${edges}${nodesHtml}</svg>`;
 }
 
 // Wire the DAG nodes into the IA: click / Enter / Space navigate to the revision

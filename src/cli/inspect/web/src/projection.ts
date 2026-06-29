@@ -3,6 +3,12 @@
 // the served app.js projection cluster. All pure (argument-driven, no DOM, no
 // state). Imports the pure leaves only (escape, format, refs, types).
 
+import {
+  CLASS,
+  endorseClass,
+  factStatusClass,
+  verifyClass,
+} from "./classNames";
 import { escapeHtml } from "./escape";
 import { fmtDateTime } from "./format";
 import { shortId, type TargetDisplay, type TargetHead } from "./refs";
@@ -82,7 +88,7 @@ export function principalLabel(e: HistoryEntry): string | null {
 export function verificationChip(status: string): string {
   if (!status) return "";
   const label = VERIFICATION_LABELS[status] || status;
-  return `<span class="verify verify-${escapeHtml(status)}" title="advisory signature readback — reader-relative, never gates a write">${escapeHtml(label)}</span>`;
+  return `<span class="${verifyClass(escapeHtml(status))}" title="advisory signature readback — reader-relative, never gates a write">${escapeHtml(label)}</span>`;
 }
 
 // Strip the actor namespace for display, matching principalLabel's posture.
@@ -95,10 +101,12 @@ export function endorserDisplay(actorId: string): string {
 export function endorsementRow(en: Endorsement): string {
   const cls = en.classification || "";
   const label = ENDORSEMENT_LABELS[cls] || cls;
-  const parts = [`<span class="endorse-label">${escapeHtml(label)}</span>`];
+  const parts = [
+    `<span class="${CLASS.endorseLabel}">${escapeHtml(label)}</span>`,
+  ];
   if (en.endorser) {
     parts.push(
-      `<span class="endorse-who">${escapeHtml(endorserDisplay(en.endorser))}</span>`,
+      `<span class="${CLASS.endorseWho}">${escapeHtml(endorserDisplay(en.endorser))}</span>`,
     );
   }
   const attrs = en.endorserAttributes || {};
@@ -108,10 +116,10 @@ export function endorsementRow(en: Endorsement): string {
   if (roles.length) attrBits.push(roles.join(", "));
   if (attrBits.length) {
     parts.push(
-      `<span class="endorse-attrs">${escapeHtml(attrBits.join(" · "))}</span>`,
+      `<span class="${CLASS.endorseAttrs}">${escapeHtml(attrBits.join(" · "))}</span>`,
     );
   }
-  return `<li class="endorse endorse-${escapeHtml(cls)}">${parts.join(" ")}</li>`;
+  return `<li class="${endorseClass(escapeHtml(cls))}">${parts.join(" ")}</li>`;
 }
 
 // Advisory, reader-relative endorsement readback (#171). One row per attestation
@@ -123,9 +131,9 @@ export function endorsementsBlock(
   const list = endorsements || [];
   if (!list.length) return "";
   const rows = list.map(endorsementRow).join("");
-  return `<div class="endorsements" title="advisory endorsement readback — reader-relative, never gates a write">
-    <span class="endorsements-label">endorsements</span>
-    <ul class="endorse-list">${rows}</ul>
+  return `<div class="${CLASS.endorsements}" title="advisory endorsement readback — reader-relative, never gates a write">
+    <span class="${CLASS.endorsementsLabel}">endorsements</span>
+    <ul class="${CLASS.endorseList}">${rows}</ul>
   </div>`;
 }
 
@@ -187,7 +195,7 @@ export function assessmentCue(overview?: Overview | null): string {
         ? "resolved"
         : "unassessed");
   const cls = assessment || status;
-  return `<span class="overview-assessment"><span>current assessment</span><span class="fact-status ${escapeHtml(cls)}">${escapeHtml(assessmentLabel(label))}</span></span>`;
+  return `<span class="${CLASS.overviewAssessment}"><span>current assessment</span><span class="${factStatusClass(escapeHtml(cls))}">${escapeHtml(assessmentLabel(label))}</span></span>`;
 }
 
 /** `N <singular>` / `N <plural>` by count. */
@@ -245,11 +253,11 @@ export function attentionTokens(overview?: Overview | null): AttentionToken[] {
 export function attentionCues(overview?: Overview | null): string {
   const tokens = attentionTokens(overview);
   if (!tokens.length)
-    return `<span class="overview-muted">no attention cues</span>`;
+    return `<span class="${CLASS.overviewMuted}">no attention cues</span>`;
   return tokens
     .map(
       (cue) =>
-        `<button class="overview-cue" type="button" data-attention-query="${escapeHtml(cue.query)}" title="filter ${escapeHtml(cue.query)}">${escapeHtml(cue.label)}</button>`,
+        `<button class="${CLASS.overviewCue}" type="button" data-attention-query="${escapeHtml(cue.query)}" title="filter ${escapeHtml(cue.query)}">${escapeHtml(cue.label)}</button>`,
     )
     .join("");
 }
@@ -264,8 +272,8 @@ export function overviewStats(overview?: Overview | null): string {
     (counts.validationChecks || 0) +
     (counts.adapterNotes || 0);
   const stat = (label: string, value?: number): string =>
-    `<span class="overview-stat"><b>${value ?? 0}</b> ${escapeHtml(label)}</span>`;
-  return `<div class="overview-stats">${stat("files", counts.files)}${stat("rows", counts.rows)}${stat("facts", facts)}</div>`;
+    `<span class="${CLASS.overviewStat}"><b>${value ?? 0}</b> ${escapeHtml(label)}</span>`;
+  return `<div class="${CLASS.overviewStats}">${stat("files", counts.files)}${stat("rows", counts.rows)}${stat("facts", facts)}</div>`;
 }
 
 /** The latest-activity line for a revision overview, or "". */
@@ -273,7 +281,7 @@ export function latestActivityLine(overview?: Overview | null): string {
   const latest = overview?.latestActivity;
   if (!latest) return "";
   const title = latest.title || latest.kind || "activity";
-  return `<div class="overview-latest"><span>latest</span><b>${escapeHtml(title)}</b><span>${escapeHtml(fmtDateTime(latest.at || ""))}</span></div>`;
+  return `<div class="${CLASS.overviewLatest}"><span>latest</span><b>${escapeHtml(title)}</b><span>${escapeHtml(fmtDateTime(latest.at || ""))}</span></div>`;
 }
 
 /** A once-per-load search record over a revision. */
@@ -315,9 +323,9 @@ export function renderRevisionOverview(
   r: Revision,
   overview: Overview | null | undefined = r.overview,
 ): string {
-  return `<div class="overview-summary">
-    <div class="overview-main">${assessmentCue(overview)}${overviewStats(overview)}</div>
-    <div class="overview-cues" aria-label="review cues"><span class="overview-label">review cues</span>${attentionCues(overview)}</div>
+  return `<div class="${CLASS.overviewSummary}">
+    <div class="${CLASS.overviewMain}">${assessmentCue(overview)}${overviewStats(overview)}</div>
+    <div class="${CLASS.overviewCues}" aria-label="review cues"><span class="${CLASS.overviewLabel}">review cues</span>${attentionCues(overview)}</div>
     ${latestActivityLine(overview)}
   </div>`;
 }

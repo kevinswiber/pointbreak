@@ -11,6 +11,7 @@
 // `query` would close a cycle. So `query` stays pure and one-directional, and the
 // state-bound predicates own a module-local parse cache here.
 
+import { CLASS } from "./classNames";
 import type { Annotation } from "./diff/render";
 import { escapeHtml } from "./escape";
 import {
@@ -234,7 +235,7 @@ export function supersessionStaleBadge(e: HistoryEntry): string {
   if (!isSupersedableFact(e)) return "";
   const successors = supersededByRevision(entryRevisionId(e));
   if (!successors.length) return "";
-  return `<span class="badge stale">superseded by ${successors.map(linkify).join(" ")}</span>`;
+  return `<span class="${CLASS.badge} ${CLASS.stale}">superseded by ${successors.map(linkify).join(" ")}</span>`;
 }
 
 /** A "supersedes <predecessors>" badge for a capture event, or "". */
@@ -242,17 +243,17 @@ export function captureSupersedesBadge(e: HistoryEntry): string {
   if (e.eventType !== "work_object_proposed") return "";
   const predecessors = supersedesRevision(entryRevisionId(e));
   if (!predecessors.length) return "";
-  return `<span class="badge supersedes">supersedes ${predecessors.map(linkify).join(" ")}</span>`;
+  return `<span class="${CLASS.badge} ${CLASS.supersedes}">supersedes ${predecessors.map(linkify).join(" ")}</span>`;
 }
 
 /** The per-revision supersession status badge for a card or page, or "". */
 export function supersessionBadge(revisionId: string): string {
   if (!revisionId) return "";
   if (revisionIsHead(revisionId))
-    return `<span class="badge head">current in thread</span>`;
+    return `<span class="${CLASS.badge} ${CLASS.head}">current in thread</span>`;
   const successors = supersededByRevision(revisionId);
   if (successors.length)
-    return `<span class="badge superseded">superseded by ${successors.map(linkify).join(" ")}</span>`;
+    return `<span class="${CLASS.badge} ${CLASS.superseded}">superseded by ${successors.map(linkify).join(" ")}</span>`;
   return "";
 }
 
@@ -311,10 +312,10 @@ export function renderThreadRevisionOverview(revisionId: string): string {
   const revision = revisionForId(revisionId);
   const overview = overviewForRevision(revisionId);
   if (!revision || !overview) return "";
-  return `<div class="thread-overview">
+  return `<div class="${CLASS.threadOverview}">
     <div><b>${targetDisplayLabel(revision.targetDisplay)}</b> <span>${escapeHtml(shortId(revisionId))}</span></div>
     ${assessmentCue(overview)}
-    <div class="overview-cues" aria-label="review cues"><span class="overview-label">review cues</span>${attentionCues(overview)}</div>
+    <div class="${CLASS.overviewCues}" aria-label="review cues"><span class="${CLASS.overviewLabel}">review cues</span>${attentionCues(overview)}</div>
   </div>`;
 }
 

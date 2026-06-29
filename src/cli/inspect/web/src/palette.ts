@@ -12,6 +12,7 @@
 // or gating. The `cmd*` view state stays module-local; commands never call render
 // (the store subscriber repaints on commit).
 
+import { CLASS, cmdItemClass } from "./classNames";
 import { openDiff } from "./diff/controller";
 import { $ } from "./dom";
 import { escapeHtml } from "./escape";
@@ -326,7 +327,7 @@ function renderPalette(): void {
   const input = $("#cmd-input");
   if (!list || !input) return;
   if (!cmdFiltered.length) {
-    list.innerHTML = `<li id="cmd-option-empty" class="cmd-empty" role="option" aria-disabled="true">No matches</li>`;
+    list.innerHTML = `<li id="cmd-option-empty" class="${CLASS.cmdEmpty}" role="option" aria-disabled="true">No matches</li>`;
     input.setAttribute("aria-activedescendant", "cmd-option-empty");
     return;
   }
@@ -335,9 +336,9 @@ function renderPalette(): void {
   cmdFiltered.forEach((c, i) => {
     if (c.kind !== lastKind) {
       lastKind = c.kind;
-      html += `<li class="cmd-group" role="presentation">${escapeHtml(c.kind)}</li>`;
+      html += `<li class="${CLASS.cmdGroup}" role="presentation">${escapeHtml(c.kind)}</li>`;
     }
-    html += `<li id="cmd-option-${escapeHtml(String(c.domIndex ?? i))}" class="cmd-item${i === cmdActive ? " active" : ""}" role="option" data-idx="${i}" aria-selected="${i === cmdActive}"><span class="cmd-label">${escapeHtml(c.label)}</span>${c.hint ? `<span class="cmd-hint">${escapeHtml(c.hint)}</span>` : ""}</li>`;
+    html += `<li id="cmd-option-${escapeHtml(String(c.domIndex ?? i))}" class="${cmdItemClass(i === cmdActive)}" role="option" data-idx="${i}" aria-selected="${i === cmdActive}"><span class="${CLASS.cmdLabel}">${escapeHtml(c.label)}</span>${c.hint ? `<span class="${CLASS.cmdHint}">${escapeHtml(c.hint)}</span>` : ""}</li>`;
   });
   list.innerHTML = html;
   const active = list.querySelector<HTMLElement>(".cmd-item.active");

@@ -2,6 +2,7 @@
 // cluster. Imports escape and refs; the import direction is markdown -> refs ->
 // escape (no cycle).
 
+import { bodyClass } from "./classNames";
 import { escapeHtml } from "./escape";
 import {
   isMarkdownContentType,
@@ -16,9 +17,7 @@ export function renderBodyContent(
   contentType: string | undefined,
 ): string {
   if (!text) return "";
-  const cls = isMarkdownContentType(contentType)
-    ? " anno-body markdown-body"
-    : "anno-body";
+  const cls = bodyClass("anno-body", isMarkdownContentType(contentType));
   return `<div class="${cls}">${renderContentHtml(text, contentType)}</div>`;
 }
 

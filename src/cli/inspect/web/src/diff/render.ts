@@ -8,6 +8,14 @@
 // Imports the pure leaves only (escape, markdown, refs, types). This module owns
 // the diff-artifact/annotation view types and the `DiffCtx`/`DiffNavFilter` seam.
 
+import {
+  annoContainerClass,
+  annoKindClass,
+  CLASS,
+  dfileClass,
+  diffStatusClass,
+  drowClass,
+} from "../classNames";
 import { escapeHtml } from "../escape";
 import { renderBodyContent } from "../markdown";
 import { linkify } from "../refs";
@@ -189,16 +197,16 @@ export function rangeTouchesCapturedRows(
 /** One review fact rendered as an annotation card (optionally with its location). */
 export function renderAnnotation(a: Annotation, showLocation: boolean): string {
   const tags = (a.tags ?? [])
-    .map((t) => `<span class="badge">${escapeHtml(t)}</span>`)
+    .map((t) => `<span class="${CLASS.badge}">${escapeHtml(t)}</span>`)
     .join(" ");
   const body = renderBodyContent(a.body, a.bodyContentType);
   const t = a.target ?? {};
   const loc =
     showLocation && t.filePath
-      ? `<span class="anno-loc">${escapeHtml(t.filePath)}${t.startLine ? `:${t.startLine}-${t.endLine || t.startLine}` : ""}</span>`
+      ? `<span class="${CLASS.annoLoc}">${escapeHtml(t.filePath)}${t.startLine ? `:${t.startLine}-${t.endLine || t.startLine}` : ""}</span>`
       : "";
-  return `<div class="anno anno-${a.kind}" data-anno="${escapeHtml(a.id)}">
-    <div class="anno-head"><span class="anno-kind anno-kind-${a.kind}">${a.kind}</span><span class="anno-track">${escapeHtml(a.track)}</span><span class="anno-title">${linkify(a.title)}</span> ${tags} ${loc}</div>${body}</div>`;
+  return `<div class="${annoContainerClass(a.kind)}" data-anno="${escapeHtml(a.id)}">
+    <div class="${CLASS.annoHead}"><span class="${annoKindClass(a.kind)}">${a.kind}</span><span class="${CLASS.annoTrack}">${escapeHtml(a.track)}</span><span class="${CLASS.annoTitle}">${linkify(a.title)}</span> ${tags} ${loc}</div>${body}</div>`;
 }
 
 // The fact-vicinity summary an annotated large file mounts before full rows: its
@@ -212,7 +220,7 @@ export function renderDiffFactVicinity(
     const p = a.target?.filePath;
     return p === f.new_path || p === f.old_path;
   });
-  return `<div class="diff-fact-vicinity" data-fact-vicinity="true">
+  return `<div class="${CLASS.diffFactVicinity}" data-fact-vicinity="true">
     <p>Large annotated file: showing review facts first.</p>
     <button type="button" data-render-diff-file="true">Render all rows</button>
     ${facts.map((a) => renderAnnotation(a, true)).join("")}
@@ -231,12 +239,12 @@ export function renderDiffFileHeader(
 ): string {
   const n = fileFactCount(f, anchored);
   const summary = reason
-    ? `<span class="dfile-summary">${escapeHtml(reason)}</span>`
+    ? `<span class="${CLASS.dfileSummary}">${escapeHtml(reason)}</span>`
     : "";
-  return `<header class="dfile-head" role="button" tabindex="0" aria-expanded="${open}">
-    <span class="dstatus s-${escapeHtml(f.status)}">${escapeHtml(f.status)}</span>
-    <span class="dpath">${escapeHtml(filePathLabel(f))}</span>${summary}
-    ${n ? `<span class="dfile-notes">${n} note${n === 1 ? "" : "s"}</span>` : ""}</header>`;
+  return `<header class="${CLASS.dfileHead}" role="button" tabindex="0" aria-expanded="${open}">
+    <span class="${diffStatusClass(escapeHtml(f.status))}">${escapeHtml(f.status)}</span>
+    <span class="${CLASS.dpath}">${escapeHtml(filePathLabel(f))}</span>${summary}
+    ${n ? `<span class="${CLASS.dfileNotes}">${n} note${n === 1 ? "" : "s"}</span>` : ""}</header>`;
 }
 
 // The lazy file body: file-level facts, metadata rows, and hunks/rows with their
@@ -264,7 +272,7 @@ export function renderDiffFileBody(
     emitted.add(a.id);
   }
   for (const m of f.metadata_rows ?? []) {
-    html += `<div class="drow drow-meta"><span class="dtext">${escapeHtml(m.text)}</span></div>`;
+    html += `<div class="${CLASS.drow} ${CLASS.drowMeta}"><span class="${CLASS.dtext}">${escapeHtml(m.text)}</span></div>`;
   }
 
   // Bucket range facts by the (side, line) they anchor to, once per file —
@@ -288,7 +296,7 @@ export function renderDiffFileBody(
 
   const hunks = f.hunks ?? [];
   for (const h of hunks) {
-    html += `<div class="dhunk">${escapeHtml(h.header)}</div>`;
+    html += `<div class="${CLASS.dhunk}">${escapeHtml(h.header)}</div>`;
     for (const r of h.rows ?? []) {
       // Look up this row's facts in O(1): a row matches a range fact on the
       // captured side whose line falls in [startLine, endLine].
@@ -308,14 +316,15 @@ export function renderDiffFileBody(
       if (r.new_line != null) collect(`new:${r.new_line}`);
       const sign = r.kind === "added" ? "+" : r.kind === "removed" ? "-" : " ";
       // An annotated row is a clickable gutter marker linking to its annotation.
-      const notedLink = matching.length
-        ? ` drow-noted" data-anno="${escapeHtml(matching[0].id)}" tabindex="0" role="button`
+      const noted = matching.length > 0;
+      const notedAttrs = noted
+        ? ` data-anno="${escapeHtml(matching[0].id)}" tabindex="0" role="button"`
         : "";
-      html += `<div class="drow drow-${escapeHtml(r.kind)}${notedLink}">
-        <span class="ln">${r.old_line ?? ""}</span>
-        <span class="ln">${r.new_line ?? ""}</span>
-        <span class="sign">${sign}</span>
-        <span class="dtext">${escapeHtml(r.text)}</span></div>`;
+      html += `<div class="${drowClass(escapeHtml(r.kind), noted)}"${notedAttrs}>
+        <span class="${CLASS.ln}">${r.old_line ?? ""}</span>
+        <span class="${CLASS.ln}">${r.new_line ?? ""}</span>
+        <span class="${CLASS.sign}">${sign}</span>
+        <span class="${CLASS.dtext}">${escapeHtml(r.text)}</span></div>`;
       for (const a of matching) {
         if (!emitted.has(a.id)) {
           html += renderAnnotation(a, false);
@@ -338,7 +347,7 @@ export function renderDiffFileBody(
     // only note files with no classifiable reason (e.g. an empty added file), so
     // the reason text is not double-printed.
     if (!classifyLowSignal(f)) {
-      html += `<div class="drow drow-meta"><span class="dtext">(no captured content)</span></div>`;
+      html += `<div class="${CLASS.drow} ${CLASS.drowMeta}"><span class="${CLASS.dtext}">(no captured content)</span></div>`;
     }
   }
   return html;
@@ -392,15 +401,15 @@ export function renderDiff(
   const breakdown = Object.entries(counts)
     .map(([k, n]) => `${n} ${k}${n === 1 ? "" : "s"}`)
     .join(", ");
-  let html = `<div class="anno-summary">${annos.length} review fact${annos.length === 1 ? "" : "s"} on this revision${
+  let html = `<div class="${CLASS.annoSummary}">${annos.length} review fact${annos.length === 1 ? "" : "s"} on this revision${
     breakdown ? ` · ${breakdown}` : ""
   }${unanchored.length ? ` · ${unanchored.length} not anchored to a diff line` : ""}</div>`;
   if (unanchored.length) {
-    html += `<div class="anno-group">${unanchored.map((a) => renderAnnotation(a, true)).join("")}</div>`;
+    html += `<div class="${CLASS.annoGroup}">${unanchored.map((a) => renderAnnotation(a, true)).join("")}</div>`;
   }
   if (!files.length) {
     return {
-      html: `${html}<p class="empty">No files captured in this snapshot.</p>`,
+      html: `${html}<p class="${CLASS.empty}">No files captured in this snapshot.</p>`,
       ctx,
     };
   }
@@ -419,14 +428,13 @@ export function renderDiff(
         : open
           ? renderDiffFileBody(f, anchored)
           : "";
-      const lowCls = reason ? " dfile-lowsignal" : "";
       const lowAttr = reason ? ` data-lowsignal="${escapeHtml(reason)}"` : "";
       const bodyAttr = annotatedLarge
         ? ` data-fact-vicinity="true"`
         : open
           ? ` data-rendered="1"`
           : "";
-      return `<section class="dfile${lowCls}" data-dfile="${i}" data-expanded="${expanded}"${lowAttr}>${renderDiffFileHeader(f, anchored, reason, expanded)}<div class="dfile-body" data-dfile-body="${i}"${bodyAttr}>${body}</div></section>`;
+      return `<section class="${dfileClass(!!reason)}" data-dfile="${i}" data-expanded="${expanded}"${lowAttr}>${renderDiffFileHeader(f, anchored, reason, expanded)}<div class="${CLASS.dfileBody}" data-dfile-body="${i}"${bodyAttr}>${body}</div></section>`;
     })
     .join("");
   return { html, ctx };
@@ -434,7 +442,7 @@ export function renderDiff(
 
 /** The navigator's file/fact/unanchored summary row. */
 export function renderDiffNavSummary(summary: DiffNavSummary): string {
-  return `<div class="diff-nav-summary" aria-label="diff summary">
+  return `<div class="${CLASS.diffNavSummary}" aria-label="diff summary">
     <span><b>${summary.fileCount}</b> files</span>
     <span><b>${summary.factCount}</b> facts</span>
     <span><b>${summary.unanchoredCount}</b> unanchored</span>
@@ -443,7 +451,7 @@ export function renderDiffNavSummary(summary: DiffNavSummary): string {
 
 /** The navigator's file/fact filter buttons, pressing the active one. */
 export function renderDiffNavFilters(activeFilter: DiffNavFilter): string {
-  return `<div class="diff-nav-filters" role="group" aria-label="diff navigator filters">
+  return `<div class="${CLASS.diffNavFilters}" role="group" aria-label="diff navigator filters">
     <button type="button" data-diff-nav-filter="all" aria-pressed="${activeFilter === "all"}">all</button>
     <button type="button" data-diff-nav-filter="with-facts" aria-pressed="${activeFilter === "with-facts"}">with facts</button>
     <button type="button" data-diff-nav-filter="unanchored" aria-pressed="${activeFilter === "unanchored"}">unanchored</button>

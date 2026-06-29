@@ -17,6 +17,7 @@
 // the pure renderer no longer writes) to module-local state. The diff cursors /
 // `diffCtx` / `shownDiff*` / nav filter stay module-local — never on the store.
 
+import { CLASS, diffStatusClass } from "../classNames";
 import { $ } from "../dom";
 import { escapeHtml } from "../escape";
 import { fetchJSON } from "../http";
@@ -144,7 +145,7 @@ export function renderDiffOverlay(): Promise<void> {
       ? `${label} · snapshot ${shortId(objectId)}`
       : shortId(objectId);
   const body = $("#diff-body");
-  if (body) body.innerHTML = `<p class="empty">loading snapshot…</p>`;
+  if (body) body.innerHTML = `<p class="${CLASS.empty}">loading snapshot…</p>`;
   const nav = $("#diff-nav");
   if (nav) nav.innerHTML = "";
   // Opening through the manager tears down any prior overlay (palette/help) with
@@ -179,7 +180,7 @@ export function renderDiffOverlay(): Promise<void> {
       if (state.diff !== objectId || state.diffHash !== contentHash) return;
       const liveBody = $("#diff-body");
       if (liveBody)
-        liveBody.innerHTML = `<p class="empty">error: ${escapeHtml(
+        liveBody.innerHTML = `<p class="${CLASS.empty}">error: ${escapeHtml(
           err instanceof Error ? err.message : String(err),
         )}</p>`;
     });
@@ -311,26 +312,26 @@ function renderDiffNav(): string {
     });
   const fileItems = visibleFiles
     .map(({ f, i, factCount: n }) => {
-      const badge = n ? `<span class="dfile-notes">${n}</span>` : "";
-      return `<li><button class="diff-nav-file" data-nav-file="${i}">
-        <span class="dstatus s-${escapeHtml(f.status ?? "")}">${escapeHtml(f.status ?? "")}</span>
-        <span class="dpath">${escapeHtml(filePathLabel(f))}</span>${badge}</button></li>`;
+      const badge = n ? `<span class="${CLASS.dfileNotes}">${n}</span>` : "";
+      return `<li><button class="${CLASS.diffNavFile}" data-nav-file="${i}">
+        <span class="${diffStatusClass(escapeHtml(f.status ?? ""))}">${escapeHtml(f.status ?? "")}</span>
+        <span class="${CLASS.dpath}">${escapeHtml(filePathLabel(f))}</span>${badge}</button></li>`;
     })
     .join("");
   let html =
     renderDiffNavSummary(diffNavSummary()) +
     renderDiffNavFilters(diffNavFilter);
   if (diffNavFilter !== "unanchored") {
-    html += `<ol class="diff-nav-files">${fileItems}</ol>`;
+    html += `<ol class="${CLASS.diffNavFiles}">${fileItems}</ol>`;
   }
   if (unanchored.length && diffNavFilter !== "with-facts") {
     const entries = unanchored
       .map(
         (a) =>
-          `<li><button class="diff-nav-fact" data-anno="${escapeHtml(a.id)}"><span>${escapeHtml(a.title)}</span><span class="diff-nav-reason">${escapeHtml(unanchoredReason(a, filePaths))}</span></button></li>`,
+          `<li><button class="${CLASS.diffNavFact}" data-anno="${escapeHtml(a.id)}"><span>${escapeHtml(a.title)}</span><span class="${CLASS.diffNavReason}">${escapeHtml(unanchoredReason(a, filePaths))}</span></button></li>`,
       )
       .join("");
-    html += `<section class="diff-unanchored" aria-label="unanchored review facts">
+    html += `<section class="${CLASS.diffUnanchored}" aria-label="unanchored review facts">
       <h3>${unanchored.length} not anchored to a diff line</h3>
       <ol>${entries}</ol></section>`;
   }

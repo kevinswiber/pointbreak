@@ -1,6 +1,7 @@
 // Id short-forms, reference classification, and linkification.
 // Ported from the served app.js refs/linkify cluster. Imports escape only.
 
+import { CLASS, refClass } from "./classNames";
 import { escapeHtml } from "./escape";
 
 /** Classification of a reference token: its kind and whether it navigates. */
@@ -56,7 +57,7 @@ export function targetHeadBadge(td: TargetDisplay | null | undefined): string {
   if (!head?.label) return "";
   let inner = `@ ${escapeHtml(head.label)}`;
   if (head.liveBranch) inner += ` · ${escapeHtml(head.liveBranch)} (current)`;
-  return ` <span class="badge">${inner}</span>`;
+  return ` <span class="${CLASS.badge}">${inner}</span>`;
 }
 
 /** Classify a token as a navigable ref, a non-navigable hash/commit, or a track. */
@@ -88,9 +89,9 @@ export function linkifyEscaped(escaped: string): string {
     if (!info) return token;
     const display = escapeHtml(shortRef(token));
     if (!info.clickable) {
-      return `<span class="ref ref-${info.kind}" title="${escapeHtml(token)}">${display}</span>`;
+      return `<span class="${refClass(info.kind)}" title="${escapeHtml(token)}">${display}</span>`;
     }
-    return `<span class="ref ref-${info.kind}" role="link" tabindex="0" data-ref-kind="${info.kind}" data-ref-id="${escapeHtml(token)}" title="${escapeHtml(token)}">${display}</span>`;
+    return `<span class="${refClass(info.kind)}" role="link" tabindex="0" data-ref-kind="${info.kind}" data-ref-id="${escapeHtml(token)}" title="${escapeHtml(token)}">${display}</span>`;
   });
 }
 

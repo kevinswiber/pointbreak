@@ -6,6 +6,7 @@
 // the `#master` delegate (wired once by the composition root) handles selection,
 // skipping ref chips via its `closest("[data-ref-kind]")` guard.
 
+import { CLASS } from "../classNames";
 import { $ } from "../dom";
 import { escapeHtml } from "../escape";
 import { fmtTime } from "../format";
@@ -40,7 +41,7 @@ export function renderTimeline(): void {
   if (!entries.length) {
     const li = document.createElement("li");
     li.className = "event";
-    li.innerHTML = `<span></span><span></span><span class="body"><span class="title" style="color:var(--fg-dim)">no events match the current filters</span></span>`;
+    li.innerHTML = `<span></span><span></span><span class="${CLASS.body}"><span class="${CLASS.title}" style="color:var(--fg-dim)">no events match the current filters</span></span>`;
     list.appendChild(li);
     return;
   }
@@ -52,18 +53,18 @@ export function renderTimeline(): void {
     if (e.eventId && e.eventId === selected)
       li.setAttribute("aria-selected", "true");
     const tags = entryTags(e)
-      .map((t) => `<span class="badge">${escapeHtml(t)}</span>`)
+      .map((t) => `<span class="${CLASS.badge}">${escapeHtml(t)}</span>`)
       .join(" ");
     const revisionId = entryRevisionId(e);
     const staleTag = supersessionStaleBadge(e);
     const supersedesTag = captureSupersedesBadge(e);
     li.innerHTML = `
-      <span class="time">${escapeHtml(fmtTime(e.occurredAt ?? ""))}</span>
-      <span class="rail" style="background:${typeColor(e.eventType)}"></span>
-      <span class="body">
-        <span class="title">${linkify(entryTitle(e))} ${tags} ${supersedesTag} ${staleTag}</span>
-        <span class="meta">
-          <span class="type" style="color:${typeColor(e.eventType)}">${escapeHtml(typeLabel(e.eventType))}</span>
+      <span class="${CLASS.time}">${escapeHtml(fmtTime(e.occurredAt ?? ""))}</span>
+      <span class="${CLASS.rail}" style="background:${typeColor(e.eventType)}"></span>
+      <span class="${CLASS.body}">
+        <span class="${CLASS.title}">${linkify(entryTitle(e))} ${tags} ${supersedesTag} ${staleTag}</span>
+        <span class="${CLASS.meta}">
+          <span class="${CLASS.type}" style="color:${typeColor(e.eventType)}">${escapeHtml(typeLabel(e.eventType))}</span>
           ${entryTrack(e) ? `<span>${escapeHtml(entryTrack(e))}</span>` : ""}
           ${revisionId ? `<span>revision ${escapeHtml(shortId(revisionId))}</span>` : ""}
           ${entryAnchor(e) ? `<span>${escapeHtml(entryAnchor(e))}</span>` : ""}

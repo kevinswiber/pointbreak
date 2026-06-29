@@ -13,6 +13,7 @@
 // served per-render row / card / type-toggle listeners collapse into those two
 // delegates: `initControls` installs them once, never per render.
 
+import { CLASS } from "./classNames";
 import { renderDetail, showComposite } from "./detail";
 import { openDiff, renderDiffOverlay } from "./diff/controller";
 import { $ } from "./dom";
@@ -70,7 +71,7 @@ function renderDiagnostics(): void {
   el.innerHTML = diags
     .map((raw) => {
       const d = (raw ?? {}) as Diagnostic;
-      return `<div><span class="code">${escapeHtml(d.code || "diagnostic")}</span>${escapeHtml(d.message || "")}</div>`;
+      return `<div><span class="${CLASS.code}">${escapeHtml(d.code || "diagnostic")}</span>${escapeHtml(d.message || "")}</div>`;
     })
     .join("");
 }
@@ -105,7 +106,7 @@ function renderTypeToggles(): void {
       "aria-label",
       `${enabled ? "Hide" : "Show"} ${typeLabel(id)} events (${count})`,
     );
-    btn.innerHTML = `<span class="dot" style="background:${typeColor(id)}"></span>${escapeHtml(typeLabel(id))}<span class="type-count">${count}</span>`;
+    btn.innerHTML = `<span class="${CLASS.dot}" style="background:${typeColor(id)}"></span>${escapeHtml(typeLabel(id))}<span class="${CLASS.typeCount}">${count}</span>`;
     btn.title = id;
     container.appendChild(btn);
   }
@@ -153,11 +154,11 @@ function renderMaster(): void {
   if (lens !== lastMasterLens) {
     lastMasterLens = lens;
     if (lens === "list") {
-      master.innerHTML = `<div id="units" class="units"></div>`;
+      master.innerHTML = `<div id="units" class="${CLASS.units}"></div>`;
     } else if (lens === "threads") {
-      master.innerHTML = `<div id="revisions" class="units" aria-label="supersession threads"></div>`;
+      master.innerHTML = `<div id="revisions" class="${CLASS.units}" aria-label="supersession threads"></div>`;
     } else {
-      master.innerHTML = `<ol id="timeline" class="timeline" aria-label="event timeline"></ol>`;
+      master.innerHTML = `<ol id="timeline" class="${CLASS.timeline}" aria-label="event timeline"></ol>`;
     }
   }
   if (lens === "list") renderRevisionList();

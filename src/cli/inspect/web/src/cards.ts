@@ -8,6 +8,14 @@
 // Imports the pure leaves + projection. This module owns the fact-document view
 // types the cards read; a later plan's detail page imports them from here.
 
+import {
+  annoContainerClass,
+  annoKindClass,
+  bodyClass,
+  CLASS,
+  factStatusClass,
+  verdictClass,
+} from "./classNames";
 import { escapeHtml } from "./escape";
 import { fmtDateTime } from "./format";
 import { renderBodyContent, renderContentHtml } from "./markdown";
@@ -166,15 +174,15 @@ export function verdictBadge(ca: VerdictAssessment | null | undefined): string {
   if (status === "resolved") {
     const assessment = ca?.assessment ?? "";
     value = assessmentDisplayLabel(assessment);
-    cls = `verdict-${assessment}`;
+    cls = verdictClass(assessment);
   } else if (status === "ambiguous") {
     value = `ambiguous (${(ca?.candidates ?? []).length} candidates)`;
-    cls = "verdict-ambiguous";
+    cls = verdictClass("ambiguous");
   } else {
     value = "unassessed";
-    cls = "verdict-unassessed";
+    cls = verdictClass("unassessed");
   }
-  return `<div class="verdict ${cls}"><span class="verdict-status">current assessment</span><span class="verdict-value">${escapeHtml(value)}</span></div>`;
+  return `<div class="${cls}"><span class="${CLASS.verdictStatus}">current assessment</span><span class="${CLASS.verdictValue}">${escapeHtml(value)}</span></div>`;
 }
 
 /** The summary body for the resolved (or ambiguous) current assessment, or "". */
@@ -183,14 +191,15 @@ export function currentAssessmentSummary(d: RevisionDetail): string {
   if (ca.status === "resolved" && ca.assessmentId) {
     const a = (d.assessments || []).find((x) => x.id === ca.assessmentId);
     if (a?.summary) {
-      const cls = isMarkdownContentType(a.summaryContentType)
-        ? "verdict-summary markdown-body"
-        : "verdict-summary";
+      const cls = bodyClass(
+        "verdict-summary",
+        isMarkdownContentType(a.summaryContentType),
+      );
       return `<div class="${cls}">${renderContentHtml(a.summary, a.summaryContentType)}</div>`;
     }
   }
   if (ca.status === "ambiguous") {
-    return `<div class="verdict-summary">${(ca.candidates || []).length} unreplaced assessments — see Assessments below.</div>`;
+    return `<div class="${CLASS.verdictSummary}">${(ca.candidates || []).length} unreplaced assessments — see Assessments below.</div>`;
   }
   return "";
 }
@@ -226,19 +235,19 @@ export function targetLabel(t: CardTarget | null | undefined): string {
 export function factCard(kind: string, opts: FactCardOptions): string {
   const tags = (opts.tags || [])
     .filter(Boolean)
-    .map((t) => `<span class="badge">${escapeHtml(t)}</span>`)
+    .map((t) => `<span class="${CLASS.badge}">${escapeHtml(t)}</span>`)
     .join(" ");
   const body = renderBodyContent(opts.body, opts.bodyContentType);
-  return `<div class="anno anno-${kind}">
-    <div class="anno-head">
-      <span class="anno-kind anno-kind-${kind}">${kind}</span>
-      <span class="anno-track">${escapeHtml(opts.track || "")}</span>
-      <span class="anno-title">${linkify(opts.title || "")}</span>
-      ${opts.status ? `<span class="fact-status ${escapeHtml(opts.status)}">${escapeHtml(opts.status)}</span>` : ""}
-      ${opts.target ? `<span class="anno-loc">${opts.target}</span>` : ""}
+  return `<div class="${annoContainerClass(kind)}">
+    <div class="${CLASS.annoHead}">
+      <span class="${annoKindClass(kind)}">${kind}</span>
+      <span class="${CLASS.annoTrack}">${escapeHtml(opts.track || "")}</span>
+      <span class="${CLASS.annoTitle}">${linkify(opts.title || "")}</span>
+      ${opts.status ? `<span class="${factStatusClass(escapeHtml(opts.status))}">${escapeHtml(opts.status)}</span>` : ""}
+      ${opts.target ? `<span class="${CLASS.annoLoc}">${opts.target}</span>` : ""}
       ${tags}
       ${opts.verify || ""}
-      ${opts.createdAt ? `<span class="anno-time" title="${escapeHtml(opts.createdAt)}">${escapeHtml(fmtDateTime(opts.createdAt))}</span>` : ""}
+      ${opts.createdAt ? `<span class="${CLASS.annoTime}" title="${escapeHtml(opts.createdAt)}">${escapeHtml(fmtDateTime(opts.createdAt))}</span>` : ""}
     </div>
     ${body}
     ${opts.endorsements || ""}
@@ -249,7 +258,7 @@ export function factCard(kind: string, opts: FactCardOptions): string {
 export function renderObservationCard(o: Observation): string {
   const supersedes = o.supersedes ?? [];
   const extra = supersedes.length
-    ? `<div class="fact-rel">supersedes ${supersedes.map(linkify).join(", ")}</div>`
+    ? `<div class="${CLASS.factRel}">supersedes ${supersedes.map(linkify).join(", ")}</div>`
     : "";
   return factCard("observation", {
     track: o.trackId,
@@ -271,7 +280,7 @@ export function renderInputRequestCard(ir: InputRequest): string {
   const responses = (ir.responses ?? [])
     .map(
       (r) =>
-        `<div class="fact-response"><span class="outcome">${escapeHtml(r.outcome)}</span>${r.reason ? renderBodyContent(r.reason, r.reasonContentType) : ""} ${verificationChip(r.verificationStatus ?? "")}${endorsementsBlock(r.endorsements)}</div>`,
+        `<div class="${CLASS.factResponse}"><span class="${CLASS.outcome}">${escapeHtml(r.outcome)}</span>${r.reason ? renderBodyContent(r.reason, r.reasonContentType) : ""} ${verificationChip(r.verificationStatus ?? "")}${endorsementsBlock(r.endorsements)}</div>`,
     )
     .join("");
   return factCard("input-request", {
@@ -285,7 +294,9 @@ export function renderInputRequestCard(ir: InputRequest): string {
     createdAt: ir.createdAt,
     verify: verificationChip(ir.verificationStatus ?? ""),
     endorsements: endorsementsBlock(ir.endorsements),
-    extra: responses ? `<div class="fact-responses">${responses}</div>` : "",
+    extra: responses
+      ? `<div class="${CLASS.factResponses}">${responses}</div>`
+      : "",
   });
 }
 
@@ -312,7 +323,9 @@ export function renderAssessmentCard(a: Assessment): string {
     createdAt: a.createdAt,
     verify: verificationChip(a.verificationStatus ?? ""),
     endorsements: endorsementsBlock(a.endorsements),
-    extra: rel.length ? `<div class="fact-rel">${rel.join(" · ")}</div>` : "",
+    extra: rel.length
+      ? `<div class="${CLASS.factRel}">${rel.join(" · ")}</div>`
+      : "",
   });
 }
 
@@ -335,7 +348,9 @@ export function renderValidationCheckCard(v: ValidationCheck): string {
     createdAt: v.completedAt || v.createdAt,
     verify: verificationChip(v.verificationStatus ?? ""),
     endorsements: endorsementsBlock(v.endorsements),
-    extra: rel.length ? `<div class="fact-rel">${rel.join(" · ")}</div>` : "",
+    extra: rel.length
+      ? `<div class="${CLASS.factRel}">${rel.join(" · ")}</div>`
+      : "",
   });
 }
 
@@ -361,6 +376,6 @@ export function factSection<T>(
   const list = items ?? [];
   const body = list.length
     ? list.map(render).join("")
-    : `<p class="up-empty">none</p>`;
+    : `<p class="${CLASS.upEmpty}">none</p>`;
   return `<section><h2>${escapeHtml(title)} (${list.length})</h2>${context}${body}</section>`;
 }

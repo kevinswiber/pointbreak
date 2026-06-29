@@ -34,6 +34,217 @@
   }
   __name(fetchJSON, "fetchJSON");
 
+  // src/classNames.ts
+  var CLASS = {
+    // App chrome, master-detail panes, lens containers, and shared chips.
+    units: "units",
+    timeline: "timeline",
+    empty: "empty",
+    badge: "badge",
+    body: "body",
+    title: "title",
+    time: "time",
+    rail: "rail",
+    meta: "meta",
+    type: "type",
+    typeCount: "type-count",
+    code: "code",
+    dot: "dot",
+    kv: "kv",
+    ghost: "ghost",
+    actions: "actions",
+    // Fact cards (observation / input-request / assessment / validation / note).
+    annoGroup: "anno-group",
+    annoHead: "anno-head",
+    annoLoc: "anno-loc",
+    annoSummary: "anno-summary",
+    annoTime: "anno-time",
+    annoTitle: "anno-title",
+    annoTrack: "anno-track",
+    factRel: "fact-rel",
+    factResponse: "fact-response",
+    factResponses: "fact-responses",
+    factStaleContext: "fact-stale-context",
+    factStatus: "fact-status",
+    outcome: "outcome",
+    advisoryNote: "advisory-note",
+    validationNote: "validation-note",
+    readback: "readback",
+    readbackRow: "readback-row",
+    readerScopeNote: "reader-scope-note",
+    // The current-assessment verdict block.
+    verdictStatus: "verdict-status",
+    verdictSummary: "verdict-summary",
+    verdictValue: "verdict-value",
+    // The advisory endorsement readback.
+    endorseAttrs: "endorse-attrs",
+    endorseLabel: "endorse-label",
+    endorseList: "endorse-list",
+    endorseWho: "endorse-who",
+    endorsements: "endorsements",
+    endorsementsLabel: "endorsements-label",
+    // The revision-overview summary line.
+    overviewAssessment: "overview-assessment",
+    overviewCue: "overview-cue",
+    overviewCues: "overview-cues",
+    overviewLabel: "overview-label",
+    overviewLatest: "overview-latest",
+    overviewMain: "overview-main",
+    overviewMuted: "overview-muted",
+    overviewStat: "overview-stat",
+    overviewStats: "overview-stats",
+    overviewSummary: "overview-summary",
+    // The annotated snapshot diff: files, rows, and the navigator.
+    dfileBody: "dfile-body",
+    dfileHead: "dfile-head",
+    dfileNotes: "dfile-notes",
+    dfileSummary: "dfile-summary",
+    dhunk: "dhunk",
+    diffBtn: "diff-btn",
+    diffFactVicinity: "diff-fact-vicinity",
+    diffNavFact: "diff-nav-fact",
+    diffNavFile: "diff-nav-file",
+    diffNavFiles: "diff-nav-files",
+    diffNavFilters: "diff-nav-filters",
+    diffNavReason: "diff-nav-reason",
+    diffNavSummary: "diff-nav-summary",
+    diffUnanchored: "diff-unanchored",
+    dpath: "dpath",
+    drow: "drow",
+    drowMeta: "drow-meta",
+    dtext: "dtext",
+    ln: "ln",
+    sign: "sign",
+    // Revision list, supersession threads, and the laid-out DAG.
+    unitCard: "unit-card",
+    unitPage: "unit-page",
+    unitPageTitle: "unit-page-title",
+    supersessionBadges: "supersession-badges",
+    threadCompeting: "thread-competing",
+    threadOverview: "thread-overview",
+    threadOverviews: "thread-overviews",
+    competing: "competing",
+    dagEdge: "dag-edge",
+    dagArrowHead: "dag-arrow-head",
+    dagArrowHeadTraced: "dag-arrow-head-traced",
+    revisionDag: "revision-dag",
+    head: "head",
+    stale: "stale",
+    superseded: "superseded",
+    supersedes: "supersedes",
+    upEmpty: "up-empty",
+    upIdentity: "up-identity",
+    upStat: "up-stat",
+    upStats: "up-stats",
+    // The command palette.
+    cmdEmpty: "cmd-empty",
+    cmdGroup: "cmd-group",
+    cmdHint: "cmd-hint",
+    cmdLabel: "cmd-label"
+  };
+  var ANNO_KINDS = [
+    "observation",
+    "assessment",
+    "input-request",
+    "validation"
+  ];
+  var DIFF_ROW_KINDS = ["added", "removed", "context"];
+  var DIFF_FILE_STATUSES = [
+    "added",
+    "deleted",
+    "modified",
+    "renamed",
+    "copied"
+  ];
+  var VERIFY_STATUSES = [
+    "valid",
+    "invalid",
+    "unsigned",
+    "untrusted_key"
+  ];
+  var ENDORSE_CLASSES = [
+    "endorsement-trusted",
+    "ambiguous_endorser",
+    "unknown_endorser"
+  ];
+  var VERDICT_ASSESSMENTS = [
+    "accepted",
+    "accepted_with_follow_up",
+    "ambiguous",
+    "needs_changes",
+    "needs_clarification",
+    "unassessed"
+  ];
+  var FACT_STATUSES = [
+    "accepted",
+    "accepted_with_follow_up",
+    "ambiguous",
+    "current",
+    "errored",
+    "failed",
+    "needs_changes",
+    "needs_clarification",
+    "open",
+    "passed",
+    "replaced",
+    "resolved",
+    "responded",
+    "skipped",
+    "stale",
+    "superseded",
+    "unassessed"
+  ];
+  var REF_KINDS = [
+    "review-unit",
+    "input-request-response",
+    "input-request",
+    "obs",
+    "assess",
+    "snap",
+    "rev",
+    "evt",
+    "note",
+    "validation",
+    "hash",
+    "commit",
+    "track"
+  ];
+  var annoContainerClass = /* @__PURE__ */ __name((kind) => `anno anno-${kind}`, "annoContainerClass");
+  var annoKindClass = /* @__PURE__ */ __name((kind) => `anno-kind anno-kind-${kind}`, "annoKindClass");
+  var drowClass = /* @__PURE__ */ __name((kind, noted) => `drow drow-${kind}${noted ? " drow-noted" : ""}`, "drowClass");
+  var diffStatusClass = /* @__PURE__ */ __name((status) => `dstatus s-${status}`, "diffStatusClass");
+  var verifyClass = /* @__PURE__ */ __name((status) => `verify verify-${status}`, "verifyClass");
+  var endorseClass = /* @__PURE__ */ __name((cls) => `endorse endorse-${cls}`, "endorseClass");
+  var verdictClass = /* @__PURE__ */ __name((assessment) => `verdict verdict-${assessment}`, "verdictClass");
+  var factStatusClass = /* @__PURE__ */ __name((status) => `fact-status ${status}`, "factStatusClass");
+  var refClass = /* @__PURE__ */ __name((kind) => `ref ref-${kind}`, "refClass");
+  var dfileClass = /* @__PURE__ */ __name((lowSignal) => `dfile${lowSignal ? " dfile-lowsignal" : ""}`, "dfileClass");
+  var dagNodeClass = /* @__PURE__ */ __name((o) => `dag-node${o.isHead ? " head" : ""}${o.isSuperseded ? " superseded" : ""}`, "dagNodeClass");
+  var bodyClass = /* @__PURE__ */ __name((base, markdown) => `${base}${markdown ? " markdown-body" : ""}`, "bodyClass");
+  var cmdItemClass = /* @__PURE__ */ __name((active) => `cmd-item${active ? " active" : ""}`, "cmdItemClass");
+  var tokensOf = /* @__PURE__ */ __name((classStrings) => classStrings.flatMap((s) => s.split(" ")), "tokensOf");
+  var ALL_EMITTABLE_CLASSES = [
+    ...new Set(
+      tokensOf([
+        ...Object.values(CLASS),
+        ...ANNO_KINDS.map((k) => annoContainerClass(k)),
+        ...ANNO_KINDS.map((k) => annoKindClass(k)),
+        ...DIFF_ROW_KINDS.map((k) => drowClass(k, true)),
+        ...DIFF_FILE_STATUSES.map((s) => diffStatusClass(s)),
+        ...VERIFY_STATUSES.map((s) => verifyClass(s)),
+        ...ENDORSE_CLASSES.map((c) => endorseClass(c)),
+        ...VERDICT_ASSESSMENTS.map((a) => verdictClass(a)),
+        ...FACT_STATUSES.map((s) => factStatusClass(s)),
+        ...REF_KINDS.map((k) => refClass(k)),
+        dfileClass(true),
+        dagNodeClass({ isHead: true, isSuperseded: true }),
+        bodyClass("anno-body", true),
+        bodyClass("verdict-summary", true),
+        cmdItemClass(true)
+      ])
+    )
+  ];
+
   // src/escape.ts
   var ENTITIES = {
     "&": "&amp;",
@@ -95,7 +306,7 @@
     if (!head?.label) return "";
     let inner = `@ ${escapeHtml(head.label)}`;
     if (head.liveBranch) inner += ` · ${escapeHtml(head.liveBranch)} (current)`;
-    return ` <span class="badge">${inner}</span>`;
+    return ` <span class="${CLASS.badge}">${inner}</span>`;
   }
   __name(targetHeadBadge, "targetHeadBadge");
   function refInfo(token) {
@@ -121,9 +332,9 @@
       if (!info) return token;
       const display = escapeHtml(shortRef(token));
       if (!info.clickable) {
-        return `<span class="ref ref-${info.kind}" title="${escapeHtml(token)}">${display}</span>`;
+        return `<span class="${refClass(info.kind)}" title="${escapeHtml(token)}">${display}</span>`;
       }
-      return `<span class="ref ref-${info.kind}" role="link" tabindex="0" data-ref-kind="${info.kind}" data-ref-id="${escapeHtml(token)}" title="${escapeHtml(token)}">${display}</span>`;
+      return `<span class="${refClass(info.kind)}" role="link" tabindex="0" data-ref-kind="${info.kind}" data-ref-id="${escapeHtml(token)}" title="${escapeHtml(token)}">${display}</span>`;
     });
   }
   __name(linkifyEscaped, "linkifyEscaped");
@@ -245,7 +456,7 @@
   function verificationChip(status) {
     if (!status) return "";
     const label = VERIFICATION_LABELS[status] || status;
-    return `<span class="verify verify-${escapeHtml(status)}" title="advisory signature readback — reader-relative, never gates a write">${escapeHtml(label)}</span>`;
+    return `<span class="${verifyClass(escapeHtml(status))}" title="advisory signature readback — reader-relative, never gates a write">${escapeHtml(label)}</span>`;
   }
   __name(verificationChip, "verificationChip");
   function endorserDisplay(actorId) {
@@ -255,10 +466,12 @@
   function endorsementRow(en) {
     const cls = en.classification || "";
     const label = ENDORSEMENT_LABELS[cls] || cls;
-    const parts = [`<span class="endorse-label">${escapeHtml(label)}</span>`];
+    const parts = [
+      `<span class="${CLASS.endorseLabel}">${escapeHtml(label)}</span>`
+    ];
     if (en.endorser) {
       parts.push(
-        `<span class="endorse-who">${escapeHtml(endorserDisplay(en.endorser))}</span>`
+        `<span class="${CLASS.endorseWho}">${escapeHtml(endorserDisplay(en.endorser))}</span>`
       );
     }
     const attrs = en.endorserAttributes || {};
@@ -268,19 +481,19 @@
     if (roles.length) attrBits.push(roles.join(", "));
     if (attrBits.length) {
       parts.push(
-        `<span class="endorse-attrs">${escapeHtml(attrBits.join(" · "))}</span>`
+        `<span class="${CLASS.endorseAttrs}">${escapeHtml(attrBits.join(" · "))}</span>`
       );
     }
-    return `<li class="endorse endorse-${escapeHtml(cls)}">${parts.join(" ")}</li>`;
+    return `<li class="${endorseClass(escapeHtml(cls))}">${parts.join(" ")}</li>`;
   }
   __name(endorsementRow, "endorsementRow");
   function endorsementsBlock(endorsements) {
     const list = endorsements || [];
     if (!list.length) return "";
     const rows = list.map(endorsementRow).join("");
-    return `<div class="endorsements" title="advisory endorsement readback — reader-relative, never gates a write">
-    <span class="endorsements-label">endorsements</span>
-    <ul class="endorse-list">${rows}</ul>
+    return `<div class="${CLASS.endorsements}" title="advisory endorsement readback — reader-relative, never gates a write">
+    <span class="${CLASS.endorsementsLabel}">endorsements</span>
+    <ul class="${CLASS.endorseList}">${rows}</ul>
   </div>`;
   }
   __name(endorsementsBlock, "endorsementsBlock");
@@ -329,7 +542,7 @@
     const assessment = currentAssessment.assessment || "";
     const label = assessment || (status === "ambiguous" ? "ambiguous current assessment" : status === "resolved" ? "resolved" : "unassessed");
     const cls = assessment || status;
-    return `<span class="overview-assessment"><span>current assessment</span><span class="fact-status ${escapeHtml(cls)}">${escapeHtml(assessmentLabel(label))}</span></span>`;
+    return `<span class="${CLASS.overviewAssessment}"><span>current assessment</span><span class="${factStatusClass(escapeHtml(cls))}">${escapeHtml(assessmentLabel(label))}</span></span>`;
   }
   __name(assessmentCue, "assessmentCue");
   function plural(n, singular, pluralLabel = `${singular}s`) {
@@ -378,24 +591,24 @@
   function attentionCues(overview) {
     const tokens = attentionTokens(overview);
     if (!tokens.length)
-      return `<span class="overview-muted">no attention cues</span>`;
+      return `<span class="${CLASS.overviewMuted}">no attention cues</span>`;
     return tokens.map(
-      (cue) => `<button class="overview-cue" type="button" data-attention-query="${escapeHtml(cue.query)}" title="filter ${escapeHtml(cue.query)}">${escapeHtml(cue.label)}</button>`
+      (cue) => `<button class="${CLASS.overviewCue}" type="button" data-attention-query="${escapeHtml(cue.query)}" title="filter ${escapeHtml(cue.query)}">${escapeHtml(cue.label)}</button>`
     ).join("");
   }
   __name(attentionCues, "attentionCues");
   function overviewStats(overview) {
     const counts = overview?.counts || {};
     const facts = (counts.observations || 0) + (counts.inputRequests || 0) + (counts.assessments || 0) + (counts.validationChecks || 0) + (counts.adapterNotes || 0);
-    const stat = /* @__PURE__ */ __name((label, value) => `<span class="overview-stat"><b>${value ?? 0}</b> ${escapeHtml(label)}</span>`, "stat");
-    return `<div class="overview-stats">${stat("files", counts.files)}${stat("rows", counts.rows)}${stat("facts", facts)}</div>`;
+    const stat = /* @__PURE__ */ __name((label, value) => `<span class="${CLASS.overviewStat}"><b>${value ?? 0}</b> ${escapeHtml(label)}</span>`, "stat");
+    return `<div class="${CLASS.overviewStats}">${stat("files", counts.files)}${stat("rows", counts.rows)}${stat("facts", facts)}</div>`;
   }
   __name(overviewStats, "overviewStats");
   function latestActivityLine(overview) {
     const latest = overview?.latestActivity;
     if (!latest) return "";
     const title = latest.title || latest.kind || "activity";
-    return `<div class="overview-latest"><span>latest</span><b>${escapeHtml(title)}</b><span>${escapeHtml(fmtDateTime(latest.at || ""))}</span></div>`;
+    return `<div class="${CLASS.overviewLatest}"><span>latest</span><b>${escapeHtml(title)}</b><span>${escapeHtml(fmtDateTime(latest.at || ""))}</span></div>`;
   }
   __name(latestActivityLine, "latestActivityLine");
   function revisionSearchIndex(r) {
@@ -429,9 +642,9 @@
   }
   __name(revisionSearchIndex, "revisionSearchIndex");
   function renderRevisionOverview(r, overview = r.overview) {
-    return `<div class="overview-summary">
-    <div class="overview-main">${assessmentCue(overview)}${overviewStats(overview)}</div>
-    <div class="overview-cues" aria-label="review cues"><span class="overview-label">review cues</span>${attentionCues(overview)}</div>
+    return `<div class="${CLASS.overviewSummary}">
+    <div class="${CLASS.overviewMain}">${assessmentCue(overview)}${overviewStats(overview)}</div>
+    <div class="${CLASS.overviewCues}" aria-label="review cues"><span class="${CLASS.overviewLabel}">review cues</span>${attentionCues(overview)}</div>
     ${latestActivityLine(overview)}
   </div>`;
   }
@@ -640,7 +853,7 @@
   // src/markdown.ts
   function renderBodyContent(text, contentType) {
     if (!text) return "";
-    const cls = isMarkdownContentType(contentType) ? " anno-body markdown-body" : "anno-body";
+    const cls = bodyClass("anno-body", isMarkdownContentType(contentType));
     return `<div class="${cls}">${renderContentHtml(text, contentType)}</div>`;
   }
   __name(renderBodyContent, "renderBodyContent");
@@ -760,15 +973,15 @@
     if (status === "resolved") {
       const assessment = ca?.assessment ?? "";
       value = assessmentDisplayLabel(assessment);
-      cls = `verdict-${assessment}`;
+      cls = verdictClass(assessment);
     } else if (status === "ambiguous") {
       value = `ambiguous (${(ca?.candidates ?? []).length} candidates)`;
-      cls = "verdict-ambiguous";
+      cls = verdictClass("ambiguous");
     } else {
       value = "unassessed";
-      cls = "verdict-unassessed";
+      cls = verdictClass("unassessed");
     }
-    return `<div class="verdict ${cls}"><span class="verdict-status">current assessment</span><span class="verdict-value">${escapeHtml(value)}</span></div>`;
+    return `<div class="${cls}"><span class="${CLASS.verdictStatus}">current assessment</span><span class="${CLASS.verdictValue}">${escapeHtml(value)}</span></div>`;
   }
   __name(verdictBadge, "verdictBadge");
   function currentAssessmentSummary(d) {
@@ -776,12 +989,15 @@
     if (ca.status === "resolved" && ca.assessmentId) {
       const a = (d.assessments || []).find((x) => x.id === ca.assessmentId);
       if (a?.summary) {
-        const cls = isMarkdownContentType(a.summaryContentType) ? "verdict-summary markdown-body" : "verdict-summary";
+        const cls = bodyClass(
+          "verdict-summary",
+          isMarkdownContentType(a.summaryContentType)
+        );
         return `<div class="${cls}">${renderContentHtml(a.summary, a.summaryContentType)}</div>`;
       }
     }
     if (ca.status === "ambiguous") {
-      return `<div class="verdict-summary">${(ca.candidates || []).length} unreplaced assessments — see Assessments below.</div>`;
+      return `<div class="${CLASS.verdictSummary}">${(ca.candidates || []).length} unreplaced assessments — see Assessments below.</div>`;
     }
     return "";
   }
@@ -809,18 +1025,18 @@
   }
   __name(targetLabel, "targetLabel");
   function factCard(kind, opts) {
-    const tags = (opts.tags || []).filter(Boolean).map((t) => `<span class="badge">${escapeHtml(t)}</span>`).join(" ");
+    const tags = (opts.tags || []).filter(Boolean).map((t) => `<span class="${CLASS.badge}">${escapeHtml(t)}</span>`).join(" ");
     const body = renderBodyContent(opts.body, opts.bodyContentType);
-    return `<div class="anno anno-${kind}">
-    <div class="anno-head">
-      <span class="anno-kind anno-kind-${kind}">${kind}</span>
-      <span class="anno-track">${escapeHtml(opts.track || "")}</span>
-      <span class="anno-title">${linkify(opts.title || "")}</span>
-      ${opts.status ? `<span class="fact-status ${escapeHtml(opts.status)}">${escapeHtml(opts.status)}</span>` : ""}
-      ${opts.target ? `<span class="anno-loc">${opts.target}</span>` : ""}
+    return `<div class="${annoContainerClass(kind)}">
+    <div class="${CLASS.annoHead}">
+      <span class="${annoKindClass(kind)}">${kind}</span>
+      <span class="${CLASS.annoTrack}">${escapeHtml(opts.track || "")}</span>
+      <span class="${CLASS.annoTitle}">${linkify(opts.title || "")}</span>
+      ${opts.status ? `<span class="${factStatusClass(escapeHtml(opts.status))}">${escapeHtml(opts.status)}</span>` : ""}
+      ${opts.target ? `<span class="${CLASS.annoLoc}">${opts.target}</span>` : ""}
       ${tags}
       ${opts.verify || ""}
-      ${opts.createdAt ? `<span class="anno-time" title="${escapeHtml(opts.createdAt)}">${escapeHtml(fmtDateTime(opts.createdAt))}</span>` : ""}
+      ${opts.createdAt ? `<span class="${CLASS.annoTime}" title="${escapeHtml(opts.createdAt)}">${escapeHtml(fmtDateTime(opts.createdAt))}</span>` : ""}
     </div>
     ${body}
     ${opts.endorsements || ""}
@@ -829,7 +1045,7 @@
   __name(factCard, "factCard");
   function renderObservationCard(o) {
     const supersedes = o.supersedes ?? [];
-    const extra = supersedes.length ? `<div class="fact-rel">supersedes ${supersedes.map(linkify).join(", ")}</div>` : "";
+    const extra = supersedes.length ? `<div class="${CLASS.factRel}">supersedes ${supersedes.map(linkify).join(", ")}</div>` : "";
     return factCard("observation", {
       track: o.trackId,
       title: o.title,
@@ -847,7 +1063,7 @@
   __name(renderObservationCard, "renderObservationCard");
   function renderInputRequestCard(ir) {
     const responses = (ir.responses ?? []).map(
-      (r) => `<div class="fact-response"><span class="outcome">${escapeHtml(r.outcome)}</span>${r.reason ? renderBodyContent(r.reason, r.reasonContentType) : ""} ${verificationChip(r.verificationStatus ?? "")}${endorsementsBlock(r.endorsements)}</div>`
+      (r) => `<div class="${CLASS.factResponse}"><span class="${CLASS.outcome}">${escapeHtml(r.outcome)}</span>${r.reason ? renderBodyContent(r.reason, r.reasonContentType) : ""} ${verificationChip(r.verificationStatus ?? "")}${endorsementsBlock(r.endorsements)}</div>`
     ).join("");
     return factCard("input-request", {
       track: ir.trackId,
@@ -860,7 +1076,7 @@
       createdAt: ir.createdAt,
       verify: verificationChip(ir.verificationStatus ?? ""),
       endorsements: endorsementsBlock(ir.endorsements),
-      extra: responses ? `<div class="fact-responses">${responses}</div>` : ""
+      extra: responses ? `<div class="${CLASS.factResponses}">${responses}</div>` : ""
     });
   }
   __name(renderInputRequestCard, "renderInputRequestCard");
@@ -886,7 +1102,7 @@
       createdAt: a.createdAt,
       verify: verificationChip(a.verificationStatus ?? ""),
       endorsements: endorsementsBlock(a.endorsements),
-      extra: rel.length ? `<div class="fact-rel">${rel.join(" · ")}</div>` : ""
+      extra: rel.length ? `<div class="${CLASS.factRel}">${rel.join(" · ")}</div>` : ""
     });
   }
   __name(renderAssessmentCard, "renderAssessmentCard");
@@ -907,7 +1123,7 @@
       createdAt: v.completedAt || v.createdAt,
       verify: verificationChip(v.verificationStatus ?? ""),
       endorsements: endorsementsBlock(v.endorsements),
-      extra: rel.length ? `<div class="fact-rel">${rel.join(" · ")}</div>` : ""
+      extra: rel.length ? `<div class="${CLASS.factRel}">${rel.join(" · ")}</div>` : ""
     });
   }
   __name(renderValidationCheckCard, "renderValidationCheckCard");
@@ -924,7 +1140,7 @@
   __name(renderAdapterNoteCard, "renderAdapterNoteCard");
   function factSection(title, items, render2, context = "") {
     const list = items ?? [];
-    const body = list.length ? list.map(render2).join("") : `<p class="up-empty">none</p>`;
+    const body = list.length ? list.map(render2).join("") : `<p class="${CLASS.upEmpty}">none</p>`;
     return `<section><h2>${escapeHtml(title)} (${list.length})</h2>${context}${body}</section>`;
   }
   __name(factSection, "factSection");
@@ -1021,23 +1237,23 @@
     if (!isSupersedableFact(e)) return "";
     const successors = supersededByRevision(entryRevisionId(e));
     if (!successors.length) return "";
-    return `<span class="badge stale">superseded by ${successors.map(linkify).join(" ")}</span>`;
+    return `<span class="${CLASS.badge} ${CLASS.stale}">superseded by ${successors.map(linkify).join(" ")}</span>`;
   }
   __name(supersessionStaleBadge, "supersessionStaleBadge");
   function captureSupersedesBadge(e) {
     if (e.eventType !== "work_object_proposed") return "";
     const predecessors = supersedesRevision(entryRevisionId(e));
     if (!predecessors.length) return "";
-    return `<span class="badge supersedes">supersedes ${predecessors.map(linkify).join(" ")}</span>`;
+    return `<span class="${CLASS.badge} ${CLASS.supersedes}">supersedes ${predecessors.map(linkify).join(" ")}</span>`;
   }
   __name(captureSupersedesBadge, "captureSupersedesBadge");
   function supersessionBadge(revisionId) {
     if (!revisionId) return "";
     if (revisionIsHead(revisionId))
-      return `<span class="badge head">current in thread</span>`;
+      return `<span class="${CLASS.badge} ${CLASS.head}">current in thread</span>`;
     const successors = supersededByRevision(revisionId);
     if (successors.length)
-      return `<span class="badge superseded">superseded by ${successors.map(linkify).join(" ")}</span>`;
+      return `<span class="${CLASS.badge} ${CLASS.superseded}">superseded by ${successors.map(linkify).join(" ")}</span>`;
     return "";
   }
   __name(supersessionBadge, "supersessionBadge");
@@ -1090,10 +1306,10 @@
     const revision = revisionForId(revisionId);
     const overview = overviewForRevision(revisionId);
     if (!revision || !overview) return "";
-    return `<div class="thread-overview">
+    return `<div class="${CLASS.threadOverview}">
     <div><b>${targetDisplayLabel(revision.targetDisplay)}</b> <span>${escapeHtml(shortId(revisionId))}</span></div>
     ${assessmentCue(overview)}
-    <div class="overview-cues" aria-label="review cues"><span class="overview-label">review cues</span>${attentionCues(overview)}</div>
+    <div class="${CLASS.overviewCues}" aria-label="review cues"><span class="${CLASS.overviewLabel}">review cues</span>${attentionCues(overview)}</div>
   </div>`;
   }
   __name(renderThreadRevisionOverview, "renderThreadRevisionOverview");
@@ -1543,12 +1759,12 @@
   }
   __name(rangeTouchesCapturedRows, "rangeTouchesCapturedRows");
   function renderAnnotation(a, showLocation) {
-    const tags = (a.tags ?? []).map((t2) => `<span class="badge">${escapeHtml(t2)}</span>`).join(" ");
+    const tags = (a.tags ?? []).map((t2) => `<span class="${CLASS.badge}">${escapeHtml(t2)}</span>`).join(" ");
     const body = renderBodyContent(a.body, a.bodyContentType);
     const t = a.target ?? {};
-    const loc = showLocation && t.filePath ? `<span class="anno-loc">${escapeHtml(t.filePath)}${t.startLine ? `:${t.startLine}-${t.endLine || t.startLine}` : ""}</span>` : "";
-    return `<div class="anno anno-${a.kind}" data-anno="${escapeHtml(a.id)}">
-    <div class="anno-head"><span class="anno-kind anno-kind-${a.kind}">${a.kind}</span><span class="anno-track">${escapeHtml(a.track)}</span><span class="anno-title">${linkify(a.title)}</span> ${tags} ${loc}</div>${body}</div>`;
+    const loc = showLocation && t.filePath ? `<span class="${CLASS.annoLoc}">${escapeHtml(t.filePath)}${t.startLine ? `:${t.startLine}-${t.endLine || t.startLine}` : ""}</span>` : "";
+    return `<div class="${annoContainerClass(a.kind)}" data-anno="${escapeHtml(a.id)}">
+    <div class="${CLASS.annoHead}"><span class="${annoKindClass(a.kind)}">${a.kind}</span><span class="${CLASS.annoTrack}">${escapeHtml(a.track)}</span><span class="${CLASS.annoTitle}">${linkify(a.title)}</span> ${tags} ${loc}</div>${body}</div>`;
   }
   __name(renderAnnotation, "renderAnnotation");
   function renderDiffFactVicinity(f, anchored) {
@@ -1556,7 +1772,7 @@
       const p = a.target?.filePath;
       return p === f.new_path || p === f.old_path;
     });
-    return `<div class="diff-fact-vicinity" data-fact-vicinity="true">
+    return `<div class="${CLASS.diffFactVicinity}" data-fact-vicinity="true">
     <p>Large annotated file: showing review facts first.</p>
     <button type="button" data-render-diff-file="true">Render all rows</button>
     ${facts.map((a) => renderAnnotation(a, true)).join("")}
@@ -1565,11 +1781,11 @@
   __name(renderDiffFactVicinity, "renderDiffFactVicinity");
   function renderDiffFileHeader(f, anchored, reason, open3) {
     const n = fileFactCount(f, anchored);
-    const summary = reason ? `<span class="dfile-summary">${escapeHtml(reason)}</span>` : "";
-    return `<header class="dfile-head" role="button" tabindex="0" aria-expanded="${open3}">
-    <span class="dstatus s-${escapeHtml(f.status)}">${escapeHtml(f.status)}</span>
-    <span class="dpath">${escapeHtml(filePathLabel(f))}</span>${summary}
-    ${n ? `<span class="dfile-notes">${n} note${n === 1 ? "" : "s"}</span>` : ""}</header>`;
+    const summary = reason ? `<span class="${CLASS.dfileSummary}">${escapeHtml(reason)}</span>` : "";
+    return `<header class="${CLASS.dfileHead}" role="button" tabindex="0" aria-expanded="${open3}">
+    <span class="${diffStatusClass(escapeHtml(f.status))}">${escapeHtml(f.status)}</span>
+    <span class="${CLASS.dpath}">${escapeHtml(filePathLabel(f))}</span>${summary}
+    ${n ? `<span class="${CLASS.dfileNotes}">${n} note${n === 1 ? "" : "s"}</span>` : ""}</header>`;
   }
   __name(renderDiffFileHeader, "renderDiffFileHeader");
   function renderDiffFileBody(f, anchored) {
@@ -1588,7 +1804,7 @@
       emitted.add(a.id);
     }
     for (const m of f.metadata_rows ?? []) {
-      html += `<div class="drow drow-meta"><span class="dtext">${escapeHtml(m.text)}</span></div>`;
+      html += `<div class="${CLASS.drow} ${CLASS.drowMeta}"><span class="${CLASS.dtext}">${escapeHtml(m.text)}</span></div>`;
     }
     const factsByLine = /* @__PURE__ */ new Map();
     for (const a of rangeFacts) {
@@ -1606,7 +1822,7 @@
     }
     const hunks = f.hunks ?? [];
     for (const h of hunks) {
-      html += `<div class="dhunk">${escapeHtml(h.header)}</div>`;
+      html += `<div class="${CLASS.dhunk}">${escapeHtml(h.header)}</div>`;
       for (const r of h.rows ?? []) {
         const matching = [];
         const seen = /* @__PURE__ */ new Set();
@@ -1623,12 +1839,13 @@
         if (r.old_line != null) collect(`old:${r.old_line}`);
         if (r.new_line != null) collect(`new:${r.new_line}`);
         const sign = r.kind === "added" ? "+" : r.kind === "removed" ? "-" : " ";
-        const notedLink = matching.length ? ` drow-noted" data-anno="${escapeHtml(matching[0].id)}" tabindex="0" role="button` : "";
-        html += `<div class="drow drow-${escapeHtml(r.kind)}${notedLink}">
-        <span class="ln">${r.old_line ?? ""}</span>
-        <span class="ln">${r.new_line ?? ""}</span>
-        <span class="sign">${sign}</span>
-        <span class="dtext">${escapeHtml(r.text)}</span></div>`;
+        const noted = matching.length > 0;
+        const notedAttrs = noted ? ` data-anno="${escapeHtml(matching[0].id)}" tabindex="0" role="button"` : "";
+        html += `<div class="${drowClass(escapeHtml(r.kind), noted)}"${notedAttrs}>
+        <span class="${CLASS.ln}">${r.old_line ?? ""}</span>
+        <span class="${CLASS.ln}">${r.new_line ?? ""}</span>
+        <span class="${CLASS.sign}">${sign}</span>
+        <span class="${CLASS.dtext}">${escapeHtml(r.text)}</span></div>`;
         for (const a of matching) {
           if (!emitted.has(a.id)) {
             html += renderAnnotation(a, false);
@@ -1645,7 +1862,7 @@
     }
     if (!hunks.length && !(f.metadata_rows ?? []).length) {
       if (!classifyLowSignal(f)) {
-        html += `<div class="drow drow-meta"><span class="dtext">(no captured content)</span></div>`;
+        html += `<div class="${CLASS.drow} ${CLASS.drowMeta}"><span class="${CLASS.dtext}">(no captured content)</span></div>`;
       }
     }
     return html;
@@ -1680,13 +1897,13 @@
       counts[a.kind] = (counts[a.kind] ?? 0) + 1;
     }
     const breakdown = Object.entries(counts).map(([k, n]) => `${n} ${k}${n === 1 ? "" : "s"}`).join(", ");
-    let html = `<div class="anno-summary">${annos.length} review fact${annos.length === 1 ? "" : "s"} on this revision${breakdown ? ` · ${breakdown}` : ""}${unanchored.length ? ` · ${unanchored.length} not anchored to a diff line` : ""}</div>`;
+    let html = `<div class="${CLASS.annoSummary}">${annos.length} review fact${annos.length === 1 ? "" : "s"} on this revision${breakdown ? ` · ${breakdown}` : ""}${unanchored.length ? ` · ${unanchored.length} not anchored to a diff line` : ""}</div>`;
     if (unanchored.length) {
-      html += `<div class="anno-group">${unanchored.map((a) => renderAnnotation(a, true)).join("")}</div>`;
+      html += `<div class="${CLASS.annoGroup}">${unanchored.map((a) => renderAnnotation(a, true)).join("")}</div>`;
     }
     if (!files.length) {
       return {
-        html: `${html}<p class="empty">No files captured in this snapshot.</p>`,
+        html: `${html}<p class="${CLASS.empty}">No files captured in this snapshot.</p>`,
         ctx
       };
     }
@@ -1698,16 +1915,15 @@
       const open3 = annotated && !annotatedLarge || (reason ? false : openBudget-- > 0);
       const expanded = annotatedLarge || open3;
       const body = annotatedLarge ? renderDiffFactVicinity(f, anchored) : open3 ? renderDiffFileBody(f, anchored) : "";
-      const lowCls = reason ? " dfile-lowsignal" : "";
       const lowAttr = reason ? ` data-lowsignal="${escapeHtml(reason)}"` : "";
       const bodyAttr = annotatedLarge ? ` data-fact-vicinity="true"` : open3 ? ` data-rendered="1"` : "";
-      return `<section class="dfile${lowCls}" data-dfile="${i}" data-expanded="${expanded}"${lowAttr}>${renderDiffFileHeader(f, anchored, reason, expanded)}<div class="dfile-body" data-dfile-body="${i}"${bodyAttr}>${body}</div></section>`;
+      return `<section class="${dfileClass(!!reason)}" data-dfile="${i}" data-expanded="${expanded}"${lowAttr}>${renderDiffFileHeader(f, anchored, reason, expanded)}<div class="${CLASS.dfileBody}" data-dfile-body="${i}"${bodyAttr}>${body}</div></section>`;
     }).join("");
     return { html, ctx };
   }
   __name(renderDiff, "renderDiff");
   function renderDiffNavSummary(summary) {
-    return `<div class="diff-nav-summary" aria-label="diff summary">
+    return `<div class="${CLASS.diffNavSummary}" aria-label="diff summary">
     <span><b>${summary.fileCount}</b> files</span>
     <span><b>${summary.factCount}</b> facts</span>
     <span><b>${summary.unanchoredCount}</b> unanchored</span>
@@ -1715,7 +1931,7 @@
   }
   __name(renderDiffNavSummary, "renderDiffNavSummary");
   function renderDiffNavFilters(activeFilter) {
-    return `<div class="diff-nav-filters" role="group" aria-label="diff navigator filters">
+    return `<div class="${CLASS.diffNavFilters}" role="group" aria-label="diff navigator filters">
     <button type="button" data-diff-nav-filter="all" aria-pressed="${activeFilter === "all"}">all</button>
     <button type="button" data-diff-nav-filter="with-facts" aria-pressed="${activeFilter === "with-facts"}">with facts</button>
     <button type="button" data-diff-nav-filter="unanchored" aria-pressed="${activeFilter === "unanchored"}">unanchored</button>
@@ -1794,7 +2010,7 @@
     if (title)
       title.textContent = label ? `${label} · snapshot ${shortId(objectId)}` : shortId(objectId);
     const body = $("#diff-body");
-    if (body) body.innerHTML = `<p class="empty">loading snapshot…</p>`;
+    if (body) body.innerHTML = `<p class="${CLASS.empty}">loading snapshot…</p>`;
     const nav = $("#diff-nav");
     if (nav) nav.innerHTML = "";
     open("diff", "#diff-close");
@@ -1822,7 +2038,7 @@
       if (state2.diff !== objectId || state2.diffHash !== contentHash) return;
       const liveBody = $("#diff-body");
       if (liveBody)
-        liveBody.innerHTML = `<p class="empty">error: ${escapeHtml(
+        liveBody.innerHTML = `<p class="${CLASS.empty}">error: ${escapeHtml(
           err instanceof Error ? err.message : String(err)
         )}</p>`;
     });
@@ -1920,20 +2136,20 @@
       return true;
     });
     const fileItems = visibleFiles.map(({ f, i, factCount: n }) => {
-      const badge = n ? `<span class="dfile-notes">${n}</span>` : "";
-      return `<li><button class="diff-nav-file" data-nav-file="${i}">
-        <span class="dstatus s-${escapeHtml(f.status ?? "")}">${escapeHtml(f.status ?? "")}</span>
-        <span class="dpath">${escapeHtml(filePathLabel(f))}</span>${badge}</button></li>`;
+      const badge = n ? `<span class="${CLASS.dfileNotes}">${n}</span>` : "";
+      return `<li><button class="${CLASS.diffNavFile}" data-nav-file="${i}">
+        <span class="${diffStatusClass(escapeHtml(f.status ?? ""))}">${escapeHtml(f.status ?? "")}</span>
+        <span class="${CLASS.dpath}">${escapeHtml(filePathLabel(f))}</span>${badge}</button></li>`;
     }).join("");
     let html = renderDiffNavSummary(diffNavSummary()) + renderDiffNavFilters(diffNavFilter);
     if (diffNavFilter !== "unanchored") {
-      html += `<ol class="diff-nav-files">${fileItems}</ol>`;
+      html += `<ol class="${CLASS.diffNavFiles}">${fileItems}</ol>`;
     }
     if (unanchored.length && diffNavFilter !== "with-facts") {
       const entries = unanchored.map(
-        (a) => `<li><button class="diff-nav-fact" data-anno="${escapeHtml(a.id)}"><span>${escapeHtml(a.title)}</span><span class="diff-nav-reason">${escapeHtml(unanchoredReason(a, filePaths))}</span></button></li>`
+        (a) => `<li><button class="${CLASS.diffNavFact}" data-anno="${escapeHtml(a.id)}"><span>${escapeHtml(a.title)}</span><span class="${CLASS.diffNavReason}">${escapeHtml(unanchoredReason(a, filePaths))}</span></button></li>`
       ).join("");
-      html += `<section class="diff-unanchored" aria-label="unanchored review facts">
+      html += `<section class="${CLASS.diffUnanchored}" aria-label="unanchored review facts">
       <h3>${unanchored.length} not anchored to a diff line</h3>
       <ol>${entries}</ol></section>`;
     }
@@ -2095,7 +2311,7 @@
     const entries = getState().history?.entries ?? [];
     const e = entries.find((x) => x.eventId === selectedEventId());
     if (!e) {
-      el.innerHTML = `<p class="empty">Select an event or revision to inspect.</p>`;
+      el.innerHTML = `<p class="${CLASS.empty}">Select an event or revision to inspect.</p>`;
       return;
     }
     const revisionId = entryRevisionId(e);
@@ -2138,11 +2354,11 @@
     const btnLabel = focusId ? `show this ${focusNoun} in the diff` : "view snapshot diff";
     const verifyChip = verificationChip(e.verificationStatus ?? "");
     const endorse = endorsementsBlock(e.endorsements);
-    const readback = verifyChip || endorse ? `<div class="readback"><p class="reader-scope-note">reader-relative — computed against your enrolled keys</p>${verifyChip ? `<div class="readback-row">${verifyChip}</div>` : ""}${endorse}</div>` : "";
-    const diffButton = snapshotId ? `<button class="ghost diff-btn" id="detail-diff-btn" data-open-diff="${escapeHtml(snapshotId)}" data-diff-hash="${escapeHtml(objectArtifactHashForRevision(revisionId))}" data-diff-focus="${escapeHtml(focusId ?? "")}">${escapeHtml(btnLabel)}</button>` : "";
+    const readback = verifyChip || endorse ? `<div class="${CLASS.readback}"><p class="${CLASS.readerScopeNote}">reader-relative — computed against your enrolled keys</p>${verifyChip ? `<div class="${CLASS.readbackRow}">${verifyChip}</div>` : ""}${endorse}</div>` : "";
+    const diffButton = snapshotId ? `<button class="${CLASS.ghost} ${CLASS.diffBtn}" id="detail-diff-btn" data-open-diff="${escapeHtml(snapshotId)}" data-diff-hash="${escapeHtml(objectArtifactHashForRevision(revisionId))}" data-diff-focus="${escapeHtml(focusId ?? "")}">${escapeHtml(btnLabel)}</button>` : "";
     el.innerHTML = `
     <h2>${linkify(entryTitle(e))}</h2>
-    <dl class="kv">${kv.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${linkify(v)}</dd>`).join("")}</dl>
+    <dl class="${CLASS.kv}">${kv.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${linkify(v)}</dd>`).join("")}</dl>
     ${readback}
     ${diffButton}
     ${bodyBlock}
@@ -2152,7 +2368,7 @@
   function staleFactSectionContext(revisionId) {
     const successors = supersededByRevision(revisionId);
     if (!successors.length) return "";
-    return `<p class="fact-stale-context">superseded by ${successors.map(linkify).join(" ")}</p>`;
+    return `<p class="${CLASS.factStaleContext}">superseded by ${successors.map(linkify).join(" ")}</p>`;
   }
   __name(staleFactSectionContext, "staleFactSectionContext");
   function renderRevisionPage(d) {
@@ -2163,11 +2379,11 @@
     const badge = supersessionBadge(revisionId);
     const title = `${shortId(ru.id)}${base.commitOid ? ` · base ${shortId(base.commitOid)}` : ""}`;
     const staleContext = staleFactSectionContext(revisionId);
-    const stat = /* @__PURE__ */ __name((label, n) => `<span class="up-stat"><b>${n ?? 0}</b> ${label}</span>`, "stat");
+    const stat = /* @__PURE__ */ __name((label, n) => `<span class="${CLASS.upStat}"><b>${n ?? 0}</b> ${label}</span>`, "stat");
     const sections = [];
-    sections.push(`<section><h2>Revision</h2><dl class="up-identity">
+    sections.push(`<section><h2>Revision</h2><dl class="${CLASS.upIdentity}">
     <dt>id</dt><dd>${linkify(ru.id)}</dd>
-    <dt>base</dt><dd>${base.commitOid ? linkify(base.commitOid) : "—"} ${base.kind ? `<span class="fact-status">${escapeHtml(base.kind)}</span>` : ""}</dd>
+    <dt>base</dt><dd>${base.commitOid ? linkify(base.commitOid) : "—"} ${base.kind ? `<span class="${CLASS.factStatus}">${escapeHtml(base.kind)}</span>` : ""}</dd>
     <dt>target</dt><dd>${targetDisplayLabel(ru.targetDisplay)}${targetHeadBadge(ru.targetDisplay)}</dd>
     <dt>worktree</dt><dd>${escapeHtml(ru.targetDisplay?.label ?? "working tree")}</dd>
     <dt>head</dt><dd>${escapeHtml(ru.targetDisplay?.head?.label ?? "—")}</dd>
@@ -2175,14 +2391,14 @@
     <dt>snapshot</dt><dd>${linkify(ru.objectId)}</dd>
   </dl></section>`);
     sections.push(
-      `<section><h2>Current assessment</h2>${verdictBadge(d.currentAssessment)}${currentAssessmentSummary(d)}<p class="advisory-note">advisory — a recorded judgement, not a merge gate</p></section>`
+      `<section><h2>Current assessment</h2>${verdictBadge(d.currentAssessment)}${currentAssessmentSummary(d)}<p class="${CLASS.advisoryNote}">advisory — a recorded judgement, not a merge gate</p></section>`
     );
-    sections.push(`<section><h2>Summary</h2><div class="up-stats">
+    sections.push(`<section><h2>Summary</h2><div class="${CLASS.upStats}">
     ${stat("files", s.fileCount)}${stat("rows", s.rowCount)}${stat("observations", s.observationCount)}${stat("input requests", s.inputRequestCount)}${stat("assessments", s.assessmentCount)}${stat("validation checks", s.validationCheckCount)}${stat("adapter notes", s.adapterNoteCount)}
   </div>
   <div style="margin-top:10px">
-    <button class="ghost diff-btn" id="up-diff-btn" data-open-diff="${escapeHtml(ru.objectId ?? "")}" data-diff-hash="${escapeHtml(ru.objectArtifactContentHash ?? "")}">view annotated diff</button>
-    <button class="ghost" id="up-timeline-btn" data-reveal-revision="${escapeHtml(revisionId)}" style="margin-left:6px">show in timeline</button>
+    <button class="${CLASS.ghost} ${CLASS.diffBtn}" id="up-diff-btn" data-open-diff="${escapeHtml(ru.objectId ?? "")}" data-diff-hash="${escapeHtml(ru.objectArtifactContentHash ?? "")}">view annotated diff</button>
+    <button class="${CLASS.ghost}" id="up-timeline-btn" data-reveal-revision="${escapeHtml(revisionId)}" style="margin-left:6px">show in timeline</button>
   </div></section>`);
     sections.push(
       factSection(
@@ -2209,7 +2425,7 @@
       )
     );
     const validationChecks = d.validationChecks ?? [];
-    const validationBody = validationChecks.length ? `${validationChecks.map(renderValidationCheckCard).join("")}<p class="validation-note">context only — does not affect the current assessment</p>` : `<p class="up-empty">none</p>`;
+    const validationBody = validationChecks.length ? `${validationChecks.map(renderValidationCheckCard).join("")}<p class="${CLASS.validationNote}">context only — does not affect the current assessment</p>` : `<p class="${CLASS.upEmpty}">none</p>`;
     sections.push(
       `<section><h2>Validation checks (${validationChecks.length})</h2>${staleContext}${validationBody}</section>`
     );
@@ -2220,12 +2436,12 @@
     }
     const el = $("#detail");
     if (el)
-      el.innerHTML = `<div class="unit-page"><p class="unit-page-title">${escapeHtml(title)}</p>${sections.join("")}</div>`;
+      el.innerHTML = `<div class="${CLASS.unitPage}"><p class="${CLASS.unitPageTitle}">${escapeHtml(title)}</p>${sections.join("")}</div>`;
   }
   __name(renderRevisionPage, "renderRevisionPage");
   async function openRevision(revisionId) {
     const el = $("#detail");
-    if (el) el.innerHTML = `<p class="up-empty">loading…</p>`;
+    if (el) el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
     try {
       const d = await fetchJSON(
         `/api/revision?id=${encodeURIComponent(revisionId)}`
@@ -2238,7 +2454,7 @@
       if (sel.kind === "revision" && sel.id === revisionId) {
         const live = $("#detail");
         if (live)
-          live.innerHTML = `<p class="up-empty">error: ${escapeHtml(
+          live.innerHTML = `<p class="${CLASS.upEmpty}">error: ${escapeHtml(
             err instanceof Error ? err.message : String(err)
           )}</p>`;
       }
@@ -2630,7 +2846,7 @@
     const input = $("#cmd-input");
     if (!list || !input) return;
     if (!cmdFiltered.length) {
-      list.innerHTML = `<li id="cmd-option-empty" class="cmd-empty" role="option" aria-disabled="true">No matches</li>`;
+      list.innerHTML = `<li id="cmd-option-empty" class="${CLASS.cmdEmpty}" role="option" aria-disabled="true">No matches</li>`;
       input.setAttribute("aria-activedescendant", "cmd-option-empty");
       return;
     }
@@ -2639,9 +2855,9 @@
     cmdFiltered.forEach((c, i) => {
       if (c.kind !== lastKind) {
         lastKind = c.kind;
-        html += `<li class="cmd-group" role="presentation">${escapeHtml(c.kind)}</li>`;
+        html += `<li class="${CLASS.cmdGroup}" role="presentation">${escapeHtml(c.kind)}</li>`;
       }
-      html += `<li id="cmd-option-${escapeHtml(String(c.domIndex ?? i))}" class="cmd-item${i === cmdActive ? " active" : ""}" role="option" data-idx="${i}" aria-selected="${i === cmdActive}"><span class="cmd-label">${escapeHtml(c.label)}</span>${c.hint ? `<span class="cmd-hint">${escapeHtml(c.hint)}</span>` : ""}</li>`;
+      html += `<li id="cmd-option-${escapeHtml(String(c.domIndex ?? i))}" class="${cmdItemClass(i === cmdActive)}" role="option" data-idx="${i}" aria-selected="${i === cmdActive}"><span class="${CLASS.cmdLabel}">${escapeHtml(c.label)}</span>${c.hint ? `<span class="${CLASS.cmdHint}">${escapeHtml(c.hint)}</span>` : ""}</li>`;
     });
     list.innerHTML = html;
     const active = list.querySelector(".cmd-item.active");
@@ -2908,7 +3124,7 @@
       matchesRevisionFilters
     );
     if (!entries.length) {
-      el.innerHTML = `<p class="empty" style="color:var(--fg-dim)">${state2.filterText || state2.filterObject ? "No revisions match the current filters." : "No captured revisions in this store."}</p>`;
+      el.innerHTML = `<p class="${CLASS.empty}" style="color:var(--fg-dim)">${state2.filterText || state2.filterObject ? "No revisions match the current filters." : "No captured revisions in this store."}</p>`;
       return;
     }
     const selected = state2.selected;
@@ -2928,13 +3144,13 @@
       ];
       const tail = [["snapshot", shortId(u.objectId)]];
       const targetCell = `<span>target</span><b>${targetDisplayLabel(u.targetDisplay)}${targetHeadBadge(u.targetDisplay)}</b>`;
-      return `<div class="unit-card" data-revision-id="${escapeHtml(revisionId)}"${isSelected ? ' aria-selected="true"' : ""} title="${escapeHtml(revisionId)}
+      return `<div class="${CLASS.unitCard}" data-revision-id="${escapeHtml(revisionId)}"${isSelected ? ' aria-selected="true"' : ""} title="${escapeHtml(revisionId)}
 click to open the revision page">
       <h3>${escapeHtml(shortId(revisionId))}</h3>
-      ${badge ? `<div class="supersession-badges">${badge}</div>` : ""}
+      ${badge ? `<div class="${CLASS.supersessionBadges}">${badge}</div>` : ""}
       ${renderRevisionOverview(u, overview)}
-      <div class="kv">${rows.map(kv).join("")}${targetCell}${tail.map(kv).join("")}</div>
-      <div class="actions"><button class="ghost diff-btn" data-open-diff="${escapeHtml(u.objectId ?? "")}" data-diff-hash="${escapeHtml(u.objectArtifactContentHash ?? "")}">view snapshot diff</button></div>
+      <div class="${CLASS.kv}">${rows.map(kv).join("")}${targetCell}${tail.map(kv).join("")}</div>
+      <div class="${CLASS.actions}"><button class="${CLASS.ghost} ${CLASS.diffBtn}" data-open-diff="${escapeHtml(u.objectId ?? "")}" data-diff-hash="${escapeHtml(u.objectArtifactContentHash ?? "")}">view snapshot diff</button></div>
     </div>`;
     }).join("");
   }
@@ -2945,7 +3161,7 @@ click to open the revision page">
     const state2 = getState();
     const threads = objectThreads().filter(threadMatchesRevisionFilters);
     if (!threads.length) {
-      el.innerHTML = `<p class="empty" style="color:var(--fg-dim)">${state2.filterText || state2.filterObject ? "No revision threads match the current filters." : "No captured revisions in this store."}</p>`;
+      el.innerHTML = `<p class="${CLASS.empty}" style="color:var(--fg-dim)">${state2.filterText || state2.filterObject ? "No revision threads match the current filters." : "No captured revisions in this store."}</p>`;
       return;
     }
     el.innerHTML = "";
@@ -2967,13 +3183,13 @@ click to open the revision page">
     const superseded = thread.superseded ?? [];
     const card = document.createElement("div");
     card.className = `unit-card thread-card${thread.competing ? " competing" : ""}`;
-    const competingBadge = thread.competing ? `<div class="thread-competing"><span class="fact-status competing">competing revisions (${heads.length})</span> ${heads.map((h) => linkify(h)).join(" ")}</div>` : "";
+    const competingBadge = thread.competing ? `<div class="${CLASS.threadCompeting}"><span class="${CLASS.factStatus} ${CLASS.competing}">competing revisions (${heads.length})</span> ${heads.map((h) => linkify(h)).join(" ")}</div>` : "";
     const overviewBlocks = heads.map((h) => renderThreadRevisionOverview(h)).filter(Boolean).join("");
     card.innerHTML = `
     <h3>${escapeHtml(threadLabel(thread))}</h3>
     ${competingBadge}
-    ${overviewBlocks ? `<div class="thread-overviews">${overviewBlocks}</div>` : ""}
-    <div class="kv">
+    ${overviewBlocks ? `<div class="${CLASS.threadOverviews}">${overviewBlocks}</div>` : ""}
+    <div class="${CLASS.kv}">
       <span>revisions</span><b>${escapeHtml(String(revisions.length))}</b>
       <span>heads</span><b>${escapeHtml(String(heads.length))}</b>
       <span>superseded</span><b>${escapeHtml(String(superseded.length))}</b>
@@ -2995,7 +3211,7 @@ click to open the revision page">
       ])
     );
     const marker = /* @__PURE__ */ __name((id, cls) => `<marker id="${id}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path class="${cls}" d="M0,0 L7,4 L0,8 z" /></marker>`, "marker");
-    const defs = `<defs>${marker("dag-arrow", "dag-arrow-head")}${marker("dag-arrow-traced", "dag-arrow-head-traced")}</defs>`;
+    const defs = `<defs>${marker("dag-arrow", CLASS.dagArrowHead)}${marker("dag-arrow-traced", CLASS.dagArrowHeadTraced)}</defs>`;
     const edges = (laid.edges ?? []).map((e) => {
       let path = e.path ?? [];
       const from = e.from != null ? center.get(e.from) : void 0;
@@ -3005,7 +3221,7 @@ click to open the revision page">
           path = [...path].reverse();
       }
       const pts = path.map(([x, y]) => `${x},${y}`).join(" ");
-      return `<polyline class="dag-edge" data-from="${escapeHtml(e.from ?? "")}" data-to="${escapeHtml(e.to ?? "")}" points="${pts}" marker-end="url(#dag-arrow)" />`;
+      return `<polyline class="${CLASS.dagEdge}" data-from="${escapeHtml(e.from ?? "")}" data-to="${escapeHtml(e.to ?? "")}" points="${pts}" marker-end="url(#dag-arrow)" />`;
     }).join("");
     const selected = getState().selected;
     const nodesHtml = nodes.map((n) => {
@@ -3014,13 +3230,16 @@ click to open the revision page">
       const nodeH = n.h ?? 0;
       const nx = n.x ?? 0;
       const ny = n.y ?? 0;
-      const cls = `dag-node${n.isHead ? " head" : ""}${n.isSuperseded ? " superseded" : ""}`;
+      const cls = dagNodeClass({
+        isHead: !!n.isHead,
+        isSuperseded: !!n.isSuperseded
+      });
       return `<g class="${cls}" data-revision-id="${escapeHtml(n.id ?? "")}" tabindex="0" role="link"${sel ? ' aria-selected="true"' : ""} aria-label="revision ${escapeHtml(shortId(n.id))}">
         <rect x="${nx - nodeW / 2}" y="${ny - nodeH / 2}" width="${nodeW}" height="${nodeH}" rx="6" />
         <text x="${nx}" y="${ny}" text-anchor="middle" dominant-baseline="middle">${escapeHtml(shortId(n.id))}</text>
       </g>`;
     }).join("");
-    return `<svg class="revision-dag" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMinYMin meet" role="group" aria-label="supersession graph">${defs}${edges}${nodesHtml}</svg>`;
+    return `<svg class="${CLASS.revisionDag}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMinYMin meet" role="group" aria-label="supersession graph">${defs}${edges}${nodesHtml}</svg>`;
   }
   __name(renderThreadSvg, "renderThreadSvg");
   function wireDagInteractions(card) {
@@ -3078,7 +3297,7 @@ click to open the revision page">
     if (!entries.length) {
       const li = document.createElement("li");
       li.className = "event";
-      li.innerHTML = `<span></span><span></span><span class="body"><span class="title" style="color:var(--fg-dim)">no events match the current filters</span></span>`;
+      li.innerHTML = `<span></span><span></span><span class="${CLASS.body}"><span class="${CLASS.title}" style="color:var(--fg-dim)">no events match the current filters</span></span>`;
       list.appendChild(li);
       return;
     }
@@ -3089,17 +3308,17 @@ click to open the revision page">
       li.dataset.eventId = e.eventId ?? "";
       if (e.eventId && e.eventId === selected)
         li.setAttribute("aria-selected", "true");
-      const tags = entryTags(e).map((t) => `<span class="badge">${escapeHtml(t)}</span>`).join(" ");
+      const tags = entryTags(e).map((t) => `<span class="${CLASS.badge}">${escapeHtml(t)}</span>`).join(" ");
       const revisionId = entryRevisionId(e);
       const staleTag = supersessionStaleBadge(e);
       const supersedesTag = captureSupersedesBadge(e);
       li.innerHTML = `
-      <span class="time">${escapeHtml(fmtTime(e.occurredAt ?? ""))}</span>
-      <span class="rail" style="background:${typeColor(e.eventType)}"></span>
-      <span class="body">
-        <span class="title">${linkify(entryTitle(e))} ${tags} ${supersedesTag} ${staleTag}</span>
-        <span class="meta">
-          <span class="type" style="color:${typeColor(e.eventType)}">${escapeHtml(typeLabel(e.eventType))}</span>
+      <span class="${CLASS.time}">${escapeHtml(fmtTime(e.occurredAt ?? ""))}</span>
+      <span class="${CLASS.rail}" style="background:${typeColor(e.eventType)}"></span>
+      <span class="${CLASS.body}">
+        <span class="${CLASS.title}">${linkify(entryTitle(e))} ${tags} ${supersedesTag} ${staleTag}</span>
+        <span class="${CLASS.meta}">
+          <span class="${CLASS.type}" style="color:${typeColor(e.eventType)}">${escapeHtml(typeLabel(e.eventType))}</span>
           ${entryTrack(e) ? `<span>${escapeHtml(entryTrack(e))}</span>` : ""}
           ${revisionId ? `<span>revision ${escapeHtml(shortId(revisionId))}</span>` : ""}
           ${entryAnchor(e) ? `<span>${escapeHtml(entryAnchor(e))}</span>` : ""}
@@ -3139,7 +3358,7 @@ click to open the revision page">
     el.classList.remove("hidden");
     el.innerHTML = diags.map((raw) => {
       const d = raw ?? {};
-      return `<div><span class="code">${escapeHtml(d.code || "diagnostic")}</span>${escapeHtml(d.message || "")}</div>`;
+      return `<div><span class="${CLASS.code}">${escapeHtml(d.code || "diagnostic")}</span>${escapeHtml(d.message || "")}</div>`;
     }).join("");
   }
   __name(renderDiagnostics, "renderDiagnostics");
@@ -3165,7 +3384,7 @@ click to open the revision page">
         "aria-label",
         `${enabled ? "Hide" : "Show"} ${typeLabel(id)} events (${count})`
       );
-      btn.innerHTML = `<span class="dot" style="background:${typeColor(id)}"></span>${escapeHtml(typeLabel(id))}<span class="type-count">${count}</span>`;
+      btn.innerHTML = `<span class="${CLASS.dot}" style="background:${typeColor(id)}"></span>${escapeHtml(typeLabel(id))}<span class="${CLASS.typeCount}">${count}</span>`;
       btn.title = id;
       container.appendChild(btn);
     }
@@ -3196,11 +3415,11 @@ click to open the revision page">
     if (lens !== lastMasterLens) {
       lastMasterLens = lens;
       if (lens === "list") {
-        master.innerHTML = `<div id="units" class="units"></div>`;
+        master.innerHTML = `<div id="units" class="${CLASS.units}"></div>`;
       } else if (lens === "threads") {
-        master.innerHTML = `<div id="revisions" class="units" aria-label="supersession threads"></div>`;
+        master.innerHTML = `<div id="revisions" class="${CLASS.units}" aria-label="supersession threads"></div>`;
       } else {
-        master.innerHTML = `<ol id="timeline" class="timeline" aria-label="event timeline"></ol>`;
+        master.innerHTML = `<ol id="timeline" class="${CLASS.timeline}" aria-label="event timeline"></ol>`;
       }
     }
     if (lens === "list") renderRevisionList();

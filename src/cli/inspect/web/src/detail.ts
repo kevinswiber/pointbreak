@@ -33,6 +33,7 @@ import {
   type ValidationCheck,
   verdictBadge,
 } from "./cards";
+import { CLASS } from "./classNames";
 import { openDiff } from "./diff/controller";
 import { $ } from "./dom";
 import { escapeHtml } from "./escape";
@@ -127,7 +128,7 @@ export function renderDetail(): void {
   const entries = getState().history?.entries ?? [];
   const e = entries.find((x) => x.eventId === selectedEventId());
   if (!e) {
-    el.innerHTML = `<p class="empty">Select an event or revision to inspect.</p>`;
+    el.innerHTML = `<p class="${CLASS.empty}">Select an event or revision to inspect.</p>`;
     return;
   }
   const revisionId = entryRevisionId(e);
@@ -176,17 +177,17 @@ export function renderDetail(): void {
   // quietest tier), so the reader-relative framing is never tooltip-only.
   const readback =
     verifyChip || endorse
-      ? `<div class="readback"><p class="reader-scope-note">reader-relative — computed against your enrolled keys</p>${verifyChip ? `<div class="readback-row">${verifyChip}</div>` : ""}${endorse}</div>`
+      ? `<div class="${CLASS.readback}"><p class="${CLASS.readerScopeNote}">reader-relative — computed against your enrolled keys</p>${verifyChip ? `<div class="${CLASS.readbackRow}">${verifyChip}</div>` : ""}${endorse}</div>`
       : "";
   // The diff affordance carries its open-diff datasets; the once-installed
   // #detail delegate opens the overlay through diff/controller (no per-render
   // listener). data-diff-hash pairs the snapshot with its captured artifact hash.
   const diffButton = snapshotId
-    ? `<button class="ghost diff-btn" id="detail-diff-btn" data-open-diff="${escapeHtml(snapshotId)}" data-diff-hash="${escapeHtml(objectArtifactHashForRevision(revisionId))}" data-diff-focus="${escapeHtml(focusId ?? "")}">${escapeHtml(btnLabel)}</button>`
+    ? `<button class="${CLASS.ghost} ${CLASS.diffBtn}" id="detail-diff-btn" data-open-diff="${escapeHtml(snapshotId)}" data-diff-hash="${escapeHtml(objectArtifactHashForRevision(revisionId))}" data-diff-focus="${escapeHtml(focusId ?? "")}">${escapeHtml(btnLabel)}</button>`
     : "";
   el.innerHTML = `
     <h2>${linkify(entryTitle(e))}</h2>
-    <dl class="kv">${kv.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${linkify(v)}</dd>`).join("")}</dl>
+    <dl class="${CLASS.kv}">${kv.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${linkify(v)}</dd>`).join("")}</dl>
     ${readback}
     ${diffButton}
     ${bodyBlock}
@@ -201,7 +202,7 @@ export function renderDetail(): void {
 export function staleFactSectionContext(revisionId: string): string {
   const successors = supersededByRevision(revisionId);
   if (!successors.length) return "";
-  return `<p class="fact-stale-context">superseded by ${successors.map(linkify).join(" ")}</p>`;
+  return `<p class="${CLASS.factStaleContext}">superseded by ${successors.map(linkify).join(" ")}</p>`;
 }
 
 /** Paint `#detail` with a revision's composite page from the `/api/revision` document. */
@@ -215,12 +216,12 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
   const staleContext = staleFactSectionContext(revisionId);
 
   const stat = (label: string, n?: number): string =>
-    `<span class="up-stat"><b>${n ?? 0}</b> ${label}</span>`;
+    `<span class="${CLASS.upStat}"><b>${n ?? 0}</b> ${label}</span>`;
   const sections: string[] = [];
 
-  sections.push(`<section><h2>Revision</h2><dl class="up-identity">
+  sections.push(`<section><h2>Revision</h2><dl class="${CLASS.upIdentity}">
     <dt>id</dt><dd>${linkify(ru.id)}</dd>
-    <dt>base</dt><dd>${base.commitOid ? linkify(base.commitOid) : "—"} ${base.kind ? `<span class="fact-status">${escapeHtml(base.kind)}</span>` : ""}</dd>
+    <dt>base</dt><dd>${base.commitOid ? linkify(base.commitOid) : "—"} ${base.kind ? `<span class="${CLASS.factStatus}">${escapeHtml(base.kind)}</span>` : ""}</dd>
     <dt>target</dt><dd>${targetDisplayLabel(ru.targetDisplay)}${targetHeadBadge(ru.targetDisplay)}</dd>
     <dt>worktree</dt><dd>${escapeHtml(ru.targetDisplay?.label ?? "working tree")}</dd>
     <dt>head</dt><dd>${escapeHtml(ru.targetDisplay?.head?.label ?? "—")}</dd>
@@ -229,18 +230,18 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
   </dl></section>`);
 
   sections.push(
-    `<section><h2>Current assessment</h2>${verdictBadge(d.currentAssessment)}${currentAssessmentSummary(d)}<p class="advisory-note">advisory — a recorded judgement, not a merge gate</p></section>`,
+    `<section><h2>Current assessment</h2>${verdictBadge(d.currentAssessment)}${currentAssessmentSummary(d)}<p class="${CLASS.advisoryNote}">advisory — a recorded judgement, not a merge gate</p></section>`,
   );
 
   // The annotated-diff affordance carries its open-diff datasets (the #detail
   // delegate opens it); the "show in timeline" affordance carries a
   // data-reveal-revision dataset the navigation delegate resolves.
-  sections.push(`<section><h2>Summary</h2><div class="up-stats">
+  sections.push(`<section><h2>Summary</h2><div class="${CLASS.upStats}">
     ${stat("files", s.fileCount)}${stat("rows", s.rowCount)}${stat("observations", s.observationCount)}${stat("input requests", s.inputRequestCount)}${stat("assessments", s.assessmentCount)}${stat("validation checks", s.validationCheckCount)}${stat("adapter notes", s.adapterNoteCount)}
   </div>
   <div style="margin-top:10px">
-    <button class="ghost diff-btn" id="up-diff-btn" data-open-diff="${escapeHtml(ru.objectId ?? "")}" data-diff-hash="${escapeHtml(ru.objectArtifactContentHash ?? "")}">view annotated diff</button>
-    <button class="ghost" id="up-timeline-btn" data-reveal-revision="${escapeHtml(revisionId)}" style="margin-left:6px">show in timeline</button>
+    <button class="${CLASS.ghost} ${CLASS.diffBtn}" id="up-diff-btn" data-open-diff="${escapeHtml(ru.objectId ?? "")}" data-diff-hash="${escapeHtml(ru.objectArtifactContentHash ?? "")}">view annotated diff</button>
+    <button class="${CLASS.ghost}" id="up-timeline-btn" data-reveal-revision="${escapeHtml(revisionId)}" style="margin-left:6px">show in timeline</button>
   </div></section>`);
 
   sections.push(
@@ -273,8 +274,8 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
   // structurally separate from Current assessment, never a verdict aggregate.
   const validationChecks = d.validationChecks ?? [];
   const validationBody = validationChecks.length
-    ? `${validationChecks.map(renderValidationCheckCard).join("")}<p class="validation-note">context only — does not affect the current assessment</p>`
-    : `<p class="up-empty">none</p>`;
+    ? `${validationChecks.map(renderValidationCheckCard).join("")}<p class="${CLASS.validationNote}">context only — does not affect the current assessment</p>`
+    : `<p class="${CLASS.upEmpty}">none</p>`;
   sections.push(
     `<section><h2>Validation checks (${validationChecks.length})</h2>${staleContext}${validationBody}</section>`,
   );
@@ -287,13 +288,13 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
 
   const el = $("#detail");
   if (el)
-    el.innerHTML = `<div class="unit-page"><p class="unit-page-title">${escapeHtml(title)}</p>${sections.join("")}</div>`;
+    el.innerHTML = `<div class="${CLASS.unitPage}"><p class="${CLASS.unitPageTitle}">${escapeHtml(title)}</p>${sections.join("")}</div>`;
 }
 
 /** Fetch a revision's composite document and paint it, guarding a superseding selection. */
 export async function openRevision(revisionId: string): Promise<void> {
   const el = $("#detail");
-  if (el) el.innerHTML = `<p class="up-empty">loading…</p>`;
+  if (el) el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
   try {
     const d = await fetchJSON(
       `/api/revision?id=${encodeURIComponent(revisionId)}`,
@@ -307,7 +308,7 @@ export async function openRevision(revisionId: string): Promise<void> {
     if (sel.kind === "revision" && sel.id === revisionId) {
       const live = $("#detail");
       if (live)
-        live.innerHTML = `<p class="up-empty">error: ${escapeHtml(
+        live.innerHTML = `<p class="${CLASS.upEmpty}">error: ${escapeHtml(
           err instanceof Error ? err.message : String(err),
         )}</p>`;
     }
