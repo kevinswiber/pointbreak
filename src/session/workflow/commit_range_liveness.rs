@@ -6,6 +6,7 @@
 //! a headline that is withheld whenever the per-OID conditions disagree or the
 //! projection already flagged a diagnostic.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -13,8 +14,8 @@ use serde::Serialize;
 
 use crate::error::Result;
 use crate::git::{
-    Ancestry, git_for_each_ref, git_is_ancestor, git_object_exists, git_rev_parse_commit_oid,
-    git_worktree_list,
+    Ancestry, git_for_each_ref, git_is_ancestor, git_object_exists, git_rev_list_reachable,
+    git_rev_parse_commit_oid, git_worktree_list,
 };
 use crate::session::RevisionCommitRangeView;
 use crate::session::state::ProjectionDiagnostic;
@@ -115,6 +116,204 @@ pub fn enrich_liveness(
         per_commit,
         headline,
     })
+}
+
+/// Reachability resolved **once** for an entire revision list, so classifying each
+/// revision's commits is in-memory set membership rather than a git ancestry probe
+/// per (commit, tip) pair. The live tips and the set of commits reachable from them
+/// come from one `git for-each-ref` + one `git worktree list` + one `git rev-list`;
+/// an optional integration ref adds one `rev-parse` + one `rev-list`. The only
+/// per-commit git calls left are the rare ones the membership cannot answer — a
+/// capture commit that is itself a tip needs an ancestor check to split merged from
+/// live, and a commit absent from the reachable set needs one object-existence
+/// check — and both are cached across the whole list.
+///
+/// The per-commit **conditions** (and therefore the merge-status headline and the
+/// orphan-visibility decision) match [`enrich_liveness`] exactly. The `live_branch`
+/// label is best-effort: it is populated for a live tip and for an
+/// integration-merged commit, but a broad-merged commit carries `None` (the
+/// containing tip is the one thing the O(1) reachability does not name). The
+/// list-surface consumers read only the condition, never the label, so this is the
+/// right trade; single-view callers that need the label keep using
+/// [`enrich_liveness`].
+pub(crate) struct LivenessBatch {
+    tips: Vec<LiveTip>,
+    broad_reachable: HashSet<String>,
+    integration: Option<IntegrationRef>,
+    integration_reachable: HashSet<String>,
+    ancestry: RefCell<HashMap<(String, String), Ancestry>>,
+    object_exists: RefCell<HashMap<String, bool>>,
+}
+
+impl LivenessBatch {
+    /// Resolve the live tips and the reachable set(s) once for the whole list. A
+    /// git failure here propagates; the list surface degrades it to "reachability
+    /// unknown" for every entry, the same graceful fallback the per-entry path
+    /// applies when git is unavailable.
+    pub(crate) fn build(repo: &Path, integration_ref: Option<&str>) -> Result<Self> {
+        let tips = live_tips(repo)?;
+        let tip_oids: Vec<String> = tips.iter().map(|tip| tip.oid.clone()).collect();
+        let broad_reachable = git_rev_list_reachable(repo, &tip_oids)?;
+        let (integration, integration_reachable) = match integration_ref {
+            Some(reference) => {
+                let oid = git_rev_parse_commit_oid(repo, reference)?;
+                let reachable = git_rev_list_reachable(repo, std::slice::from_ref(&oid))?;
+                (
+                    Some(IntegrationRef {
+                        oid,
+                        label: short_ref_label(reference),
+                    }),
+                    reachable,
+                )
+            }
+            None => (None, HashSet::new()),
+        };
+        Ok(Self {
+            tips,
+            broad_reachable,
+            integration,
+            integration_reachable,
+            ancestry: RefCell::new(HashMap::new()),
+            object_exists: RefCell::new(HashMap::new()),
+        })
+    }
+
+    /// Broad-default enrichment — every live tip is a merge target — the form the
+    /// orphan-visibility filter reads. Mirrors `enrich_liveness(view, repo, None)`.
+    pub(crate) fn enrich_broad(
+        &self,
+        repo: &Path,
+        view: &RevisionCommitRangeView,
+    ) -> Result<LivenessEnrichment> {
+        self.enrich(repo, view, false)
+    }
+
+    /// Integration-scoped enrichment — merged only against the integration ref when
+    /// one is set, else identical to broad — the form merge-status reads. Mirrors
+    /// `enrich_liveness(view, repo, integration_ref)`.
+    pub(crate) fn enrich_merge(
+        &self,
+        repo: &Path,
+        view: &RevisionCommitRangeView,
+    ) -> Result<LivenessEnrichment> {
+        self.enrich(repo, view, true)
+    }
+
+    fn enrich(
+        &self,
+        repo: &Path,
+        view: &RevisionCommitRangeView,
+        use_integration: bool,
+    ) -> Result<LivenessEnrichment> {
+        if view.current_commits.is_empty() {
+            return Ok(LivenessEnrichment {
+                per_commit: Vec::new(),
+                headline: None,
+            });
+        }
+        let mut seen = HashSet::new();
+        let mut per_commit = Vec::new();
+        for commit in &view.current_commits {
+            if !seen.insert(commit.commit_oid.clone()) {
+                continue;
+            }
+            let (condition, live_branch) =
+                self.classify(repo, &commit.commit_oid, use_integration)?;
+            per_commit.push(CommitLiveness {
+                commit_oid: commit.commit_oid.clone(),
+                condition,
+                live_branch,
+            });
+        }
+        let headline = headline_for(&per_commit, &view.diagnostics);
+        Ok(LivenessEnrichment {
+            per_commit,
+            headline,
+        })
+    }
+
+    fn classify(
+        &self,
+        repo: &Path,
+        commit_oid: &str,
+        use_integration: bool,
+    ) -> Result<(CommitGraphCondition, Option<String>)> {
+        if use_integration && let Some(integration) = &self.integration {
+            if integration.oid == commit_oid {
+                return Ok((CommitGraphCondition::Live, Some(integration.label.clone())));
+            }
+            if self.integration_reachable.contains(commit_oid) {
+                return Ok((
+                    CommitGraphCondition::Merged,
+                    Some(integration.label.clone()),
+                ));
+            }
+            return self.orphaned(repo, commit_oid);
+        }
+
+        if self.broad_reachable.contains(commit_oid) {
+            // Reachable from a live tip. A capture commit that is itself a tip is
+            // merged only when it is also an ancestor of another tip (the same
+            // merged-before-live order `classify` applies), else live; any other
+            // reachable commit is a proper ancestor of some tip, hence merged.
+            if let Some(tip) = self.tips.iter().find(|tip| tip.oid == commit_oid) {
+                for other in &self.tips {
+                    if other.oid == commit_oid {
+                        continue;
+                    }
+                    if self.ancestry_of(repo, commit_oid, &other.oid)? == Ancestry::Ancestor {
+                        return Ok((CommitGraphCondition::Merged, other.label.clone()));
+                    }
+                }
+                return Ok((CommitGraphCondition::Live, tip.label.clone()));
+            }
+            return Ok((CommitGraphCondition::Merged, None));
+        }
+
+        self.orphaned(repo, commit_oid)
+    }
+
+    /// A commit absent from the reachable set: orphaned, by a missing object or a
+    /// live-but-unreachable one. The object-existence probe is cached across the
+    /// list (the same swept commit re-binds across sibling captures).
+    fn orphaned(
+        &self,
+        repo: &Path,
+        commit_oid: &str,
+    ) -> Result<(CommitGraphCondition, Option<String>)> {
+        let reason = if self.object_exists_of(repo, commit_oid)? {
+            OrphanReason::Unreachable
+        } else {
+            OrphanReason::ObjectMissing
+        };
+        Ok((CommitGraphCondition::Orphaned { reason }, None))
+    }
+
+    fn ancestry_of(
+        &self,
+        repo: &Path,
+        ancestor_oid: &str,
+        descendant_oid: &str,
+    ) -> Result<Ancestry> {
+        let key = (ancestor_oid.to_owned(), descendant_oid.to_owned());
+        if let Some(ancestry) = self.ancestry.borrow().get(&key) {
+            return Ok(*ancestry);
+        }
+        let ancestry = git_is_ancestor(repo, ancestor_oid, descendant_oid)?;
+        self.ancestry.borrow_mut().insert(key, ancestry);
+        Ok(ancestry)
+    }
+
+    fn object_exists_of(&self, repo: &Path, commit_oid: &str) -> Result<bool> {
+        if let Some(exists) = self.object_exists.borrow().get(commit_oid) {
+            return Ok(*exists);
+        }
+        let exists = git_object_exists(repo, commit_oid)?;
+        self.object_exists
+            .borrow_mut()
+            .insert(commit_oid.to_owned(), exists);
+        Ok(exists)
+    }
 }
 
 struct LiveTip {
@@ -491,6 +690,76 @@ mod tests {
             "detached worktree HEAD must carry the honest detached label, got {:?}",
             commit.live_branch
         );
+    }
+
+    /// The batch's per-commit conditions and headline must match the per-entry
+    /// `enrich_liveness` exactly — that equivalence is what lets `list_revisions`
+    /// swap the per-pair ancestry probe for shared reachability without moving the
+    /// wire. Covers merged, live, orphaned-unreachable, and object-missing in one
+    /// view (so the headline is withheld), broad default.
+    #[test]
+    fn batch_conditions_match_enrich_liveness_broad() {
+        let repo = LivenessRepo::new();
+        let mid = repo.oid("main~1");
+        let tip = repo.oid("main");
+        let dangling = repo.dangling_oid();
+        let missing = "0".repeat(tip.len());
+        let view = view_with(&[&mid, &tip, &dangling, &missing]);
+
+        let direct = enrich_liveness(&view, repo.path(), None).unwrap();
+        let batch = LivenessBatch::build(repo.path(), None).unwrap();
+        let batched = batch.enrich_broad(repo.path(), &view).unwrap();
+
+        assert_eq!(conditions_of(&direct), conditions_of(&batched));
+        assert_eq!(direct.headline, batched.headline);
+    }
+
+    /// A branch tip that is itself an ancestor of another tip is `Merged`, not
+    /// `Live` (the merged-before-live order) — the one case a naive "a tip is live"
+    /// shortcut would get wrong. The batch must agree with `enrich_liveness`.
+    #[test]
+    fn batch_classifies_a_merged_branch_tip_like_enrich_liveness() {
+        let repo = LivenessRepo::new();
+        // `old` points at main~1, which is an ancestor of `main` (another tip).
+        repo.git(["branch", "old", "main~1"]);
+        let old_tip = repo.oid("old");
+        let view = view_with(&[&old_tip]);
+
+        let direct = enrich_liveness(&view, repo.path(), None).unwrap();
+        let batch = LivenessBatch::build(repo.path(), None).unwrap();
+        let batched = batch.enrich_broad(repo.path(), &view).unwrap();
+
+        assert_eq!(
+            direct.per_commit[0].condition,
+            CommitGraphCondition::Merged,
+            "a tip that is an ancestor of another tip is merged"
+        );
+        assert_eq!(conditions_of(&direct), conditions_of(&batched));
+    }
+
+    /// Narrow (integration-ref) enrichment must also match the per-entry path: a
+    /// commit merged into the integration ref vs an unreachable orphan.
+    #[test]
+    fn batch_conditions_match_enrich_liveness_integration() {
+        let repo = LivenessRepo::new();
+        let mid = repo.oid("main~1");
+        let dangling = repo.dangling_oid();
+        let view = view_with(&[&mid, &dangling]);
+
+        let direct = enrich_liveness(&view, repo.path(), Some("refs/heads/main")).unwrap();
+        let batch = LivenessBatch::build(repo.path(), Some("refs/heads/main")).unwrap();
+        let batched = batch.enrich_merge(repo.path(), &view).unwrap();
+
+        assert_eq!(conditions_of(&direct), conditions_of(&batched));
+        assert_eq!(direct.headline, batched.headline);
+    }
+
+    fn conditions_of(enrichment: &LivenessEnrichment) -> Vec<(String, CommitGraphCondition)> {
+        enrichment
+            .per_commit
+            .iter()
+            .map(|commit| (commit.commit_oid.clone(), commit.condition.clone()))
+            .collect()
     }
 
     #[test]

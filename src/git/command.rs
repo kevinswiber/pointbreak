@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -391,6 +391,30 @@ pub(crate) fn git_commit_tree_oid(repo: &Path, commit_oid: &str) -> Result<Strin
 /// is refused. `--end-of-options` keeps a range expression that looks like a flag
 /// (user input) from being parsed as an option. An unresolvable range surfaces an
 /// honest, range-naming error so a CLI flag can echo it verbatim.
+/// Every commit reachable from any of `tips` — the tips themselves plus all their
+/// ancestors — as a set of full OIDs, in a single `git rev-list` invocation. An
+/// empty `tips` yields an empty set without spawning git.
+///
+/// This is the batched reachability the liveness fold uses instead of one
+/// ancestry probe per (commit, tip) pair: one `rev-list` answers "is this commit
+/// reachable from the live tips?" for an entire revision list by in-memory set
+/// membership, turning an O(revisions × tips) spawn count into O(1).
+pub(crate) fn git_rev_list_reachable(repo: &Path, tips: &[String]) -> Result<HashSet<String>> {
+    if tips.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let mut args = vec!["rev-list".to_owned(), "--end-of-options".to_owned()];
+    args.extend(tips.iter().cloned());
+    let output = run_git(repo, args)?;
+    let listing = git_field_string(trim_git_stdout(&output.stdout), "rev-list output")?;
+    Ok(listing
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect())
+}
+
 pub(crate) fn git_rev_list_range(repo: &Path, range: &str) -> Result<Vec<String>> {
     if !range.contains("..") {
         return Err(ShoreError::Message(format!(

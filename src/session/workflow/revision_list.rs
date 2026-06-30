@@ -10,7 +10,9 @@ use crate::session::projection::skipped_to_diagnostics;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::resolve_read_store;
 use crate::session::workflow::association::normalize_ref;
-use crate::session::workflow::commit_range_liveness::{CommitGraphCondition, enrich_liveness};
+use crate::session::workflow::commit_range_liveness::{
+    CommitGraphCondition, LivenessBatch, enrich_liveness,
+};
 use crate::session::workflow::observation::{CurrentRevisionContext, revision_ids_in_worktree};
 use crate::session::{
     CommitOidGroupingProjection, EventStore, RevisionCommitRangeProjection, RevisionCommitRangeView,
@@ -177,7 +179,20 @@ pub fn list_revisions(options: RevisionListOptions) -> Result<RevisionListResult
         result.revision_count = result.entries.len();
     }
 
-    apply_orphan_visibility(&mut result, &options.repo, options.orphan_visibility);
+    // Resolve the live tips and reachability ONCE for the whole list. The
+    // orphan-visibility filter and the merge-status attach each classify every
+    // entry's commits against this shared set by in-memory membership, instead of a
+    // git ancestry probe per (commit, tip) pair per entry. A git failure here
+    // degrades every entry to "reachability unknown" — the same graceful fallback
+    // the per-entry path applies — so it is carried as `Option`, never propagated.
+    let liveness = LivenessBatch::build(&options.repo, options.integration_ref.as_deref()).ok();
+
+    apply_orphan_visibility(
+        &mut result,
+        &options.repo,
+        options.orphan_visibility,
+        liveness.as_ref(),
+    );
 
     // Canonical read-surface order: build entries → `--ref` retain → `--worktree`
     // identity retain → orphan-visibility retain → grouping → recompute count →
@@ -189,26 +204,21 @@ pub fn list_revisions(options: RevisionListOptions) -> Result<RevisionListResult
     result.entries = group_entries(result.entries, &grouping);
     result.revision_count = result.entries.len();
 
-    attach_merge_status(
-        &mut result,
-        &options.repo,
-        options.integration_ref.as_deref(),
-    );
+    attach_merge_status(&mut result, &options.repo, liveness.as_ref());
 
     Ok(result)
 }
 
 /// Attach the structural merge-status to each surfaced entry. Run after the
 /// visibility filter so hidden orphans are not classified twice. Reuses each
-/// entry's `commit_range` view against git reachability.
+/// entry's `commit_range` view against the shared reachability batch.
 fn attach_merge_status(
     result: &mut RevisionListResult,
     repo: &Path,
-    integration_ref: Option<&str>,
+    liveness: Option<&LivenessBatch>,
 ) {
     for entry in &mut result.entries {
-        entry.merge_status =
-            merge_status_for(&entry.commit_range, repo, integration_ref).to_owned();
+        entry.merge_status = merge_status_for(&entry.commit_range, repo, liveness).to_owned();
     }
 }
 
@@ -219,16 +229,16 @@ fn attach_merge_status(
 fn merge_status_for(
     view: &RevisionCommitRangeView,
     repo: &Path,
-    integration_ref: Option<&str>,
+    liveness: Option<&LivenessBatch>,
 ) -> &'static str {
-    match enrich_liveness(view, repo, integration_ref) {
-        Ok(enrichment) => match enrichment.headline {
+    match liveness.map(|batch| batch.enrich_merge(repo, view)) {
+        Some(Ok(enrichment)) => match enrichment.headline {
             Some(CommitGraphCondition::Merged) => "merged",
             Some(CommitGraphCondition::Live) => "open",
             Some(CommitGraphCondition::Orphaned { .. }) => "orphaned",
             None => "unknown",
         },
-        Err(_) => "unknown",
+        Some(Err(_)) | None => "unknown",
     }
 }
 
@@ -240,39 +250,44 @@ fn apply_orphan_visibility(
     result: &mut RevisionListResult,
     repo: &Path,
     visibility: OrphanVisibility,
+    liveness: Option<&LivenessBatch>,
 ) {
     match visibility {
         OrphanVisibility::All => {}
         OrphanVisibility::HideOrphans => {
             result
                 .entries
-                .retain(|entry| !is_hidden_orphan(&entry.commit_range, repo));
+                .retain(|entry| !is_hidden_orphan(&entry.commit_range, repo, liveness));
             result.revision_count = result.entries.len();
         }
         OrphanVisibility::OrphansOnly => {
             result
                 .entries
-                .retain(|entry| is_hidden_orphan(&entry.commit_range, repo));
+                .retain(|entry| is_hidden_orphan(&entry.commit_range, repo, liveness));
             result.revision_count = result.entries.len();
         }
     }
 }
 
 /// Whether a unit is a hidden orphan: commit-anchored with **every** current
-/// commit classified `Orphaned` (any reason) by the landed reachability engine.
+/// commit classified `Orphaned` (any reason) by the shared reachability batch.
 /// Floating units (no current commits) are never orphaned. A repo-unavailable
 /// git error degrades to "not a hidden orphan" — never hide what we cannot
 /// classify, and never error (graceful degradation).
-fn is_hidden_orphan(view: &RevisionCommitRangeView, repo: &Path) -> bool {
+fn is_hidden_orphan(
+    view: &RevisionCommitRangeView,
+    repo: &Path,
+    liveness: Option<&LivenessBatch>,
+) -> bool {
     if view.current_commits.is_empty() {
         return false;
     }
-    match enrich_liveness(view, repo, None) {
-        Ok(enrichment) => enrichment
+    match liveness.map(|batch| batch.enrich_broad(repo, view)) {
+        Some(Ok(enrichment)) => enrichment
             .per_commit
             .iter()
             .all(|commit| matches!(commit.condition, CommitGraphCondition::Orphaned { .. })),
-        Err(_) => false,
+        Some(Err(_)) | None => false,
     }
 }
 
@@ -888,7 +903,8 @@ mod tests {
     fn listed(events: &[ShoreEvent], visibility: OrphanVisibility, repo: &Path) -> Vec<String> {
         let projection = RevisionCommitRangeProjection::from_events(events).unwrap();
         let mut result = list_from_events(events, &projection).unwrap();
-        apply_orphan_visibility(&mut result, repo, visibility);
+        let liveness = LivenessBatch::build(repo, None).ok();
+        apply_orphan_visibility(&mut result, repo, visibility, liveness.as_ref());
         assert_eq!(result.revision_count, result.entries.len());
         result
             .entries
@@ -1018,8 +1034,9 @@ mod tests {
     ) -> Vec<(String, String)> {
         let projection = RevisionCommitRangeProjection::from_events(events).unwrap();
         let mut result = list_from_events(events, &projection).unwrap();
-        apply_orphan_visibility(&mut result, repo, OrphanVisibility::All);
-        attach_merge_status(&mut result, repo, integration_ref);
+        let liveness = LivenessBatch::build(repo, integration_ref).ok();
+        apply_orphan_visibility(&mut result, repo, OrphanVisibility::All, liveness.as_ref());
+        attach_merge_status(&mut result, repo, liveness.as_ref());
         result
             .entries
             .iter()
@@ -1099,7 +1116,8 @@ mod tests {
         let events = [range_captured_event("c", "2026-05-13T10:00:00Z", &tip)];
         let projection = RevisionCommitRangeProjection::from_events(&events).unwrap();
         let mut result = list_from_events(&events, &projection).unwrap();
-        attach_merge_status(&mut result, repo.path(), None);
+        let liveness = LivenessBatch::build(repo.path(), None).ok();
+        attach_merge_status(&mut result, repo.path(), liveness.as_ref());
 
         let json = serde_json::to_string(&result.entries[0]).unwrap();
         assert!(json.contains("\"mergeStatus\""));
