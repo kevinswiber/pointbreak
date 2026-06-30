@@ -11,6 +11,9 @@ pub struct HistoryBody {
     history_count: usize,
     filters: ReviewHistoryFilters,
     entries: Vec<ReviewHistoryEntry>,
+    /// Opaque continuation token for the next page when a window was applied and
+    /// entries remain; `null` for an unwindowed or final read. Additive.
+    next_cursor: Option<String>,
 }
 
 /// Build the `shore.review-history` document from a history result.
@@ -24,6 +27,7 @@ pub fn history_document(result: ReviewHistoryResult) -> DiagnosticDocument<Histo
             history_count,
             filters: result.filters,
             entries: result.entries,
+            next_cursor: result.next_cursor,
         },
         result.diagnostics,
     )

@@ -473,6 +473,116 @@ fn captured_event_id(repo_path: &std::path::Path) -> String {
         .to_owned()
 }
 
+#[test]
+fn review_history_limit_windows_and_emits_next_cursor() {
+    let repo = modified_repo();
+    let path = repo.path().to_str().unwrap();
+    shore(["review", "capture", "--repo", path]);
+    add_observation(&repo, "agent:codex", "first");
+    add_observation(&repo, "agent:codex", "second");
+
+    let full = parse_json(&shore(["review", "history", "--repo", path, "--compact"]).stdout);
+    let total = full["entries"].as_array().unwrap().len();
+    assert!(total >= 3, "expected several history entries, got {total}");
+
+    let page = parse_json(
+        &shore([
+            "review",
+            "history",
+            "--repo",
+            path,
+            "--limit",
+            "2",
+            "--compact",
+        ])
+        .stdout,
+    );
+    assert_eq!(page["entries"].as_array().unwrap().len(), 2);
+    assert!(page["nextCursor"].is_string());
+    // Identity stays the full set, never the window.
+    assert_eq!(page["eventCount"], full["eventCount"]);
+}
+
+#[test]
+fn review_history_cursor_continues_without_overlap() {
+    let repo = modified_repo();
+    let path = repo.path().to_str().unwrap();
+    shore(["review", "capture", "--repo", path]);
+    add_observation(&repo, "agent:codex", "first");
+    add_observation(&repo, "agent:codex", "second");
+
+    let page1 = parse_json(
+        &shore([
+            "review",
+            "history",
+            "--repo",
+            path,
+            "--limit",
+            "2",
+            "--compact",
+        ])
+        .stdout,
+    );
+    let token = page1["nextCursor"].as_str().expect("a continuation token");
+    let page2 = parse_json(
+        &shore([
+            "review",
+            "history",
+            "--repo",
+            path,
+            "--limit",
+            "2",
+            "--cursor",
+            token,
+            "--compact",
+        ])
+        .stdout,
+    );
+
+    // Page two continues strictly after page one — no overlap.
+    assert_ne!(
+        page2["entries"][0]["eventId"],
+        page1["entries"][1]["eventId"]
+    );
+}
+
+#[test]
+fn review_history_unparamd_carries_null_next_cursor() {
+    let repo = modified_repo();
+    let path = repo.path().to_str().unwrap();
+    shore(["review", "capture", "--repo", path]);
+
+    let doc = parse_json(&shore(["review", "history", "--repo", path, "--compact"]).stdout);
+    // Additive and backward-compatible: the field is always present, null when
+    // no window was requested.
+    let obj = doc.as_object().expect("document is an object");
+    assert!(
+        obj.contains_key("nextCursor"),
+        "nextCursor is always present"
+    );
+    assert!(obj["nextCursor"].is_null());
+}
+
+#[test]
+fn review_history_rejects_malformed_cursor() {
+    let repo = modified_repo();
+    let path = repo.path().to_str().unwrap();
+    shore(["review", "capture", "--repo", path]);
+
+    let output = shore([
+        "review",
+        "history",
+        "--repo",
+        path,
+        "--cursor",
+        "not-a-cursor!!",
+    ]);
+    assert!(
+        !output.status.success(),
+        "a malformed --cursor is a usage error, not a silent full read"
+    );
+}
+
 fn parse_json(bytes: &[u8]) -> Value {
     serde_json::from_slice(bytes).expect("parse CLI JSON")
 }

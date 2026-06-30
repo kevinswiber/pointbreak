@@ -7,7 +7,7 @@ use shoreline::documents::history_document;
 use shoreline::model::RevisionId;
 use shoreline::session::event::EventType;
 use shoreline::session::{
-    EventVerificationPolicy, LivenessToken, RefFilterMode, ReviewHistoryOptions,
+    EventVerificationPolicy, HistoryCursor, LivenessToken, RefFilterMode, ReviewHistoryOptions,
     read_events_for_display, review_history,
 };
 
@@ -44,6 +44,17 @@ pub(super) struct HistoryArgs {
     /// Hydrate body-like text from inline payloads or body artifacts.
     #[arg(long)]
     include_body: bool,
+
+    /// Return at most N entries (a forward page from the start, or from --cursor);
+    /// omit for the full history. The response carries a `nextCursor` to continue.
+    /// With --watch, the same page is re-rendered on each liveness change.
+    #[arg(long)]
+    limit: Option<usize>,
+
+    /// Continue from a previous response's opaque `nextCursor`. Omit to start from
+    /// the beginning.
+    #[arg(long)]
+    cursor: Option<String>,
 
     /// Pretty-print the JSON response.
     #[arg(long, conflicts_with = "compact")]
@@ -114,7 +125,7 @@ fn render_once(
     args: &HistoryArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result = review_history(history_options(args));
+    let result = review_history(history_options(args)?);
     let document = history_document(result?);
     json::write_json(stdout, &document, args.pretty)
 }
@@ -151,10 +162,18 @@ fn watch_fingerprint(
     Ok((token.event_set_hash, diagnostics.len()))
 }
 
-fn history_options(args: &HistoryArgs) -> ReviewHistoryOptions {
+fn history_options(args: &HistoryArgs) -> Result<ReviewHistoryOptions, Box<dyn std::error::Error>> {
     let mut options = ReviewHistoryOptions::new(&args.repo)
         .with_include_body(args.include_body)
         .with_read_for_display(true);
+    if let Some(limit) = args.limit {
+        options = options.with_limit(limit);
+    }
+    if let Some(token) = &args.cursor {
+        let cursor = HistoryCursor::decode(token)
+            .map_err(|_| "invalid --cursor: pass an opaque nextCursor from a prior response")?;
+        options = options.with_cursor(cursor);
+    }
     if let Some(revision) = &args.revision {
         options = options.with_revision_id(RevisionId::new(revision.clone()));
     }
@@ -175,7 +194,7 @@ fn history_options(args: &HistoryArgs) -> ReviewHistoryOptions {
     options = options.with_verification_policy(EventVerificationPolicy::advisory());
     // Sibling enrichment for endorsement readbacks (endorser kind/roles), reader-relative.
     options = options.with_actor_attributes(super::common::discover_actor_attributes(&args.repo));
-    options
+    Ok(options)
 }
 
 impl From<HistoryEventTypeArg> for EventType {
