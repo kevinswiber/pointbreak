@@ -5,8 +5,9 @@
 // `renderDiffNavFilters` takes the active filter as a parameter. The transient
 // globals live in the diff controller (a later plan), which passes them in.
 //
-// Imports the pure leaves only (escape, markdown, refs, types). This module owns
-// the diff-artifact/annotation view types and the `DiffCtx`/`DiffNavFilter` seam.
+// Imports the pure leaves only (escape, highlight, markdown, refs, types). This
+// module owns the diff-artifact/annotation view types and the
+// `DiffCtx`/`DiffNavFilter` seam.
 
 import {
   annoContainerClass,
@@ -20,6 +21,7 @@ import { escapeHtml } from "../escape";
 import { renderBodyContent } from "../markdown";
 import { linkify } from "../refs";
 import { DEFAULT_OPEN_FILES, LARGE_FILE_ROWS } from "../types";
+import { highlightRowText, type TokenSpan } from "./highlight";
 
 // ---------------------------------------------------------------------------
 // Wire view types
@@ -36,6 +38,8 @@ export interface DiffRow {
   old_line: number | null;
   new_line: number | null;
   text: string;
+  /** Syntax tokens over `text` (UTF-16 offsets); absent when the row is unhighlighted. */
+  tokens?: TokenSpan[];
 }
 
 /** One captured hunk: its header and rows. */
@@ -324,7 +328,7 @@ export function renderDiffFileBody(
         <span class="${CLASS.ln}">${r.old_line ?? ""}</span>
         <span class="${CLASS.ln}">${r.new_line ?? ""}</span>
         <span class="${CLASS.sign}">${sign}</span>
-        <span class="${CLASS.dtext}">${escapeHtml(r.text)}</span></div>`;
+        <span class="${CLASS.dtext}">${highlightRowText(r.text, r.tokens)}</span></div>`;
       for (const a of matching) {
         if (!emitted.has(a.id)) {
           html += renderAnnotation(a, false);

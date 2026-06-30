@@ -431,3 +431,46 @@ describe("renderDiff", () => {
     );
   });
 });
+
+describe("renderDiffFileBody syntax tokens", () => {
+  it("renders syntax spans inside .dtext when tokens present", () => {
+    const file: DiffFile = {
+      status: "modified",
+      old_path: "a.rs",
+      new_path: "a.rs",
+      hunks: [
+        {
+          header: "@@ -1 +1 @@",
+          rows: [
+            {
+              kind: "added",
+              old_line: null,
+              new_line: 1,
+              text: "let x",
+              tokens: [{ start: 0, end: 3, kind: "keyword" }],
+            },
+          ],
+        },
+      ],
+    };
+    const html = renderDiffFileBody(file, []);
+    expect(html).toContain('<span class="tok tok-keyword">let</span>');
+  });
+
+  it("renders plain escaped text when tokens absent (unchanged from today)", () => {
+    const file: DiffFile = {
+      status: "modified",
+      old_path: "a.rs",
+      new_path: "a.rs",
+      hunks: [
+        {
+          header: "@@ -1 +1 @@",
+          rows: [{ kind: "context", old_line: 1, new_line: 1, text: "a < b" }],
+        },
+      ],
+    };
+    const html = renderDiffFileBody(file, []);
+    expect(html).toContain("a &lt; b");
+    expect(html).not.toContain("tok-");
+  });
+});
