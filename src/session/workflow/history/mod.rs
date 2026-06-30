@@ -1,8 +1,10 @@
+mod cursor;
 mod options;
 mod projection;
 mod result;
 mod summary;
 
+pub use self::cursor::{HistoryCursor, HistoryWindow};
 use self::options::ResolvedHistoryFilters;
 pub use self::options::{ReviewHistoryFilters, ReviewHistoryOptions};
 use self::projection::history_from_events;
