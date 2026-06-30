@@ -149,6 +149,18 @@
     "validation"
   ];
   var DIFF_ROW_KINDS = ["added", "removed", "context"];
+  var TOKEN_KINDS = [
+    "keyword",
+    "string",
+    "comment",
+    "number",
+    "type",
+    "function",
+    "constant",
+    "operator",
+    "punctuation",
+    "variable"
+  ];
   var DIFF_FILE_STATUSES = [
     "added",
     "deleted",
@@ -212,6 +224,7 @@
   var annoContainerClass = /* @__PURE__ */ __name((kind) => `anno anno-${kind}`, "annoContainerClass");
   var annoKindClass = /* @__PURE__ */ __name((kind) => `anno-kind anno-kind-${kind}`, "annoKindClass");
   var drowClass = /* @__PURE__ */ __name((kind, noted) => `drow drow-${kind}${noted ? " drow-noted" : ""}`, "drowClass");
+  var tokClass = /* @__PURE__ */ __name((kind) => `tok tok-${kind}`, "tokClass");
   var diffStatusClass = /* @__PURE__ */ __name((status) => `dstatus s-${status}`, "diffStatusClass");
   var verifyClass = /* @__PURE__ */ __name((status) => `verify verify-${status}`, "verifyClass");
   var endorseClass = /* @__PURE__ */ __name((cls) => `endorse endorse-${cls}`, "endorseClass");
@@ -230,6 +243,7 @@
         ...ANNO_KINDS.map((k) => annoContainerClass(k)),
         ...ANNO_KINDS.map((k) => annoKindClass(k)),
         ...DIFF_ROW_KINDS.map((k) => drowClass(k, true)),
+        ...TOKEN_KINDS.map((k) => tokClass(k)),
         ...DIFF_FILE_STATUSES.map((s) => diffStatusClass(s)),
         ...VERIFY_STATUSES.map((s) => verifyClass(s)),
         ...ENDORSE_CLASSES.map((c) => endorseClass(c)),
@@ -1699,6 +1713,36 @@
   }
   __name(clearRouteDiagnostic, "clearRouteDiagnostic");
 
+  // src/diff/highlight.ts
+  function validChannel(spans, len) {
+    let cursor = 0;
+    for (const span of spans) {
+      if (!Number.isInteger(span.start) || !Number.isInteger(span.end) || span.start < cursor || span.end < span.start || span.end > len) {
+        return false;
+      }
+      cursor = span.end;
+    }
+    return true;
+  }
+  __name(validChannel, "validChannel");
+  function highlightRowText(text, tokens) {
+    if (!tokens || tokens.length === 0) return escapeHtml(text);
+    if (!validChannel(tokens, text.length)) return escapeHtml(text);
+    let cursor = 0;
+    let out = "";
+    for (const token of tokens) {
+      if (token.start > cursor)
+        out += escapeHtml(text.slice(cursor, token.start));
+      out += `<span class="${tokClass(token.kind)}">${escapeHtml(
+        text.slice(token.start, token.end)
+      )}</span>`;
+      cursor = token.end;
+    }
+    if (cursor < text.length) out += escapeHtml(text.slice(cursor));
+    return out;
+  }
+  __name(highlightRowText, "highlightRowText");
+
   // src/diff/render.ts
   function filePathLabel(f) {
     const oldp = f.old_path;
@@ -1840,7 +1884,7 @@
         <span class="${CLASS.ln}">${r.old_line ?? ""}</span>
         <span class="${CLASS.ln}">${r.new_line ?? ""}</span>
         <span class="${CLASS.sign}">${sign}</span>
-        <span class="${CLASS.dtext}">${escapeHtml(r.text)}</span></div>`;
+        <span class="${CLASS.dtext}">${highlightRowText(r.text, r.tokens)}</span></div>`;
         for (const a of matching) {
           if (!emitted.has(a.id)) {
             html += renderAnnotation(a, false);

@@ -459,6 +459,20 @@ body {
 .drow-removed { background: var(--diff-del-bg); }
 .drow-removed .sign, .drow-removed .dtext { color: var(--diff-del-fg); }
 .drow-context .dtext { color: var(--fg-dim); }
+/* Syntax tokens (read-time highlighting). A token span sits inside .dtext, so its
+   per-kind color overrides the inherited add/remove/context foreground: a changed
+   row keeps its background tint and +/- sign while the code shows full syntax color. */
+.tok { color: inherit; }
+.tok-keyword { color: var(--tok-keyword); }
+.tok-string { color: var(--tok-string); }
+.tok-comment { color: var(--tok-comment); font-style: italic; }
+.tok-number { color: var(--tok-number); }
+.tok-type { color: var(--tok-type); }
+.tok-function { color: var(--tok-function); }
+.tok-constant { color: var(--tok-constant); }
+.tok-operator { color: var(--tok-operator); }
+.tok-punctuation { color: var(--tok-punctuation); }
+.tok-variable { color: var(--tok-variable); }
 .drow-meta { grid-template-columns: 1fr; padding: 4px 12px; color: var(--fg-dim); font-style: italic; }
 .drow-noted { box-shadow: inset 3px 0 0 var(--success); cursor: pointer; }
 .drow-noted:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
