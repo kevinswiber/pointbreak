@@ -81,4 +81,25 @@
       </div>
     </div>
   </div>
+  <div class="ds-group">
+    <p class="ds-label">Syntax highlighting — read-time token kinds across a TypeScript hunk</p>
+    <div class="diff-body">
+      <section class="dfile" data-dfile="hl" aria-expanded="true">
+        <header class="dfile-head" role="button" tabindex="0">
+          <span class="dstatus s-modified">modified</span>
+          <span class="dpath">src/cli/inspect/web/src/diff/highlight.ts</span></header>
+        <div class="dfile-body" data-rendered="1">
+          <div class="dhunk">@@ -10,5 +10,7 @@ export function classify</div>
+          <div class="drow drow-context"><span class="ln">10</span><span class="ln">10</span><span class="sign"> </span><span class="dtext"><span class="tok tok-comment">// Map a syntect scope to a shoreline TokenKind.</span></span></div>
+          <div class="drow drow-context"><span class="ln">11</span><span class="ln">11</span><span class="sign"> </span><span class="dtext"><span class="tok tok-keyword">import</span> { <span class="tok tok-type">TokenKind</span> } <span class="tok tok-keyword">from</span> <span class="tok tok-string">"./kinds"</span><span class="tok tok-punctuation">;</span></span></div>
+          <div class="drow drow-context"><span class="ln">12</span><span class="ln">12</span><span class="sign"> </span><span class="dtext"><span class="tok tok-keyword">export</span> <span class="tok tok-keyword">function</span> <span class="tok tok-function">classify</span>(<span class="tok tok-variable">scope</span>: <span class="tok tok-type">string</span>): <span class="tok tok-type">TokenKind</span> {</span></div>
+          <div class="drow drow-removed"><span class="ln">13</span><span class="ln"></span><span class="sign">-</span><span class="dtext">  <span class="tok tok-keyword">return</span> <span class="tok tok-type">TokenKind</span>.<span class="tok tok-constant">Plain</span><span class="tok tok-punctuation">;</span></span></div>
+          <div class="drow drow-added"><span class="ln"></span><span class="ln">13</span><span class="sign">+</span><span class="dtext">  <span class="tok tok-keyword">const</span> <span class="tok tok-variable">kind</span> <span class="tok tok-operator">=</span> <span class="tok tok-variable">SCOPE_MAP</span>[<span class="tok tok-variable">scope</span>] <span class="tok tok-operator">??</span> <span class="tok tok-type">TokenKind</span>.<span class="tok tok-constant">Plain</span><span class="tok tok-punctuation">;</span></span></div>
+          <div class="drow drow-added"><span class="ln"></span><span class="ln">14</span><span class="sign">+</span><span class="dtext">  <span class="tok tok-keyword">return</span> <span class="tok tok-variable">kind</span> <span class="tok tok-operator">===</span> <span class="tok tok-constant">undefined</span> <span class="tok tok-operator">?</span> <span class="tok tok-number">0</span> : <span class="tok tok-variable">kind</span><span class="tok tok-punctuation">;</span></span></div>
+          <div class="drow drow-context"><span class="ln">14</span><span class="ln">15</span><span class="sign"> </span><span class="dtext">}</span></div>
+          <div class="drow drow-meta"><span class="dtext">10 token kinds: keyword · string · comment · number · type · function · constant · operator · punctuation · variable</span></div>
+        </div>
+      </section>
+    </div>
+  </div>
 </div>
