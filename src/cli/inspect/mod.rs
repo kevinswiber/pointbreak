@@ -6,9 +6,6 @@ use clap::Args;
 
 mod api;
 mod server;
-// The enriched wire DTO lands before its consumer (the snapshot read seam), so its items are
-// briefly unused outside tests. The allow is removed once that seam builds the DTO.
-#[allow(dead_code)]
 mod wire;
 
 /// `shore inspect` starts a small local web server that visualizes a `.shore/data`

@@ -13,6 +13,7 @@ use mmdflux::graph::{Direction, Edge, Graph, Node};
 use mmdflux::layout::{LaidOutGraph, LayoutOptions, layout_graph};
 use serde::Serialize;
 use shoreline::documents::revision_show_document;
+use shoreline::highlight::highlight_file;
 use shoreline::model::{ObjectId, ReviewEndpoint, RevisionId, ValidationStatus};
 use shoreline::session::event::ReviewAssessment;
 use shoreline::session::{
@@ -23,6 +24,8 @@ use shoreline::session::{
     list_revisions, read_bound_object_artifact, read_events_for_display, read_object_artifact,
     review_history, show_revision, show_revision_overviews,
 };
+
+use super::wire::WireObjectArtifact;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -863,17 +866,13 @@ pub(super) fn snapshot_json(
         );
         format!("snapshot not found or unreadable: {snapshot_id}")
     })?;
-    let mut wire = serde_json::to_value(&artifact).map_err(|error| error.to_string())?;
-    if let Some(object) = wire.as_object_mut() {
-        // Object-scoped wire: identity/endpoints live on /api/revisions/{id} (from
-        // the projection), never on the shared object artifact. The v2 body already
-        // omits these; the removals also keep a dual-read v1 artifact path-private
-        // here, so the endpoint is forward- and backward-compatible.
-        for key in ["revisionId", "source", "base", "target"] {
-            object.remove(key);
-        }
-    }
-    serde_json::to_string(&wire).map_err(|error| error.to_string())
+    // Build the enriched wire DTO from the validated artifact: it mirrors the stored serialized
+    // shape (identity/endpoints already absent on the v2 body) and additively carries per-row syntax
+    // tokens. The stored bytes are untouched. Round-trip through `serde_json::Value` so the served
+    // key order is unchanged from before this DTO existed (an unhighlighted row is byte-identical).
+    let wire = WireObjectArtifact::from_artifact(&artifact, highlight_file);
+    let value = serde_json::to_value(&wire).map_err(|error| error.to_string())?;
+    serde_json::to_string(&value).map_err(|error| error.to_string())
 }
 
 /// The full composite projection for one Revision.
@@ -1134,6 +1133,39 @@ mod tests {
         );
     }
 
+    /// Capture a worktree review of a single file changed from `base` to `changed`,
+    /// returning the captured object id and content hash.
+    fn captured_repo_with(
+        file: &str,
+        base: &str,
+        changed: &str,
+    ) -> (tempfile::TempDir, String, String) {
+        let root = tempfile::tempdir().expect("create temp repo");
+        let path = root.path();
+        git(path, &["init"]);
+        git(path, &["config", "user.name", "Shore Tests"]);
+        git(path, &["config", "user.email", "shore-tests@example.com"]);
+        git(path, &["config", "commit.gpgsign", "false"]);
+        if let Some(parent) = Path::new(file).parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(path.join(parent)).unwrap();
+        }
+        std::fs::write(path.join(file), base).unwrap();
+        git(path, &["add", "--all"]);
+        git(path, &["commit", "-m", "base"]);
+        std::fs::write(path.join(file), changed).unwrap();
+        let result = shoreline::session::capture_worktree_review(
+            shoreline::session::CaptureOptions::new(path),
+        )
+        .expect("capture worktree review");
+        (
+            root,
+            result.object_id.as_str().to_owned(),
+            result.object_artifact_content_hash,
+        )
+    }
+
     /// The shared common-dir store a clone resolves by default
     /// (`<git-common-dir>/shore`). A non-ephemeral worktree reads and writes here,
     /// so a post-capture store path resolves here, not the worktree-local
@@ -1190,6 +1222,41 @@ mod tests {
         assert!(wire.get("worktreeRootRedacted").is_none());
         assert!(wire.get("contentHashScope").is_none());
         assert!(wire.get("targetDisplay").is_none());
+    }
+
+    #[test]
+    fn snapshot_json_includes_tokens_for_known_language() {
+        let (repo, object_id, content_hash) = captured_repo_with(
+            "src/lib.rs",
+            "pub fn value() -> u32 { 1 }\n",
+            "pub fn value() -> u32 { 2 }\n",
+        );
+        let json: serde_json::Value = serde_json::from_str(
+            &snapshot_json(repo.path(), &object_id, Some(&content_hash)).unwrap(),
+        )
+        .unwrap();
+        let row = &json["snapshot"]["files"][0]["hunks"][0]["rows"][0];
+        let tokens = row["tokens"]
+            .as_array()
+            .expect("highlighted row has tokens");
+        assert!(!tokens.is_empty());
+        assert!(
+            tokens.iter().any(|t| t["kind"] == "keyword"),
+            "a .rs row carries a keyword token"
+        );
+    }
+
+    #[test]
+    fn snapshot_json_omits_tokens_for_unknown_language() {
+        let (repo, object_id, content_hash) =
+            captured_repo_with("notes.xyzzy", "alpha\n", "beta\n");
+        let json: serde_json::Value = serde_json::from_str(
+            &snapshot_json(repo.path(), &object_id, Some(&content_hash)).unwrap(),
+        )
+        .unwrap();
+        let row = &json["snapshot"]["files"][0]["hunks"][0]["rows"][0];
+        // wire byte-identical to today for unhighlightable files: no `tokens` key.
+        assert!(row.get("tokens").is_none());
     }
 
     #[test]
