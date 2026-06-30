@@ -17,25 +17,83 @@
                 "kind": "context",
                 "new_line": 1,
                 "old_line": 1,
-                "text": "pub fn value() -> u32 {"
+                "text": "pub fn value() -> u32 {",
+                "tokens": [
+                  {
+                    "end": 3,
+                    "kind": "keyword",
+                    "start": 0
+                  },
+                  {
+                    "end": 6,
+                    "kind": "keyword",
+                    "start": 4
+                  },
+                  {
+                    "end": 12,
+                    "kind": "function",
+                    "start": 7
+                  },
+                  {
+                    "end": 14,
+                    "kind": "punctuation",
+                    "start": 12
+                  },
+                  {
+                    "end": 17,
+                    "kind": "punctuation",
+                    "start": 15
+                  },
+                  {
+                    "end": 21,
+                    "kind": "keyword",
+                    "start": 18
+                  },
+                  {
+                    "end": 23,
+                    "kind": "punctuation",
+                    "start": 22
+                  }
+                ]
               },
               {
                 "kind": "removed",
                 "new_line": null,
                 "old_line": 2,
-                "text": "    1"
+                "text": "    1",
+                "tokens": [
+                  {
+                    "end": 5,
+                    "kind": "number",
+                    "start": 4
+                  }
+                ]
               },
               {
                 "kind": "added",
                 "new_line": 2,
                 "old_line": null,
-                "text": "    42"
+                "text": "    42",
+                "tokens": [
+                  {
+                    "end": 6,
+                    "kind": "number",
+                    "start": 4
+                  }
+                ]
               },
               {
                 "kind": "context",
                 "new_line": 3,
                 "old_line": 3,
-                "text": "}"
+                "text": "}",
+                "tokens": [
+                  {
+                    "end": 1,
+                    "kind": "punctuation",
+                    "start": 0
+                  }
+                ]
               },
               {
                 "kind": "context",
@@ -47,25 +105,83 @@
                 "kind": "context",
                 "new_line": 5,
                 "old_line": 5,
-                "text": "pub fn other() -> u32 {"
+                "text": "pub fn other() -> u32 {",
+                "tokens": [
+                  {
+                    "end": 3,
+                    "kind": "keyword",
+                    "start": 0
+                  },
+                  {
+                    "end": 6,
+                    "kind": "keyword",
+                    "start": 4
+                  },
+                  {
+                    "end": 12,
+                    "kind": "function",
+                    "start": 7
+                  },
+                  {
+                    "end": 14,
+                    "kind": "punctuation",
+                    "start": 12
+                  },
+                  {
+                    "end": 17,
+                    "kind": "punctuation",
+                    "start": 15
+                  },
+                  {
+                    "end": 21,
+                    "kind": "keyword",
+                    "start": 18
+                  },
+                  {
+                    "end": 23,
+                    "kind": "punctuation",
+                    "start": 22
+                  }
+                ]
               },
               {
                 "kind": "removed",
                 "new_line": null,
                 "old_line": 6,
-                "text": "    2"
+                "text": "    2",
+                "tokens": [
+                  {
+                    "end": 5,
+                    "kind": "number",
+                    "start": 4
+                  }
+                ]
               },
               {
                 "kind": "added",
                 "new_line": 6,
                 "old_line": null,
-                "text": "    7"
+                "text": "    7",
+                "tokens": [
+                  {
+                    "end": 5,
+                    "kind": "number",
+                    "start": 4
+                  }
+                ]
               },
               {
                 "kind": "context",
                 "new_line": 7,
                 "old_line": 7,
-                "text": "}"
+                "text": "}",
+                "tokens": [
+                  {
+                    "end": 1,
+                    "kind": "punctuation",
+                    "start": 0
+                  }
+                ]
               }
             ]
           }
