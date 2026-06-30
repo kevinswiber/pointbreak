@@ -54,6 +54,34 @@ describe("load", () => {
     expect(s.lastEventCount).toBe(HISTORY_EVENT_COUNT);
   });
 
+  it("reads the freshness marker before the documents (baseline can't outrun the docs)", async () => {
+    // If the marker were fetched in parallel with (or after) the documents, an
+    // append landing mid-load could seed a baseline newer than the committed docs,
+    // and the next poll would report "unchanged" forever. The marker must be read
+    // first, so the baseline is never newer than what was loaded.
+    const order: string[] = [];
+    const inner = globalThis.fetch;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      order.push(new URL(url, "http://inspector.test").pathname);
+      return inner(input as RequestInfo, init);
+    }) as typeof fetch;
+    try {
+      await data.load();
+    } finally {
+      globalThis.fetch = inner;
+    }
+    const freshnessAt = order.indexOf("/api/freshness");
+    const historyAt = order.indexOf("/api/history");
+    expect(freshnessAt).toBeGreaterThanOrEqual(0);
+    expect(freshnessAt).toBeLessThan(historyAt);
+  });
+
   it("indexes every entry before committing — a subscriber never sees an un-indexed entry", async () => {
     const indexedAtEachNotification: boolean[] = [];
     store.subscribe(() => {

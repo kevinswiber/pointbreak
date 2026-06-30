@@ -238,6 +238,11 @@ impl LivenessBatch {
         commit_oid: &str,
         use_integration: bool,
     ) -> Result<(CommitGraphCondition, Option<String>)> {
+        // Mode-specific MERGED determination. When the commit is merged under this
+        // mode, return here; otherwise fall through to the shared live-tip/orphaned
+        // check below — the same fall-through `enrich_liveness` applies after its
+        // integration check, which keeps a live side-branch tip `Live` rather than
+        // orphaning it just because it is not reachable from the integration ref.
         if use_integration && let Some(integration) = &self.integration {
             if integration.oid == commit_oid {
                 return Ok((CommitGraphCondition::Live, Some(integration.label.clone())));
@@ -248,15 +253,21 @@ impl LivenessBatch {
                     Some(integration.label.clone()),
                 ));
             }
-            return self.orphaned(repo, commit_oid);
+            // Not merged into the integration ref — shared fall-through below.
+        } else if self.broad_reachable.contains(commit_oid)
+            && !self.tips.iter().any(|tip| tip.oid == commit_oid)
+        {
+            // Broad default: a reachable commit that is not itself a tip is a proper
+            // ancestor of some tip, hence merged.
+            return Ok((CommitGraphCondition::Merged, None));
         }
 
-        if self.broad_reachable.contains(commit_oid) {
-            // Reachable from a live tip. A capture commit that is itself a tip is
-            // merged only when it is also an ancestor of another tip (the same
-            // merged-before-live order `classify` applies), else live; any other
-            // reachable commit is a proper ancestor of some tip, hence merged.
-            if let Some(tip) = self.tips.iter().find(|tip| tip.oid == commit_oid) {
+        // Shared fall-through. A commit that is itself a live tip is `Live` — except,
+        // in broad mode, a tip that is also an ancestor of another tip is `Merged`
+        // (the merged-before-live order). In integration mode the merged check
+        // already ran, so a tip here is simply `Live`.
+        if let Some(tip) = self.tips.iter().find(|tip| tip.oid == commit_oid) {
+            if !use_integration {
                 for other in &self.tips {
                     if other.oid == commit_oid {
                         continue;
@@ -265,9 +276,8 @@ impl LivenessBatch {
                         return Ok((CommitGraphCondition::Merged, other.label.clone()));
                     }
                 }
-                return Ok((CommitGraphCondition::Live, tip.label.clone()));
             }
-            return Ok((CommitGraphCondition::Merged, None));
+            return Ok((CommitGraphCondition::Live, tip.label.clone()));
         }
 
         self.orphaned(repo, commit_oid)
@@ -752,6 +762,32 @@ mod tests {
 
         assert_eq!(conditions_of(&direct), conditions_of(&batched));
         assert_eq!(direct.headline, batched.headline);
+    }
+
+    /// Under a narrow integration ref, a revision captured at the tip of a *different*
+    /// live branch is `Live` (a live tip), not orphaned — the integration check only
+    /// decides "merged into the integration ref", and `enrich_liveness` falls through
+    /// to the live-tip check for everything else. The batch must do the same.
+    #[test]
+    fn batch_integration_keeps_a_live_side_branch_tip_live() {
+        let repo = LivenessRepo::new();
+        // A branch diverging from base: its tip is live but unreachable from main.
+        repo.git(["checkout", "-b", "feature", "main~2"]);
+        repo.commit("side", "side\n");
+        let side_tip = repo.oid("feature");
+        repo.git(["checkout", "main"]);
+        let view = view_with(&[&side_tip]);
+
+        let direct = enrich_liveness(&view, repo.path(), Some("refs/heads/main")).unwrap();
+        let batch = LivenessBatch::build(repo.path(), Some("refs/heads/main")).unwrap();
+        let batched = batch.enrich_merge(repo.path(), &view).unwrap();
+
+        assert_eq!(
+            direct.per_commit[0].condition,
+            CommitGraphCondition::Live,
+            "a live side-branch tip is live under a narrow integration ref, not orphaned"
+        );
+        assert_eq!(conditions_of(&direct), conditions_of(&batched));
     }
 
     fn conditions_of(enrichment: &LivenessEnrichment) -> Vec<(String, CommitGraphCondition)> {

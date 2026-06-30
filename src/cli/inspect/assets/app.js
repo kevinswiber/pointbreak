@@ -795,27 +795,21 @@
   __name(showError, "showError");
   async function load() {
     try {
-      const [historyRaw, revisionsRaw, objectsRaw, freshnessRaw] = await Promise.all([
+      const freshness = await fetchJSON("/api/freshness");
+      const [historyRaw, revisionsRaw, objectsRaw] = await Promise.all([
         fetchJSON("/api/history"),
         fetchJSON("/api/revisions"),
-        fetchJSON("/api/objects"),
-        fetchJSON("/api/freshness")
+        fetchJSON("/api/objects")
       ]);
       const history2 = historyRaw;
       const revisions = revisionsRaw;
       const objects = objectsRaw;
-      const freshness = freshnessRaw;
       indexEntries(history2, revisions);
       showError(null);
       commit({
         history: history2,
         revisions,
         objects,
-        // Seed the freshness baseline from the same marker the poller compares — the
-        // event-log head marker (the event-file count). Seeding from
-        // `history.eventCount` would diverge from the marker whenever the store
-        // carries a retired event the lenient read skips, and the poller would then
-        // reload on every tick.
         lastEventCount: freshness.eventCount ?? null
       });
     } catch (err) {

@@ -80,17 +80,23 @@ export function showError(message: string | null): void {
  */
 export async function load(): Promise<void> {
   try {
-    const [historyRaw, revisionsRaw, objectsRaw, freshnessRaw] =
-      await Promise.all([
-        fetchJSON("/api/history"),
-        fetchJSON("/api/revisions"),
-        fetchJSON("/api/objects"),
-        fetchJSON("/api/freshness"),
-      ]);
+    // Take the freshness marker BEFORE the documents, so the baseline can never be
+    // newer than what was loaded. If an event lands during the document fetch, the
+    // marker the next poll reads is higher than this baseline and triggers a reload
+    // (at worst a redundant one) rather than masking the append. Fetched in parallel
+    // with the documents, the marker could come back newer than them and the poll
+    // would then report "unchanged" forever. Seeding from the probe (not
+    // `history.eventCount`) also keeps a retired/skipped event — where the event-file
+    // marker exceeds the post-skip history count — from forcing a reload every tick.
+    const freshness = (await fetchJSON("/api/freshness")) as FreshnessDoc;
+    const [historyRaw, revisionsRaw, objectsRaw] = await Promise.all([
+      fetchJSON("/api/history"),
+      fetchJSON("/api/revisions"),
+      fetchJSON("/api/objects"),
+    ]);
     const history = historyRaw as HistoryDoc;
     const revisions = revisionsRaw as RevisionsDoc;
     const objects = objectsRaw as ObjectsDoc;
-    const freshness = freshnessRaw as FreshnessDoc;
     // Index before committing so a subscriber repaint never sees an un-indexed
     // entry.
     indexEntries(history, revisions);
@@ -99,11 +105,6 @@ export async function load(): Promise<void> {
       history,
       revisions,
       objects,
-      // Seed the freshness baseline from the same marker the poller compares — the
-      // event-log head marker (the event-file count). Seeding from
-      // `history.eventCount` would diverge from the marker whenever the store
-      // carries a retired event the lenient read skips, and the poller would then
-      // reload on every tick.
       lastEventCount: freshness.eventCount ?? null,
     });
   } catch (err) {
