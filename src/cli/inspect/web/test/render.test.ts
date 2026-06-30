@@ -218,3 +218,44 @@ describe("the #master delegate (selection / open-diff / cue filter, ref-chip gua
     expect(store.getState().selected.id).toBeNull();
   });
 });
+
+describe("scrollSelectionIntoView materializes an off-screen virtual row", () => {
+  // Build enough entries that the timeline virtualizes; only a window is in the
+  // DOM at a time, so selecting an off-screen entry must scroll its index into
+  // the window before it can be revealed.
+  function seedManyAndVirtualize(): HTMLElement {
+    const entries = Array.from({ length: 500 }, (_, i) => ({
+      eventId: `e${i}`,
+      eventType: "review_observation_recorded",
+      occurredAt: `unix-ms:${1782699185391 + i}`,
+    }));
+    store.commit({
+      history: { entries, diagnostics: [] } as unknown as HistoryDoc,
+      lens: "timeline",
+    });
+    render.render(); // creates #timeline and paints the top window
+    const list = $<HTMLElement>("#timeline") as HTMLElement;
+    Object.defineProperty(list, "clientHeight", {
+      configurable: true,
+      value: 500,
+    });
+    Object.defineProperty(list, "scrollTop", {
+      configurable: true,
+      writable: true,
+      value: 0,
+    });
+    return list;
+  }
+
+  it("scrolls the selected off-screen event into the rendered window", () => {
+    seedManyAndVirtualize();
+    // Default desc order puts e0 (oldest) last — far below the top window.
+    const targetId = "e0";
+    render.render();
+    expect($(`#timeline li[data-event-id="${targetId}"]`)).toBeNull();
+
+    store.commit({ selected: { kind: "event", id: targetId } });
+    render.render();
+    expect($(`#timeline li[data-event-id="${targetId}"]`)).not.toBeNull();
+  });
+});

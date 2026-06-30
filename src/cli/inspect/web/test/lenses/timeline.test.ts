@@ -134,3 +134,78 @@ describe("renderTimeline", () => {
     );
   });
 });
+
+// happy-dom has no layout engine, so `clientHeight` is 0 and `scrollTop` may
+// clamp; mock both so the windowed render is deterministic. When no viewport
+// height is mocked, virtualization falls back to a full render (so the rest of
+// the suite is unaffected).
+function mockViewport(height: number, scrollTop = 0): HTMLElement {
+  const list = document.querySelector("#timeline") as HTMLElement;
+  Object.defineProperty(list, "clientHeight", {
+    configurable: true,
+    value: height,
+  });
+  Object.defineProperty(list, "scrollTop", {
+    configurable: true,
+    writable: true,
+    value: scrollTop,
+  });
+  return list;
+}
+
+function manyEntries(n: number): HistoryEntry[] {
+  return Array.from({ length: n }, (_, i) =>
+    entry(`e${i}`, { occurredAt: `unix-ms:${1782699185391 + i}` }),
+  );
+}
+
+describe("renderTimeline virtualization", () => {
+  it("renders only the visible window of rows, not every entry", () => {
+    seedHistory(manyEntries(500));
+    mockViewport(500);
+    timeline.renderTimeline();
+    const rendered = rowIds().length;
+    expect(rendered).toBeGreaterThan(0);
+    expect(rendered).toBeLessThan(500);
+  });
+
+  it("preserves total scroll geometry via spacers summing to the full list", () => {
+    expect(timeline.ROW_H).toBeGreaterThan(0);
+    seedHistory(manyEntries(500));
+    const list = mockViewport(500);
+    timeline.renderTimeline();
+    const spacerHeight = Array.from(
+      list.querySelectorAll<HTMLElement>("li[data-spacer]"),
+    ).reduce((sum, li) => sum + Number.parseInt(li.style.height || "0", 10), 0);
+    const rowHeight = rowIds().length * timeline.ROW_H;
+    expect(spacerHeight + rowHeight).toBe(500 * timeline.ROW_H);
+  });
+
+  it("re-renders a different window after scrolling down", () => {
+    seedHistory(manyEntries(500));
+    const list = mockViewport(500, 0);
+    timeline.renderTimeline();
+    const firstBefore = rowIds()[0];
+    (list as unknown as { scrollTop: number }).scrollTop = 450 * timeline.ROW_H;
+    list.dispatchEvent(new Event("scroll"));
+    const firstAfter = rowIds()[0];
+    expect(firstAfter).not.toBe(firstBefore);
+  });
+
+  it("renders every row when no viewport height is known (full fallback)", () => {
+    seedHistory(manyEntries(30));
+    timeline.renderTimeline();
+    expect(rowIds().length).toBe(30);
+  });
+
+  it("windows over the FILTERED list so all matches stay reachable", () => {
+    const entries = manyEntries(500);
+    for (let i = 0; i < 5; i++)
+      entries[i].eventType = "review_assessment_recorded";
+    seedHistory(entries);
+    store.commit({ enabledTypes: new Set(["review_assessment_recorded"]) });
+    mockViewport(500);
+    timeline.renderTimeline();
+    expect(rowIds().length).toBe(5);
+  });
+});

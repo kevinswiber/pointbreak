@@ -19,7 +19,10 @@ import { openDiff, renderDiffOverlay } from "./diff/controller";
 import { $ } from "./dom";
 import { escapeHtml } from "./escape";
 import { renderRevisionList, renderRevisions } from "./lenses/revisions";
-import { renderTimeline } from "./lenses/timeline";
+import {
+  renderTimeline,
+  scrollTimelineSelectionIntoView,
+} from "./lenses/timeline";
 import { facetCounts, presentTypes } from "./model";
 import { shortId } from "./refs";
 import { navigate } from "./router";
@@ -177,16 +180,22 @@ function renderSelected(): void {
 
 // Scroll the selected entry into view within the master pane (the timeline row,
 // the list card, or the DAG node), so cursor stepping keeps the selection visible.
+// The timeline is virtualized, so an off-screen event row is not in the DOM; event
+// selection routes through the timeline's index-scroller, which scrolls the row's
+// index into the virtual window and repaints before scrolling it into view. This is
+// the single materialization point — route-state, deep-link, and keyboard selection
+// all reach off-screen rows through here.
 /** Scroll the selected master entry into view, if any. */
 function scrollSelectionIntoView(): void {
   const sel = getState().selected;
   if (!sel.id) return;
+  if (sel.kind === "event") {
+    scrollTimelineSelectionIntoView(sel.id);
+    return;
+  }
   const master = $("#master");
   if (!master) return;
-  const el =
-    sel.kind === "event"
-      ? master.querySelector('.event[aria-selected="true"]')
-      : master.querySelector(`[data-revision-id="${sel.id}"]`);
+  const el = master.querySelector(`[data-revision-id="${sel.id}"]`);
   if (el) el.scrollIntoView({ block: "center" });
 }
 

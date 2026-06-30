@@ -3282,32 +3282,44 @@ click to open the revision page">
   __name(wireDagInteractions, "wireDagInteractions");
 
   // src/lenses/timeline.ts
-  function renderTimeline() {
-    const list = $("#timeline");
-    if (!list) return;
-    list.innerHTML = "";
+  var ROW_H = 52;
+  var OVERSCAN = 8;
+  function timelineRows() {
     const state2 = getState();
     let entries = (state2.history?.entries ?? []).filter(matchesFilters);
     if (state2.order === "desc") entries = entries.slice().reverse();
-    if (!entries.length) {
-      const li = document.createElement("li");
-      li.className = "event";
-      li.innerHTML = `<span></span><span></span><span class="${CLASS.body}"><span class="${CLASS.title}" style="color:var(--fg-dim)">no events match the current filters</span></span>`;
-      list.appendChild(li);
-      return;
-    }
-    const selected = selectedEventId();
-    for (const e of entries) {
-      const li = document.createElement("li");
-      li.className = "event";
-      li.dataset.eventId = e.eventId ?? "";
-      if (e.eventId && e.eventId === selected)
-        li.setAttribute("aria-selected", "true");
-      const tags = entryTags(e).map((t) => `<span class="${CLASS.badge}">${escapeHtml(t)}</span>`).join(" ");
-      const revisionId = entryRevisionId(e);
-      const staleTag = supersessionStaleBadge(e);
-      const supersedesTag = captureSupersedesBadge(e);
-      li.innerHTML = `
+    return entries;
+  }
+  __name(timelineRows, "timelineRows");
+  function visibleRange(scrollTop, viewportH, rowCount) {
+    if (viewportH <= 0 || rowCount === 0) return { start: 0, end: rowCount };
+    const start = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+    const end = Math.min(
+      rowCount,
+      Math.ceil((scrollTop + viewportH) / ROW_H) + OVERSCAN
+    );
+    return { start, end };
+  }
+  __name(visibleRange, "visibleRange");
+  function spacer(height) {
+    const li = document.createElement("li");
+    li.dataset.spacer = "1";
+    li.setAttribute("aria-hidden", "true");
+    li.style.height = `${height}px`;
+    return li;
+  }
+  __name(spacer, "spacer");
+  function eventRow(e, selected) {
+    const li = document.createElement("li");
+    li.className = "event";
+    li.dataset.eventId = e.eventId ?? "";
+    if (e.eventId && e.eventId === selected)
+      li.setAttribute("aria-selected", "true");
+    const tags = entryTags(e).map((t) => `<span class="${CLASS.badge}">${escapeHtml(t)}</span>`).join(" ");
+    const revisionId = entryRevisionId(e);
+    const staleTag = supersessionStaleBadge(e);
+    const supersedesTag = captureSupersedesBadge(e);
+    li.innerHTML = `
       <span class="${CLASS.time}">${escapeHtml(fmtTime(e.occurredAt ?? ""))}</span>
       <span class="${CLASS.rail}" style="background:${typeColor(e.eventType)}"></span>
       <span class="${CLASS.body}">
@@ -3320,10 +3332,53 @@ click to open the revision page">
           ${verificationChip(e.verificationStatus ?? "")}
         </span>
       </span>`;
+    return li;
+  }
+  __name(eventRow, "eventRow");
+  function ensureScrollListener(list) {
+    if (list.dataset.virtualized) return;
+    list.dataset.virtualized = "1";
+    list.addEventListener("scroll", () => renderTimeline());
+  }
+  __name(ensureScrollListener, "ensureScrollListener");
+  function renderTimeline() {
+    const list = $("#timeline");
+    if (!list) return;
+    const rows = timelineRows();
+    if (!rows.length) {
+      list.innerHTML = "";
+      const li = document.createElement("li");
+      li.className = "event";
+      li.innerHTML = `<span></span><span></span><span class="${CLASS.body}"><span class="${CLASS.title}" style="color:var(--fg-dim)">no events match the current filters</span></span>`;
       list.appendChild(li);
+      return;
     }
+    ensureScrollListener(list);
+    const { start, end } = visibleRange(
+      list.scrollTop,
+      list.clientHeight,
+      rows.length
+    );
+    const selected = selectedEventId();
+    list.innerHTML = "";
+    if (start > 0) list.appendChild(spacer(start * ROW_H));
+    for (let i = start; i < end; i++)
+      list.appendChild(eventRow(rows[i], selected));
+    if (end < rows.length) list.appendChild(spacer((rows.length - end) * ROW_H));
   }
   __name(renderTimeline, "renderTimeline");
+  function scrollTimelineSelectionIntoView(eventId) {
+    const list = $("#timeline");
+    if (!list) return;
+    const index = timelineRows().findIndex((e) => e.eventId === eventId);
+    if (index < 0) return;
+    const centered = index * ROW_H - Math.max(0, (list.clientHeight - ROW_H) / 2);
+    list.scrollTop = Math.max(0, centered);
+    renderTimeline();
+    const el = list.querySelector(`li[data-event-id="${eventId}"]`);
+    if (el) el.scrollIntoView({ block: "center" });
+  }
+  __name(scrollTimelineSelectionIntoView, "scrollTimelineSelectionIntoView");
 
   // src/render.ts
   var lastMasterLens = null;
@@ -3431,9 +3486,13 @@ click to open the revision page">
   function scrollSelectionIntoView() {
     const sel = getState().selected;
     if (!sel.id) return;
+    if (sel.kind === "event") {
+      scrollTimelineSelectionIntoView(sel.id);
+      return;
+    }
     const master = $("#master");
     if (!master) return;
-    const el = sel.kind === "event" ? master.querySelector('.event[aria-selected="true"]') : master.querySelector(`[data-revision-id="${sel.id}"]`);
+    const el = master.querySelector(`[data-revision-id="${sel.id}"]`);
     if (el) el.scrollIntoView({ block: "center" });
   }
   __name(scrollSelectionIntoView, "scrollSelectionIntoView");
