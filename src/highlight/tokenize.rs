@@ -156,6 +156,16 @@ mod tests {
     }
 
     #[test]
+    fn tokenizes_a_typescript_line() {
+        // TypeScript is not in syntect's stock bundle; this exercises the two-face syntax set.
+        let syntax = syntax_for_paths(Some("app.ts"), None).unwrap();
+        let mut tk = LineTokenizer::new(syntax);
+        let spans = tk.next_line("const x: number = 1;");
+        assert!(spans.iter().any(|s| s.kind == TokenKind::Keyword)); // `const`
+        assert!(spans.iter().any(|s| s.kind == TokenKind::Number)); // `1`
+    }
+
+    #[test]
     fn carries_state_across_lines_for_block_comments() {
         let syntax = syntax_for_paths(Some("a.rs"), None).unwrap();
         let mut tk = LineTokenizer::new(syntax);

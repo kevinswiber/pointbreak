@@ -4,11 +4,13 @@ use std::sync::OnceLock;
 
 use syntect::parsing::{SyntaxReference, SyntaxSet};
 
-/// The stock syntect syntax set, loaded once. Uses the `_newlines` variant so the line tokenizer
-/// can feed each line with a trailing `\n` (so end-of-line patterns match).
+/// The syntax set, loaded once. Uses `two-face`'s bundled set (the `bat` syntaxes) rather than
+/// syntect's stock bundle, so the long tail of languages syntect omits — TypeScript and TSX most
+/// notably — tokenize. The `_newlines` variant lets the line tokenizer feed each line with a
+/// trailing `\n` so end-of-line patterns match.
 pub(crate) fn syntax_set() -> &'static SyntaxSet {
     static SET: OnceLock<SyntaxSet> = OnceLock::new();
-    SET.get_or_init(SyntaxSet::load_defaults_newlines)
+    SET.get_or_init(two_face::syntax::extra_newlines)
 }
 
 /// Detect a syntax from the diff paths (new then old), by extension only.
@@ -52,8 +54,13 @@ mod tests {
     fn unknown_or_missing_extension_is_none() {
         assert!(syntax_for_paths(Some("a.xyzzy"), None).is_none());
         assert!(syntax_for_paths(None, None).is_none());
-        // TypeScript is NOT in the stock bundle (decided: stock-first) -> None -> plain.
-        assert!(syntax_for_paths(Some("app.ts"), None).is_none());
+    }
+
+    #[test]
+    fn detects_typescript_and_tsx() {
+        // TypeScript/TSX are not in syntect's stock bundle; they are vendored and added to the set.
+        assert!(syntax_for_paths(Some("app.ts"), None).is_some());
+        assert!(syntax_for_paths(Some("component.tsx"), None).is_some());
     }
 
     #[test]

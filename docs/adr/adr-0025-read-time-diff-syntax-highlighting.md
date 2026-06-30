@@ -55,7 +55,8 @@ serializes a `tokens` field and that its hash is self-consistent.
 
 ### D2. `syntect` is the highlighter; pure-Rust `regex-fancy`, never `onig`
 
-Depend on `syntect` with `default-features = false, features = ["default-syntaxes", "regex-fancy"]`. The
+Depend on `syntect` with `default-features = false, features = ["parsing", "regex-fancy"]` (the syntax set
+comes from `two-face`, not syntect's stock dump — see the resolved note below). The
 pure-Rust `fancy-regex` engine avoids the `onig` C/Oniguruma dependency that the syntect maintainers
 themselves flag as a frequent Windows/WASM build failure — directly hostile to Shoreline's Windows-CI long
 pole and Node-free/minimal-toolchain posture. Drive the parser directly (`ParseState::parse_line` →
@@ -124,11 +125,13 @@ than an emit rewrite.
   (~+12%, 120→134); the intraline follow-on (`similar`) adds +1. No `onig`; `regex-automata`/`regex-syntax`/
   `memchr` are shared (already pulled by `tracing-subscriber`); **no new duplicate versions** (the `thiserror`
   v1/v2 split is pre-existing).
-- **Binary size grows ~2 MiB.** A `cargo build --release` A/B measured the `shore` binary at **8,856,432 bytes
-  without highlighting vs 10,942,720 bytes with it — +2,086,288 bytes (+1.99 MiB, +23.6%)**, dominated by
-  syntect's embedded stock syntax dump and `fancy-regex`. This is the single largest cost of the feature; it is
-  accepted on the strength of the strictly-optional/best-effort nature and the C-toolchain-free build, and is
-  noted as a revisit trigger if a curated syntax subset becomes warranted.
+- **Binary size grows ~2.5 MiB.** A `cargo build --release` A/B measured the `shore` binary at **8,856,432
+  bytes without highlighting vs 11,544,112 bytes with it — +2,687,680 bytes (+2.56 MiB, +30.3%)**, dominated by
+  the `two-face` bundled syntax dump and `fancy-regex`. (Using syntect's stock dump alone — fewer languages,
+  no TypeScript — was +1.99 MiB; `two-face`'s far larger coverage costs only ~+0.57 MiB more, because dropping
+  the stock dump offsets most of its size.) This is the single largest cost of the feature; it is accepted on
+  the strength of the strictly-optional/best-effort nature and the C-toolchain-free build, and is noted as a
+  revisit trigger if the bundled coverage proves more than warranted.
 - **Perf risk is low.** `/api/snapshots/{id}` is on-demand and once-per-open — not on page load and not in the
   3s freshness poll — so highlighting does not touch #255's hot path, and the content-hash cache amortizes its
   cost to ~zero (D4).
@@ -164,8 +167,13 @@ than an emit rewrite.
 
 The per-surface tuning the ADR deliberately left open was resolved as follows:
 
-- **TypeScript coverage: stock-first.** syntect's stock bundle has no TypeScript, so `.ts`/`.tsx` fall back to
-  plain. A custom `.packdump` for TS/TSX is filed as a follow-on (keeps the build Node-free with no step).
+- **TypeScript coverage: via `two-face`.** syntect's stock bundle has no TypeScript, and the current
+  `version: 2` Sublime `.sublime-syntax` files do not load in syntect's YAML loader. Rather than vendor and
+  maintain individual grammars, the syntax set is sourced from the **`two-face`** crate
+  (`two_face::syntax::extra_newlines()`, `features = ["syntect-fancy"]` — same syntect, no `onig`), which
+  bundles the `bat` syntaxes: TypeScript and TSX tokenize, along with the long tail of other languages.
+  syntect's own stock dump is dropped (`default-features = false`, no `default-syntaxes`) since `two-face`
+  supplies the set, so the two dumps nearly offset.
 - **Size cap: reuse `LARGE_FILE_ROWS` (500).** A file whose total diff rows exceed the cap renders plain; the
   content-hash cache makes the cost a one-time pay.
 - **TUI color-depth: a `COLORTERM` env-var helper** (no new dependency) — truecolor when
@@ -186,7 +194,8 @@ The per-surface tuning the ADR deliberately left open was resolved as follows:
   than growing a parallel highlighter.
 - **#254/#255 land windowing.** Re-evaluate moving web enrichment from all-row (D5) to per-window
   (the deferred option b), at which point highlighting becomes windowed for free.
-- **syntect coverage gaps bite** (notably TypeScript, absent from the stock bundle while Shoreline's own
-  `web/` is TS): revisit embedding a custom `.packdump` vs accepting plain fallback.
+- **`two-face` coverage gaps bite** (a language neither syntect's stock bundle nor the `bat` set covers):
+  revisit vendoring a specific grammar vs accepting plain fallback. TypeScript/TSX, the original gap, are now
+  covered by `two-face`.
 - **Grammar accuracy / `fancy-regex` slowness** ever blocks a request: reconsider the engine (the `onig`
   rejection is conditional on best-effort, read-time, cached use).
