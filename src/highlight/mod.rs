@@ -5,11 +5,13 @@
 //! view-only projection — they are never stored on the diff model and never affect the
 //! content-addressed snapshot artifact.
 
+mod intraline;
 mod syntax;
 mod tokenize;
 
 use std::collections::HashMap;
 
+pub use intraline::{EmphSpan, emphasis_file};
 use syntax::syntax_for_paths;
 use tokenize::LineTokenizer;
 
