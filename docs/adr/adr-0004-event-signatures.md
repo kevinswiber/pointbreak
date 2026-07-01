@@ -530,3 +530,367 @@ existing committed-only behavior (`discover_trust_set`, `src/cli/review/common.r
   readers verify against their own shared trust config, so a local override may affect only local CLI
   evaluation — and that effect must be visible, not silent). Absent those guardrails, committed-only stands.
 - Endorsement-classification revisit triggers live in **ADR-0013**.
+
+## Amendment: Opaque-Coded Signed Identity, the View-Upcast Seam, and the Storage Descriptor
+
+The original ADR-0004 decision stands and this file's top-level **Status remains Accepted**: the signing
+mechanism — DSSE pre-authentication encoding, strict Ed25519, `sigVersion = 1`, the
+`valid / invalid / untrusted_key / unsigned` status vocabulary, and the co-signature member model — is
+unchanged. Unlike the two prior co-signature amendments, this one is **not** byte-neutral: it introduces
+**one deliberate, owner-migrated signed-store break** confined to the *content* of the signed view (the
+identity tokens it binds), landed as a single clean migration with no dual-read of signed bytes.
+
+### Context
+
+ADR-0004 signs a human-readable producer view: `EventToBeSigned` binds `eventType` as the snake_case
+wire string (`tbs.rs:22`, via `EventType::as_str`, `kind.rs:24-46`) and binds the whole `EventTarget`
+(`tbs.rs:25`), whose `subject` carries renamable variant/kind tags and id strings. Worse, the event's
+content identity folds those same human names: `eventId = sha256(idempotencyKey)` (`mod.rs:137-139`),
+and every idempotency-key builder prefixes the human event-type string and the renamable ids — e.g.
+`"review_observation_recorded:{revisionId}:{trackId}:{sourceKey}"` (`observation.rs:35-41`). So a pure
+*rename* — of an enum tag, a scope prefix, a digest-key name, a target variant — changes the signed
+bytes **and** the `eventId` → `eventSetHash` (`freshness.rs:16-43`), forcing a full signed-store
+migration even though the *meaning* of the recorded fact never changed.
+
+An audit of the breaks spent across the three most recent signed-store migrations makes the cost
+concrete: **of the seven breaks that touched the signed event view, six were naming or reshaping** of an
+unchanged referent (the `review_unit`→`revision` family rename, the `EventTarget` reshape, the
+`Ledger`→`Journal` scope-prefix migration, the `reviewUnitId`→`revisionId` digest-key rename, the
+generative-move type collapse, the `intervention_*`→`input_request_*` rename). The lone *whole* genuine
+payload-semantics break in the window was the `review_disposition_recorded` → assessment split — a
+concept that genuinely became a differently-shaped fact, which *must* be identity-bearing. The treadmill
+is overwhelmingly self-inflicted by signing the human-readable token rather than a stable identity.
+
+This amendment removes the renamable material from the signed identity and from the content-id derivation
+so future renames/reshapes become *projection-only* changes presented by a read-time view upcast, with no
+migrator. It does three mutually-compatible things, and is deliberate about the **two break classes it
+does not address** (see *Honest scope*).
+
+### Decision
+
+#### D1 — Opaque-code the signed `eventType`; reduce the signed `target` to content-derived identity
+
+Sign **stable opaque identity tokens** instead of renamable human strings:
+
+1. **`eventType` → a frozen `TypeCode`.** Each logical event family is assigned an opaque type code once,
+   from an **append-only, never-reassigned registry**: the code is fixed when the family is first
+   introduced; renaming the Rust variant or its display string never changes the code; a retired family
+   keeps its code reserved forever so old signed events stay decodable. The signed view binds the
+   `TypeCode`, not the snake_case name. The strict decoder decodes by code; `EventType::as_str`
+   (`kind.rs:24-46`) becomes a **display lookup** the projection reads, not a signed/identity value.
+
+   *Type-code form:* the code is a **short opaque counter token** in the frozen registry (e.g. `"t:07"`),
+   human-traceable through the registry, which is the single source of truth. The alternative — a sha256
+   of a frozen canonical descriptor (no registry, but opaque to debugging and itself a re-derivation
+   surface) — is recorded under *Rejected*.
+
+2. **`target` → `{ journalId, opaque subjectId?, trackId? }`.** `journalId` (content-derived scope key)
+   and `trackId` (identity-bearing attribution lane) stay signed unchanged. For a subject-bearing carrier
+   the signed `subject` collapses to an opaque **`subjectId` = sha256 over the subject's identity-bearing
+   fields only** — the `revisionId` and any sub-ids (observation id, assessment id, line range, file
+   path) — and **not** the renamable variant/kind tag strings. The structural interpretation (work-object
+   kind, sub-anchor kind, the human-readable revision/sub-id spellings) is reconstructed by a projection
+   from the subject structure the events already carry in their **payload**.
+
+   **`subjectId` is absent for the fieldless `TargetRef::Journal` carrier** — the genuinely subject-less
+   events (the detached co-signature carrier, content removal, and pre-revision journal events such as
+   `ReviewInitialized` and `EventSignatureRecorded`; `work_object.rs:46-56`, `target.rs:44-49`). These
+   already address their real target by payload content, never by a duplicated envelope subject, so the
+   opaque target for a journal carrier is just `{ journalId, trackId? }` with no `subjectId`. This mirrors
+   the existing fieldless `TargetRef::Journal` exactly — opaque-coding does not invent a subject where the
+   current model has none.
+
+3. **The domain axis is structurally derived, never a separately-signed field.** Per ADR-0017 §A4 (one
+   domain axis, structurally derived, never an independently-asserted wire value), the opaque `subjectId`
+   **must not** smuggle the `Review`/`Task` domain back as a signed tag. Domain is derived at the write
+   boundary by `EventTarget::for_generative_move`'s engagement-type check (`target.rs:57-71`) and at read
+   time over the projected subject. This generalizes the existing `for_generative_move` discipline (which
+   already derives domain rather than storing it) one notch: the signed envelope stores neither the domain
+   nor the renamable subject structure — only the opaque content-id.
+
+4. **Re-base the idempotency keys onto the opaque tokens (the load-bearing step).** Opaque-coding the
+   signed *fields alone is insufficient*: because `eventId = sha256(idempotencyKey)` and every key builder
+   bakes the human type string and renamable ids into the key, the `eventId` would still fold the old
+   names. The builders must prefix the **stable `TypeCode`** and fold the **opaque subject/revision
+   content-id**, not the human strings, so that after the re-base a future rename touches neither the
+   signed `TypeCode`/`subjectId` nor the `eventId`. Subject-less journal carriers have no subject id to
+   fold: `ReviewInitialized` keys on `journalId` (`review.rs:12`), and the co-signature carrier keys on the
+   target's signer-exclusive `eventRecordHash` plus the attesting signer (`event_signature.rs:66`) — itself
+   re-derived during the migration when the target re-keys (the co-signature re-home of `store-migration.md`
+   §3). For these the re-base is the `TypeCode` prefix only; the renamable human type string is what leaves
+   the key.
+
+5. **This is one final signed-store break, gated by the content-id-convergence test.** Re-basing the
+   idempotency keys is a content-id re-derivation — exactly the frozen-content-id hazard
+   `docs/store-migration.md` §8 warns about. It MUST re-derive every affected content id (`eventId`, and
+   any content id that folds the renamed inputs) via the **live builders**, in dependency order, remapping
+   references — never carry an old id string forward — and be gated by a **convergence test**
+   (`events_created == 0` on a fresh re-record of a fact the migrated store already holds), not the
+   self-check alone. It lands as one owner-run migration over the real stores, the same discipline as the
+   prior signed-store breaks.
+
+6. **`sigVersion` stays `1`.** The signing mechanism is unchanged and the break is clean: the old shape is
+   fully migrated and rejected by the strict reader, so no two signature schemes coexist and no verifier
+   dispatch is needed. The `EventToBeSigned` field set is adjusted (the `eventType` field binds a
+   `TypeCode`; a subject-bearing `target`'s subject becomes the opaque `subjectId`, while a
+   `TargetRef::Journal` carrier omits it per D1.2) and the golden signing vectors are re-minted as part of
+   the one break — the same way prior breaks re-minted ids and hashes without bumping `sigVersion`. Bumping
+   to a `sigVersion = 2` / `event-tbs.v2` payload type is recorded under *Rejected*.
+
+#### D2 — Re-admit a read-time **view** upcast seam (a bounded, layered reversal of "no silent dual-read")
+
+`docs/store-migration.md` §1 ("no silent dual-read") governs the **signed identity** of an event. This
+amendment re-admits a read-time **view** upcast for a *different* class of change — re-*interpreting* an
+event whose signed identity is unchanged — and reconciles the two as **two rules split by layer**:
+
+- **Clean break + migrator for signed-identity changes** (`eventType`/`target`/`payloadHash` and anything
+  those digests bind). Unchanged; this is D1's and §1's domain.
+- **Read-time view upcast for interpretation changes.** A pure `upcast(old_value) -> current_model` runs
+  **in the projection layer only**, on the value the projection was going to deserialize anyway (e.g. the
+  `WorkObjectProposedPayload` decode in `revision_projection/resolving.rs`). It re-presents a payload or
+  target in the current in-memory model. It never writes, never re-serializes back to stored bytes, and
+  never re-derives a digest.
+
+This is **signature-safe by construction**: every digest (`payloadHash` at `mod.rs:135`, the to-be-signed
+bytes at `tbs.rs`, `eventRecordHash` at `record_hash.rs`, `eventSetHash` at `freshness.rs`) is computed by
+a `from_event`/`from_events` builder **over the stored `ShoreEvent`**, never over a projection view, and
+verification rebuilds the to-be-signed bytes from the stored event. The standing existence proof is the
+`ingest`/`sourceRef` exclusion: a hop already stamps those fields on a signed event at rest and the
+signature still verifies. An upcast that reads `event.payload` into a richer in-memory model leaves every
+digest input byte-for-byte unchanged.
+
+**The seam's key is a payload-level, hash-excluded *view version* — not the envelope `version`.** The
+envelope `version` (`ShoreEvent.version`, currently `EVENT_VERSION = 1`) is **reject-only on read**:
+`read_event` → `validate_event` → `validate_schema_version` rejects any non-current envelope version
+*before* any projection code runs, so an older-envelope event never reaches the upcast and a bumped
+envelope version is rejected by the strict reader. The seam therefore keys on the **`payloadVersion`**
+field reserved in D3 — a per-payload view version that rides *inside* an accepted envelope and is
+**hash-excluded** (so bumping it is not itself a payload break), sharing the `ingest` stamp's exclusion
+discipline. (The fallback — relaxing `validate_schema_version` to an accept-range of view versions —
+loosens the strict envelope contract and is the less-preferred option, recorded under *Rejected*.)
+
+**The boundary is the whole point.** The view upcast **MAY** re-present a payload or target in the
+projected view; it **MAY NEVER** change `payloadHash`/`eventType`/`target` as signed, nor any of
+`{ signed bytes, eventRecordHash, eventSetHash }`, nor **re-serialize the upcast view to re-derive a
+digest**. That re-serialize-and-re-hash move is the §8 "re-key the payload, carry the old id forward"
+anti-pattern in another guise and would silently fork the store; it is forbidden. When the signed
+identity itself must change, you are back in §1's clean-break discipline.
+
+This amendment **drives a `docs/store-migration.md` §1a edit** stating this layer split; the landing plan
+applies it. The seam is *preventive* — no interpretation change is waiting for it today — so the landing
+plan lands the doctrine text, the signature-safety invariant, the verify-next signature-safety test, the
+hash-excluded view-version field, and a single targeted first upcast, and **defers the per-family hook
+generalization until a second family needs it** rather than building all hooks speculatively.
+
+#### D3 — Model the storage descriptor: identity-bearing content type, a hash-excluded encoding pipeline, and the view version
+
+Storage carries three distinct concerns, modeled on HTTP's `Content-Type` / `Content-Encoding` split.
+**Identity is computed over the fully-decoded canonical content, never over the stored encoded bytes** —
+the encoding is reversed *before* the content is hashed, signed, or verified (this is the rule that makes
+the hash-excluded encoding safe; it is the D4 invariant applied to the storage boundary).
+
+1. **`contentType` — what the decoded object *is* (identity-bearing; modeled here, not reserved now).**
+   The media type of the fully-decoded object. Changing it changes *what the object is* (the same bytes as
+   `application/json` vs `text/plain` are different objects), so it belongs **inside** the content hash —
+   in the hashed artifact body alongside the existing `schema` tag (`object_artifact.rs`: `schema` is
+   already an identity-bearing type tag in the artifact's `contentHash`), **never** in the hash-excluded
+   set. To keep content-addressing convergent it enters the hash as a **normalized canonical type tag** (a
+   closed kind enum, or a canonicalized media-type string — lowercased type/subtype, parameters dropped or
+   canonically ordered), **never a raw MIME string** (raw MIME's case-insensitivity, `charset=`/`boundary=`
+   parameters, and `+json` structured suffixes would let two producers of the same content diverge — a raw
+   MIME string is a poor hash input).
+   **This amendment does not reserve `contentType`.** For events it is the constant `application/json`; for
+   the current artifact it is *derivable from `schema`* (a `shore.object` is JSON by construction), so it is
+   **not yet an independent identity axis** — it is implied by the already-hashed `schema`. It becomes a
+   real field only when content under one schema/kind can legitimately differ in media type (the first
+   note-body or binary blob). Adding it then re-hashes artifacts, which is the **artifact-digest break
+   class this amendment scopes out** (see *Honest scope*): modeled now, added there.
+
+2. **`contentEncoding` — how the object is stored (hash-excluded; reserved now).** An **ordered list** of
+   content-coding tokens (compression and/or encryption) applied in list order at write and **reversed on
+   read** — exactly HTTP `Content-Encoding`. Default `[]` (identity: the stored bytes are the canonical
+   content). Example: `["zstd", "aes128gcm"]` means compress then encrypt; a reader decrypts then
+   decompresses. Each token names a registered codec whose own parameters ride **in-band** in its
+   self-describing frame (e.g. an RFC 8188 `aes128gcm` body carries its salt/keyid), so the list stays
+   simple tokens. Policy: **encryption codings are outermost** (applied last), preserving the
+   compress-then-encrypt order. The encoding applies to the **payload/body content** (what `payloadHash` /
+   the artifact `contentHash` cover); the **envelope carrying `contentEncoding` stays plaintext**, so a
+   reader reads the list before decoding the body. This field **replaces the single `codec` discriminator
+   the prior draft proposed** and rides on the event record **and** the artifact (a blob's encoding is
+   independent of an event's). Granularity is per-record / per-blob (one file per event/blob; Shoreline has
+   no chunk concept), finer than a file-level transform and strictly better for content-targeted erasure.
+
+3. **`payloadVersion` — the decoded payload's view version (hash-excluded; reserved now).** D2's
+   view-upcast seam key, a `u32` **defaulting to `1`** (absent reads as `1`), bumped when a payload
+   family's view interpretation changes. Orthogonal to `contentType`: `contentType` says "this is JSON,"
+   `payloadVersion` says "this JSON is at view version N."
+
+**The exclusion is exact and mandatory for the two reserved fields.** `EventRecordView` is the whole record
+minus exactly `signer`/`signature`/`sourceRef`/`ingest` (`record_hash.rs:25-39`), and `EventToBeSigned` is
+the 10-field view (`tbs.rs:19-30`). Both `contentEncoding` and `payloadVersion` are added to the
+**excluded** set: they appear in **neither** `EventToBeSigned` **nor** `EventRecordView`, and they are
+**not** inputs to `payloadHash` (`mod.rs:135`, over the payload value only) **nor** to `eventSetHash`
+(`freshness.rs:18-20`, over `{eventId, payloadHash}`). They ride envelope-adjacent exactly like the
+`ingest` stamp. Adding or bumping either is **signature-neutral** — default `[]`/`1` mean zero behavior
+change today, no `sigVersion` bump, no re-hash, no convergence effect.
+
+**Why the encoding pipeline is fork-free.** Because identity is over the decoded content and
+`contentEncoding` is hash-excluded: two stores that compress/encrypt the same object differently still
+**converge** (same content hash); a signed blob still **verifies** after re-encoding; and recompression or
+encryption-key rotation / per-content-hash crypto-shred is **fork-free**. A missing codec token is a typed
+"unsupported encoding" error, not a guess. `contentEncoding` needs **no break to add on its own** (the
+default is identity); both reserved fields can ride D1's break for free if landed together. The downstream
+encryption-boundary decisions (whole-blob delete + crypto-shred, sign-then-encrypt over plaintext) are out
+of scope here and tracked separately.
+
+#### D4 — The signature-safety invariant (the load-bearing premise of D2)
+
+**Every event digest is computed over the stored `ShoreEvent`, never over a projection or upcast view.**
+This is the invariant that makes the view-upcast seam safe and the boundary enforceable: a projection may
+read and re-present stored bytes arbitrarily, but the moment any code re-serializes a view and feeds it
+back into a digest, the store can silently fork. Stated as a rule for future work: a read-time transform
+that re-presents an event is permitted; a read-time transform that re-derives `payloadHash`, the
+to-be-signed bytes, `eventRecordHash`, or `eventSetHash` from anything other than the stored event is
+forbidden. The landing plan ships a test that computes all four digests, runs the upcast against the
+projected view, asserts byte-identical digests and a still-`valid` signature, and asserts the upcast did
+something observable (so a no-op cannot pass vacuously).
+
+#### D5 — Convergence-invariant compliance for the moved fields
+
+This amendment's moves honor ADR-0004's existing convergence invariant (a signed-view field's meaning must
+be **derived at projection or identity-bearing, never an excluded-from-identity payload field**):
+
+- **`TypeCode`** is identity-bearing — folded into the idempotency key (D1.4), hence into `eventId` and
+  `eventSetHash`, signed directly, and in `eventRecordHash`. Two independently-minted carriers of one
+  logical event share the same code → same key → same `eventId` → same `eventSetHash`. ✔
+- **`journalId` / `trackId`** are unchanged content-derived/identity-bearing fields. ✔
+- **`subjectId`** is *derived* (sha256 over the subject's identity-bearing fields) and *identity-bearing*
+  once folded into the idempotency key. The renamable subject *structure* it replaces is carried in the
+  **payload**, where it is bound by `payloadHash` exactly like all other payload content — so it is
+  **convergent-as-stored, not "outside convergence":** `payloadHash` is itself signed (`tbs.rs:24`), is
+  half of `eventSetHash` (`freshness.rs:18-20`), and a same-idempotency-key/different-`payloadHash` write
+  is a hard conflict (`event_store.rs:78-82`). The stored payload bytes are therefore frozen and canonical,
+  and two carriers of the same fact must agree on them to converge. What opaque-coding buys is **not** that
+  the payload structure escapes convergence; it is that the subject *identity* the dedup turns on is the
+  opaque `subjectId` in the signed view (unaffected by a display rename), so a future rename of that
+  structure can be handled two ways: a **display** rename is a read-time view upcast (D2) that re-presents
+  the frozen stored bytes without re-hashing; a change to the **stored payload shape** is a genuine payload
+  break on the clean-break + migrator path, never a view upcast. ✔
+
+The one hazard is D1.5's re-base: re-deriving the opaque ids is itself a content-id re-derivation and must
+be gated by the §8 convergence test, or the store silently non-converges.
+
+### Honest scope — what opaque-coding does NOT address
+
+Opaque-coding `eventType` + `target` addresses **only the signed-view break class**. Two enumerated break
+classes are explicitly **out of reach** and must not be counted toward this amendment's leverage:
+
+- **Artifact-digest breaks** (the snapshot v1→v2 body shrink; the `shore.snapshot`→`shore.object` schema
+  rename). These re-hash `ObjectArtifact.contentHash`, which is the artifact's **own** content hash and
+  out of band from any event digest. They are governed by content-addressing and are
+  convergence-motivated, a different class entirely. **Adding the identity-bearing `contentType` (D3) to a
+  hashed artifact body is in this class** — modeled now, taken when the first non-JSON blob lands.
+- **`eventRecordHash`-only envelope breaks** (the retired writer role-field removal;
+  `writer.tool`→`producer`). The signed
+  view carries only `actorId`, not the full `writer`; `writer` is in `eventRecordHash` (`record_hash.rs`)
+  but **never reached the Ed25519 signature**. These are provenance-field renames, not signed-view
+  changes.
+
+And the lone genuine payload-semantics split (`review_disposition_recorded` → assessment) is **correctly
+identity-bearing**; opaque-coding cannot and should not save it. The policy is "stop paying for renames,"
+not "stop ever breaking."
+
+### Resolved design questions
+
+| # | Question | Resolution |
+| - | -------- | ---------- |
+| 1 | Does opaque-coding the subject as one content-id absorb the non-optional-`subject` invariant and the generative-move discriminator, or must the domain axis stay a signed field? | The domain axis is **structurally derived, never a separately-signed field** (ADR-0017 §A4). The `subjectId` digests identity-bearing fields only; the non-optional-`subject` requirement is a **structural-validation rule** at the type layer, not a signed-byte break; the generative-move discriminator is identity-bearing inside the `subjectId`. |
+| 2 | Type-code form: counter token vs descriptor hash? | **Frozen append-only counter token** in a registry that is the single source of truth (human-traceable). Descriptor-hash recorded under *Rejected*. |
+| 3 | The seam's durable key. | The hash-excluded **`payloadVersion`** field (D2/D3). The envelope `version` is reject-only on read and cannot be the key; a bump must not enter `payloadHash`. The accept-range relaxation is the less-preferred fallback (*Rejected*). |
+| 4 | `sigVersion` bump? | **No — stays `1`** (D1.6). Clean break, full re-sign, no coexistence, mechanism unchanged. |
+| 5 | Sequencing of D1 and D2. | Land the **ADR + §1a doctrine + signature-safety invariant + verify-next test + the `payloadVersion` field + a single first upcast** together; land D1's opaque-coding break and idempotency re-base as the one owner-migrated signed-store break (D3's `contentEncoding`/`payloadVersion` fields can ride it); **defer per-family upcast hooks** until a second family needs one. |
+| 6 | Storage descriptor: one `codec` token, or richer? | **Three concerns, modeled on HTTP (D3):** `contentType` (what it is — **identity-bearing**, modeled now / added with the first non-JSON blob, a **normalized** type tag never raw MIME), `contentEncoding` (how it's stored — a **hash-excluded ordered token list**, compression + encryption, reversed on read, encryption outermost; **reserved now**, replaces the single `codec`), and `payloadVersion` (the view version — hash-excluded, reserved now). |
+| 7 | Is `contentType` inside the identity hash? | **Inside** (it is *what the object is*), in the hashed artifact body alongside `schema`, as a **normalized canonical type tag, never raw MIME** (raw MIME would break convergence). Hash-excluding it would let one `objectId` carry contradictory type claims. Not reserved now — today derivable from `schema`; added at the first non-JSON blob (an artifact-digest break). |
+
+### Backward Compatibility
+
+- This amendment is **not** byte-neutral (unlike the two prior co-signature amendments): D1 is a deliberate
+  signed-store break that re-keys the signed view and re-derives content ids, landed as **one clean,
+  owner-run migration** over the real stores. There is **no dual-read of signed bytes** — the strict reader
+  rejects the old shape; the one-shot migrator bridges it. `sigVersion` stays `1`.
+- D2's view upcast and D3's `contentEncoding`/`payloadVersion` fields are **additive and
+  signature-neutral**: they touch no stored-byte digest and need no `sigVersion` change.
+- The co-signature member model, the `EventVerificationStatus` vocabulary, the DSSE PAE, and strict Ed25519
+  verification are **unchanged**. Co-signature attestation still signs the target's `EventToBeSigned` view;
+  after D1 that view carries the opaque `TypeCode` (and the opaque `subjectId` for a subject-bearing target;
+  a journal carrier omits it per D1.2), but the attestation contract is otherwise intact (the verifier
+  reconstructs the opaque-coded view for the target).
+
+### Consequences
+
+#### Accepted
+
+- Future renames and structural reshapes of the signed view become **projection-only** changes the view
+  upcast presents with **no migrator** — retiring the rename-per-break treadmill.
+- The signed identity stops folding human-readable names; identity is the opaque `TypeCode` + content-ids,
+  which is what `eventId`/`payloadHash` already are.
+- The cost is **human-readable signed bytes** (you can no longer eyeball `eventType: "..."` in the signed
+  material). This is accepted; the substrate inspector (ADR-0017 §A4) is the natural home for a code→name
+  decode, moving readability off the signed bytes.
+- "No silent dual-read" is preserved exactly for signed identity; a *bounded, layered* exception is added
+  for interpretation, with a sharp, testable boundary (D4).
+- The `contentEncoding` pipeline makes future compressed/encrypted storage self-describing at zero cost
+  today, and fork-free thereafter (hash over decoded content, encoding excluded) — recompression and
+  encryption-key rotation / crypto-shred never re-key the store.
+
+#### Rejected
+
+- **Opaque-coding the signed fields without re-basing the idempotency keys** — insufficient; the `eventId`
+  would still fold the human names and a rename would still re-key the store (D1.4).
+- **A descriptor-hash type code** with no registry — opaque to debugging and itself a re-derivation surface;
+  the frozen counter-token registry is the single source of truth.
+- **Smuggling the domain axis back as a signed tag inside `subjectId`** — violates ADR-0017 §A4's
+  one-domain-axis, derived-not-asserted rule.
+- **Bumping `sigVersion` to 2 / a `event-tbs.v2` payload type** — implies a verifier dispatch that does not
+  exist after a clean full-resign break; the break is confined to the signed view's content.
+- **Keying the view upcast on the envelope `version`** — reject-only on read; the event never reaches the
+  projection. **Relaxing `validate_schema_version` to an accept-range** — loosens the strict envelope
+  contract; the hash-excluded per-payload view version is preferred.
+- **Re-serializing an upcast view to re-derive a digest** — the §8 fork-the-store anti-pattern; forbidden
+  (D4).
+- **Using the view upcast for a genuine payload-semantics change** — that is a signed-identity change; it
+  takes D1's opaque-coding or a clean break + migrator, not the seam.
+- **Letting `contentEncoding`/`payloadVersion` enter any identity hash** — would make them a hard break to
+  add or bump; they stay envelope-adjacent and hash-excluded like the `ingest` stamp.
+- **A single flat `codec` token, or two typed `compression`/`encryption` slots, instead of an ordered
+  `contentEncoding` list** — a single token cannot express a multi-transform stack; typed slots cannot
+  express arbitrary order (e.g. a future signing frame in the chain). One ordered token list, reversed on
+  read with encryption outermost, is the HTTP-proven shape.
+- **Hash-excluding `contentType`** — it is *what the object is*, so excluding it would let one `objectId`
+  carry contradictory type claims with nothing authoritative to resolve them, and would attest bytes
+  without attesting what they are. It belongs inside the identity hash.
+- **Hashing a raw MIME string for `contentType`** — raw MIME's case-insensitivity, `charset=`/`boundary=`
+  parameters, and `+json` suffixes are a poor hash input that breaks convergence; the hashed form is a
+  normalized canonical type tag (or closed kind enum).
+
+### Revisit Triggers
+
+- **A genuine payload-semantics break that opaque-coding cannot demote to projection-only** arrives → it is
+  identity-bearing by definition and takes the clean-break + migrator path; revisit only whether the new
+  shape belongs in the opaque subject or a new signed field.
+- **A second payload family needs a view upcast** → generalize the per-family `upcast(version, value)` hook
+  then (deferred until the second need; see D2 and resolved question 5).
+- **A real demand for compressed or encrypted storage** → populate the reserved `contentEncoding` pipeline
+  with concrete codec tokens (encryption outermost) + register their codecs; the encryption-boundary
+  decisions are tracked separately.
+- **The first non-JSON / varying-media-type blob** (a note body, a binary artifact) → add the
+  identity-bearing `contentType` to the hashed artifact body alongside `schema`, as a normalized canonical
+  type tag — an artifact-digest break, out of this amendment's scope but modeled in D3.
+- **The frozen type-code registry is ever tempted to reassign a retired code** → forbidden; a reassignment
+  would un-decode historical signed events. Reopen only to add new codes, never to reuse.
+- **An artifact-digest or `writer.*` envelope break recurs** → out of this amendment's scope; addressed by
+  content-addressing and the storage-model record respectively, not by opaque-coding.
+
+**Status:** Accepted; the one signed-store break this amendment authorizes (the opaque-coded signed
+identity migration) lands with its owner-gated implementation work. The signature-neutral pieces —
+the reserved storage-descriptor fields and the view-upcast doctrine — land ahead of the break.
