@@ -90,15 +90,23 @@ impl HistoryWindow {
             // value after a nonzero `start` must saturate rather than overflow.
             Some(limit) => start.saturating_add(limit).min(keys.len()),
         };
-        // Emit a continuation token only when at least one entry was taken AND at
-        // least one remains after it. A full/last page, an empty window, and a
-        // cursor past the end all yield `None`.
-        let next_cursor = (end > start && end < keys.len()).then(|| keys[end - 1].encode());
-        WindowSlice {
-            range: start..end,
-            next_cursor,
-        }
+        let range = start..end;
+        let next_cursor = next_cursor_for(keys, &range);
+        WindowSlice { range, next_cursor }
     }
+}
+
+/// The forward continuation token for a windowed `range` over display-ordered
+/// `keys`: emit only when at least one entry was taken AND at least one remains
+/// after it (a full/last page, an empty window, and a cursor past the end all
+/// yield `None`). `keys[range.end - 1]` is the display-ordered last entry, so the
+/// token continues in the requested order (ascending or descending). This is
+/// INV-1's single source for both the CLI window and the inspector query path.
+pub(super) fn next_cursor_for(
+    keys: &[HistoryCursor],
+    range: &std::ops::Range<usize>,
+) -> Option<String> {
+    (range.end > range.start && range.end < keys.len()).then(|| keys[range.end - 1].encode())
 }
 
 #[cfg(test)]

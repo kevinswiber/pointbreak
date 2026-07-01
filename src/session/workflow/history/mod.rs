@@ -1,6 +1,7 @@
 mod cursor;
 mod options;
 mod projection;
+mod query;
 mod result;
 mod search;
 mod summary;
@@ -12,6 +13,9 @@ use self::options::ResolvedHistoryFilters;
 pub use self::options::{ReviewHistoryFilters, ReviewHistoryOptions};
 pub use self::projection::{BaseEntry, BaseHistoryProjection, BaseProjectionConfig};
 use self::projection::{history_base_from_events, history_from_events};
+pub use self::query::{
+    HistoryOrder, HistoryPage, HistoryQuery, QueriedHistory, apply_history_query,
+};
 pub use self::result::ReviewHistoryResult;
 pub use self::search::{
     QueryClause, SearchRecord, build_haystack, matches_query, parse_search_query,

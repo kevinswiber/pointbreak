@@ -49,9 +49,10 @@ pub use event_signature::{
     EventSignatureRecordOptions, EventSignatureRecordResult, record_event_signature,
 };
 pub use history::{
-    BaseEntry, BaseHistoryProjection, BaseProjectionConfig, HistoryCursor, HistoryWindow,
-    QueryClause, ReviewHistoryEntry, ReviewHistoryFilters, ReviewHistoryOptions,
-    ReviewHistoryResult, SearchRecord, build_haystack, history_base_projection, matches_query,
+    BaseEntry, BaseHistoryProjection, BaseProjectionConfig, HistoryCursor, HistoryOrder,
+    HistoryPage, HistoryQuery, HistoryWindow, QueriedHistory, QueryClause, ReviewHistoryEntry,
+    ReviewHistoryFilters, ReviewHistoryOptions, ReviewHistoryResult, SearchRecord,
+    apply_history_query, build_haystack, history_base_projection, matches_query,
     parse_search_query, review_history,
 };
 pub use import::{ImportNotesOptions, ImportNotesResult, import_notes};
