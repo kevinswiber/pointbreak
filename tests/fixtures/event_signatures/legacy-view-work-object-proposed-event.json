@@ -1,0 +1,44 @@
+{
+  "assertionMode": "advisory",
+  "eventId": "evt:sha256:8dee7b23b2176959bf8b0e0dcd1cac18e7ba4308e034b18505a09a9e0ec62fe6",
+  "eventType": "work_object_proposed",
+  "idempotencyKey": "work_object_proposed:rev:sha256:8888888888888888888888888888888888888888888888888888888888888888",
+  "occurredAt": "2026-06-03T23:59:45Z",
+  "payload": {
+    "engagementId": "engagement:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "workObject": {
+      "kind": "revision",
+      "revision": {
+        "id": "rev:sha256:8888888888888888888888888888888888888888888888888888888888888888",
+        "objectId": "obj:sha256:9999999999999999999999999999999999999999999999999999999999999999"
+      },
+      "snapshotArtifactContentHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "payloadHash": "sha256:123dceaaaa3dc198cd23616bc1711fe544e358c1d030faeaedd5bb71f8c9647c",
+  "payloadVersion": 0,
+  "schema": "shore.event",
+  "signature": {
+    "alg": "ed25519",
+    "sig": "SM7v7VSSvMmhdV6ilsPV8xKOU/v6giQCH//dA8TvwoUWWIRvqY/9itIBRt8c6vhX8occAIPSKvBOSDjkelShDw==",
+    "sigVersion": 1
+  },
+  "signer": "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+  "target": {
+    "journalId": "journal:fixture:event-signatures",
+    "subject": {
+      "review": {
+        "kind": "revision",
+        "revisionId": "rev:sha256:8888888888888888888888888888888888888888888888888888888888888888"
+      }
+    }
+  },
+  "version": 1,
+  "writer": {
+    "actorId": "actor:git-email:alice@example.com",
+    "producer": {
+      "name": "shore",
+      "version": "0.1.0-test"
+    }
+  }
+}

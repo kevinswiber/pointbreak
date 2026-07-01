@@ -169,6 +169,17 @@ pub fn build_all_fixtures(fixture_dir: &Path) -> FixtureSet {
     }));
     set.insert_json("mutation-cases.json", &json!({ "cases": mutation_index }));
 
+    // Legacy-payload-view fixture for the read-time payload-view upcast: a signed
+    // review-domain proposal whose payload still uses the retired artifact-hash
+    // wire key, marked payloadVersion 0. The signature binds the stored legacy
+    // payload; the projection-layer upcast re-presents it without re-hashing.
+    let legacy_view = sign_event(
+        legacy_view_revision_proposed_event(),
+        &keys.did_key,
+        &keys.seed,
+    );
+    set.insert_json("legacy-view-work-object-proposed-event.json", &legacy_view);
+
     let mut unsupported_alg = friendly.clone();
     unsupported_alg["signature"]["alg"] = json!("ed25519ph");
     set.insert_json("unsupported-alg-event.json", &unsupported_alg);
@@ -340,6 +351,65 @@ fn task_event() -> Value {
             "subject": {
                 "task": {
                     "kind": "task_attempt",
+                }
+            }
+        },
+        "version": 1,
+        "writer": {
+            "actorId": "actor:git-email:alice@example.com",
+            "producer": {
+                "name": "shore",
+                "version": "0.1.0-test",
+            }
+        },
+    })
+}
+
+/// A signed review-domain `work_object_proposed` envelope pinned at a legacy
+/// payload view: the artifact binding rides under the retired
+/// `snapshotArtifactContentHash` wire key and the envelope carries
+/// `payloadVersion: 0`, so the read-time payload-view upcast — not the strict
+/// reader — is what re-presents it under the current model. The signature is
+/// over the stored (legacy) payload bytes; the upcast must leave it valid.
+fn legacy_view_revision_proposed_event() -> Value {
+    let revision_id = format!("rev:sha256:{}", "8".repeat(64));
+    let object_id = format!("obj:sha256:{}", "9".repeat(64));
+    let payload = json!({
+        "engagementId": format!("engagement:sha256:{}", "b".repeat(64)),
+        "workObject": {
+            "kind": "revision",
+            "revision": {
+                "id": revision_id,
+                "objectId": object_id,
+            },
+            "snapshotArtifactContentHash": format!("sha256:{}", "a".repeat(64)),
+        },
+    });
+    let idempotency_key = format!("work_object_proposed:{revision_id}");
+    let event_id = format!(
+        "evt:sha256:{}",
+        hex(&Sha256::digest(idempotency_key.as_bytes()))
+    );
+    let payload_hash = sha256_canonical_json_prefixed(&payload);
+
+    json!({
+        "assertionMode": "advisory",
+        "eventId": event_id,
+        "eventType": "work_object_proposed",
+        "idempotencyKey": idempotency_key,
+        "occurredAt": "2026-06-03T23:59:45Z",
+        "payload": payload,
+        "payloadHash": payload_hash,
+        "payloadVersion": 0,
+        "schema": "shore.event",
+        "signature": null,
+        "signer": null,
+        "target": {
+            "journalId": "journal:fixture:event-signatures",
+            "subject": {
+                "review": {
+                    "kind": "revision",
+                    "revisionId": revision_id,
                 }
             }
         },
