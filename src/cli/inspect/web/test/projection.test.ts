@@ -385,6 +385,18 @@ describe("attentionTokens", () => {
     expect(attentionTokens(undefined)).toEqual([]);
     expect(attentionTokens({ attention: {} })).toEqual([]);
   });
+
+  it("surfaces a stale-fact cue when the overview reports superseded facts", () => {
+    const tokens = attentionTokens({ attention: { staleFactCount: 2 } });
+    expect(tokens.map((t) => t.token)).toEqual(["stale-fact"]);
+    expect(tokens[0].query).toBe("attention:stale-fact");
+    expect(tokens[0].label).toBe("2 stale facts");
+  });
+
+  it("omits the stale-fact cue when the count is zero or absent", () => {
+    expect(attentionTokens({ attention: { staleFactCount: 0 } })).toEqual([]);
+    expect(attentionTokens({ attention: {} })).toEqual([]);
+  });
 });
 
 describe("attentionCues", () => {

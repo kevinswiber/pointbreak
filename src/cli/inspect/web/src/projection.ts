@@ -246,6 +246,13 @@ export function attentionTokens(overview?: Overview | null): AttentionToken[] {
       label: "follow-up",
     });
   }
+  if (attention.staleFactCount) {
+    tokens.push({
+      token: "stale-fact",
+      query: "attention:stale-fact",
+      label: plural(attention.staleFactCount, "stale fact"),
+    });
+  }
   return tokens;
 }
 

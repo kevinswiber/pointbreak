@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use crate::error::Result;
@@ -25,11 +25,12 @@ use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::backend::StoreBackend;
 use crate::session::store::resolution::{ReadStore, resolve_read_store};
 use crate::session::workflow::{
-    ValidationCheckProjectionOptions, ValidationCheckView, project_validation_checks,
+    ValidationCheckProjectionOptions, ValidationCheckView, annotate_validation_supersession,
+    project_validation_checks,
 };
 use crate::session::{
-    EventStore, RemovalPolicy, RevisionCommitRangeProjection, RevisionCommitRangeView, TrustSet,
-    verify_event_signature,
+    EventStore, RemovalPolicy, RevisionCommitRangeProjection, RevisionCommitRangeView,
+    SupersessionView, TrustSet, verify_event_signature,
 };
 
 mod adapter_notes;
@@ -182,7 +183,7 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
         include_summary: options.include_body,
         include_all: true,
     })?;
-    let validation_checks = project_validation_checks(ValidationCheckProjectionOptions {
+    let mut validation_checks = project_validation_checks(ValidationCheckProjectionOptions {
         backend: read_store.backend(),
         events: &events,
         revision_id: &resolved.revision_id,
@@ -190,6 +191,11 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
         status_filter: None,
         include_body: options.include_body,
     })?;
+    // Annotate each check with the successors of the revision it targets. An exact address can
+    // resolve a superseded revision, so its checks carry the advisory staleness set; a head resolves
+    // to itself and stays empty. Built from the events already read above — no second store read.
+    let supersession = SupersessionView::from_events(&events)?;
+    annotate_validation_supersession(&mut validation_checks, &supersession);
     let adapter_notes = project_adapter_notes(
         &events,
         read_store.backend(),
@@ -495,6 +501,9 @@ pub struct RevisionOverview {
     pub assessments: Vec<AssessmentView>,
     pub validation_checks: Vec<ValidationCheckView>,
     pub adapter_notes: Vec<AdapterNoteView>,
+    /// Advisory: the revisions that directly supersede *this* revision. Empty ⇒ head. Not serialized
+    /// directly; the inspector derives its stale-fact count from it.
+    pub superseded_by: BTreeSet<RevisionId>,
 }
 
 /// Batch the per-revision overview for every captured revision in one store-wide
@@ -542,6 +551,9 @@ fn revision_overviews_from_store(
         skip_diagnostics: _,
     } = load_store_wide_read(read_store, read_for_display)?;
     let cosig_index = CosignatureIndex::build(&events)?;
+    // One supersession view for the whole batch, from the already-read events (single-read
+    // preserved). Each overview reads its own direct superseders from it.
+    let supersession = SupersessionView::from_events(&events)?;
     // Index every captured identity by id once, then build only the requested
     // revisions. The requested set is the caller's listed entries, a subset of all
     // captures — building only it never resolves a snapshot for an orphan-hidden or
@@ -566,6 +578,7 @@ fn revision_overviews_from_store(
             removal_policy,
             &removal,
             &cosig_index,
+            &supersession,
         )?;
         overviews.insert(revision_id.clone(), overview);
     }
@@ -587,6 +600,7 @@ fn build_revision_overview(
     removal_policy: RemovalPolicy,
     removal: &ArtifactRemovalProjection,
     cosig_index: &CosignatureIndex<'_>,
+    supersession: &SupersessionView,
 ) -> Result<RevisionOverview> {
     let resolved = ResolvedRevision {
         journal_id: revision.journal_id.clone(),
@@ -684,6 +698,7 @@ fn build_revision_overview(
         assessments,
         validation_checks,
         adapter_notes,
+        superseded_by: supersession.stale_by_superseding_revision(&resolved.revision_id),
     })
 }
 
@@ -799,6 +814,96 @@ mod tests {
         );
     }
 
+    #[test]
+    fn show_revision_exact_annotates_a_superseded_revisions_checks() {
+        use crate::session::{ValidationAddOptions, record_validation_check};
+
+        let repo = TestRepo::new();
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+        repo.commit_all("base");
+
+        // Root revision + a validation check recorded against it.
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+        let root = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        record_validation_check(
+            ValidationAddOptions::new(repo.path())
+                .with_revision_id(root.revision_id.clone())
+                .with_track("agent:codex")
+                .with_check_name("cargo test")
+                .with_status(ValidationStatus::Passed),
+        )
+        .unwrap();
+
+        // A successor supersedes the root.
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+        let successor = capture_worktree_review(
+            CaptureOptions::new(repo.path()).with_supersedes(vec![root.revision_id.clone()]),
+        )
+        .unwrap();
+
+        // Exact selection projects the SUPERSEDED root's own checks (a head seed would resolve
+        // away to the successor).
+        let result = show_revision(
+            RevisionShowOptions::new(repo.path())
+                .with_revision_id(root.revision_id.clone())
+                .with_exact(true)
+                .with_read_for_display(true),
+        )
+        .unwrap();
+
+        assert_eq!(result.validation_checks.len(), 1);
+        assert_eq!(
+            result.validation_checks[0].superseded_by_revisions,
+            [successor.revision_id.clone()].into_iter().collect(),
+        );
+
+        // The head resolves to itself and its checks stay current (empty annotation).
+        let head = show_revision(
+            RevisionShowOptions::new(repo.path())
+                .with_revision_id(successor.revision_id.clone())
+                .with_exact(true)
+                .with_read_for_display(true),
+        )
+        .unwrap();
+        assert!(
+            head.validation_checks
+                .iter()
+                .all(|check| check.superseded_by_revisions.is_empty())
+        );
+    }
+
+    #[test]
+    fn superseded_revision_overview_names_its_superseders() {
+        let repo = TestRepo::new();
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+        repo.commit_all("base");
+
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+        let root = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+
+        repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+        let successor = capture_worktree_review(
+            CaptureOptions::new(repo.path()).with_supersedes(vec![root.revision_id.clone()]),
+        )
+        .unwrap();
+
+        let overviews = show_revision_overviews(
+            RevisionOverviewsOptions::new(repo.path())
+                .with_revisions(vec![
+                    root.revision_id.clone(),
+                    successor.revision_id.clone(),
+                ])
+                .with_read_for_display(true),
+        )
+        .unwrap();
+
+        assert_eq!(
+            overviews[&root.revision_id].superseded_by,
+            [successor.revision_id.clone()].into_iter().collect(),
+        );
+        assert!(overviews[&successor.revision_id].superseded_by.is_empty());
+    }
+
     fn build_multi_revision_fixture() -> TestRepo {
         let repo = TestRepo::new();
         repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
@@ -894,6 +999,7 @@ mod tests {
             assessments: result.assessments,
             validation_checks: result.validation_checks,
             adapter_notes: result.adapter_notes,
+            superseded_by: BTreeSet::new(),
         }
     }
 

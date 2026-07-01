@@ -1,8 +1,8 @@
 // Shared view-document mappers used by review unit show and the leaf read commands.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::model::{
-    EventId, ReviewTargetRef, ValidationStatus, ValidationTarget, ValidationTrigger,
+    EventId, ReviewTargetRef, RevisionId, ValidationStatus, ValidationTarget, ValidationTrigger,
 };
 use crate::session::event::{
     AssertionMode, BodyContentType, InputRequestReasonCode, InputRequestResponseOutcome,
@@ -203,6 +203,8 @@ pub struct ValidationCheckViewDocument {
     completed_at: Option<String>,
     log_artifact_content_hashes: Vec<String>,
     created_at: String,
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    superseded_by_revisions: BTreeSet<RevisionId>,
     writer: Writer,
     #[serde(skip_serializing_if = "Option::is_none")]
     principal: Option<PrincipalView>,
@@ -383,6 +385,7 @@ impl From<ValidationCheckView> for ValidationCheckViewDocument {
             completed_at: view.completed_at,
             log_artifact_content_hashes: view.log_artifact_content_hashes,
             created_at: view.created_at,
+            superseded_by_revisions: view.superseded_by_revisions,
             writer: view.writer,
             principal: None,
             verification_status: None,

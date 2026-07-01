@@ -95,4 +95,6 @@ pub use validation::{
     ValidationAddOptions, ValidationAddResult, ValidationCheckView, ValidationListFilters,
     ValidationListOptions, ValidationListResult, list_validation_checks, record_validation_check,
 };
-pub(crate) use validation::{ValidationCheckProjectionOptions, project_validation_checks};
+pub(crate) use validation::{
+    ValidationCheckProjectionOptions, annotate_validation_supersession, project_validation_checks,
+};

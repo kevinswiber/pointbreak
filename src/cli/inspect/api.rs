@@ -21,9 +21,10 @@ use shoreline::session::{
     BaseProjectionConfig, CurrentAssessmentStatus, EventVerificationPolicy, HistoryPage,
     HistoryQuery, InputRequestStatus, LivenessEnrichment, ProjectionDiagnostic, ReviewHistoryEntry,
     RevisionListEntry, RevisionListOptions, RevisionOverview, RevisionOverviewsOptions,
-    RevisionShowOptions, SessionState, SupersessionView, apply_history_query, enrich_liveness,
-    event_log_head_marker, history_base_projection, list_revisions, read_bound_object_artifact,
-    read_events_for_display, read_object_artifact, show_revision, show_revision_overviews,
+    RevisionProjectionSummary, RevisionShowOptions, SessionState, SupersessionView,
+    apply_history_query, enrich_liveness, event_log_head_marker, history_base_projection,
+    list_revisions, read_bound_object_artifact, read_events_for_display, read_object_artifact,
+    show_revision, show_revision_overviews,
 };
 
 use super::server::HighlightCache;
@@ -415,6 +416,24 @@ fn revision_overviews(
     Ok(documents)
 }
 
+/// Advisory count of a revision's review facts that target a now-superseded revision. Non-zero only
+/// when the revision itself is superseded; sums the four review-fact families (observations, input
+/// requests, assessments, validation checks). Adapter notes are excluded (ingestion provenance, not a
+/// review assertion). Never gates — it feeds an attention badge only.
+fn stale_review_fact_count(
+    superseded_by: &BTreeSet<RevisionId>,
+    summary: &RevisionProjectionSummary,
+) -> usize {
+    if superseded_by.is_empty() {
+        0
+    } else {
+        summary.observation_count
+            + summary.input_request_count
+            + summary.assessment_count
+            + summary.validation_check_count
+    }
+}
+
 fn revision_overview_document(
     result: &RevisionOverview,
     captured_at: &str,
@@ -442,7 +461,7 @@ fn revision_overview_document(
                 .iter()
                 .filter(|check| check.status == ValidationStatus::Errored)
                 .count(),
-            stale_fact_count: 0,
+            stale_fact_count: stale_review_fact_count(&result.superseded_by, summary),
         },
         counts: RevisionOverviewCounts {
             files: summary.file_count,
@@ -1033,6 +1052,29 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn stale_review_fact_count_sums_review_facts_only_when_superseded() {
+        use shoreline::session::RevisionProjectionSummary;
+
+        let summary = RevisionProjectionSummary {
+            observation_count: 2,
+            input_request_count: 1,
+            assessment_count: 1,
+            validation_check_count: 3,
+            adapter_note_count: 5, // excluded — not a review fact
+            ..Default::default()
+        };
+
+        // Superseded ⇒ the four review families (2 + 1 + 1 + 3 = 7); adapter notes excluded.
+        let superseded: BTreeSet<RevisionId> = [RevisionId::new("rev:sha256:successor")]
+            .into_iter()
+            .collect();
+        assert_eq!(stale_review_fact_count(&superseded, &summary), 7);
+
+        // Head (empty superseders) ⇒ zero, regardless of fact counts.
+        assert_eq!(stale_review_fact_count(&BTreeSet::new(), &summary), 0);
+    }
 
     #[test]
     fn revision_classification_marks_head_superseded_and_isolated() {

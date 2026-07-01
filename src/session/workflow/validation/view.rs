@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
@@ -7,6 +7,7 @@ use crate::model::{
     EventId, RevisionId, TrackId, ValidationCheckId, ValidationStatus, ValidationTarget,
     ValidationTrigger,
 };
+use crate::session::SupersessionView;
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
     BodyContentType, EventType, ShoreEvent, ValidationCheckRecordedPayload, Writer,
@@ -58,6 +59,11 @@ pub struct ValidationCheckView {
     pub log_artifact_content_hashes: Vec<String>,
     pub created_at: String,
     pub writer: Writer,
+    /// Advisory: the revisions that directly supersede this check's target revision.
+    /// Empty ⇒ the target is a head ⇒ this check is current. Skip-when-empty keeps a current check
+    /// byte-identical on the wire.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub superseded_by_revisions: BTreeSet<RevisionId>,
 }
 
 pub fn project_validation_checks(
@@ -143,11 +149,30 @@ pub fn project_validation_checks(
             log_artifact_content_hashes: record.payload.log_artifact_content_hashes,
             created_at: record.event.occurred_at.clone(),
             writer: record.event.writer.clone(),
+            superseded_by_revisions: BTreeSet::new(),
         });
     }
 
     sort_validation_check_views(&mut validations);
     Ok(validations)
+}
+
+/// Fill each check's advisory `superseded_by_revisions` from `supersession`, keyed on the revision
+/// the check targets. The projection leaves the field empty; this is the sole writer of a non-empty
+/// value. Called by the exact-addressable show path over a per-read `SupersessionView` (the
+/// head-seeded list path can never address a superseded revision, so it is not decorated).
+pub(crate) fn annotate_validation_supersession(
+    checks: &mut [ValidationCheckView],
+    supersession: &SupersessionView,
+) {
+    for check in checks {
+        match &check.target {
+            ValidationTarget::Revision { revision_id } => {
+                check.superseded_by_revisions =
+                    supersession.stale_by_superseding_revision(revision_id);
+            }
+        }
+    }
 }
 
 fn validation_summary(
@@ -342,6 +367,70 @@ mod tests {
 
         assert_eq!(omitted[0].summary, None);
         assert_eq!(hydrated[0].summary.as_deref(), Some("artifact summary"));
+    }
+
+    #[test]
+    fn annotate_validation_supersession_names_superseders_of_the_target_revision() {
+        use crate::session::SupersessionView;
+
+        // A <- {B, C}: a check targeting A is stale (named by B and C); a check on head B is current.
+        let view = SupersessionView::from_edges([
+            (RevisionId::new("rev:sha256:A"), vec![]),
+            (
+                RevisionId::new("rev:sha256:B"),
+                vec![RevisionId::new("rev:sha256:A")],
+            ),
+            (
+                RevisionId::new("rev:sha256:C"),
+                vec![RevisionId::new("rev:sha256:A")],
+            ),
+        ]);
+
+        let mut checks = vec![
+            check_targeting("rev:sha256:A", "validation:sha256:on-a"),
+            check_targeting("rev:sha256:B", "validation:sha256:on-b"),
+        ];
+        annotate_validation_supersession(&mut checks, &view);
+
+        let on_a = &checks[0];
+        assert_eq!(
+            on_a.superseded_by_revisions,
+            [
+                RevisionId::new("rev:sha256:B"),
+                RevisionId::new("rev:sha256:C")
+            ]
+            .into_iter()
+            .collect()
+        );
+        let on_b = &checks[1];
+        assert!(on_b.superseded_by_revisions.is_empty());
+    }
+
+    // Minimal ValidationCheckView builder for the decorator test (target-only matters here).
+    fn check_targeting(revision_id: &str, validation_check_id: &str) -> ValidationCheckView {
+        ValidationCheckView {
+            id: ValidationCheckId::new(validation_check_id),
+            event_id: EventId::new("evt:sha256:x"),
+            track_id: TrackId::new("agent:codex"),
+            target: ValidationTarget::Revision {
+                revision_id: RevisionId::new(revision_id),
+            },
+            check_name: "cargo test".to_owned(),
+            command: None,
+            status: ValidationStatus::Passed,
+            exit_code: Some(0),
+            trigger: ValidationTrigger::Manual,
+            source_fingerprint: None,
+            summary: None,
+            summary_content_type: Default::default(),
+            summary_content_hash: None,
+            started_at: None,
+            completed_at: None,
+            log_artifact_content_hashes: Vec::new(),
+            created_at: "2026-05-10T00:00:00Z".to_owned(),
+            writer: Writer::shore_local("0.1.0"),
+            superseded_by_revisions: Default::default(),
+        }
     }
 
     fn validation_event(

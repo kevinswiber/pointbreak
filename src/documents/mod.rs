@@ -302,6 +302,36 @@ mod tests {
     }
 
     #[test]
+    fn validation_document_serializes_superseded_by_revisions_camel_case_when_present() {
+        use crate::documents::ValidationCheckViewDocument;
+        use crate::model::RevisionId;
+
+        let mut view = validation_view();
+        view.superseded_by_revisions = [RevisionId::new("rev:sha256:successor")]
+            .into_iter()
+            .collect();
+
+        let value = serde_json::to_value(ValidationCheckViewDocument::from(view)).unwrap();
+        assert_eq!(
+            value["supersededByRevisions"],
+            serde_json::json!(["rev:sha256:successor"]),
+        );
+    }
+
+    #[test]
+    fn validation_document_omits_superseded_by_revisions_when_empty() {
+        use crate::documents::ValidationCheckViewDocument;
+
+        // validation_view() defaults to an empty set (a head-targeting check).
+        let value =
+            serde_json::to_value(ValidationCheckViewDocument::from(validation_view())).unwrap();
+        assert!(
+            value.get("supersededByRevisions").is_none(),
+            "a current check must be byte-identical — the field is skip-when-empty",
+        );
+    }
+
+    #[test]
     fn revision_show_document_includes_validation_checks_and_count() {
         use crate::documents::revision_show_document;
         use crate::model::ValidationStatus;
@@ -370,6 +400,7 @@ mod tests {
             log_artifact_content_hashes: vec!["sha256:log".to_owned()],
             created_at: "2026-05-10T00:01:01Z".to_owned(),
             writer: Writer::shore_local(env!("CARGO_PKG_VERSION")),
+            superseded_by_revisions: std::collections::BTreeSet::new(),
         }
     }
 
