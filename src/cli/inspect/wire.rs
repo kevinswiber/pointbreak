@@ -97,16 +97,19 @@ pub(super) struct WireEmphSpan {
 }
 
 impl WireObjectArtifact {
-    /// Build the enriched wire DTO from a decoded, hash-validated artifact, calling `highlight` once
-    /// per file to obtain its row tokens.
+    /// Build the enriched wire DTO from a decoded, hash-validated artifact, calling `highlight` and
+    /// `emphasis` once per file to obtain its row tokens and intraline emphasis. The two channels are
+    /// threaded as parallel producers (mirroring the syntax path) so they share one row-cap gate and
+    /// never touch the stored bytes.
     pub(super) fn from_artifact(
         artifact: &ObjectArtifact,
         highlight: impl Fn(&DiffFile) -> HashMap<RowKey, Vec<TokenSpan>>,
+        emphasis: impl Fn(&DiffFile) -> HashMap<RowKey, Vec<EmphSpan>>,
     ) -> Self {
         WireObjectArtifact {
             schema: artifact.schema.clone(),
             version: artifact.version,
-            snapshot: WireDiffSnapshot::from_snapshot(&artifact.snapshot, &highlight),
+            snapshot: WireDiffSnapshot::from_snapshot(&artifact.snapshot, &highlight, &emphasis),
             content_hash: artifact.content_hash.clone(),
         }
     }
@@ -116,6 +119,7 @@ impl WireDiffSnapshot {
     fn from_snapshot(
         snapshot: &DiffSnapshot,
         highlight: &impl Fn(&DiffFile) -> HashMap<RowKey, Vec<TokenSpan>>,
+        emphasis: &impl Fn(&DiffFile) -> HashMap<RowKey, Vec<EmphSpan>>,
     ) -> Self {
         WireDiffSnapshot {
             review_id: snapshot.review_id.clone(),
@@ -123,7 +127,7 @@ impl WireDiffSnapshot {
             files: snapshot
                 .files
                 .iter()
-                .map(|file| WireDiffFile::from_file(file, highlight))
+                .map(|file| WireDiffFile::from_file(file, highlight, emphasis))
                 .collect(),
         }
     }
@@ -133,13 +137,15 @@ impl WireDiffFile {
     fn from_file(
         file: &DiffFile,
         highlight: &impl Fn(&DiffFile) -> HashMap<RowKey, Vec<TokenSpan>>,
+        emphasis: &impl Fn(&DiffFile) -> HashMap<RowKey, Vec<EmphSpan>>,
     ) -> Self {
         let total_rows: usize = file.hunks.iter().map(|hunk| hunk.rows.len()).sum();
-        // Bounded best-effort: a file past the row cap is served plain.
-        let spans = if total_rows > HIGHLIGHT_FILE_ROW_CAP {
-            HashMap::new()
+        // Bounded best-effort: a file past the row cap is served fully plain — the one
+        // `HIGHLIGHT_FILE_ROW_CAP` gate covers BOTH channels (syntax and intraline emphasis).
+        let (spans, emph) = if total_rows > HIGHLIGHT_FILE_ROW_CAP {
+            (HashMap::new(), HashMap::new())
         } else {
-            highlight(file)
+            (highlight(file), emphasis(file))
         };
         WireDiffFile {
             id: file.id.clone(),
@@ -160,7 +166,9 @@ impl WireDiffFile {
                 .hunks
                 .iter()
                 .enumerate()
-                .map(|(hunk_index, hunk)| WireReviewHunk::from_hunk(hunk_index, hunk, &spans))
+                .map(|(hunk_index, hunk)| {
+                    WireReviewHunk::from_hunk(hunk_index, hunk, &spans, &emph)
+                })
                 .collect(),
         }
     }
@@ -171,6 +179,7 @@ impl WireReviewHunk {
         hunk_index: usize,
         hunk: &ReviewHunk,
         spans: &HashMap<RowKey, Vec<TokenSpan>>,
+        emph: &HashMap<RowKey, Vec<EmphSpan>>,
     ) -> Self {
         WireReviewHunk {
             id: hunk.id.clone(),
@@ -184,11 +193,16 @@ impl WireReviewHunk {
                 .iter()
                 .enumerate()
                 .map(|(row_index, row)| {
+                    // Both channels key by the identical (hunk_index, row_index) walk (INV-C).
                     let row_spans = spans
                         .get(&(hunk_index, row_index))
                         .map(Vec::as_slice)
                         .unwrap_or(&[]);
-                    WireDiffRow::from_row(row, row_spans, &[])
+                    let row_emph = emph
+                        .get(&(hunk_index, row_index))
+                        .map(Vec::as_slice)
+                        .unwrap_or(&[]);
+                    WireDiffRow::from_row(row, row_spans, row_emph)
                 })
                 .collect(),
         }
@@ -261,7 +275,7 @@ fn utf16_len(s: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use shoreline::highlight::{EmphSpan, TokenKind, TokenSpan};
+    use shoreline::highlight::{EmphSpan, TokenKind, TokenSpan, emphasis_file, highlight_file};
     use shoreline::model::{DiffRow, DiffRowKind};
 
     use super::*;
@@ -281,6 +295,93 @@ mod tests {
 
     fn row_json(row: &DiffRow, tokens: &[TokenSpan], emphasis: &[EmphSpan]) -> serde_json::Value {
         serde_json::to_value(WireDiffRow::from_row(row, tokens, emphasis)).unwrap()
+    }
+
+    fn diff_row(kind: DiffRowKind, text: &str) -> DiffRow {
+        DiffRow {
+            kind,
+            old_line: None,
+            new_line: None,
+            text: text.to_owned(),
+        }
+    }
+
+    fn file_with(new_path: Option<&str>, rows: Vec<DiffRow>) -> DiffFile {
+        DiffFile {
+            id: FileId::new("file:a"),
+            status: FileStatus::Modified,
+            old_path: new_path.map(str::to_owned),
+            new_path: new_path.map(str::to_owned),
+            old_mode: None,
+            new_mode: None,
+            old_oid: None,
+            new_oid: None,
+            similarity: None,
+            is_binary: false,
+            is_submodule: false,
+            is_mode_only: false,
+            synthetic: false,
+            metadata_rows: Vec::new(),
+            hunks: vec![ReviewHunk {
+                id: HunkId::new("hunk:1"),
+                header: "@@ -1,2 +1,2 @@".to_owned(),
+                old_start: 1,
+                old_lines: 2,
+                new_start: 1,
+                new_lines: 2,
+                rows,
+            }],
+        }
+    }
+
+    fn modified_rs_file() -> DiffFile {
+        file_with(
+            Some("m.rs"),
+            vec![
+                diff_row(DiffRowKind::Removed, "let b = 2;"),
+                diff_row(DiffRowKind::Added, "let b = 3;"),
+            ],
+        )
+    }
+
+    fn file_with_n_rows(n: usize) -> DiffFile {
+        let rows: Vec<DiffRow> = (0..n)
+            .map(|i| {
+                if i % 2 == 0 {
+                    diff_row(DiffRowKind::Removed, "let a = 1;")
+                } else {
+                    diff_row(DiffRowKind::Added, "let a = 2;")
+                }
+            })
+            .collect();
+        file_with(Some("big.rs"), rows)
+    }
+
+    #[test]
+    fn from_file_serializes_emphasis_on_changed_rows() {
+        // highlight: none, to isolate emphasis; emphasis: real intraline.
+        let no_highlight = |_: &DiffFile| HashMap::<RowKey, Vec<TokenSpan>>::new();
+        let wire = WireDiffFile::from_file(&modified_rs_file(), &no_highlight, &emphasis_file);
+        let json = serde_json::to_value(&wire).unwrap();
+        let added_row = &json["hunks"][0]["rows"][1]; // the Added row
+        assert!(!added_row["emphasis"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn from_file_over_cap_skips_both_channels() {
+        let file = file_with_n_rows(HIGHLIGHT_FILE_ROW_CAP + 1);
+        let wire = WireDiffFile::from_file(&file, &highlight_file, &emphasis_file);
+        let json = serde_json::to_value(&wire).unwrap();
+        for row in json["hunks"][0]["rows"].as_array().unwrap() {
+            assert!(
+                row.get("tokens").is_none(),
+                "over-cap file serves no tokens"
+            );
+            assert!(
+                row.get("emphasis").is_none(),
+                "over-cap file serves no emphasis"
+            );
+        }
     }
 
     #[test]

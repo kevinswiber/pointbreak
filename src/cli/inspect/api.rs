@@ -14,7 +14,7 @@ use mmdflux::graph::{Direction, Edge, Graph, Node};
 use mmdflux::layout::{LaidOutGraph, LayoutOptions, layout_graph};
 use serde::Serialize;
 use shoreline::documents::revision_show_document;
-use shoreline::highlight::highlight_file;
+use shoreline::highlight::{emphasis_file, highlight_file};
 use shoreline::model::{ObjectId, ReviewEndpoint, RevisionId, ValidationStatus};
 use shoreline::session::event::ReviewAssessment;
 use shoreline::session::{
@@ -905,9 +905,10 @@ pub(super) fn snapshot_json(
     }
     // Build the enriched wire DTO from the validated artifact: it mirrors the stored serialized
     // shape (identity/endpoints already absent on the v2 body) and additively carries per-row syntax
-    // tokens. The stored bytes are untouched. Round-trip through `serde_json::Value` so the served
-    // key order is unchanged from before this DTO existed (an unhighlighted row is byte-identical).
-    let wire = WireObjectArtifact::from_artifact(&artifact, highlight_file);
+    // tokens and intraline emphasis. The stored bytes are untouched. Round-trip through
+    // `serde_json::Value` so the served key order is unchanged from before this DTO existed (an
+    // unhighlighted, unemphasized row is byte-identical).
+    let wire = WireObjectArtifact::from_artifact(&artifact, highlight_file, emphasis_file);
     let value = serde_json::to_value(&wire).map_err(|error| error.to_string())?;
     let body = serde_json::to_string(&value).map_err(|error| error.to_string())?;
     // Content-addressed: the body is immutable for this hash, so caching needs no invalidation.
