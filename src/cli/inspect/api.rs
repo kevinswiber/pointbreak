@@ -154,6 +154,11 @@ struct LaidOutEdgeWire {
     from: String,
     to: String,
     path: Vec<[f64; 2]>,
+    /// The fact relation this edge encodes (`"replaces"` / `"supersedes"`); the
+    /// tagged-edge model that lets a later fact edge kind slot in. Revision edges
+    /// carry `None`, so the `/api/threads` wire is byte-identical.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -710,42 +715,58 @@ pub(super) fn threads_json(repo: &Path) -> Result<String, String> {
 /// The short display form the client paints inside a DAG node (`shortId`): the
 /// segment after the last `:`, capped at 12 chars. Used only to size the layout
 /// boxes to the painted text; the node id is unaffected.
-fn short_node_label(revision: &RevisionId) -> String {
-    let tail = revision.as_str().rsplit(':').next().unwrap_or("");
+fn short_node_label(id: &str) -> String {
+    let tail = id.rsplit(':').next().unwrap_or("");
     tail.chars().take(12).collect()
 }
 
-/// Lay out one supersession thread server-side via `mmdflux`, mapping the result
-/// onto the additive wire shape. The graph is `TopDown`, one node per revision
-/// (insertion keyed by `RevisionId` sort for stable columns), one edge `B -> A`
-/// for each `A` that `B` supersedes (so `from` supersedes `to`). The engine
-/// ranks in-degree-0 heads as equal rank-0 peers, so competing heads stay equal
-/// by construction. `isHead`/`isSuperseded` come from the projection, not the
-/// engine. The geometry is normalized to a `(0,0)` origin over the content
-/// bounding box so the client never clips.
-fn thread_layout(
-    component: &BTreeSet<RevisionId>,
-    view: &SupersessionView,
+/// One node fed to `layout_supersession_graph`: an opaque id, the short label used
+/// to SIZE the box (never for identity), and the projection-derived head/superseded
+/// standing. Node-id-agnostic — shared by the revision and fact adapters.
+struct SupersessionLayoutNode {
+    id: String,
+    label: String,
+    is_head: bool,
+    is_superseded: bool,
+}
+
+/// One directed supersession edge fed to the layout: `from` supersedes `to`, tagged
+/// with its relation kind (the tagged-edge model).
+struct SupersessionLayoutEdge {
+    from: String,
+    to: String,
+    kind: Option<&'static str>,
+}
+
+/// Lay out a supersession graph server-side via `mmdflux`, node-id-agnostic. One
+/// node per input (insertion order = input order, so callers control column
+/// stability), one edge `from -> to` (from supersedes to). Normalizes to a (0,0)
+/// origin over the content bounding box, inset by `NODE_STROKE_MARGIN`. The engine
+/// never sees the id's meaning; the label only sizes the box.
+fn layout_supersession_graph(
+    nodes: &[SupersessionLayoutNode],
+    edges: &[SupersessionLayoutEdge],
 ) -> Result<ThreadLayout, String> {
     let mut graph = Graph::new(Direction::TopDown);
-    for revision in component {
+    for node in nodes {
         // Size the box to the SHORT form the client actually paints, not the full
-        // revision id — otherwise mmdflux measures the ~70-char id and the boxes
-        // (and the whole graph) blow up, so the painted short text scales tiny.
-        // The node id still round-trips verbatim; the label only drives sizing.
-        graph.add_node(Node::new(revision.as_str()).with_label(short_node_label(revision)));
+        // id — otherwise mmdflux measures the long id and the boxes (and the whole
+        // graph) blow up, so the painted short text scales tiny. The node id still
+        // round-trips verbatim; the label only drives sizing.
+        graph.add_node(Node::new(node.id.as_str()).with_label(node.label.clone()));
     }
-    for revision in component {
-        if let Some(targets) = view.supersedes.get(revision) {
-            for target in targets {
-                if component.contains(target) {
-                    graph.add_edge(Edge::new(revision.as_str(), target.as_str()));
-                }
-            }
-        }
+    for edge in edges {
+        graph.add_edge(Edge::new(edge.from.as_str(), edge.to.as_str()));
     }
     let laid =
         layout_graph(&graph, &LayoutOptions::default()).map_err(|error| error.to_string())?;
+
+    let kinds: std::collections::HashMap<(&str, &str), Option<&'static str>> = edges
+        .iter()
+        .map(|e| ((e.from.as_str(), e.to.as_str()), e.kind))
+        .collect();
+    let is_head = |id: &str| nodes.iter().any(|n| n.id.as_str() == id && n.is_head);
+    let is_superseded = |id: &str| nodes.iter().any(|n| n.id.as_str() == id && n.is_superseded);
 
     // mmdflux's bounds are extents not guaranteed to start at the origin, so
     // shift to a (0,0) top-left over the real content and emit the content
@@ -764,8 +785,8 @@ fn thread_layout(
                 y: n.center.y - origin_y,
                 w: n.width,
                 h: n.height,
-                is_head: view.heads.iter().any(|h| h.as_str() == n.id),
-                is_superseded: view.superseded.iter().any(|s| s.as_str() == n.id),
+                is_head: is_head(&n.id),
+                is_superseded: is_superseded(&n.id),
             })
             .collect(),
         edges: laid
@@ -779,6 +800,10 @@ fn thread_layout(
                     .iter()
                     .map(|p| [p.x - origin_x, p.y - origin_y])
                     .collect(),
+                kind: kinds
+                    .get(&(e.from.as_str(), e.to.as_str()))
+                    .copied()
+                    .flatten(),
             })
             .collect(),
         bounds: LayoutBounds {
@@ -786,6 +811,43 @@ fn thread_layout(
             h: (max_y - min_y) + 2.0 * NODE_STROKE_MARGIN,
         },
     })
+}
+
+/// Lay out one revision supersession thread by adapting it onto the generic
+/// `layout_supersession_graph` core. The graph is `TopDown`, one node per revision
+/// (iterated over the `BTreeSet` component for stable columns), one edge `B -> A`
+/// for each `A` that `B` supersedes (so `from` supersedes `to`). The engine ranks
+/// in-degree-0 heads as equal rank-0 peers, so competing heads stay equal by
+/// construction. `isHead`/`isSuperseded` come from the projection, not the engine.
+/// Revision edges carry no `kind`, so the `/api/threads` wire is byte-identical.
+fn thread_layout(
+    component: &BTreeSet<RevisionId>,
+    view: &SupersessionView,
+) -> Result<ThreadLayout, String> {
+    let nodes: Vec<SupersessionLayoutNode> = component
+        .iter()
+        .map(|revision| SupersessionLayoutNode {
+            id: revision.as_str().to_owned(),
+            label: short_node_label(revision.as_str()),
+            is_head: view.heads.contains(revision),
+            is_superseded: view.superseded.contains(revision),
+        })
+        .collect();
+    let mut edges = Vec::new();
+    for revision in component {
+        if let Some(targets) = view.supersedes.get(revision) {
+            for target in targets {
+                if component.contains(target) {
+                    edges.push(SupersessionLayoutEdge {
+                        from: revision.as_str().to_owned(),
+                        to: target.as_str().to_owned(),
+                        kind: None,
+                    });
+                }
+            }
+        }
+    }
+    layout_supersession_graph(&nodes, &edges)
 }
 
 /// Padding (user units) added around the content on every side so a node box's
@@ -1156,6 +1218,90 @@ mod tests {
                 assert!(n.y >= min_head_y, "no non-head node above a head");
             }
         }
+    }
+
+    #[test]
+    fn layout_core_lays_out_tagged_edges_over_opaque_ids() {
+        // A fact-shaped fork: node "a1" (replaced), replaced by two current heads "a2", "a3".
+        let nodes = vec![
+            SupersessionLayoutNode {
+                id: "a1".into(),
+                label: "a1".into(),
+                is_head: false,
+                is_superseded: true,
+            },
+            SupersessionLayoutNode {
+                id: "a2".into(),
+                label: "a2".into(),
+                is_head: true,
+                is_superseded: false,
+            },
+            SupersessionLayoutNode {
+                id: "a3".into(),
+                label: "a3".into(),
+                is_head: true,
+                is_superseded: false,
+            },
+        ];
+        let edges = vec![
+            SupersessionLayoutEdge {
+                from: "a2".into(),
+                to: "a1".into(),
+                kind: Some("replaces"),
+            },
+            SupersessionLayoutEdge {
+                from: "a3".into(),
+                to: "a1".into(),
+                kind: Some("replaces"),
+            },
+        ];
+
+        let laid = layout_supersession_graph(&nodes, &edges).expect("layout");
+
+        // Topology, never pixels.
+        assert_eq!(laid.nodes.len(), 3);
+        assert_eq!(laid.edges.len(), 2);
+        for e in &laid.edges {
+            assert_eq!(e.to, "a1");
+            assert_ne!(e.from, "a1");
+            assert_eq!(
+                e.kind,
+                Some("replaces"),
+                "the edge kind rides through the layout"
+            );
+            assert!(e.path.len() >= 2);
+        }
+        let heads: Vec<&str> = laid
+            .nodes
+            .iter()
+            .filter(|n| n.is_head)
+            .map(|n| n.id.as_str())
+            .collect();
+        assert_eq!(heads.len(), 2);
+        assert!(laid.bounds.w > 0.0 && laid.bounds.h > 0.0);
+    }
+
+    #[test]
+    fn revision_thread_edges_omit_the_kind_field_on_the_wire() {
+        use shoreline::session::SupersessionView;
+        // A <- B (B supersedes A): the revision adapter must pass kind = None so the
+        // /api/threads wire is byte-identical to before this field existed.
+        let view = SupersessionView::from_edges([
+            (RevisionId::new("A"), vec![]),
+            (RevisionId::new("B"), vec![RevisionId::new("A")]),
+        ]);
+        let component: std::collections::BTreeSet<RevisionId> =
+            ["A", "B"].into_iter().map(RevisionId::new).collect();
+
+        let laid = thread_layout(&component, &view).expect("layout");
+        let json = serde_json::to_value(&laid.edges[0]).expect("serialize edge");
+
+        assert!(
+            json.get("kind").is_none(),
+            "revision edge must omit `kind`: {json}"
+        );
+        assert_eq!(laid.edges[0].from, "B");
+        assert_eq!(laid.edges[0].to, "A");
     }
 
     #[test]
