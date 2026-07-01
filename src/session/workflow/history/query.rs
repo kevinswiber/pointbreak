@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
-use super::cursor::{HistoryCursor, cmp_key, next_cursor_for};
 use super::projection::{BaseEntry, BaseHistoryProjection};
 use super::search::{event_type_wire, matches_query, parse_search_query};
 use super::summary::ReviewHistoryEntry;
@@ -29,27 +28,28 @@ pub struct HistoryQuery {
     pub order: HistoryOrder,
 }
 
-/// The query-path window spec. Precedence `at` › `offset` › (`after` + `limit`); a
-/// bare `limit` (offset/after/at all `None`) is the first page. Distinct from plan
-/// 0092's `HistoryWindow` (the CLI's), which stays untouched (INV-1).
+/// The query-path window spec. Precedence `at` › `offset`; a bare `limit`
+/// (offset/at both `None`) is the first page. Positional by design — the
+/// inspector is a random-access virtual list that needs backward paging and
+/// reveal-to-position, which a forward-only cursor cannot express. The CLI keeps
+/// the opaque `HistoryCursor` (plan 0092 `HistoryWindow`), which this path does
+/// not touch.
 #[derive(Clone, Debug, Default)]
 pub struct HistoryPage {
     pub limit: Option<usize>,
-    pub after: Option<HistoryCursor>,
     pub offset: Option<usize>,
     pub at: Option<EventId>,
 }
 
 /// The result of `apply_history_query`: the windowed page plus the facet counts,
-/// the full filtered size (`match_count`), the window start (`offset`), the opaque
-/// forward `next_cursor`, the located index for an `at` request (`match_index`),
-/// and the FULL-set identity (never the filtered set — plan 0092 INV-5).
+/// the full filtered size (`match_count`), the window start (`offset`), the located
+/// index for an `at` request (`match_index`), and the FULL-set identity (never the
+/// filtered set — plan 0092 INV-5).
 pub struct QueriedHistory {
     pub entries: Vec<ReviewHistoryEntry>,
     pub facets: BTreeMap<String, usize>,
     pub match_count: usize,
     pub offset: usize,
-    pub next_cursor: Option<String>,
     pub match_index: Option<usize>,
     pub event_set_hash: String,
     pub event_count: usize,
@@ -58,8 +58,8 @@ pub struct QueriedHistory {
 
 /// Run the query over the cached base projection, purely (no I/O): filter (q +
 /// track + object + types page set) → facets (excluding the types page set, INV-3)
-/// → order → window (`at` › `offset` › cursor, INV-1/2). Identity is always the
-/// full replayed set (INV-2).
+/// → order → window (`at` › `offset`, INV-2). Identity is always the full replayed
+/// set (INV-2).
 pub fn apply_history_query(
     base: &BaseHistoryProjection,
     query: &HistoryQuery,
@@ -83,22 +83,13 @@ pub fn apply_history_query(
         .filter(|&entry| facet_match(entry) && type_set_match(entry, query.types.as_ref()))
         .collect();
     // The base is ascending `(occurred_at, event_id)`; `Desc` reverses the ordered
-    // filtered set so windowing and the cursor run in display order (INV-1/2).
+    // filtered set so windowing runs in display order (INV-2).
     if matches!(query.order, HistoryOrder::Desc) {
         filtered.reverse();
     }
     let match_count = filtered.len();
 
-    let keys: Vec<HistoryCursor> = filtered
-        .iter()
-        .map(|entry| HistoryCursor {
-            occurred_at: entry.entry.occurred_at.clone(),
-            event_id: entry.entry.event_id.clone(),
-        })
-        .collect();
-
-    let (range, match_index) = resolve_window(&filtered, &keys, page, query.order);
-    let next_cursor = next_cursor_for(&keys, &range);
+    let (range, match_index) = resolve_window(&filtered, page);
     let entries = filtered[range.clone()]
         .iter()
         .map(|entry| entry.entry.clone())
@@ -109,7 +100,6 @@ pub fn apply_history_query(
         facets,
         match_count,
         offset: range.start,
-        next_cursor,
         match_index,
         event_set_hash: base.event_set_hash.clone(),
         event_count: base.event_count,
@@ -154,14 +144,9 @@ fn page_end(start: usize, limit: Option<usize>, len: usize) -> usize {
 }
 
 /// Resolve the window over the filtered + display-ordered set. Precedence
-/// `at` › `offset` › cursor (INV-1). Returns the index range and, for an `at`
-/// request, the located index (`match_index`).
-fn resolve_window(
-    filtered: &[&BaseEntry],
-    keys: &[HistoryCursor],
-    page: &HistoryPage,
-    order: HistoryOrder,
-) -> (Range<usize>, Option<usize>) {
+/// `at` › `offset` (a bare `limit` is the first page). Returns the index range
+/// and, for an `at` request, the located index (`match_index`).
+fn resolve_window(filtered: &[&BaseEntry], page: &HistoryPage) -> (Range<usize>, Option<usize>) {
     let len = filtered.len();
     if let Some(at) = &page.at {
         let Some(index) = filtered
@@ -183,31 +168,8 @@ fn resolve_window(
         };
         return (range, Some(index));
     }
-    if let Some(offset) = page.offset {
-        let start = offset.min(len);
-        return (start..page_end(start, page.limit, len), None);
-    }
-    let start = cursor_start(keys, page.after.as_ref(), order);
+    let start = page.offset.unwrap_or(0).min(len);
     (start..page_end(start, page.limit, len), None)
-}
-
-/// The first index strictly after `after` in the *display* order (0 when unset).
-/// `HistoryCursor` is not `Ord`, so compare via `cmp_key`. A blind ascending
-/// `partition_point` is correct only for `Asc`; `Desc` keys descend, so the
-/// comparison flips to `>=` (INV-1 / F3).
-fn cursor_start(
-    keys: &[HistoryCursor],
-    after: Option<&HistoryCursor>,
-    order: HistoryOrder,
-) -> usize {
-    let Some(after) = after else { return 0 };
-    let after_key = cmp_key(&after.occurred_at, after.event_id.as_str());
-    match order {
-        HistoryOrder::Asc => keys
-            .partition_point(|key| cmp_key(&key.occurred_at, key.event_id.as_str()) <= after_key),
-        HistoryOrder::Desc => keys
-            .partition_point(|key| cmp_key(&key.occurred_at, key.event_id.as_str()) >= after_key),
-    }
 }
 
 #[cfg(test)]
@@ -371,11 +333,18 @@ mod tests {
         ])
     }
 
-    fn page(limit: Option<usize>, after: Option<HistoryCursor>) -> HistoryPage {
+    fn page(limit: Option<usize>) -> HistoryPage {
         HistoryPage {
             limit,
-            after,
             offset: None,
+            at: None,
+        }
+    }
+
+    fn offset_page(limit: usize, offset: usize) -> HistoryPage {
+        HistoryPage {
+            limit: Some(limit),
+            offset: Some(offset),
             at: None,
         }
     }
@@ -387,7 +356,6 @@ mod tests {
         assert_eq!(out.entries.len(), 5);
         assert_eq!(out.match_count, 5);
         assert_eq!(out.offset, 0);
-        assert!(out.next_cursor.is_none());
         assert_eq!(out.event_count, base.event_count);
         assert_eq!(out.event_set_hash, base.event_set_hash);
     }
@@ -443,42 +411,41 @@ mod tests {
             order: HistoryOrder::Desc,
             ..Default::default()
         };
-        let out = apply_history_query(&base, &q, &page(Some(2), None));
+        let out = apply_history_query(&base, &q, &page(Some(2)));
         assert!(out.entries[0].occurred_at > out.entries[1].occurred_at);
-        assert!(out.next_cursor.is_some());
         assert_eq!(out.offset, 0);
     }
 
     #[test]
-    fn cursor_continues_filtered_set_without_overlap() {
+    fn offset_paging_continues_the_filtered_set_without_overlap() {
         let base = base_of(5);
-        let p1 = apply_history_query(&base, &HistoryQuery::default(), &page(Some(2), None));
-        let token = p1.next_cursor.clone().unwrap();
-        let p2 = apply_history_query(
-            &base,
-            &HistoryQuery::default(),
-            &page(Some(2), Some(HistoryCursor::decode(&token).unwrap())),
-        );
+        let p1 = apply_history_query(&base, &HistoryQuery::default(), &page(Some(2)));
+        let p2 = apply_history_query(&base, &HistoryQuery::default(), &offset_page(2, 2));
+        assert_eq!(p1.entries.len(), 2);
+        assert_eq!(p2.offset, 2);
         assert_ne!(
             p1.entries.last().unwrap().event_id,
             p2.entries.first().unwrap().event_id
         );
+    }
+
+    #[test]
+    fn desc_offset_paging_continues_toward_older_entries() {
+        let base = base_of(5);
+        let q = HistoryQuery {
+            order: HistoryOrder::Desc,
+            ..Default::default()
+        };
+        let p1 = apply_history_query(&base, &q, &page(Some(2))); // the two newest
+        let p2 = apply_history_query(&base, &q, &offset_page(2, 2)); // the next two, older
+        assert!(p2.entries.first().unwrap().occurred_at < p1.entries.last().unwrap().occurred_at);
         assert_eq!(p2.offset, 2);
     }
 
     #[test]
     fn offset_windows_the_filtered_set() {
         let base = base_of(5);
-        let out = apply_history_query(
-            &base,
-            &HistoryQuery::default(),
-            &HistoryPage {
-                limit: Some(2),
-                after: None,
-                offset: Some(1),
-                at: None,
-            },
-        );
+        let out = apply_history_query(&base, &HistoryQuery::default(), &offset_page(2, 1));
         assert_eq!(out.offset, 1);
         assert_eq!(out.entries.len(), 2);
         assert_eq!(out.match_count, 5);
@@ -493,7 +460,6 @@ mod tests {
             &HistoryQuery::default(),
             &HistoryPage {
                 limit: Some(3),
-                after: None,
                 offset: None,
                 at: Some(target.clone()),
             },
@@ -516,34 +482,11 @@ mod tests {
             &q,
             &HistoryPage {
                 limit: Some(5),
-                after: None,
                 offset: None,
                 at: Some(missing),
             },
         );
         assert!(out.match_index.is_none());
-    }
-
-    #[test]
-    fn desc_cursor_continues_in_display_order_without_overlap() {
-        let base = base_of(5);
-        let q = HistoryQuery {
-            order: HistoryOrder::Desc,
-            ..Default::default()
-        };
-        let p1 = apply_history_query(&base, &q, &page(Some(2), None));
-        let token = p1.next_cursor.clone().unwrap();
-        let p2 = apply_history_query(
-            &base,
-            &q,
-            &page(Some(2), Some(HistoryCursor::decode(&token).unwrap())),
-        );
-        assert_ne!(
-            p1.entries.last().unwrap().event_id,
-            p2.entries.first().unwrap().event_id
-        );
-        assert!(p2.entries.first().unwrap().occurred_at < p1.entries.last().unwrap().occurred_at);
-        assert_eq!(p2.offset, 2);
     }
 
     #[test]
@@ -555,7 +498,6 @@ mod tests {
             &HistoryQuery::default(),
             &HistoryPage {
                 limit: Some(0),
-                after: None,
                 offset: None,
                 at: Some(target),
             },

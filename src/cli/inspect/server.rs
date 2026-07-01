@@ -15,7 +15,7 @@ use std::thread;
 use std::time::Duration;
 
 use shoreline::model::EventId;
-use shoreline::session::{HistoryCursor, HistoryOrder, HistoryPage, HistoryQuery};
+use shoreline::session::{HistoryOrder, HistoryPage, HistoryQuery};
 
 use super::api;
 
@@ -294,11 +294,11 @@ struct HistoryRequest {
 /// Parse the `/api/history` query params into a `HistoryQuery` + `HistoryPage`.
 /// `q` is free text; `track`/`object`/`at` are exact (empty => absent); `type` is
 /// a comma-separated enabled-type set (absent => all types); `order` is
-/// `asc`/`desc` (absent/empty => asc). A non-numeric `limit`/`offset`, a
-/// `cursor` that fails to decode (an empty `?cursor=` too), or an unknown `order`
-/// is a usage error the caller turns into a `400` without touching the store. The
-/// `at` › `offset` › `cursor` precedence lives in `apply_history_query`; the
-/// parser only collects the params.
+/// `asc`/`desc` (absent/empty => asc). A non-numeric `limit`/`offset` or an unknown
+/// `order` is a usage error the caller turns into a `400` without touching the
+/// store. The `at` › `offset` precedence lives in `apply_history_query`; the parser
+/// only collects the params. Paging is positional (`offset`/`at`); the opaque
+/// forward cursor stays on the CLI path (`shore review history --cursor`).
 fn history_query(query: Option<&str>) -> Result<HistoryRequest, String> {
     let q = query_param(query, "q").unwrap_or_default();
     let track = query_param(query, "track").filter(|value| !value.is_empty());
@@ -316,10 +316,6 @@ fn history_query(query: Option<&str>) -> Result<HistoryRequest, String> {
     };
     let limit = parse_usize(query_param(query, "limit"), "invalid limit")?;
     let offset = parse_usize(query_param(query, "offset"), "invalid offset")?;
-    let after = match query_param(query, "cursor") {
-        Some(raw) => Some(HistoryCursor::decode(&raw).map_err(|_| "invalid cursor".to_owned())?),
-        None => None,
-    };
     let at = query_param(query, "at")
         .filter(|value| !value.is_empty())
         .map(EventId::new);
@@ -331,12 +327,7 @@ fn history_query(query: Option<&str>) -> Result<HistoryRequest, String> {
             types,
             order,
         },
-        page: HistoryPage {
-            limit,
-            after,
-            offset,
-            at,
-        },
+        page: HistoryPage { limit, offset, at },
     })
 }
 

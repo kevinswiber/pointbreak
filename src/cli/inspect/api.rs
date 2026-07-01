@@ -47,10 +47,6 @@ struct HistoryPayload {
     /// The returned window's start index in the filtered set, for the sparse
     /// virtual list. Additive, always present.
     offset: usize,
-    /// Opaque continuation token for the next page when a window was applied and
-    /// entries remain; `null` for an unwindowed or final page. Additive — always
-    /// present so existing consumers see a stable shape.
-    next_cursor: Option<String>,
     /// The located index of an `at=<eventId>` request within the filtered set, so
     /// reveal / deep-link can fetch-to-reveal an off-page target. Present only for
     /// an `at` request.
@@ -590,7 +586,7 @@ fn inspect_base_config(repo: &Path) -> BaseProjectionConfig {
 /// body-hydrated base projection (rebuilt only when the store's head marker
 /// moves — #255 / INV-5), then run the pure `apply_history_query` (filter →
 /// facets → order → window). `query`/`page` carry the parsed params; the
-/// `at` › `offset` › `cursor` precedence lives inside `apply_history_query`.
+/// `at` › `offset` precedence lives inside `apply_history_query`.
 pub(super) fn history_json(
     repo: &Path,
     cache: &super::cache::HistoryProjectionCache,
@@ -615,7 +611,6 @@ pub(super) fn history_json(
         facets: out.facets,
         match_count: out.match_count,
         offset: out.offset,
-        next_cursor: out.next_cursor,
         match_index: out.match_index,
         diagnostics: out.diagnostics,
     };

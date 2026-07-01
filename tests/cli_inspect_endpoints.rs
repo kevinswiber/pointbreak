@@ -730,7 +730,7 @@ fn advisory_framing_is_persistently_visible_not_tooltip_only() {
 }
 
 #[test]
-fn api_history_windows_with_limit_and_continues_via_next_cursor() {
+fn api_history_windows_with_limit_and_continues_via_offset() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
 
@@ -744,37 +744,23 @@ fn api_history_windows_with_limit_and_continues_via_next_cursor() {
 
     let page1 = inspector.get_json("/api/history?limit=1");
     assert_eq!(page1["entries"].as_array().unwrap().len(), 1);
+    assert_eq!(page1["offset"], 0);
     // Identity always reports the full event set, never the window.
     assert_eq!(page1["eventCount"], event_count);
-    let token = page1["nextCursor"]
-        .as_str()
-        .expect("a continuation token when entries remain");
+    assert_eq!(page1["matchCount"], total);
 
-    let page2 = inspector.get_json(&format!("/api/history?limit=1&cursor={}", urlencode(token)));
+    // The window is positional: the next page is offset=1. No opaque cursor.
+    let page2 = inspector.get_json("/api/history?limit=1&offset=1");
     assert_eq!(page2["entries"].as_array().unwrap().len(), 1);
+    assert_eq!(page2["offset"], 1);
     // Page two continues strictly after page one — no overlap.
     assert_ne!(
         page2["entries"][0]["eventId"],
         page1["entries"][0]["eventId"]
     );
-}
-
-#[test]
-fn api_history_unparamd_carries_null_next_cursor() {
-    let store = representative_store();
-    let inspector = Inspector::spawn(store.repo.path());
-
-    let full = inspector.get_json("/api/history");
-    assert!(!full["entries"].as_array().unwrap().is_empty());
-    // Additive and backward-compatible: an unwindowed read carries an explicit
-    // null continuation token, never a truncated page. The field must be present
-    // (a missing key would also read as null), so assert it explicitly.
-    let payload = full.as_object().expect("history payload is an object");
-    assert!(
-        payload.contains_key("nextCursor"),
-        "nextCursor is always present on the history payload"
-    );
-    assert!(payload["nextCursor"].is_null());
+    // The endpoint no longer carries an opaque cursor — paging is positional.
+    assert!(full.as_object().unwrap().get("nextCursor").is_none());
+    assert!(page1.as_object().unwrap().get("nextCursor").is_none());
 }
 
 #[test]
@@ -782,26 +768,24 @@ fn api_history_rejects_malformed_window_params() {
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
 
-    assert!(
-        inspector
-            .get_error("/api/history?cursor=not-a-cursor!!")
-            .0
-            .contains("400")
-    );
-    // A present-but-empty cursor is malformed too (decoding "" fails), not a
-    // silent full page.
-    assert!(
-        inspector
-            .get_error("/api/history?cursor=")
-            .0
-            .contains("400")
-    );
     // A non-numeric limit is a usage error.
     assert!(
         inspector
             .get_error("/api/history?limit=abc")
             .0
             .contains("400")
+    );
+    // A non-numeric offset is a usage error too.
+    assert!(
+        inspector
+            .get_error("/api/history?offset=abc")
+            .0
+            .contains("400")
+    );
+    // A stray `cursor=` is not a recognized param — it is ignored, not a 400.
+    assert_eq!(
+        inspector.get_json("/api/history?cursor=whatever")["matchCount"],
+        inspector.get_json("/api/history")["matchCount"]
     );
 }
 
@@ -898,15 +882,16 @@ fn api_history_unparamd_shape_is_unchanged_plus_additive_fields() {
 
     let full = inspector.get_json("/api/history");
     let entries = full["entries"].as_array().unwrap().len();
-    // Unchanged (INV-6).
+    // Unchanged: schema + historyCount = entries.
     assert_eq!(full["schema"], "shore.inspect-history");
-    assert!(full["nextCursor"].is_null());
     assert_eq!(full["historyCount"], entries);
-    // Additive (INV-7): facets/matchCount/offset always present, matchIndex only for at=.
+    // Positional paging surface: facets/matchCount/offset always present, matchIndex
+    // only for at=, and no opaque cursor (dropped in favor of offset/at).
     assert!(full["facets"].is_object());
     assert_eq!(full["offset"], 0);
     assert_eq!(full["matchCount"], entries);
     assert!(full.get("matchIndex").is_none() || full["matchIndex"].is_null());
+    assert!(full.as_object().unwrap().get("nextCursor").is_none());
 }
 
 #[test]

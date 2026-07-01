@@ -3,9 +3,10 @@
 //
 // The server owns the history query now: `load` fetches only the first page of the
 // history for the store's current filter/search/order, and the server returns the
-// windowed entries plus the toggle `facets`, the total `matchCount`, the window
-// `offset`, and the forward `nextCursor`. The loader no longer builds a client
-// search index — there is nothing to index before commit.
+// windowed entries plus the toggle `facets`, the total `matchCount`, and the window
+// `offset`. Paging is positional (`offset`/`at`); there is no opaque cursor. The
+// loader no longer builds a client search index — there is nothing to index before
+// commit.
 //
 // The cycle cut (data must not depend on render): `load` only `commit`s; it never
 // calls a render function. The store subscriber repaints in response. The

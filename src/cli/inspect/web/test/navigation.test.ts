@@ -65,7 +65,6 @@ function revealPageFor(event: HistoryDoc["entries"][number]): void {
     matchCount: 1,
     matchIndex: 0,
     facets: { [event.eventType]: 1 },
-    nextCursor: null,
   });
 }
 
@@ -183,7 +182,6 @@ describe("reveal helpers fetch the target page and select through the router", (
       matchCount: 500,
       matchIndex: 123,
       facets: {},
-      nextCursor: null,
     });
     try {
       // The loaded window (the fixture) does NOT contain X.
@@ -208,7 +206,6 @@ describe("reveal helpers fetch the target page and select through the router", (
       matchCount: 0,
       matchIndex: null,
       facets: {},
-      nextCursor: null,
     });
     await navigation.revealEvent("evt:sha256:absent");
     // No matching page → the selection is not switched to the absent event.

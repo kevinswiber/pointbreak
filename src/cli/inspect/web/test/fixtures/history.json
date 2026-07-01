@@ -284,7 +284,6 @@
   },
   "historyCount": 8,
   "matchCount": 8,
-  "nextCursor": null,
   "offset": 0,
   "schema": "shore.inspect-history"
 }

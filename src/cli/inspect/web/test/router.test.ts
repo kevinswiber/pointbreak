@@ -483,7 +483,6 @@ describe("applyHash (derive the view from the fragment, repaint via the subscrip
       matchCount: 500,
       matchIndex: 123,
       facets: {},
-      nextCursor: null,
     });
     history.replaceState(null, "", `#/event/${encodeURIComponent(X)}`);
     router.applyHash();
@@ -504,7 +503,6 @@ describe("applyHash (derive the view from the fragment, repaint via the subscrip
       matchCount: 0,
       matchIndex: null,
       facets: {},
-      nextCursor: null,
     });
     history.replaceState(null, "", "#/event/evt:sha256:absent");
     router.applyHash();

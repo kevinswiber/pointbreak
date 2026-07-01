@@ -22,8 +22,9 @@ import { TYPES } from "./types";
 /**
  * The `/api/history` document: the loaded page of timeline entries plus load-time
  * diagnostics. The server owns the query now — `entries` is a window of the
- * filtered result, sized/placed by `matchCount`/`offset`, with `facets` and
- * `nextCursor` carrying the toggle counts and the forward page token.
+ * filtered result, sized/placed by `matchCount`/`offset`, with `facets` carrying
+ * the toggle counts. Paging is positional (`offset`/`at`); there is no opaque
+ * cursor on this endpoint.
  */
 export interface HistoryDoc {
   entries: HistoryEntry[];
@@ -43,8 +44,6 @@ export interface HistoryDoc {
   // The global index of `entries[0]` within the matched set, placing the loaded
   // window in the virtual list.
   offset?: number;
-  // The opaque forward continuation token for the next page, or null at the end.
-  nextCursor?: string | null;
   // The query string the loaded page was fetched under; a mismatch with the
   // active query resets paging and re-fetches page 1.
   queryKey?: string;

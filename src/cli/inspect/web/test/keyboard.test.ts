@@ -339,7 +339,6 @@ describe("keyboard stepping pages past the loaded timeline window", () => {
       offset: 20,
       matchCount: 100,
       facets: {},
-      nextCursor: null,
     });
     await keyboard.stepSelectionAsync(1);
     // The next page was fetched, merged, and the selection advanced to global 20.
@@ -356,7 +355,6 @@ describe("keyboard stepping pages past the loaded timeline window", () => {
       offset: 0,
       matchCount: 100,
       facets: {},
-      nextCursor: null,
     });
     await keyboard.stepSelectionAsync(-1);
     expect(store.getState().selected.id).toBe("e19");

@@ -244,7 +244,6 @@ describe("paged virtual timeline (server matchCount + offset window)", () => {
       offset: 20,
       matchCount: 100,
       facets: {},
-      nextCursor: "c2",
     });
     try {
       seedHistory(manyEntries(20, 0), {

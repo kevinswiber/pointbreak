@@ -79,7 +79,6 @@ describe("commit applies patches", () => {
         facets: { review_observation_recorded: 3 },
         matchCount: 42,
         offset: 20,
-        nextCursor: "cursor-token",
         queryKey: "q=pinned&limit=100",
       } as unknown as HistoryDoc,
     });
@@ -87,7 +86,6 @@ describe("commit applies patches", () => {
     expect(s.history?.facets).toEqual({ review_observation_recorded: 3 });
     expect(s.history?.matchCount).toBe(42);
     expect(s.history?.offset).toBe(20);
-    expect(s.history?.nextCursor).toBe("cursor-token");
     expect(s.history?.queryKey).toBe("q=pinned&limit=100");
   });
 });
