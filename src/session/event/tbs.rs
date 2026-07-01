@@ -155,6 +155,8 @@ mod tests {
             via: IngestVia::IngestEvents,
             received_at: "unix-ms:1760000000000".to_owned(),
         });
+        event.content_encoding = vec!["zstd".to_owned()];
+        event.payload_version = 7;
         let signer = SignerId::parse(FRIENDLY_SIGNER).unwrap();
         let tbs = EventToBeSigned::from_event(&event, &signer).unwrap();
 
@@ -167,6 +169,8 @@ mod tests {
         assert!(value.get("sigVersion").is_none());
         assert!(value.get("role").is_none());
         assert!(value.get("ingest").is_none());
+        assert!(value.get("contentEncoding").is_none());
+        assert!(value.get("payloadVersion").is_none());
     }
 
     #[test]
@@ -178,6 +182,24 @@ mod tests {
             via: IngestVia::BundleApply,
             received_at: "unix-ms:1760000000000".to_owned(),
         });
+        let signer = SignerId::parse(FRIENDLY_SIGNER).unwrap();
+        let tbs = EventToBeSigned::from_event(&event, &signer).unwrap();
+
+        assert_eq!(
+            tbs.canonical_bytes().unwrap(),
+            fixture_bytes("canonical-tbs-v1.bytes")
+        );
+    }
+
+    #[test]
+    fn content_encoding_and_payload_version_leave_canonical_tbs_bytes_unchanged() {
+        // contentEncoding/payloadVersion describe how the stored record is
+        // encoded and which view version its payload decodes to; they are
+        // hash-excluded, so setting them must leave the canonical to-be-signed
+        // bytes byte-identical to the golden fixture.
+        let mut event = fixture_event();
+        event.content_encoding = vec!["zstd".to_owned()];
+        event.payload_version = 7;
         let signer = SignerId::parse(FRIENDLY_SIGNER).unwrap();
         let tbs = EventToBeSigned::from_event(&event, &signer).unwrap();
 

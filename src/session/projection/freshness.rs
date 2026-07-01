@@ -81,6 +81,8 @@ mod tests {
         let original = event("one");
         let mut changed = original.clone();
         changed.occurred_at = "2026-05-13T15:00:00Z".to_owned();
+        changed.content_encoding = vec!["zstd".to_owned()];
+        changed.payload_version = 7;
 
         assert_eq!(
             event_set_hash_for_events(&[original]).unwrap(),

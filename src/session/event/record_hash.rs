@@ -7,10 +7,11 @@ use crate::session::event::{AssertionMode, EventTarget, ShoreEvent, Writer};
 /// Signature-exclusive view of a stored event record.
 ///
 /// `eventRecordHash` (ADR-0008 §Event-Set Root) hashes this view: the whole
-/// stored record EXCLUDING `signer`, `signature`, `sourceRef`, and `ingest`. It
-/// therefore includes `payload`, `idempotencyKey`, `target`, `writer`, `occurredAt`,
-/// `payloadHash`, and `assertionMode`. It is a third digest, distinct from
-/// `payloadHash` (payload only) and the signer-inclusive `EventToBeSigned` (TBS) view.
+/// stored record EXCLUDING `signer`, `signature`, `sourceRef`, `ingest`,
+/// `contentEncoding`, and `payloadVersion`. It therefore includes `payload`,
+/// `idempotencyKey`, `target`, `writer`, `occurredAt`, `payloadHash`, and
+/// `assertionMode`. It is a third digest, distinct from `payloadHash` (payload
+/// only) and the signer-inclusive `EventToBeSigned` (TBS) view.
 ///
 /// `ingest` is excluded because it is **per-hop/per-mirror metadata** (like `sourceRef`):
 /// `ingest_events` stamps it before storage, so a local copy is unstamped while an
@@ -19,9 +20,17 @@ use crate::session::event::{AssertionMode, EventTarget, ShoreEvent, Writer};
 /// eventSetRoot convergence. (This excludes `ingest` in addition to ADR-0008's written
 /// list; that exclusion is a post-approval ADR correction the convergence claim requires.)
 ///
-/// This view is **exhaustively** the `ShoreEvent` envelope minus exactly four fields
-/// (`signer`, `signature`, `sourceRef`, `ingest`). If a field is added to `ShoreEvent`,
-/// the include/exclude decision must be made here (the `EventToBeSigned` precedent).
+/// `contentEncoding` and `payloadVersion` are excluded because they describe how the
+/// record is stored (content-coding tokens) and how its payload is read (the view
+/// version a read-time upcast dispatches on), not what the fact is. Identity is
+/// computed over the decoded content, so re-encoding a record or bumping its view
+/// version must never re-mint its identity (see ADR-0004's storage-descriptor
+/// amendment).
+///
+/// This view is **exhaustively** the `ShoreEvent` envelope minus exactly six fields
+/// (`signer`, `signature`, `sourceRef`, `ingest`, `contentEncoding`, `payloadVersion`).
+/// If a field is added to `ShoreEvent`, the include/exclude decision must be made here
+/// (the `EventToBeSigned` precedent).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EventRecordView<'a> {
@@ -132,6 +141,17 @@ mod tests {
             received_at: "unix-ms:1760000000000".to_owned(),
         });
         assert_eq!(only_ingest.event_record_hash().unwrap(), baseline);
+
+        // The storage-encoding descriptor and the payload view version describe
+        // how the record is stored and read, not what the fact is: both are
+        // hash-excluded so setting them never re-mints the record identity.
+        let mut only_content_encoding = fixture_event();
+        only_content_encoding.content_encoding = vec!["zstd".to_owned()];
+        assert_eq!(only_content_encoding.event_record_hash().unwrap(), baseline);
+
+        let mut only_payload_version = fixture_event();
+        only_payload_version.payload_version = 7;
+        assert_eq!(only_payload_version.event_record_hash().unwrap(), baseline);
     }
 
     #[test]
@@ -180,7 +200,9 @@ mod tests {
 
     #[test]
     fn serialized_view_omits_signature_and_hop_metadata() {
-        let event = fixture_event();
+        let mut event = fixture_event();
+        event.content_encoding = vec!["zstd".to_owned()];
+        event.payload_version = 7;
         let view = EventRecordView::from_event(&event);
         let value = serde_json::to_value(&view).expect("view serializes");
 
@@ -188,6 +210,8 @@ mod tests {
         assert!(value.get("signature").is_none());
         assert!(value.get("sourceRef").is_none());
         assert!(value.get("ingest").is_none());
+        assert!(value.get("contentEncoding").is_none());
+        assert!(value.get("payloadVersion").is_none());
         // It must include payload + identity-bearing fields.
         assert!(value.get("payload").is_some());
         assert!(value.get("idempotencyKey").is_some());

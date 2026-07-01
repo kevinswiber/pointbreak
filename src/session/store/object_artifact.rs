@@ -30,6 +30,14 @@ pub struct ObjectArtifact {
     pub version: u32,
     pub snapshot: DiffSnapshot,
     pub content_hash: String,
+    /// Ordered content-coding tokens (compression/encryption) applied to the
+    /// stored artifact file in list order at write and reversed on read;
+    /// default `[]` is the identity encoding. A sibling of `content_hash`,
+    /// never an input to it: the hash is over the decoded body, and this
+    /// field describes how the stored bytes decode to that body. Reserved —
+    /// no codec populates it yet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub content_encoding: Vec<String>,
 }
 
 /// Write a object artifact through the resolved store's backend handle. Capture
@@ -71,6 +79,7 @@ pub(crate) fn build_object_artifact_v2(snapshot: DiffSnapshot) -> Result<ObjectA
         schema: OBJECT_ARTIFACT_SCHEMA.to_owned(),
         version: OBJECT_ARTIFACT_VERSION,
         content_hash: String::new(),
+        content_encoding: Vec::new(),
         snapshot,
     };
     artifact.content_hash = object_artifact_content_hash(&artifact)?;
@@ -219,7 +228,9 @@ pub(crate) fn decode_and_validate_object_artifact(bytes: &[u8]) -> Result<Object
 }
 
 /// Hash a v2 artifact's body minus `contentHash` (the value [`build_object_artifact_v2`]
-/// stamps in). With the object-scoped struct the hashed material is
+/// stamps in) and minus `contentEncoding` (storage metadata describing how the
+/// stored file decodes to the body, never an input to the body's identity).
+/// With the object-scoped struct the hashed material is
 /// `{schema, version, snapshot}` — namespace-independent (INV-2).
 fn object_artifact_content_hash(artifact: &ObjectArtifact) -> Result<String> {
     let mut material = serde_json::to_value(artifact)?;
@@ -233,6 +244,7 @@ fn object_artifact_content_hash(artifact: &ObjectArtifact) -> Result<String> {
             "object artifact hash material is missing contentHash".to_owned(),
         ));
     }
+    object.remove("contentEncoding");
 
     sha256_json_prefixed(&material)
 }
@@ -630,6 +642,33 @@ mod tests {
             .expect_err("tampered artifact should be rejected");
 
         assert!(error.to_string().contains("content hash"));
+    }
+
+    #[test]
+    fn content_encoding_is_excluded_from_object_artifact_content_hash() {
+        // The body content hash is over the decoded body ({schema, version,
+        // snapshot}); contentEncoding describes how the stored file decodes to
+        // that body, so it is a sibling of contentHash, never an input to it.
+        // Recompute the hash on both sides — comparing the copied content_hash
+        // field would pass even if the hasher wrongly folded the encoding.
+        let snapshot = DiffSnapshot::new(
+            ReviewId::new("review:default"),
+            ObjectId::new("obj:sha256:abc"),
+            Vec::new(),
+        );
+        let plain = build_object_artifact_v2(snapshot.clone()).unwrap();
+        let mut encoded = build_object_artifact_v2(snapshot).unwrap();
+        encoded.content_encoding = vec!["zstd".to_owned()];
+
+        assert_eq!(
+            object_artifact_content_hash(&plain).unwrap(),
+            object_artifact_content_hash(&encoded).unwrap()
+        );
+        assert_eq!(
+            plain.content_hash,
+            object_artifact_content_hash(&plain).unwrap(),
+            "a fresh build stamps the hash it recomputes"
+        );
     }
 
     #[test]

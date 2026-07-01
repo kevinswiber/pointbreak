@@ -378,6 +378,8 @@ mod tests {
             signature: None,
             source_ref: None,
             ingest: None,
+            content_encoding: Vec::new(),
+            payload_version: 1,
             payload: serde_json::Value::Null,
         };
 
@@ -417,6 +419,8 @@ mod tests {
             signature: None,
             source_ref: None,
             ingest: None,
+            content_encoding: Vec::new(),
+            payload_version: 1,
             payload: serde_json::Value::Null,
         });
 
@@ -496,6 +500,8 @@ mod tests {
             signature: None,
             source_ref: None,
             ingest: None,
+            content_encoding: Vec::new(),
+            payload_version: 1,
             payload: serde_json::Value::Null,
         };
 

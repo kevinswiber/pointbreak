@@ -76,6 +76,14 @@ fn default_assertion_mode(event_type: EventType) -> AssertionMode {
     }
 }
 
+fn default_payload_version() -> u32 {
+    1
+}
+
+fn is_default_payload_version(version: &u32) -> bool {
+    *version == default_payload_version()
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShoreEvent {
@@ -99,6 +107,21 @@ pub struct ShoreEvent {
     pub source_ref: Option<SourceRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ingest: Option<IngestProvenance>,
+    /// Ordered content-coding tokens (compression/encryption) applied to the
+    /// stored record in list order at write and reversed on read; default `[]`
+    /// is the identity encoding. Hash-excluded storage metadata: identity is
+    /// computed over the decoded content, never the stored encoded bytes.
+    /// Reserved — no codec populates it yet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub content_encoding: Vec<String>,
+    /// The decoded payload's view version — the key a read-time view upcast
+    /// dispatches on. Hash-excluded, so a bump is signature-neutral. Reserved
+    /// at its default of `1`.
+    #[serde(
+        default = "default_payload_version",
+        skip_serializing_if = "is_default_payload_version"
+    )]
+    pub payload_version: u32,
     pub payload: serde_json::Value,
 }
 
@@ -153,6 +176,8 @@ impl ShoreEvent {
             signature: None,
             source_ref: None,
             ingest: None,
+            content_encoding: Vec::new(),
+            payload_version: default_payload_version(),
             payload,
         })
     }
@@ -164,8 +189,9 @@ impl ShoreEvent {
 
     /// Computes the signature- and hop-exclusive `eventRecordHash` (ADR-0008
     /// §Event-Set Root): the stored record excluding `signer`, `signature`,
-    /// `sourceRef`, and `ingest`. It is the content-identity the detached
-    /// co-signature carrier binds as `targetEventRecordHash`.
+    /// `sourceRef`, `ingest`, `contentEncoding`, and `payloadVersion`. It is
+    /// the content-identity the detached co-signature carrier binds as
+    /// `targetEventRecordHash`.
     pub fn event_record_hash(&self) -> Result<String> {
         record_hash::EventRecordView::from_event(self).event_record_hash()
     }
@@ -962,6 +988,45 @@ mod tests {
         assert_eq!(stamped.event_id, unstamped.event_id);
         assert_eq!(stamped.payload_hash, unstamped.payload_hash);
         assert_eq!(stamped.idempotency_key, unstamped.idempotency_key);
+    }
+
+    #[test]
+    fn content_encoding_and_payload_version_do_not_change_event_id_or_payload_hash() {
+        // Like the ingest stamp, the storage-encoding descriptor and the payload
+        // view version are envelope-adjacent metadata: setting them leaves the
+        // event's identity (eventId, payloadHash, idempotencyKey) untouched.
+        let baseline = valid_revision_captured_event();
+        let mut described = baseline.clone();
+        described.content_encoding = vec!["zstd".to_owned()];
+        described.payload_version = 7;
+
+        assert_eq!(described.event_id, baseline.event_id);
+        assert_eq!(described.payload_hash, baseline.payload_hash);
+        assert_eq!(described.idempotency_key, baseline.idempotency_key);
+    }
+
+    #[test]
+    fn event_envelope_skip_serializes_default_content_encoding_and_payload_version() {
+        // Defaults (identity encoding, view version 1) are skip-serialized so a
+        // reserved-field envelope is byte-identical to one stored before the
+        // fields existed; non-defaults round-trip through serde.
+        let event = valid_revision_captured_event();
+        let json = serde_json::to_value(&event).unwrap();
+        assert!(json.get("contentEncoding").is_none());
+        assert!(json.get("payloadVersion").is_none());
+
+        let decoded: ShoreEvent = serde_json::from_value(json).unwrap();
+        assert!(decoded.content_encoding.is_empty());
+        assert_eq!(decoded.payload_version, 1);
+
+        let mut described = valid_revision_captured_event();
+        described.content_encoding = vec!["zstd".to_owned()];
+        described.payload_version = 2;
+        let json = serde_json::to_value(&described).unwrap();
+        assert_eq!(json["contentEncoding"], serde_json::json!(["zstd"]));
+        assert_eq!(json["payloadVersion"], serde_json::json!(2));
+        let decoded: ShoreEvent = serde_json::from_value(json).unwrap();
+        assert_eq!(decoded, described);
     }
 
     fn valid_revision_captured_event() -> ShoreEvent {

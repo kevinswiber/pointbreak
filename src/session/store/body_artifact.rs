@@ -27,6 +27,13 @@ pub(crate) struct NoteBodyEnvelope {
     pub schema: String,
     pub version: u32,
     pub body: String,
+    /// Ordered content-coding tokens (compression/encryption) applied to the
+    /// stored note-body file in list order at write and reversed on read;
+    /// default `[]` is the identity encoding. The content hash is sha256 over
+    /// the decoded `body` alone, so this field never enters it. Reserved — no
+    /// codec populates it yet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub content_encoding: Vec<String>,
 }
 
 impl NoteBodyEnvelope {
@@ -35,6 +42,7 @@ impl NoteBodyEnvelope {
             schema: "shore.note-body".to_owned(),
             version: 1,
             body,
+            content_encoding: Vec::new(),
         }
     }
 
@@ -251,6 +259,36 @@ mod tests {
             }
             other => panic!("expected artifact, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn content_encoding_is_excluded_from_note_body_content_hash() {
+        // The note-body content hash is sha256 over the decoded body alone;
+        // contentEncoding describes how the stored envelope decodes to that
+        // body. An envelope tagged with an encoding must validate against the
+        // same content hash as the plain envelope.
+        let body = "x".repeat(BODY_INLINE_LIMIT + 1);
+        let body_stem = sha256_bytes_hex(body.as_bytes());
+        let relative_path = format!("artifacts/notes/{body_stem}.json");
+        let content_hash = format!("sha256:{body_stem}");
+
+        let plain = NoteBodyEnvelope::new(body.clone());
+        let mut encoded = NoteBodyEnvelope::new(body);
+        encoded.content_encoding = vec!["zstd".to_owned()];
+
+        validate_note_body_artifact_bytes(
+            &relative_path,
+            &content_hash,
+            &plain.to_json_bytes().unwrap(),
+        )
+        .expect("the plain envelope validates against the body hash");
+        let validated = validate_note_body_artifact_bytes(
+            &relative_path,
+            &content_hash,
+            &encoded.to_json_bytes().unwrap(),
+        )
+        .expect("an encoding-tagged envelope validates against the same body hash");
+        assert_eq!(validated.content_encoding, vec!["zstd".to_owned()]);
     }
 
     #[test]
