@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use shoreline::dump::{DumpDocument, DumpInputSource};
-use shoreline::highlight::{TokenKind, TokenSpan};
+use shoreline::highlight::{EmphSpan, TokenKind, TokenSpan};
 use shoreline::model::{LineRange, ResolutionStatus, ReviewNoteId, ReviewRow, ReviewRowKind};
 use shoreline::sidecar::ReviewNotesDiagnosticCode;
 
@@ -86,11 +86,12 @@ fn render_diff_line(app: &TuiApp, row: &ReviewRow) -> Line<'static> {
     if app.cursor().row_id.as_ref() == Some(&row.id) {
         return Line::styled(display_text(&display), selected_row_style());
     }
-    let spans = app.highlights_for(&row.id);
-    if spans.is_empty() {
+    let tokens = app.highlights_for(&row.id);
+    let emphasis = app.emphasis_for(&row.id);
+    if tokens.is_empty() && emphasis.is_empty() {
         return Line::styled(display_text(&display), row_style(display.kind));
     }
-    build_highlighted_line(&display, spans, color_depth())
+    build_highlighted_line(&display, tokens, emphasis, color_depth())
 }
 
 /// Terminal color capability, used to choose between truecolor and named-ANSI palettes.
@@ -111,10 +112,11 @@ fn color_depth() -> ColorDepth {
 
 /// Build a highlighted diff row as a prefix span, a gutter span (both carrying the add/remove
 /// signal), and one code span per attributed segment. The segment sweep splits the raw text at the
-/// span boundaries so a later intraline channel can add another attribute without changing this.
+/// union of the syntax and intraline-emphasis boundaries and carries both attributes per segment.
 fn build_highlighted_line(
     display: &DisplayRow,
-    spans: &[TokenSpan],
+    tokens: &[TokenSpan],
+    emphasis: &[EmphSpan],
     depth: ColorDepth,
 ) -> Line<'static> {
     let base = match diff_bg_tint(display.kind, depth) {
@@ -131,41 +133,62 @@ fn build_highlighted_line(
         signal_style,
     ));
     out.push(Span::styled(format!("{} ", display.gutter), signal_style));
-    append_code_segments(&mut out, &display.text, spans, base, depth);
+    append_code_segments(&mut out, &display.text, tokens, emphasis, base, depth);
     Line::from(out)
 }
 
-/// Append one span per code segment: each token span carries its syntax foreground over `base`, and
-/// the plain gaps between spans carry `base` alone. A malformed span (reversed, out of range, or off
-/// a char boundary) is skipped so the row still renders.
+/// Append one span per code segment, splitting `text` at the union of the syntax-token and
+/// intraline-emphasis boundaries: a token-covered segment carries its syntax foreground over `base`,
+/// an emphasis-covered segment additionally carries `Modifier::UNDERLINED` (emphasis rides the
+/// underline, not the background, since the row background is already the add/remove tint), and a
+/// segment covered by both carries both. Each channel is validated independently (INV-F): a malformed
+/// span (reversed, out of range, or off a char boundary) is dropped without affecting the other
+/// channel, so the row still renders and the byte slicing (on the union of char-boundary offsets)
+/// never panics.
 fn append_code_segments(
     out: &mut Vec<Span<'static>>,
     text: &str,
-    spans: &[TokenSpan],
+    tokens: &[TokenSpan],
+    emphasis: &[EmphSpan],
     base: Style,
     depth: ColorDepth,
 ) {
-    let mut cursor = 0usize;
-    for span in spans {
-        if span.start < cursor
-            || span.end < span.start
-            || span.end > text.len()
-            || !text.is_char_boundary(span.start)
-            || !text.is_char_boundary(span.end)
-        {
+    let len = text.len();
+    let valid = |start: usize, end: usize| {
+        start <= end && end <= len && text.is_char_boundary(start) && text.is_char_boundary(end)
+    };
+    let toks: Vec<&TokenSpan> = tokens.iter().filter(|t| valid(t.start, t.end)).collect();
+    let emph: Vec<&EmphSpan> = emphasis.iter().filter(|e| valid(e.start, e.end)).collect();
+
+    // Union of both channels' boundaries plus the row endpoints, deduped and sorted. Every boundary
+    // is a char boundary of `text` by construction, so each `text[a..b]` slice is safe.
+    let mut points: Vec<usize> = Vec::with_capacity(2 + 2 * (toks.len() + emph.len()));
+    points.push(0);
+    points.push(len);
+    for t in &toks {
+        points.push(t.start);
+        points.push(t.end);
+    }
+    for e in &emph {
+        points.push(e.start);
+        points.push(e.end);
+    }
+    points.sort_unstable();
+    points.dedup();
+
+    for window in points.windows(2) {
+        let (a, b) = (window[0], window[1]);
+        if a >= b {
             continue;
         }
-        if span.start > cursor {
-            out.push(Span::styled(text[cursor..span.start].to_owned(), base));
+        let mut style = base;
+        if let Some(token) = toks.iter().find(|t| t.start <= a && a < t.end) {
+            style = style.fg(token_fg(token.kind, depth));
         }
-        out.push(Span::styled(
-            text[span.start..span.end].to_owned(),
-            base.fg(token_fg(span.kind, depth)),
-        ));
-        cursor = span.end;
-    }
-    if cursor < text.len() {
-        out.push(Span::styled(text[cursor..].to_owned(), base));
+        if emph.iter().any(|e| e.start <= a && a < e.end) {
+            style = style.add_modifier(Modifier::UNDERLINED);
+        }
+        out.push(Span::styled(text[a..b].to_owned(), style));
     }
 }
 
@@ -404,10 +427,10 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
-    use ratatui::style::{Color, Style};
+    use ratatui::style::{Color, Modifier, Style};
     use ratatui::text::Span;
     use shoreline::dump::{DumpDocument, DumpInputSource, DumpInputSummary};
-    use shoreline::highlight::{TokenKind, TokenSpan};
+    use shoreline::highlight::{EmphSpan, TokenKind, TokenSpan};
     use shoreline::model::{
         Anchor, DiffFile, DiffRow, DiffRowKind, DiffSnapshot, FileId, FileStatus, HunkId,
         LineRange, ObjectId, ResolutionStatus, ReviewHunk, ReviewId, ReviewNote, ReviewNoteId,
@@ -618,6 +641,22 @@ mod tests {
         );
     }
 
+    fn depth() -> ColorDepth {
+        ColorDepth::Named
+    }
+
+    fn collect_segments(
+        text: &str,
+        tokens: &[TokenSpan],
+        emphasis: &[EmphSpan],
+        base: Style,
+        depth: ColorDepth,
+    ) -> Vec<Span<'static>> {
+        let mut out: Vec<Span<'static>> = Vec::new();
+        append_code_segments(&mut out, text, tokens, emphasis, base, depth);
+        out
+    }
+
     #[test]
     fn append_code_segments_splits_on_adjacent_kinds() {
         let mut out: Vec<Span<'static>> = Vec::new();
@@ -636,6 +675,7 @@ mod tests {
                     kind: TokenKind::Number,
                 },
             ],
+            &[],
             Style::default(),
             ColorDepth::Named,
         );
@@ -663,12 +703,90 @@ mod tests {
                 end: 1,
                 kind: TokenKind::Keyword,
             }],
+            &[],
             Style::default(),
             ColorDepth::Named,
         );
         assert_eq!(out.len(), 2);
         assert_eq!(out[1].content, " b");
         assert_eq!(out[1].style.fg, None); // the gap is plain
+    }
+
+    #[test]
+    fn append_code_segments_underlines_emphasis() {
+        // "ab", emphasis [0,1) → "a" UNDERLINED, "b" not
+        let out = collect_segments(
+            "ab",
+            &[],
+            &[EmphSpan { start: 0, end: 1 }],
+            Style::default(),
+            depth(),
+        );
+        assert!(out[0].style.add_modifier.contains(Modifier::UNDERLINED));
+        assert!(!out[1].style.add_modifier.contains(Modifier::UNDERLINED));
+    }
+
+    #[test]
+    fn append_code_segments_overlays_emphasis_on_token() {
+        // keyword [0,2) + emphasis [0,1): "a" has token fg AND underline; "b" fg only
+        let toks = vec![TokenSpan {
+            start: 0,
+            end: 2,
+            kind: TokenKind::Keyword,
+        }];
+        let out = collect_segments(
+            "ab",
+            &toks,
+            &[EmphSpan { start: 0, end: 1 }],
+            Style::default(),
+            depth(),
+        );
+        assert_eq!(out[0].style.fg, Some(token_fg(TokenKind::Keyword, depth())));
+        assert!(out[0].style.add_modifier.contains(Modifier::UNDERLINED));
+        assert_eq!(out[1].style.fg, Some(token_fg(TokenKind::Keyword, depth())));
+        assert!(!out[1].style.add_modifier.contains(Modifier::UNDERLINED));
+    }
+
+    #[test]
+    fn plaintext_changed_row_still_renders_emphasis() {
+        // A plaintext modified file: highlight_file is empty (no syntax) but emphasis applies. The
+        // added row must NOT take the plain early-return — it renders an UNDERLINED emphasis span.
+        let app = TuiApp::new(
+            document_with_modified_txt_hunk(),
+            ViewportSpec::new(100, 20),
+        );
+        let added = app
+            .document()
+            .stream
+            .rows
+            .iter()
+            .find(|row| row.id == RowId::new("row:0004"))
+            .expect("added row present")
+            .clone();
+        let line = render_diff_line(&app, &added);
+        assert!(
+            line.spans
+                .iter()
+                .any(|span| span.style.add_modifier.contains(Modifier::UNDERLINED)),
+            "plaintext changed row must render an emphasized (underlined) span"
+        );
+    }
+
+    #[test]
+    fn malformed_emphasis_is_dropped_without_affecting_tokens() {
+        // emphasis out of range for the text → dropped, but the syntax token still renders (INV-F)
+        let toks = vec![TokenSpan {
+            start: 0,
+            end: 2,
+            kind: TokenKind::Keyword,
+        }];
+        let bad = vec![EmphSpan { start: 1, end: 99 }];
+        let out = collect_segments("ab", &toks, &bad, Style::default(), depth());
+        assert_eq!(out[0].style.fg, Some(token_fg(TokenKind::Keyword, depth())));
+        assert!(
+            out.iter()
+                .all(|span| !span.style.add_modifier.contains(Modifier::UNDERLINED))
+        );
     }
 
     fn render_to_buffer(app: &TuiApp, width: u16, height: u16) -> Buffer {
@@ -825,6 +943,124 @@ mod tests {
             vec![note],
             stream,
             diagnostics,
+        )
+    }
+
+    fn document_with_modified_txt_hunk() -> DumpDocument {
+        let review_id = ReviewId::new("review:test");
+        let object_id = ObjectId::new("snapshot:test");
+        let file_id = FileId::new("notes.txt");
+        let hunk_id = HunkId::new("hunk:0000");
+        let rows = vec![
+            DiffRow {
+                kind: DiffRowKind::Context,
+                old_line: Some(1),
+                new_line: Some(1),
+                text: "the quick fox".to_owned(),
+            },
+            DiffRow {
+                kind: DiffRowKind::Removed,
+                old_line: Some(2),
+                new_line: None,
+                text: "the quick brown fox".to_owned(),
+            },
+            DiffRow {
+                kind: DiffRowKind::Added,
+                old_line: None,
+                new_line: Some(2),
+                text: "the quick red fox".to_owned(),
+            },
+        ];
+        let hunk = ReviewHunk {
+            id: hunk_id.clone(),
+            header: "@@ -1,2 +1,2 @@".to_owned(),
+            old_start: 1,
+            old_lines: 2,
+            new_start: 1,
+            new_lines: 2,
+            rows,
+        };
+        let snapshot = DiffSnapshot::new(
+            review_id.clone(),
+            object_id.clone(),
+            vec![DiffFile {
+                id: file_id.clone(),
+                status: FileStatus::Modified,
+                old_path: Some("notes.txt".to_owned()),
+                new_path: Some("notes.txt".to_owned()),
+                old_mode: None,
+                new_mode: None,
+                old_oid: None,
+                new_oid: None,
+                similarity: None,
+                is_binary: false,
+                is_submodule: false,
+                is_mode_only: false,
+                synthetic: false,
+                metadata_rows: Vec::new(),
+                hunks: vec![hunk.clone()],
+            }],
+        );
+        let stream = ReviewStream {
+            review_id,
+            object_id,
+            rows: vec![
+                ReviewRow {
+                    id: RowId::new("row:0000"),
+                    ordinal: 0,
+                    file_id: Some(file_id.clone()),
+                    hunk_id: None,
+                    kind: ReviewRowKind::FileHeader {
+                        path: "notes.txt".to_owned(),
+                        status: FileStatus::Modified,
+                    },
+                },
+                ReviewRow {
+                    id: RowId::new("row:0001"),
+                    ordinal: 1,
+                    file_id: Some(file_id.clone()),
+                    hunk_id: Some(hunk_id.clone()),
+                    kind: ReviewRowKind::HunkHeader {
+                        header: hunk.header.clone(),
+                    },
+                },
+                ReviewRow {
+                    id: RowId::new("row:0002"),
+                    ordinal: 2,
+                    file_id: Some(file_id.clone()),
+                    hunk_id: Some(hunk_id.clone()),
+                    kind: ReviewRowKind::Diff {
+                        row: hunk.rows[0].clone(),
+                    },
+                },
+                ReviewRow {
+                    id: RowId::new("row:0003"),
+                    ordinal: 3,
+                    file_id: Some(file_id.clone()),
+                    hunk_id: Some(hunk_id.clone()),
+                    kind: ReviewRowKind::Diff {
+                        row: hunk.rows[1].clone(),
+                    },
+                },
+                ReviewRow {
+                    id: RowId::new("row:0004"),
+                    ordinal: 4,
+                    file_id: Some(file_id),
+                    hunk_id: Some(hunk_id),
+                    kind: ReviewRowKind::Diff {
+                        row: hunk.rows[2].clone(),
+                    },
+                },
+            ],
+        };
+        DumpDocument::new(
+            DumpInputSummary {
+                source: DumpInputSource::None,
+            },
+            snapshot,
+            Vec::new(),
+            stream,
+            Vec::new(),
         )
     }
 
