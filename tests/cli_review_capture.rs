@@ -593,6 +593,94 @@ fn review_capture_with_path_matching_nothing_fails_with_a_pathspec_error() {
 }
 
 #[test]
+fn scoped_capture_surfaces_its_pathspecs_in_show_revisions_and_history() {
+    let repo = two_dir_repo();
+    let captured = parse_json(
+        &shore([
+            "review",
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--path",
+            "a",
+        ])
+        .stdout,
+    );
+    let revision_id = captured["revision"]["id"].as_str().unwrap();
+
+    let shown = parse_json(
+        &shore([
+            "review",
+            "show",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--revision",
+            revision_id,
+        ])
+        .stdout,
+    );
+    assert_eq!(shown["revision"]["source"]["pathspecs"][0], "a");
+
+    let listed = parse_json(
+        &shore([
+            "review",
+            "revisions",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .stdout,
+    );
+    let entry = listed["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["revisionId"] == revision_id)
+        .expect("scoped revision listed");
+    assert_eq!(entry["source"]["pathspecs"][0], "a");
+
+    let history = parse_json(
+        &shore([
+            "review",
+            "history",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--revision",
+            revision_id,
+        ])
+        .stdout,
+    );
+    let capture_entry = history["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["summary"]["kind"] == "revision_captured")
+        .expect("capture entry in history");
+    assert_eq!(capture_entry["summary"]["source"]["pathspecs"][0], "a");
+}
+
+#[test]
+fn unscoped_capture_surfaces_no_pathspecs_key() {
+    let repo = two_dir_repo();
+    let captured = parse_json(
+        &shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout,
+    );
+    let revision_id = captured["revision"]["id"].as_str().unwrap();
+
+    let shown = parse_json(
+        &shore([
+            "review",
+            "show",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--revision",
+            revision_id,
+        ])
+        .stdout,
+    );
+    assert!(shown["revision"]["source"].get("pathspecs").is_none());
+}
+
+#[test]
 fn review_capture_path_composes_with_base_and_target() {
     let repo = two_dir_repo();
     repo.commit_all("change");
