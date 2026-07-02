@@ -84,6 +84,29 @@ signature *is* the endorsement's content. See
 [signing-ux.md](./signing-ux.md) for the human / agent / CI flows and the
 `unsigned → untrusted_key → valid` ladder.
 
+## `shore diff`
+
+```bash
+shore diff [--repo <path>] [--revision <id>] [--stat]
+```
+
+`shore diff` prints a captured revision's diff — base to target, from the **frozen captured
+snapshot** — as a human unified diff on stdout. It is the terminal reader for the immutable diff a
+revision recorded; its subject is always the captured snapshot, never the live working tree
+(`git diff` owns the live tree).
+
+- `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
+- `--revision <id>` selects the captured revision (a head seed): a current head resolves exactly, a
+  superseded revision resolves its thread's current head. Omit it to diff the current capture; it is
+  required when the store holds more than one candidate.
+- `--stat` prints only the diffstat (a per-file summary and totals), not the diff body.
+- The command is **human-only and non-interactive**: it has no `--format` selector and emits no JSON
+  (machine consumers read the review documents, e.g. `shore review show --format json`). Its output
+  is **disposable** — wording, layout, and ordering may change between releases, so nothing should
+  parse it.
+- When a revision's captured content has been removed from the store, `shore diff` prints a short
+  "content is unavailable" line (with the removed content's short id) instead of a diff body.
+
 ## `shore show`
 
 ```bash
