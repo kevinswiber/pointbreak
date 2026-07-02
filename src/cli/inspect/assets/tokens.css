@@ -159,9 +159,13 @@
   --evt-validation: var(--validation);
 
   /* Diff foregrounds darken to read on the pale add/del rows; the translucent
-     --diff-*-bg values are theme-neutral and keep their :root definitions. */
-  --diff-add-fg: #147029;
-  --diff-del-fg: #b42318;
+     --diff-*-bg values are theme-neutral and keep their :root definitions.
+     Darkened again from #147029/#b42318: those cleared AA on the base add/del
+     rows (5.43/5.53) but fell to 4.03/3.74 on the stronger --emph-*-bg
+     intraline tint. These clear both surfaces — 6.56/7.18 on the base rows,
+     4.87/4.85 on the emphasized sub-spans. */
+  --diff-add-fg: #116226;
+  --diff-del-fg: #961b11;
   --hunk-bg: #eef1f6;     /* light hunk strip so the dark-blue --info text reads */
 
   --error-bg: #ffebe9;
