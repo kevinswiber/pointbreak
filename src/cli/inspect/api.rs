@@ -1885,6 +1885,7 @@ mod tests {
             source: RevisionSource::GitWorktree {
                 mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
                 include_untracked: true,
+                pathspecs: Vec::new(),
             },
             base: ReviewEndpoint::GitCommit {
                 commit_oid: commit.to_owned(),
@@ -2025,6 +2026,7 @@ mod tests {
                         source: RevisionSource::GitWorktree {
                             mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
                             include_untracked: true,
+                            pathspecs: Vec::new(),
                         },
                         base: ReviewEndpoint::GitCommit {
                             commit_oid: "0123456789abcdef0123456789abcdef01234567".to_owned(),

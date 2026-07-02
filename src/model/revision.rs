@@ -28,13 +28,23 @@ pub enum RevisionSource {
     GitWorktree {
         mode: WorktreeCaptureMode,
         include_untracked: bool,
+        /// Capture-time git pathspec scope; empty means the whole repository.
+        /// Ordering and normalization are owned by the capture workflow.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pathspecs: Vec<String>,
     },
     /// Commit-range source selector (research 0004 Q1): lowers to a
     /// `git_commit` base endpoint and a `git_commit` target endpoint. Carries
     /// no rev spellings: resolved OIDs live in the endpoints, and spellings
     /// must not participate in Revision identity (storing `--base main` vs
     /// `--base <oid>` would manufacture distinct units for identical content).
-    GitCommitRange { mode: CommitRangeCaptureMode },
+    GitCommitRange {
+        mode: CommitRangeCaptureMode,
+        /// Capture-time git pathspec scope; empty means the whole repository.
+        /// Ordering and normalization are owned by the capture workflow.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pathspecs: Vec<String>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -100,6 +110,7 @@ mod tests {
         let source = RevisionSource::GitWorktree {
             mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
             include_untracked: true,
+            pathspecs: Vec::new(),
         };
         let base = ReviewEndpoint::GitCommit {
             commit_oid: "abc123".to_owned(),
@@ -129,6 +140,7 @@ mod tests {
     fn commit_range_source_serializes_with_stable_shape() {
         let source = RevisionSource::GitCommitRange {
             mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
+            pathspecs: Vec::new(),
         };
 
         let json = serde_json::to_value(&source).unwrap();
@@ -149,6 +161,7 @@ mod tests {
         let json = serde_json::json!({
             "source": RevisionSource::GitCommitRange {
                 mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
+                pathspecs: Vec::new(),
             },
             "base": ReviewEndpoint::GitCommit {
                 commit_oid: "abc123".to_owned(),
@@ -164,6 +177,53 @@ mod tests {
         assert!(!text.contains("worktreeRoot"));
         assert_eq!(json["target"]["kind"], "git_commit");
         assert_eq!(json["target"]["commitOid"], "0a1b2c");
+    }
+
+    #[test]
+    fn unscoped_sources_serialize_without_a_pathspecs_key() {
+        // Empty means unscoped and must be absent on the wire, so existing
+        // revision ids, payload hashes, and signatures are untouched.
+        let worktree = serde_json::to_value(RevisionSource::GitWorktree {
+            mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+            include_untracked: true,
+            pathspecs: Vec::new(),
+        })
+        .unwrap();
+        let range = serde_json::to_value(RevisionSource::GitCommitRange {
+            mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
+            pathspecs: Vec::new(),
+        })
+        .unwrap();
+        assert!(worktree.get("pathspecs").is_none());
+        assert!(range.get("pathspecs").is_none());
+    }
+
+    #[test]
+    fn scoped_sources_round_trip_the_pathspec_set() {
+        let source = RevisionSource::GitCommitRange {
+            mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
+            pathspecs: vec!["docs/spec".to_owned(), "packages/foo".to_owned()],
+        };
+        let json = serde_json::to_value(&source).unwrap();
+        assert_eq!(json["pathspecs"][0], "docs/spec");
+        assert_eq!(json["pathspecs"][1], "packages/foo");
+        let round_tripped: RevisionSource = serde_json::from_value(json).unwrap();
+        assert_eq!(round_tripped, source);
+    }
+
+    #[test]
+    fn legacy_source_json_without_pathspecs_decodes_as_unscoped() {
+        // Every event written before this field exists must keep decoding.
+        let legacy = serde_json::json!({
+            "kind": "git_worktree",
+            "mode": "combined_head_to_working_tree",
+            "includeUntracked": true
+        });
+        let source: RevisionSource = serde_json::from_value(legacy).unwrap();
+        let RevisionSource::GitWorktree { pathspecs, .. } = source else {
+            panic!("expected a worktree source");
+        };
+        assert!(pathspecs.is_empty());
     }
 
     #[test]

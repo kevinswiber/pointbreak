@@ -659,6 +659,7 @@ mod tests {
                         source: RevisionSource::GitWorktree {
                             mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
                             include_untracked: true,
+                            pathspecs: Vec::new(),
                         },
                         base: ReviewEndpoint::GitCommit {
                             commit_oid: format!("base:{suffix}"),
@@ -848,6 +849,7 @@ mod tests {
                     git_provenance: Some(GitProvenance {
                         source: RevisionSource::GitCommitRange {
                             mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
+                            pathspecs: Vec::new(),
                         },
                         base: ReviewEndpoint::GitCommit {
                             commit_oid: format!("base:{suffix}"),
@@ -1144,6 +1146,7 @@ mod tests {
                         source: RevisionSource::GitWorktree {
                             mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
                             include_untracked: true,
+                            pathspecs: Vec::new(),
                         },
                         base: ReviewEndpoint::GitCommit {
                             commit_oid: format!("base:{}", unit.as_str()),

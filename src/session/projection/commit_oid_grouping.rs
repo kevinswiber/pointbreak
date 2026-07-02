@@ -115,6 +115,7 @@ mod tests {
             RevisionSource::GitWorktree {
                 mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
                 include_untracked: true,
+                pathspecs: Vec::new(),
             },
         )
     }
@@ -128,6 +129,7 @@ mod tests {
             },
             RevisionSource::GitCommitRange {
                 mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
+                pathspecs: Vec::new(),
             },
         )
     }

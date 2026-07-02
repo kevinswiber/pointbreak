@@ -99,6 +99,7 @@ mod tests {
             source: RevisionSource::GitWorktree {
                 mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
                 include_untracked: true,
+                pathspecs: Vec::new(),
             },
             base: ReviewEndpoint::GitCommit {
                 commit_oid: "abc".to_owned(),
@@ -232,6 +233,48 @@ mod tests {
 
         let parsed: WorkObjectProposedPayload = serde_json::from_value(json).unwrap();
         assert_eq!(parsed, payload);
+    }
+
+    #[test]
+    fn scoped_provenance_serializes_pathspecs_inside_the_source() {
+        let mut provenance = git_provenance();
+        provenance.source = RevisionSource::GitWorktree {
+            mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+            include_untracked: true,
+            pathspecs: vec!["packages/foo".to_owned()],
+        };
+        let payload = WorkObjectProposedPayload {
+            engagement_id: EngagementId::new("engagement:sha256:e"),
+            work_object: WorkObjectProposal::Revision {
+                revision: Revision {
+                    id: RevisionId::new("rev:sha256:r"),
+                    object_id: ObjectId::new("obj:sha256:o"),
+                    git_provenance: Some(provenance),
+                },
+                object_artifact_content_hash: "sha256:artifact".to_owned(),
+                supersedes: vec![],
+            },
+        };
+        let json = serde_json::to_value(&payload).unwrap();
+        assert_eq!(
+            json["workObject"]["revision"]["gitProvenance"]["source"]["pathspecs"][0],
+            "packages/foo"
+        );
+        let parsed: WorkObjectProposedPayload = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed, payload);
+    }
+
+    #[test]
+    fn unscoped_provenance_payload_omits_pathspecs() {
+        // The revision_payload() helper is unscoped; its serialized source must
+        // carry no pathspecs key, keeping existing payload hashes and
+        // signatures stable.
+        let json = serde_json::to_value(&revision_payload()).unwrap();
+        assert!(
+            json["workObject"]["revision"]["gitProvenance"]["source"]
+                .get("pathspecs")
+                .is_none()
+        );
     }
 
     #[test]

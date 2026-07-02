@@ -99,6 +99,7 @@ mod tests {
             source: RevisionSource::GitWorktree {
                 mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
                 include_untracked: true,
+                pathspecs: Vec::new(),
             },
             base: ReviewEndpoint::GitCommit {
                 commit_oid: commit_oid.to_owned(),

@@ -470,6 +470,7 @@ mod scope_tests {
             RevisionSource::GitWorktree {
                 mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
                 include_untracked: true,
+                pathspecs: Vec::new(),
             },
             ReviewEndpoint::GitWorkingTree {
                 worktree_root: worktree_root.to_owned(),
@@ -483,6 +484,7 @@ mod scope_tests {
             suffix,
             RevisionSource::GitCommitRange {
                 mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
+                pathspecs: Vec::new(),
             },
             ReviewEndpoint::GitCommit {
                 commit_oid: format!("oid:{suffix}"),

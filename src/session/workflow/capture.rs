@@ -516,7 +516,8 @@ mod tests {
         assert!(matches!(
             result.source,
             RevisionSource::GitCommitRange {
-                mode: CommitRangeCaptureMode::BaseTreeToTargetTree
+                mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
+                ..
             }
         ));
         match &result.base {

@@ -104,6 +104,7 @@ pub(crate) fn resolve_combined_worktree_endpoints(
         source: RevisionSource::GitWorktree {
             mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
             include_untracked: true,
+            pathspecs: Vec::new(),
         },
         base: ReviewEndpoint::GitCommit {
             commit_oid: git_head_oid(repo)?,
@@ -125,6 +126,7 @@ pub(crate) fn resolve_commit_range_endpoints(
     ResolvedRevisionEndpoints {
         source: RevisionSource::GitCommitRange {
             mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
+            pathspecs: Vec::new(),
         },
         base: ReviewEndpoint::GitCommit {
             commit_oid: base.commit_oid.clone(),
@@ -678,7 +680,8 @@ mod tests {
         assert!(matches!(
             endpoints.source,
             RevisionSource::GitCommitRange {
-                mode: CommitRangeCaptureMode::BaseTreeToTargetTree
+                mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
+                ..
             }
         ));
         let (base_commit, base_tree) = match endpoints.base {
