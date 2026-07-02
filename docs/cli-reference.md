@@ -170,7 +170,7 @@ from the snapshot wire (there is nothing to redact). Endpoint/target display liv
 
 ```bash
 shore review capture [--repo <path>] [--base <rev> [--target <rev>]] \
-  [--supersedes <revision-id>]...
+  [--path <pathspec>]... [--supersedes <revision-id>]...
 ```
 
 `shore review capture` records the current V1 revision: the base endpoint, target endpoint, and
@@ -218,6 +218,20 @@ tree, including untracked files (source `git_worktree`).
   evolves past the named revisions, extending the supersession DAG. The new revision becomes a thread
   head; when two captures supersede the same predecessor, the competing heads are surfaced rather than
   auto-collapsed.
+- With `--path <pathspec>` (repeatable), the capture is scoped to the given git pathspec(s): both
+  the tracked diff and untracked-file synthesis include only matching files. This composes with the
+  default worktree capture and with `--base`/`--target`. The syntax is native git pathspec —
+  including magic such as `:(exclude)...` — executed by git itself, and pathspecs are interpreted
+  relative to the repository root regardless of the invoking directory. The recorded set is
+  order-independent (sorted, deduped, trailing slashes normalized on plain paths) and is part of
+  the captured revision's identity: the same range captured under a different scope is a different
+  revision, while identical captured content still shares one content object. A scope that matches
+  no changed files is an error — a scoped capture never records an empty revision. The scope is
+  visible in `shore review show`, `shore review revisions`, and `shore review history` under
+  `source.pathspecs`; an unscoped capture carries no `pathspecs` key and its identity is unchanged
+  from before the option existed. (This is deliberately git pathspec syntax, not the
+  gitignore-style globs of `.shore/sensitivity.json` — capture scoping is executed by git, while
+  the sensitivity exclude config is matched by Shore at scan time.)
 
 V1 storage is local and synchronous. The shared common-dir store may take concurrent writes from
 multiple worktrees of the same clone, kept safe by content-addressed writes and a regenerable

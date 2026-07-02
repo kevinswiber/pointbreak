@@ -541,9 +541,8 @@ fn review_capture_with_path_scopes_the_captured_revision() {
     );
     let scoped = parse_json(&scoped.stdout);
 
-    let unscoped = parse_json(
-        &shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout,
-    );
+    let unscoped =
+        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
     // A scoped capture is a distinct revision from the whole-repo capture of the
     // same worktree (their content and provenance both differ here).
@@ -661,9 +660,8 @@ fn scoped_capture_surfaces_its_pathspecs_in_show_revisions_and_history() {
 #[test]
 fn unscoped_capture_surfaces_no_pathspecs_key() {
     let repo = two_dir_repo();
-    let captured = parse_json(
-        &shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout,
-    );
+    let captured =
+        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     let revision_id = captured["revision"]["id"].as_str().unwrap();
 
     let shown = parse_json(

@@ -269,7 +269,7 @@ mod tests {
         // The revision_payload() helper is unscoped; its serialized source must
         // carry no pathspecs key, keeping existing payload hashes and
         // signatures stable.
-        let json = serde_json::to_value(&revision_payload()).unwrap();
+        let json = serde_json::to_value(revision_payload()).unwrap();
         assert!(
             json["workObject"]["revision"]["gitProvenance"]["source"]
                 .get("pathspecs")

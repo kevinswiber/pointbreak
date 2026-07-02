@@ -118,6 +118,26 @@ worktree capture, so disambiguate later reads and writes with `--revision
 landed commit, choosing a canonical capture, and revision lifecycle remain open
 follow-ups.
 
+### Scoping a capture to a subtree
+
+In a monorepo a review is usually about one subtree, but the worktree and the
+commits interleave changes across many. Scope the capture with `--path` so
+unrelated changes stay out of the reviewer's diff and out of the revision's
+identity:
+
+```bash
+# review only what changed under packages/foo, in the current worktree
+shore review capture --path packages/foo
+
+# same, over an explicit range
+shore review capture --base v1.2.0 --target HEAD --path docs/spec
+```
+
+`--path` takes a native git pathspec, is repeatable, and scopes tracked and
+untracked files alike; a scope that matches no changed files is an error. See
+[`shore review capture`](./cli-reference.md#shore-review-capture) for the full
+semantics.
+
 Record a succession round by naming the revisions a new capture supersedes:
 
 ```bash
