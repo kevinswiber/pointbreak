@@ -54,7 +54,7 @@ fn api_units_derives_label_for_symbolic_branch_worktree() {
     assert!(entry["base"]["treeOid"].is_string());
     assert!(entry["source"].is_object());
     assert!(
-        entry["objectArtifactContentHash"]
+        entry["snapshotContentHash"]
             .as_str()
             .unwrap()
             .starts_with("sha256:")

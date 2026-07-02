@@ -27,8 +27,6 @@
         "rev:sha256:9a7626ca7cb2801721ed992402184460210477aadfd4f7228628b65ff11a6efd"
       ],
       "mergeStatus": "unknown",
-      "objectArtifactContentHash": "sha256:32161336d3627d277a7a5917abe2e2694edec4f3621dbf939bf22091b40e0871",
-      "objectId": "obj:sha256:38a493d2f09d6fde9d1dcac61a12c4ccc4de42a0b9c6829752d34cc648a9f9d7",
       "overview": {
         "attention": {
           "acceptedWithFollowUp": false,
@@ -58,6 +56,8 @@
         }
       },
       "revisionId": "rev:sha256:9a7626ca7cb2801721ed992402184460210477aadfd4f7228628b65ff11a6efd",
+      "snapshotContentHash": "sha256:32161336d3627d277a7a5917abe2e2694edec4f3621dbf939bf22091b40e0871",
+      "snapshotId": "obj:sha256:38a493d2f09d6fde9d1dcac61a12c4ccc4de42a0b9c6829752d34cc648a9f9d7",
       "source": {
         "includeUntracked": true,
         "kind": "git_worktree",

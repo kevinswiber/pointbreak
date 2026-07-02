@@ -110,37 +110,47 @@ fn run_shore_json(args: &[&str]) -> serde_json::Value {
 }
 
 #[test]
-fn served_documents_carry_no_snapshot_id_wire_key() {
-    // The served identity key finishes Snapshot->Object: the content id serves
-    // as `objectId` (matching the `obj:` value and `currentObjectId`), never the
-    // legacy `snapshotId`. The "object artifact" concept is untouched
-    // (`objectArtifactContentHash` does not contain the forbidden token), and
-    // the /api/snapshots/{id} route serves the artifact body, which has no identity key.
-    let forbidden = ["snapshot", "Id"].concat();
+fn revisions_list_speaks_snapshot_vocabulary_and_member_doc_keeps_shared_keys() {
+    // The vocabulary boundary: inspector-private wire DTOs speak snapshot
+    // (`snapshotId`, `snapshotContentHash`); embedded shared documents keep the
+    // substrate vocabulary (`objectId`, `objectArtifactContentHash`). The
+    // /api/revisions list entries are inspector-owned; /api/revisions/{id}
+    // re-serves the shared review document verbatim plus additive splices.
+    let object_id_key = ["object", "Id"].concat();
+    let object_hash_key = ["objectArtifact", "ContentHash"].concat();
+    let snapshot_id_key = ["snapshot", "Id"].concat();
     let store = representative_store();
     let inspector = Inspector::spawn(store.repo.path());
 
     let units = inspector.get_json("/api/revisions");
     assert!(
-        units["entries"][0]["objectId"].is_string(),
-        "the units entry serves the content id under `objectId`"
+        units["entries"][0]["snapshotId"].is_string(),
+        "the units entry serves the content id under `snapshotId`"
+    );
+    assert!(
+        units["entries"][0]["snapshotContentHash"].is_string(),
+        "the units entry serves the captured content hash under `snapshotContentHash`"
     );
     let units_body = inspector.get_text("/api/revisions");
     assert!(
-        !units_body.contains(&forbidden),
-        "/api/revisions must not emit a `snapshotId` key:\n{units_body}"
+        !units_body.contains(&object_id_key),
+        "/api/revisions must not emit an `objectId` key:\n{units_body}"
+    );
+    assert!(
+        !units_body.contains(&object_hash_key),
+        "/api/revisions must not emit an `objectArtifactContentHash` key:\n{units_body}"
     );
 
     let revision_id = units["entries"][0]["revisionId"].as_str().unwrap();
     let unit_body = inspector.get_text(&format!("/api/revisions/{}", urlencode(revision_id)));
     assert!(
-        !unit_body.contains(&forbidden),
-        "/api/revisions/<id> must not emit a `snapshotId` key:\n{unit_body}"
+        !unit_body.contains(&snapshot_id_key),
+        "/api/revisions/<id> re-serves the shared document; no `snapshotId` key:\n{unit_body}"
     );
     let unit: serde_json::Value = serde_json::from_str(&unit_body).unwrap();
     assert!(
         unit["revision"]["objectId"].is_string(),
-        "the unit document serves the content id under `objectId`"
+        "the unit document serves the shared content id under `objectId`"
     );
 }
 

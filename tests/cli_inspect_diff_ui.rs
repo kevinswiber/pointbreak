@@ -130,10 +130,10 @@ fn binary_file_renders_collapsed_by_default() {
 
     let insp = Inspector::spawn(repo.path());
     let revisions = insp.get_json("/api/revisions");
-    let object_id = revisions["entries"][0]["objectId"]
+    let snapshot_id = revisions["entries"][0]["snapshotId"]
         .as_str()
-        .expect("the captured revision exposes its snapshot object id");
-    let object = insp.get_json(&format!("/api/snapshots/{}", urlencode(object_id)));
+        .expect("the captured revision exposes its snapshot id");
+    let object = insp.get_json(&format!("/api/snapshots/{}", urlencode(snapshot_id)));
     let files = object["snapshot"]["files"].as_array().unwrap();
     let png = files
         .iter()
@@ -168,10 +168,10 @@ fn snapshot_endpoint_emphasizes_changed_word() {
 
     let insp = Inspector::spawn(repo.path());
     let revisions = insp.get_json("/api/revisions");
-    let object_id = revisions["entries"][0]["objectId"]
+    let snapshot_id = revisions["entries"][0]["snapshotId"]
         .as_str()
-        .expect("the captured revision exposes its snapshot object id");
-    let object = insp.get_json(&format!("/api/snapshots/{}", urlencode(object_id)));
+        .expect("the captured revision exposes its snapshot id");
+    let object = insp.get_json(&format!("/api/snapshots/{}", urlencode(snapshot_id)));
     let rows = object["snapshot"]["files"][0]["hunks"][0]["rows"]
         .as_array()
         .expect("the modified file carries a hunk with rows");

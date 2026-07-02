@@ -160,7 +160,7 @@ fn api_units_lists_captured_unit_with_counts_and_target_display() {
     assert_eq!(units["revisionCount"], 1);
     let entry = &units["entries"][0];
     assert_eq!(entry["revisionId"], store.revision_id.as_str());
-    assert_eq!(entry["objectId"], store.snapshot_id.as_str());
+    assert_eq!(entry["snapshotId"], store.snapshot_id.as_str());
 
     // The path-private derived display block is spliced in (regression alongside
     // cli_inspect_target_display.rs).
@@ -178,7 +178,7 @@ fn api_units_include_additive_overview_summary() {
 
     let entry = &units["entries"][0];
     assert_eq!(entry["revisionId"], store.revision_id.as_str());
-    assert_eq!(entry["objectId"], store.snapshot_id.as_str());
+    assert_eq!(entry["snapshotId"], store.snapshot_id.as_str());
     assert!(entry["target"].is_object());
     assert!(entry["base"].is_object());
     assert!(entry["targetDisplay"].is_object());

@@ -15,15 +15,15 @@ use mmdflux::layout::{LaidOutGraph, LayoutOptions, layout_graph};
 use serde::Serialize;
 use shoreline::documents::revision_show_document;
 use shoreline::highlight::{emphasis_file, highlight_file};
-use shoreline::model::{ObjectId, ReviewEndpoint, RevisionId, ValidationStatus};
+use shoreline::model::{ObjectId, ReviewEndpoint, RevisionId, RevisionSource, ValidationStatus};
 use shoreline::session::event::ReviewAssessment;
 use shoreline::session::{
     AssessmentRecordStatus, AssessmentView, BaseProjectionConfig, CurrentAssessmentStatus,
     EventVerificationPolicy, HistoryPage, HistoryQuery, InputRequestStatus, LivenessEnrichment,
     ObservationStatus, ObservationView, ProjectionDiagnostic, ReviewHistoryEntry,
-    RevisionListEntry, RevisionListOptions, RevisionOverview, RevisionOverviewsOptions,
-    RevisionProjectionSummary, RevisionShowOptions, RevisionShowResult, SessionState,
-    SupersessionView, apply_history_query, enrich_liveness, event_log_head_marker,
+    RevisionCommitRangeView, RevisionListEntry, RevisionListOptions, RevisionOverview,
+    RevisionOverviewsOptions, RevisionProjectionSummary, RevisionShowOptions, RevisionShowResult,
+    SessionState, SupersessionView, apply_history_query, enrich_liveness, event_log_head_marker,
     history_base_projection, list_revisions, read_bound_object_artifact, read_events_for_display,
     read_object_artifact, show_revision, show_revision_overviews,
 };
@@ -197,14 +197,25 @@ struct FactGraphDocument {
     laid_out: ThreadLayout,
 }
 
-/// One `/api/revisions` entry: the full `RevisionListEntry` flattened verbatim,
-/// plus an additive, path-private `targetDisplay`. `#[serde(flatten)]` keeps
-/// every existing field byte-present and unchanged.
+/// One `/api/revisions` entry: the shared `RevisionListEntry` re-keyed into the
+/// inspector's snapshot vocabulary (`snapshotId`, `snapshotContentHash`), plus
+/// the additive, path-private `targetDisplay` and the server-computed
+/// `overview`. The shared `shore.review-revision-list` document is untouched;
+/// this is the inspector-private wire shape. Fields are listed explicitly (no
+/// flatten) so a new shared field forces a naming decision on this surface.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RevisionEntryDocument {
-    #[serde(flatten)]
-    entry: RevisionListEntry,
+    captured_at: String,
+    revision_id: RevisionId,
+    snapshot_id: ObjectId,
+    source: RevisionSource,
+    base: ReviewEndpoint,
+    target: ReviewEndpoint,
+    snapshot_content_hash: String,
+    commit_range: RevisionCommitRangeView,
+    merge_status: String,
+    grouped_revision_ids: Vec<RevisionId>,
     target_display: TargetDisplay,
     overview: RevisionOverviewDocument,
 }
@@ -387,8 +398,8 @@ fn splice_target_display(
     Ok(())
 }
 
-/// Wrap each list entry with derived, additive display fields, leaving every
-/// existing field on the entry untouched.
+/// Re-key each shared list entry into the inspector's snapshot vocabulary and
+/// attach the derived, additive display fields.
 fn to_unit_entry_documents(
     entries: Vec<RevisionListEntry>,
     mut overviews: BTreeMap<String, RevisionOverviewDocument>,
@@ -396,13 +407,35 @@ fn to_unit_entry_documents(
     entries
         .into_iter()
         .map(|entry| {
-            let target_display = derive_target_display(&entry.target, &entry.base);
-            let revision_id = entry.revision_id.as_str().to_owned();
-            let overview = overviews
-                .remove(&revision_id)
-                .ok_or_else(|| format!("missing overview for revision: {revision_id}"))?;
+            // Exhaustive destructure: a new shared field fails compilation here
+            // and forces a deliberate naming decision on the inspector wire.
+            let RevisionListEntry {
+                captured_at,
+                revision_id,
+                object_id,
+                source,
+                base,
+                target,
+                object_artifact_content_hash,
+                commit_range,
+                merge_status,
+                grouped_revision_ids,
+            } = entry;
+            let target_display = derive_target_display(&target, &base);
+            let overview = overviews.remove(revision_id.as_str()).ok_or_else(|| {
+                format!("missing overview for revision: {}", revision_id.as_str())
+            })?;
             Ok(RevisionEntryDocument {
-                entry,
+                captured_at,
+                revision_id,
+                snapshot_id: object_id,
+                source,
+                base,
+                target,
+                snapshot_content_hash: object_artifact_content_hash,
+                commit_range,
+                merge_status,
+                grouped_revision_ids,
                 target_display,
                 overview,
             })
@@ -1929,14 +1962,18 @@ mod tests {
             "545b0eb81463aaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         );
         assert!(json["source"].is_object());
-        assert_eq!(json["objectArtifactContentHash"], "sha256:artifact:abc");
+        assert_eq!(json["snapshotContentHash"], "sha256:artifact:abc");
         assert!(
             json.get("reviewUnitId").is_none(),
             "the redundant reviewUnitId alias is dropped"
         );
         assert_eq!(json["capturedAt"], "2026-05-13T10:00:00Z");
         assert_eq!(json["revisionId"], "rev:sha256:abc");
-        assert_eq!(json["objectId"], "snap:sha256:abc");
+        assert_eq!(json["snapshotId"], "snap:sha256:abc");
+        assert!(
+            json.get("objectId").is_none() && json.get("objectArtifactContentHash").is_none(),
+            "the inspector entry re-keys the shared fields into snapshot vocabulary"
+        );
     }
 
     #[test]
