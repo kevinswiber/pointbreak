@@ -215,6 +215,150 @@ pub(crate) fn import_store_bundle_with_verification(
     })
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SourceSubsetVerification {
+    pub verified_events: usize,
+    pub verified_artifacts: usize,
+}
+
+/// Independently re-verify, from disk, that everything durable in
+/// `source_store_dir` is present in `target_store_dir`: every physical file
+/// under `events/` and `artifacts/` (recursively) must exist at the same
+/// store-relative path in the target with identical content — byte-identical
+/// for artifacts, canonically identical **modulo the `ingest` provenance
+/// stamp** for events (the import deliberately stamps `ingest` onto committed
+/// target events, so raw byte identity cannot hold there; everything else,
+/// including the envelope and any signature, must match). Enumerates the
+/// source's physical directories — never a manifest or projection, which
+/// cannot see orphan/unreferenced files — because this gate fronts an
+/// irreversible delete. `state.json` (a regenerable projection) and `*.tmp`
+/// (in-flight temp files) are excluded. Never consults import counters;
+/// re-reads both stores.
+pub(crate) fn verify_source_subset_of_target(
+    source_store_dir: &Path,
+    target_store_dir: &Path,
+) -> Result<SourceSubsetVerification> {
+    let mut relative_paths = Vec::new();
+    for top in ["events", "artifacts"] {
+        collect_durable_files(
+            &source_store_dir.join(top),
+            &PathBuf::from(top),
+            &mut relative_paths,
+        )?;
+    }
+
+    let mut verified_events = 0usize;
+    let mut verified_artifacts = 0usize;
+    let mut divergences: Vec<String> = Vec::new();
+    for relative in &relative_paths {
+        let source_bytes = std::fs::read(source_store_dir.join(relative)).map_err(|error| {
+            ShoreError::Message(format!(
+                "read source store file {} for subset verification: {error}",
+                relative.display()
+            ))
+        })?;
+        match std::fs::read(target_store_dir.join(relative)) {
+            Ok(target_bytes) => {
+                let is_event = relative.starts_with("events");
+                let matches = if is_event {
+                    events_match_modulo_ingest_stamp(&source_bytes, &target_bytes)?
+                } else {
+                    sha256_bytes_hex(&source_bytes) == sha256_bytes_hex(&target_bytes)
+                };
+                if matches {
+                    if is_event {
+                        verified_events += 1;
+                    } else {
+                        verified_artifacts += 1;
+                    }
+                } else {
+                    divergences.push(format!("{} diverges", relative.display()));
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                divergences.push(format!("{} is missing in the target", relative.display()));
+            }
+            Err(error) => {
+                return Err(ShoreError::Message(format!(
+                    "read target store file {} for subset verification: {error}",
+                    relative.display()
+                )));
+            }
+        }
+    }
+
+    if divergences.is_empty() {
+        return Ok(SourceSubsetVerification {
+            verified_events,
+            verified_artifacts,
+        });
+    }
+    let shown = divergences.iter().take(3).cloned().collect::<Vec<_>>();
+    Err(ShoreError::Message(format!(
+        "the source store is not a verified subset of the target ({} of {} files diverge; \
+         {}); nothing was deleted — the source store is left untouched",
+        divergences.len(),
+        relative_paths.len(),
+        shown.join("; ")
+    )))
+}
+
+/// Compare two stored event files canonically, ignoring only the `ingest`
+/// provenance stamp on either side — the one envelope field the import adds by
+/// design. Unparseable bytes on either side compare as a divergence rather
+/// than an error: an irreversible retire must treat a corrupt file as
+/// unverified, never as ignorable.
+fn events_match_modulo_ingest_stamp(source_bytes: &[u8], target_bytes: &[u8]) -> Result<bool> {
+    let (Ok(mut source), Ok(mut target)) = (
+        serde_json::from_slice::<serde_json::Value>(source_bytes),
+        serde_json::from_slice::<serde_json::Value>(target_bytes),
+    ) else {
+        return Ok(false);
+    };
+    for value in [&mut source, &mut target] {
+        if let Some(map) = value.as_object_mut() {
+            map.remove("ingest");
+        }
+    }
+    Ok(sha256_json_prefixed(&source)? == sha256_json_prefixed(&target)?)
+}
+
+/// Recursively collect the durable files under `dir` as store-relative paths,
+/// skipping the regenerable `state.json` projection and in-flight `*.tmp`
+/// files. A missing directory contributes zero files (the walk is total).
+fn collect_durable_files(dir: &Path, relative: &Path, collected: &mut Vec<PathBuf>) -> Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(ShoreError::Message(format!(
+                "read store directory {} for subset verification: {error}",
+                dir.display()
+            )));
+        }
+    };
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            ShoreError::Message(format!(
+                "read store directory entry under {} for subset verification: {error}",
+                dir.display()
+            ))
+        })?;
+        let name = entry.file_name();
+        let child_relative = relative.join(&name);
+        if entry.path().is_dir() {
+            collect_durable_files(&entry.path(), &child_relative, collected)?;
+        } else {
+            let file_name = name.to_string_lossy();
+            if file_name == "state.json" || file_name.ends_with(".tmp") {
+                continue;
+            }
+            collected.push(child_relative);
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct SourceEvent {
     event: ShoreEvent,
@@ -1235,6 +1379,162 @@ mod tests {
         repo.commit_all("base");
         repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
         repo
+    }
+
+    /// A captured source store faithfully imported into a fresh target: the
+    /// baseline every subset-verification test perturbs.
+    fn imported_pair() -> (
+        TestRepo,
+        std::path::PathBuf,
+        tempfile::TempDir,
+        std::path::PathBuf,
+    ) {
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let source = resolved_store_dir(repo.path());
+        let target_root = tempfile::tempdir().unwrap();
+        let target = target_root.path().join(".shore/data");
+        import_store_bundle(&source, &target).unwrap();
+        (repo, source, target_root, target)
+    }
+
+    #[test]
+    fn verify_source_subset_passes_after_a_faithful_import() {
+        let (_repo, source, _target_root, target) = imported_pair();
+        let source_events_before = EventStore::open(&source).list_event_file_names().unwrap();
+        let target_events_before = EventStore::open(&target).list_event_file_names().unwrap();
+
+        let verification = verify_source_subset_of_target(&source, &target).unwrap();
+
+        assert!(verification.verified_events >= 1);
+        assert!(verification.verified_artifacts >= 1);
+        // Verification is read-only on both stores.
+        assert_eq!(
+            EventStore::open(&source).list_event_file_names().unwrap(),
+            source_events_before
+        );
+        assert_eq!(
+            EventStore::open(&target).list_event_file_names().unwrap(),
+            target_events_before
+        );
+    }
+
+    #[test]
+    fn verify_source_subset_fails_when_a_target_event_is_missing() {
+        let (_repo, source, _target_root, target) = imported_pair();
+        let name = EventStore::open(&target)
+            .list_event_file_names()
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        fs::remove_file(target.join("events").join(&name)).unwrap();
+
+        let error = verify_source_subset_of_target(&source, &target)
+            .expect_err("a missing target event must fail verification");
+        let message = error.to_string();
+        assert!(
+            message.contains("events/"),
+            "names the missing file: {message}"
+        );
+        assert!(
+            message.contains("not deleted") || message.contains("left"),
+            "says the source survives: {message}"
+        );
+    }
+
+    #[test]
+    fn verify_source_subset_fails_on_envelope_divergent_target_event() {
+        let (_repo, source, _target_root, target) = imported_pair();
+        // Same path, same payload, divergent envelope — e.g. a first-stored
+        // record from another worktree with its own occurredAt. Deleting the
+        // source would lose its envelope, so the comparison must catch every
+        // field except the import's own `ingest` stamp.
+        let name = EventStore::open(&target)
+            .list_event_file_names()
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        let path = target.join("events").join(&name);
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        value["occurredAt"] = serde_json::Value::String("2020-01-01T00:00:00Z".to_owned());
+        fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+
+        let error = verify_source_subset_of_target(&source, &target)
+            .expect_err("an envelope-divergent target event must fail verification");
+        assert!(
+            error.to_string().contains("diverge"),
+            "explains the divergence: {error}"
+        );
+    }
+
+    #[test]
+    fn verify_source_subset_ignores_the_imports_own_ingest_stamp() {
+        // The faithful-import baseline already has stamped target events; the
+        // pass test covers it end to end. This pins the comparator directly:
+        // identical events differing ONLY in the `ingest` stamp match, and a
+        // corrupt (unparseable) side is a divergence, never a pass.
+        let source = serde_json::json!({"eventId": "evt:x", "occurredAt": "t"});
+        let mut target = source.clone();
+        target["ingest"] = serde_json::json!({"via": "bundle_apply", "receivedAt": "t2"});
+        assert!(
+            events_match_modulo_ingest_stamp(
+                &serde_json::to_vec(&source).unwrap(),
+                &serde_json::to_vec(&target).unwrap(),
+            )
+            .unwrap()
+        );
+        assert!(
+            !events_match_modulo_ingest_stamp(&serde_json::to_vec(&source).unwrap(), b"{ not json")
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn verify_source_subset_fails_when_a_target_artifact_is_missing() {
+        let (_repo, source, _target_root, target) = imported_pair();
+        let objects = target.join("artifacts/objects");
+        let artifact = fs::read_dir(&objects)
+            .unwrap()
+            .next()
+            .expect("imported target has an object artifact")
+            .unwrap();
+        fs::remove_file(artifact.path()).unwrap();
+
+        let error = verify_source_subset_of_target(&source, &target)
+            .expect_err("a missing target artifact must fail verification");
+        assert!(error.to_string().contains("artifacts/"));
+    }
+
+    #[test]
+    fn verify_source_subset_fails_on_an_orphan_source_artifact_the_fold_never_carried() {
+        let (_repo, source, _target_root, target) = imported_pair();
+        // An artifact file no event references: absent from the import manifest,
+        // so only a physical walk can see it — deleting the source would destroy
+        // the only copy.
+        fs::write(source.join("artifacts/objects/orphan.json"), "{}").unwrap();
+
+        let error = verify_source_subset_of_target(&source, &target)
+            .expect_err("an unreferenced source artifact absent from the target must fail");
+        assert!(
+            error.to_string().contains("orphan.json"),
+            "names the file: {error}"
+        );
+    }
+
+    #[test]
+    fn verify_source_subset_ignores_state_json_and_temp_files() {
+        let (_repo, source, _target_root, target) = imported_pair();
+        // state.json is a regenerable projection and *.tmp is an in-flight temp
+        // file; neither is durable, so neither is required in the target. The
+        // capture already wrote the source state.json.
+        assert!(source.join("state.json").is_file());
+        fs::write(source.join("events/.shore-write.fresh.tmp"), "in flight").unwrap();
+
+        let verification = verify_source_subset_of_target(&source, &target).unwrap();
+        assert!(verification.verified_events >= 1);
     }
 
     /// The store a capture/workflow actually lands in for `repo` — the shared
