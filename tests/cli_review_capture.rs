@@ -658,6 +658,59 @@ fn scoped_capture_surfaces_its_pathspecs_in_show_revisions_and_history() {
 }
 
 #[test]
+fn differently_scoped_range_captures_stay_distinct_in_revisions() {
+    // Two path-scoped captures of the same range are different review units;
+    // the list surface must show both, each with its own source.pathspecs,
+    // instead of collapsing them into one row on the shared target OID.
+    let repo = two_dir_repo();
+    repo.commit_all("change");
+
+    for scope in ["a", "b"] {
+        let output = shore([
+            "review",
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--base",
+            "HEAD~1",
+            "--target",
+            "HEAD",
+            "--path",
+            scope,
+        ]);
+        assert!(
+            output.status.success(),
+            "stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let listed = parse_json(
+        &shore([
+            "review",
+            "revisions",
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .stdout,
+    );
+    assert_eq!(listed["revisionCount"], 2);
+    let mut scopes: Vec<String> = listed["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            entry["source"]["pathspecs"][0]
+                .as_str()
+                .expect("each scoped entry surfaces its own pathspecs")
+                .to_owned()
+        })
+        .collect();
+    scopes.sort();
+    assert_eq!(scopes, vec!["a".to_owned(), "b".to_owned()]);
+}
+
+#[test]
 fn unscoped_capture_surfaces_no_pathspecs_key() {
     let repo = two_dir_repo();
     let captured =

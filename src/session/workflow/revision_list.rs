@@ -303,7 +303,10 @@ fn is_hidden_orphan(
 /// `target`, …) come from the smallest-id member. Same-range captures already share
 /// one content-addressed object artifact (the body is decoupled from the identity
 /// fields), so the artifact hash is identical across members — collapsing is honest,
-/// not lossy.
+/// not lossy. That honesty depends on the members sharing one pathspec scope:
+/// differently scoped captures of the same range are distinct review units with
+/// (in general) different content objects, so the union is partitioned by the
+/// recorded `source.pathspecs` and never merges across scopes.
 fn group_entries(
     entries: Vec<RevisionListEntry>,
     grouping: &CommitOidGroupingProjection,
@@ -343,12 +346,15 @@ fn group_entries(
 }
 
 /// Partition the known entry ids into connected components over the "shares any
-/// current commit OID" relation. Each entry seeds its own component; for every
-/// grouping bucket (`commit_oid → member ids`) that names two or more known
-/// entries, those entries' components are unioned. A unit with multiple current
-/// OIDs chains its buckets into one component (transitive closure). Ids the
-/// grouping names that are not entries in this view (filtered out upstream) are
-/// ignored — a group whose only surviving member matched collapses to a singleton.
+/// current commit OID within one pathspec scope" relation. Each entry seeds its
+/// own component; for every grouping bucket (`commit_oid → member ids`) that
+/// names two or more known entries with an equal recorded `source.pathspecs`
+/// set, those entries' components are unioned. Differently scoped members of a
+/// bucket never union — a path-scoped capture is its own review unit. A unit
+/// with multiple current OIDs chains its buckets into one component (transitive
+/// closure). Ids the grouping names that are not entries in this view (filtered
+/// out upstream) are ignored — a group whose only surviving member matched
+/// collapses to a singleton.
 fn connected_components(
     by_id: &BTreeMap<RevisionId, RevisionListEntry>,
     grouping: &CommitOidGroupingProjection,
@@ -362,20 +368,26 @@ fn connected_components(
         .collect();
 
     for members in grouping.groups.values() {
-        let known: Vec<RevisionId> = members
-            .iter()
-            .filter(|id| component_of.contains_key(*id))
-            .cloned()
-            .collect();
-        let mut known = known.into_iter();
-        if let Some(first) = known.next() {
-            let target = component_of[&first];
-            for other in known {
-                let source = component_of[&other];
-                if source != target {
-                    for value in component_of.values_mut() {
-                        if *value == source {
-                            *value = target;
+        let mut by_scope: BTreeMap<&[String], Vec<RevisionId>> = BTreeMap::new();
+        for id in members {
+            if let Some(entry) = by_id.get(id) {
+                by_scope
+                    .entry(source_pathspecs(&entry.source))
+                    .or_default()
+                    .push(id.clone());
+            }
+        }
+        for known in by_scope.into_values() {
+            let mut known = known.into_iter();
+            if let Some(first) = known.next() {
+                let target = component_of[&first];
+                for other in known {
+                    let source = component_of[&other];
+                    if source != target {
+                        for value in component_of.values_mut() {
+                            if *value == source {
+                                *value = target;
+                            }
                         }
                     }
                 }
@@ -388,6 +400,15 @@ fn connected_components(
         buckets.entry(index).or_default().insert(id);
     }
     buckets.into_values().collect()
+}
+
+/// The recorded capture pathspec scope of a listed source; empty means the
+/// whole repository (an unscoped capture).
+fn source_pathspecs(source: &RevisionSource) -> &[String] {
+    match source {
+        RevisionSource::GitWorktree { pathspecs, .. }
+        | RevisionSource::GitCommitRange { pathspecs, .. } => pathspecs,
+    }
 }
 
 /// Convenience entry point for "which units are associated with this ref?".
@@ -1196,6 +1217,108 @@ mod tests {
             "2026-06-19T00:00:09Z",
         )
         .unwrap()
+    }
+
+    /// A commit-range capture anchored to `commit_oid` with a recorded pathspec
+    /// scope. Distinct suffixes model distinct scoped captures of one range.
+    fn scoped_range_captured_event(
+        suffix: &str,
+        occurred_at: &str,
+        commit_oid: &str,
+        pathspecs: &[&str],
+    ) -> ShoreEvent {
+        let revision_id = RevisionId::new(format!("review-unit:sha256:{suffix}"));
+        let object_id = ObjectId::new(format!("obj:sha256:{suffix}"));
+        let payload = WorkObjectProposedPayload {
+            engagement_id: EngagementId::new(format!(
+                "engagement:sha256:{}",
+                crate::canonical_hash::sha256_bytes_hex((revision_id.clone()).as_str().as_bytes())
+            )),
+            work_object: WorkObjectProposal::Revision {
+                revision: Revision {
+                    id: revision_id.clone(),
+                    object_id: object_id.clone(),
+                    git_provenance: Some(GitProvenance {
+                        source: RevisionSource::GitCommitRange {
+                            mode: CommitRangeCaptureMode::BaseTreeToTargetTree,
+                            pathspecs: pathspecs.iter().map(|s| (*s).to_owned()).collect(),
+                        },
+                        base: ReviewEndpoint::GitCommit {
+                            commit_oid: "base:shared".to_owned(),
+                            tree_oid: "base-tree:shared".to_owned(),
+                        },
+                        target: ReviewEndpoint::GitCommit {
+                            commit_oid: commit_oid.to_owned(),
+                            tree_oid: format!("{commit_oid}-tree"),
+                        },
+                    }),
+                },
+                object_artifact_content_hash: format!("sha256:artifact:{suffix}"),
+                supersedes: vec![],
+            },
+        };
+        ShoreEvent::new(
+            EventType::WorkObjectProposed,
+            format!("capture:{suffix}"),
+            EventTarget::for_revision(JournalId::new("journal:default"), revision_id, None),
+            Writer::shore_local("test"),
+            payload,
+            occurred_at,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn scoped_range_captures_with_different_pathspecs_stay_separate_entries() {
+        // Two path-scoped captures of the SAME range are different review units
+        // with different content objects; collapsing them would hide one unit and
+        // surface only one member's source.pathspecs. They must not group even
+        // though their current commit sets share the target OID.
+        let events = [
+            scoped_range_captured_event("scope-a", "2026-06-19T00:00:00Z", "shared", &["a"]),
+            scoped_range_captured_event("scope-b", "2026-06-19T00:00:01Z", "shared", &["b"]),
+        ];
+        let projection = RevisionCommitRangeProjection::from_events(&events).unwrap();
+        let grouping = CommitOidGroupingProjection::from_events(&events).unwrap();
+        let base = list_from_events(&events, &projection).unwrap();
+
+        let grouped = group_entries(base.entries, &grouping);
+
+        assert_eq!(
+            grouped.len(),
+            2,
+            "differently scoped captures of one range stay separate entries"
+        );
+        let mut scopes: Vec<Vec<String>> = grouped
+            .iter()
+            .map(|entry| match &entry.source {
+                RevisionSource::GitCommitRange { pathspecs, .. } => pathspecs.clone(),
+                RevisionSource::GitWorktree { pathspecs, .. } => pathspecs.clone(),
+            })
+            .collect();
+        scopes.sort();
+        assert_eq!(scopes, vec![vec!["a".to_owned()], vec!["b".to_owned()]]);
+        for entry in &grouped {
+            assert_eq!(entry.grouped_revision_ids, vec![entry.revision_id.clone()]);
+        }
+    }
+
+    #[test]
+    fn scoped_captures_with_equal_pathspecs_still_group_on_a_shared_oid() {
+        // The cross-worktree convergence story is unchanged within one scope:
+        // equal pathspec sets sharing an OID still collapse to one entry.
+        let events = [
+            scoped_range_captured_event("scope-a1", "2026-06-19T00:00:00Z", "shared", &["a"]),
+            scoped_range_captured_event("scope-a2", "2026-06-19T00:00:01Z", "shared", &["a"]),
+        ];
+        let projection = RevisionCommitRangeProjection::from_events(&events).unwrap();
+        let grouping = CommitOidGroupingProjection::from_events(&events).unwrap();
+        let base = list_from_events(&events, &projection).unwrap();
+
+        let grouped = group_entries(base.entries, &grouping);
+
+        assert_eq!(grouped.len(), 1, "equal scopes still collapse");
+        assert_eq!(grouped[0].grouped_revision_ids.len(), 2);
     }
 
     #[test]
