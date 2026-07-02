@@ -273,11 +273,14 @@ pub(crate) fn verify_source_subset_of_target(
                         verified_artifacts += 1;
                     }
                 } else {
-                    divergences.push(format!("{} diverges", relative.display()));
+                    divergences.push(format!("{} diverges", store_relative_display(relative)));
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                divergences.push(format!("{} is missing in the target", relative.display()));
+                divergences.push(format!(
+                    "{} is missing in the target",
+                    store_relative_display(relative)
+                ));
             }
             Err(error) => {
                 return Err(ShoreError::Message(format!(
@@ -302,6 +305,16 @@ pub(crate) fn verify_source_subset_of_target(
         relative_paths.len(),
         shown.join("; ")
     )))
+}
+
+/// Render a store-relative path with `/` separators on every platform: these
+/// strings name store entries (`events/<hash>.json`), not filesystem paths,
+/// and the divergence messages must read the same on Windows.
+fn store_relative_display(path: &Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Compare two stored event files canonically, ignoring only the `ingest`
