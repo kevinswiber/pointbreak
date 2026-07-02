@@ -219,6 +219,12 @@ verification status without changing the stored event or projection. A re-ingest
 already-present event is a no-op; a conflicting payload under the same idempotency key is rejected.
 The projection (`state.json`) is rebuilt once after the batch.
 
+When a strict policy rejects an event, `ingest_events` / `import_event` return
+`ShoreError::EventVerificationRejected { event_id, status }` before anything is written, so
+consumers classify the rejection on the variant and read the offending event id and
+`EventVerificationStatus` without parsing message text. The rendered message is unchanged:
+`event signature verification rejected event <event_id> with status <status>`.
+
 Every event written through `ingest_events` / `import_event` or store bundle import is stamped
 with ingest provenance — `ingest: { via, receivedAt }`, with `via` naming the seam
 (`ingest-events` or `bundle-apply`) — overwriting any inbound stamp. The stamp is outside the

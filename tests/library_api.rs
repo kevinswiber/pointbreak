@@ -871,3 +871,19 @@ fn ingest_rejection_is_classifiable_by_variant() {
         other => panic!("expected EventVerificationRejected, got {other:?}"),
     }
 }
+
+/// Strict-policy ingest rejection is a documented, typed contract (#144).
+#[test]
+fn library_api_documents_typed_ingest_rejection() {
+    let api = std::fs::read_to_string("docs/library-api.md").expect("read library API docs");
+
+    for required in [
+        "EventVerificationRejected",
+        "event signature verification rejected event",
+    ] {
+        assert!(
+            api.contains(required),
+            "library API docs should mention {required}"
+        );
+    }
+}
