@@ -152,10 +152,12 @@ surfaces such as `review_history` report verification status only when requested
 persist that status into event files or `state.json`.
 
 An idempotent re-ingest keeps the first stored event. If a later event has the same idempotency key
-and payload hash but a different signer or signature, Shoreline reports the
-`divergent_signature_existing_event` diagnostic and keeps the first stored event. Other metadata
-differences with the same payload hash remain an idempotent existing event. Signatures authenticate
-the producer facts; they do not choose an automatic conflict winner.
+and payload hash but a different signer or signature, Shoreline keeps the first stored event and,
+when the incoming copy carries a resolvable attestation, transcribes it into a detached
+co-signature carrier (an unsigned divergent duplicate transcribes nothing); the affected input row
+reports `write_outcome: existing_divergent_signature`. Other metadata differences with the same
+payload hash remain an idempotent existing event. Signatures authenticate the producer facts; they
+do not choose an automatic conflict winner.
 
 `FileEd25519Signer` (`shoreline::keys`) is the production `EventSigner`: an Ed25519 key loaded from
 the user-level keystore (`shoreline::keys::{generate_key, load_signer, list_keys}`). Signing over a
@@ -200,6 +202,8 @@ self-asserted field. See [ADR-0010](./adr/adr-0010-actor-identity-and-delegation
 | ---- | ------- |
 | `ingest_events` + `IngestEventsOptions` / `IngestEventsResult` | Ingest pre-formed `ShoreEvent`s (forwarded over a network or merged from another clone), preserving append-only / content-addressed / idempotent + conflict semantics. |
 | `import_event` + `ImportEventOptions` | Single-event convenience over `ingest_events`. |
+| `IngestEventVerification` | One row per verified event: `event_id`, `status`, `message`, and `write_outcome: Option<EventWriteOutcome>` — how the store resolved that event's write. |
+| `EventWriteOutcome` | The public per-event write resolution: `created`, `existing`, or `existing_divergent_signature`; serde, `as_str()`, and `Display` all use the snake_case wire strings. |
 | `shoreline::session::event::ShoreEvent` (+ `EventType`, `Writer`, payload types) | The event envelope; `Serialize` + `Deserialize`, so events can be forwarded as JSON. |
 | `IngestProvenance` / `IngestVia` | The optional `ingest: { via, receivedAt }` envelope sibling stamped by import seams ([ADR-0009](adr/adr-0009-resumption-binding-trust-source.md)). |
 
@@ -224,6 +228,13 @@ When a strict policy rejects an event, `ingest_events` / `import_event` return
 consumers classify the rejection on the variant and read the offending event id and
 `EventVerificationStatus` without parsing message text. The rendered message is unchanged:
 `event signature verification rejected event <event_id> with status <status>`.
+
+`IngestEventsResult.verification` rows appear in input order for non-carrier events; a stored
+detached co-signature carrier appends its row when the write loop stores it, and a dropped
+carrier has no row. On a successful ingest every row's `write_outcome` is populated, so a
+forwarding consumer can answer both questions per row — did it verify, and what did the store do
+with it — without parsing diagnostics. Divergent-signature semantics are unchanged (first stored
+wins; this surface is observability only).
 
 Every event written through `ingest_events` / `import_event` or store bundle import is stamped
 with ingest provenance — `ingest: { via, receivedAt }`, with `via` naming the seam

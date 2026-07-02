@@ -662,7 +662,7 @@ fn library_api_documents_event_signing_surface() {
         "pre-authentication encoding",
         "artifact availability",
         "different signer or signature",
-        "divergent_signature_existing_event",
+        "existing_divergent_signature",
     ] {
         assert!(
             api.contains(required),
@@ -912,5 +912,24 @@ fn event_write_outcome_is_publicly_nameable() {
         let parsed: EventWriteOutcome =
             serde_json::from_value(Value::String(name.to_owned())).unwrap();
         assert_eq!(parsed, outcome);
+    }
+}
+
+/// Per-event write outcomes are a documented contract (#145): row shape, input
+/// ordering, and the wire strings a forwarding consumer maps into its receipts.
+#[test]
+fn library_api_documents_per_event_write_outcomes() {
+    let api = std::fs::read_to_string("docs/library-api.md").expect("read library API docs");
+
+    for required in [
+        "write_outcome",
+        "EventWriteOutcome",
+        "existing_divergent_signature",
+        "input order",
+    ] {
+        assert!(
+            api.contains(required),
+            "library API docs should mention {required}"
+        );
     }
 }
