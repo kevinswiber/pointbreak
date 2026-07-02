@@ -2,9 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::error::{Result, ShoreError};
-use crate::git::{
-    git_info_exclude_path, git_path_is_ignored, git_paths_are_ignored, git_worktree_root,
-};
+use crate::git::{git_paths_are_ignored, git_worktree_root};
 use crate::storage::{LocalStorage, TempSweepAge};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -144,54 +142,15 @@ pub(crate) fn sweep_stale_temp_files(storage: &LocalStorage, store_dir: &Path) -
     storage.sweep_temp_files(store_dir, TempSweepAge::workflow_startup())
 }
 
-/// One repository-local exclude entry: the synthetic path probed against the standard
-/// ignore sources, and the line appended to `.git/info/exclude` when not already ignored.
-struct ExcludeSpec {
-    probe: &'static str,
-    line: &'static str,
-}
-
-/// The four store excludes `prepare_store_writer_at` maintains, in append order: the
-/// three private `.local.json` overrides first, then the narrow `.shore/data/` store dir
-/// last (preserving the original write order). Each line is appended only when its probe
-/// shows the path is not already ignored. Single source for both the batched probe and
-/// the standalone `ensure_*_excluded` callers — do not restate these literals elsewhere.
-const STORE_EXCLUDES: [ExcludeSpec; 4] = [
-    ExcludeSpec {
-        probe: ".shore/delegates.local.json",
-        line: ".shore/delegates.local.json",
-    },
-    ExcludeSpec {
-        probe: ".shore/actor-attributes.local.json",
-        line: ".shore/actor-attributes.local.json",
-    },
-    ExcludeSpec {
-        probe: ".shore/store.local.json",
-        line: ".shore/store.local.json",
-    },
-    ExcludeSpec {
-        probe: ".shore/data/state.json",
-        line: ".shore/data/",
-    },
-];
-
-/// Append `spec.line` to the repository-local `.git/info/exclude` unless `spec.probe` is
-/// already ignored by a standard source. The single-path probe form used by the standalone
-/// `--local` CLI callers; `prepare_store_writer_at` batches all four probes into one call.
-fn ensure_excluded(worktree_root: &Path, spec: &ExcludeSpec) -> Result<()> {
-    if git_path_is_ignored(worktree_root, spec.probe)? {
-        return Ok(());
-    }
-    append_info_exclude_line(worktree_root, spec.line)
-}
-
 /// Shared writer setup against an explicit store dir and worktree root: sweep stale temp
-/// files, ensure the store directory layout, and register the four `.git/info/exclude`
-/// entries (the three private `.local.json` overrides, then the `.shore/data/` store) via
-/// one batched `git check-ignore`. The write-landing seam's `prepare_write_landing` calls
-/// this with the resolved write store dir (clone-local in linked mode) and the worktree
-/// root, so every write workflow shares one exclude body and they can never drift on which
-/// excludes are written.
+/// files, ensure the store directory layout, and — only when the store lands inside the
+/// worktree's `.shore/` (the ephemeral opt-in) — ensure the committed `.shore/.gitignore`
+/// covers it. The shared common-dir store lives inside `.git/`, which git already
+/// ignores, so a shared-store write generates nothing: a capture must never mutate the
+/// worktree it is capturing (that would fork the content-only object id between a
+/// worktree capture and a range capture of identical content). The write-landing seam's
+/// `prepare_write_landing` calls this with the resolved write store dir and the worktree
+/// root, so every write workflow shares one exclusion body.
 pub(crate) fn prepare_store_writer_at(
     storage: &LocalStorage,
     store_dir: &Path,
@@ -199,73 +158,11 @@ pub(crate) fn prepare_store_writer_at(
 ) -> Result<()> {
     sweep_stale_temp_files(storage, store_dir)?;
     ensure_store_dirs(store_dir)?;
-    // Probe all four exclude paths in ONE `git check-ignore` (the pre-append state),
-    // then append the not-ignored lines in order. Equivalent to four sequential
-    // probe-then-append calls: none of the four appended patterns matches any OTHER
-    // probe path (the three `.local.json` paths and `.shore/data/` are disjoint), so
-    // no append can flip a later probe. The override entries come before the store
-    // exclude so each is captured explicitly even when a broader store pattern is
-    // present. Saves 3 git spawns per write workflow.
-    let probes: Vec<&str> = STORE_EXCLUDES.iter().map(|spec| spec.probe).collect();
-    let ignored = git_paths_are_ignored(worktree_root, &probes)?;
-    for (spec, is_ignored) in STORE_EXCLUDES.iter().zip(ignored) {
-        if !is_ignored {
-            append_info_exclude_line(worktree_root, spec.line)?;
-        }
+    if store_dir.starts_with(worktree_root.join(".shore")) {
+        ensure_shore_gitignore(worktree_root)?;
     }
     Ok(())
 }
-
-/// Keeps the `.shore/data/` store out of Git status without modifying any
-/// tracked project file.
-///
-/// Shoreline registers `.shore/data/` in the repository-local
-/// `.git/info/exclude` rather than the worktree `.gitignore`, so initializing or
-/// writing review state never dirties the working tree and never leaks an
-/// ignore-file edit into a captured Revision. The entry is the narrow
-/// `.shore/data/` (not a wholesale `.shore/`) so committed config siblings —
-/// `.shore/delegates.json`, `.shore/allowed-signers.json` — stay tracked. If
-/// `.shore/data/` is already ignored by any standard source — a project
-/// `.gitignore` entry, the global excludes file, or an existing local exclude
-/// entry — this is a no-op, so user-managed ignore files are respected and never
-/// rewritten.
-pub fn ensure_shore_storage_excluded(worktree_root: &Path) -> Result<()> {
-    // STORE_EXCLUDES[3] probes a path under `.shore/data/` so directory-only patterns
-    // (`.shore/data/`) match regardless of whether the directory exists on disk yet,
-    // mirroring how untracked discovery applies `--exclude-standard`.
-    ensure_excluded(worktree_root, &STORE_EXCLUDES[3])
-}
-
-/// Keeps the private delegates override out of Git status without touching any
-/// tracked file. Mirrors [`ensure_shore_storage_excluded`]: if the path is
-/// already ignored by any standard source this is a no-op; otherwise it appends
-/// the entry to the repository-local `.git/info/exclude`.
-///
-/// Only the `.local.json` override is excluded — the committed
-/// `.shore/delegates.json` and `.shore/allowed-signers.json` are deliberately
-/// tracked and never excluded.
-///
-/// `pub` so the possession-based `--local` identity CLIs (`enroll`/`attest`) can
-/// call it before any store write — that path may run before `prepare_store_writer_at`
-/// (which also calls it) ever does.
-pub fn ensure_local_delegates_excluded(worktree_root: &Path) -> Result<()> {
-    ensure_excluded(worktree_root, &STORE_EXCLUDES[0])
-}
-
-/// Keeps the private actor-attributes override out of Git status. Mirrors
-/// [`ensure_local_delegates_excluded`]: a no-op if already ignored, else appends
-/// to the repository-local `.git/info/exclude`. Only the `.local.json` override
-/// is excluded — the committed `.shore/actor-attributes.json` is tracked.
-/// `pub` for the same reason as [`ensure_local_delegates_excluded`]: the `--local`
-/// `attest` CLI calls it before staging the override.
-pub fn ensure_local_actor_attributes_excluded(worktree_root: &Path) -> Result<()> {
-    ensure_excluded(worktree_root, &STORE_EXCLUDES[1])
-}
-
-// The private store-config override (`.shore/store.local.json`, STORE_EXCLUDES[2]) is
-// excluded only via the batched `prepare_store_writer_at` — unlike the delegates and
-// actor-attributes twins there is no possession-based `--local` store-config CLI, so it
-// needs no standalone `ensure_*` wrapper. (The committed `.shore/store.json` stays tracked.)
 
 /// One canonical probe → line mapping for the committed `.shore/.gitignore`.
 /// `data/` covers the opt-in ephemeral store; `*.local.json` covers every
@@ -327,35 +224,6 @@ fn append_shore_gitignore_lines(worktree_root: &Path, lines: &[&str]) -> Result<
     fs::write(&path, updated).map_err(|error| io_error("write .shore/.gitignore", &path, error))
 }
 
-/// Append `line` (newline-terminated) to the repository-local
-/// `.git/info/exclude`, creating the file and its parent if needed. Callers
-/// guard against duplicate entries before calling.
-fn append_info_exclude_line(worktree_root: &Path, line: &str) -> Result<()> {
-    let exclude_path = git_info_exclude_path(worktree_root)?;
-    if let Some(parent) = exclude_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| io_error("create git info directory", parent, error))?;
-    }
-
-    let current = match fs::read_to_string(&exclude_path) {
-        Ok(contents) => contents,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => {
-            return Err(io_error("read git exclude file", &exclude_path, error));
-        }
-    };
-
-    let mut updated = current;
-    if !updated.is_empty() && !updated.ends_with('\n') {
-        updated.push('\n');
-    }
-    updated.push_str(line);
-    updated.push('\n');
-
-    fs::write(&exclude_path, updated)
-        .map_err(|error| io_error("write git exclude file", &exclude_path, error))
-}
-
 fn io_error(action: &str, path: &Path, error: std::io::Error) -> ShoreError {
     ShoreError::Message(format!("{action} {}: {error}", path.display()))
 }
@@ -366,6 +234,7 @@ mod tests {
     use std::process::Command;
 
     use super::*;
+    use crate::git::git_info_exclude_path;
 
     #[test]
     fn shore_store_paths_resolve_from_subdirectory() {
@@ -424,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    fn prepare_store_writer_at_creates_current_store_dirs_and_local_exclude_entry() {
+    fn prepare_store_writer_at_creates_store_dirs_and_shore_gitignore() {
         let repo = git_repo();
         let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
         let storage = LocalStorage::new(paths.store_dir());
@@ -435,103 +304,105 @@ mod tests {
         assert!(paths.store_dir().join("artifacts/notes").is_dir());
         assert!(paths.store_dir().join("artifacts/objects").is_dir());
 
-        // Storage is ignored via the repository-local exclude, never the
-        // tracked worktree .gitignore.
+        // Exclusion rides the committed .shore/.gitignore — never the hidden
+        // repo-local exclude and never the root .gitignore.
         assert!(
             !repo.path().join(".gitignore").exists(),
-            "writer setup must not create a tracked .gitignore"
+            "writer setup must not create a root .gitignore"
         );
-        let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
-        assert!(
-            exclude.lines().any(|line| line.trim() == ".shore/data/"),
-            "local exclude should list .shore/data/, got:\n{exclude}"
-        );
-    }
-
-    #[test]
-    fn prepare_store_writer_appends_all_four_excludes_preserving_existing_body() {
-        let repo = git_repo();
-        let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
-        let storage = LocalStorage::new(paths.store_dir());
-
-        // Seed a pre-existing exclude body with NO trailing newline so the test also
-        // exercises append_info_exclude_line's newline normalization. None of these
-        // patterns ignores any of the four `.shore/` probe paths, so all four append.
+        let body = fs::read_to_string(repo.path().join(".shore/.gitignore")).unwrap();
+        assert_eq!(body, "data/\n*.local.json\n");
         let exclude = git_info_exclude_path(repo.path()).unwrap();
-        fs::create_dir_all(exclude.parent().unwrap()).unwrap();
-        fs::write(&exclude, "# existing\nbuild/").unwrap();
+        if exclude.exists() {
+            let exclude_body = fs::read_to_string(&exclude).unwrap();
+            assert!(
+                !exclude_body.contains(".shore"),
+                "no .shore entry lands in info/exclude: {exclude_body}"
+            );
+        }
+    }
+
+    #[test]
+    fn prepare_store_writer_appends_missing_gitignore_lines_preserving_existing_body() {
+        let repo = git_repo();
+        let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
+        let storage = LocalStorage::new(paths.store_dir());
+
+        // Seed a user-owned .shore/.gitignore with NO trailing newline so the test
+        // also exercises newline normalization. Its pattern ignores none of the
+        // probe paths, so both canonical lines append after it.
+        fs::create_dir_all(repo.path().join(".shore")).unwrap();
+        fs::write(
+            repo.path().join(".shore/.gitignore"),
+            "# existing\nvendor-cache/",
+        )
+        .unwrap();
 
         prepare_store_writer_at(&storage, paths.store_dir(), paths.worktree_root()).unwrap();
 
-        // Assert the FULL file body: pre-existing content survives verbatim, the missing
-        // trailing newline is normalized, and the four lines follow in order (overrides
-        // first, `.shore/data/` last). Asserting the whole file (not a `.shore/`-filtered
-        // subset) is what catches changes to existing content or newline handling.
-        let body = fs::read_to_string(&exclude).unwrap();
+        // Assert the FULL file body: pre-existing content survives verbatim, the
+        // missing trailing newline is normalized, and the canonical lines follow.
+        let body = fs::read_to_string(repo.path().join(".shore/.gitignore")).unwrap();
         assert_eq!(
-            body,
-            "# existing\nbuild/\n\
-             .shore/delegates.local.json\n\
-             .shore/actor-attributes.local.json\n\
-             .shore/store.local.json\n\
-             .shore/data/\n",
-            "batch must preserve the existing body verbatim and append the four lines in \
-             order with exact newline handling"
+            body, "# existing\nvendor-cache/\ndata/\n*.local.json\n",
+            "must preserve the existing body verbatim and append the missing lines \
+             with exact newline handling"
         );
     }
 
     #[test]
-    fn prepare_store_writer_at_excludes_local_delegates_override() {
+    fn prepare_store_writer_at_covers_probe_paths_and_keeps_committed_config_tracked() {
         let repo = git_repo();
         let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
         let storage = LocalStorage::new(paths.store_dir());
 
         prepare_store_writer_at(&storage, paths.store_dir(), paths.worktree_root()).unwrap();
 
-        let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
-        assert!(
-            exclude
-                .lines()
-                .any(|line| line.trim() == ".shore/delegates.local.json"),
-            "local delegates override must be git-excluded, got:\n{exclude}"
-        );
-        // Still no tracked .gitignore (same posture as the store exclusion).
-        assert!(!repo.path().join(".gitignore").exists());
+        // The store dir and every private .local.json override are ignored…
+        let ignored = git_paths_are_ignored(
+            repo.path(),
+            &[
+                ".shore/data/state.json",
+                ".shore/delegates.local.json",
+                ".shore/actor-attributes.local.json",
+                ".shore/store.local.json",
+            ],
+        )
+        .unwrap();
+        assert_eq!(ignored, vec![true, true, true, true]);
+        // …while the committed config siblings stay tracked.
+        let committed = git_paths_are_ignored(
+            repo.path(),
+            &[
+                ".shore/store.json",
+                ".shore/delegates.json",
+                ".shore/actor-attributes.json",
+            ],
+        )
+        .unwrap();
+        assert_eq!(committed, vec![false, false, false]);
     }
 
     #[test]
-    fn ensure_local_delegates_excluded_is_idempotent() {
+    fn prepare_store_writer_at_generates_nothing_for_the_shared_common_dir_store() {
         let repo = git_repo();
-        ensure_local_delegates_excluded(repo.path()).unwrap();
-        ensure_local_delegates_excluded(repo.path()).unwrap();
-        let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
-        let hits = exclude
-            .lines()
-            .filter(|l| l.trim() == ".shore/delegates.local.json")
-            .count();
-        assert_eq!(hits, 1, "the entry is written at most once");
-    }
+        // The shared store lives inside .git/, which git already ignores; a
+        // shared-store write must not mutate the worktree (no generated
+        // .shore/.gitignore) — that is what keeps a capture from forking the
+        // content-only object id of the worktree it is capturing.
+        let store_dir = repo.path().join(".git/shore");
+        let storage = LocalStorage::new(&store_dir);
 
-    #[test]
-    fn prepare_store_writer_at_excludes_local_store_config_override() {
-        let repo = git_repo();
-        let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
-        let storage = LocalStorage::new(paths.store_dir());
+        prepare_store_writer_at(&storage, &store_dir, repo.path()).unwrap();
 
-        prepare_store_writer_at(&storage, paths.store_dir(), paths.worktree_root()).unwrap();
-
-        let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
+        assert!(store_dir.join("events").is_dir());
         assert!(
-            exclude
-                .lines()
-                .any(|line| line.trim() == ".shore/store.local.json"),
-            "local store-config override must be git-excluded, got:\n{exclude}"
+            !repo.path().join(".shore/.gitignore").exists(),
+            "a shared-store write generates no .shore/.gitignore"
         );
-        // The committed config is never excluded.
         assert!(
-            !exclude
-                .lines()
-                .any(|line| line.trim() == ".shore/store.json")
+            !repo.path().join(".shore").exists(),
+            "a shared-store write creates nothing under the worktree"
         );
     }
 
@@ -541,61 +412,19 @@ mod tests {
         let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
         let storage = LocalStorage::new(paths.store_dir());
 
-        // The batched probe reads the pre-append exclude state, so a second run must see
-        // the now-present entries as already-ignored and append nothing — covering the
-        // store-config exclude (no standalone wrapper) on the live batch path.
+        // The probe reads the pre-append ignore state, so a second run must see the
+        // now-covered probes as already-ignored and append nothing.
         prepare_store_writer_at(&storage, paths.store_dir(), paths.worktree_root()).unwrap();
         prepare_store_writer_at(&storage, paths.store_dir(), paths.worktree_root()).unwrap();
 
-        let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
-        for line in [
-            ".shore/delegates.local.json",
-            ".shore/actor-attributes.local.json",
-            ".shore/store.local.json",
-            ".shore/data/",
-        ] {
-            let hits = exclude.lines().filter(|l| l.trim() == line).count();
+        let body = fs::read_to_string(repo.path().join(".shore/.gitignore")).unwrap();
+        for line in ["data/", "*.local.json"] {
+            let hits = body.lines().filter(|l| l.trim() == line).count();
             assert_eq!(
                 hits, 1,
                 "{line} must be written at most once across repeated runs"
             );
         }
-    }
-
-    #[test]
-    fn prepare_store_writer_at_excludes_local_actor_attributes_override() {
-        let repo = git_repo();
-        let paths = ShoreStorePaths::resolve(repo.path()).unwrap();
-        let storage = LocalStorage::new(paths.store_dir());
-
-        prepare_store_writer_at(&storage, paths.store_dir(), paths.worktree_root()).unwrap();
-
-        let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
-        assert!(
-            exclude
-                .lines()
-                .any(|line| line.trim() == ".shore/actor-attributes.local.json"),
-            "local actor-attributes override must be git-excluded, got:\n{exclude}"
-        );
-        // Committed config is never excluded.
-        assert!(
-            !exclude
-                .lines()
-                .any(|line| line.trim() == ".shore/actor-attributes.json")
-        );
-    }
-
-    #[test]
-    fn ensure_local_actor_attributes_excluded_is_idempotent() {
-        let repo = git_repo();
-        ensure_local_actor_attributes_excluded(repo.path()).unwrap();
-        ensure_local_actor_attributes_excluded(repo.path()).unwrap();
-        let exclude = fs::read_to_string(git_info_exclude_path(repo.path()).unwrap()).unwrap();
-        let hits = exclude
-            .lines()
-            .filter(|l| l.trim() == ".shore/actor-attributes.local.json")
-            .count();
-        assert_eq!(hits, 1, "the entry is written at most once");
     }
 
     #[test]

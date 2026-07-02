@@ -32,7 +32,4 @@ pub use store_config::{
 pub(crate) use store_init::{
     FLAT_STORE_MARKERS, ShoreStorePaths, StoreLayout, detect_store_layout, sweep_stale_temp_files,
 };
-pub use store_init::{
-    ensure_local_actor_attributes_excluded, ensure_local_delegates_excluded,
-    ensure_shore_gitignore, ensure_shore_storage_excluded, store_dir_for_repo,
-};
+pub use store_init::{ensure_shore_gitignore, store_dir_for_repo};

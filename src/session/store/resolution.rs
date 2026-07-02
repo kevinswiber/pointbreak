@@ -174,9 +174,9 @@ pub(crate) fn resolve_write_store(repo: impl AsRef<Path>) -> Result<WriteStore> 
 }
 
 /// Prepare the resolved write landing: ensure the store directory layout on the
-/// *write* store dir while keeping the `.git/info/exclude` entries anchored on the
-/// worktree root. Delegates to the same shared body as `prepare_shore_writer`, so
-/// the two never drift on which excludes are written.
+/// *write* store dir while keeping the generated `.shore/.gitignore` anchored on
+/// the worktree root. Delegates to the shared `prepare_store_writer_at` body, so
+/// write workflows can never drift on which paths are covered.
 pub(crate) fn prepare_write_landing(
     write_store: &WriteStore,
     storage: &LocalStorage,

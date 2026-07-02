@@ -142,12 +142,15 @@ fn attest_local_writes_override_excludes_it_and_surfaces_full_replace_caveat() {
             .join(".shore/actor-attributes.local.json")
             .exists()
     );
-    let exclude = std::fs::read_to_string(repo.path().join(".git/info/exclude")).unwrap();
-    assert!(
-        exclude
-            .lines()
-            .any(|l| l.trim() == ".shore/actor-attributes.local.json")
-    );
+    // The override is git-excluded via the generated .shore/.gitignore.
+    let ignore = std::fs::read_to_string(repo.path().join(".shore/.gitignore")).unwrap();
+    assert!(ignore.lines().any(|l| l.trim() == "*.local.json"));
+    let check = std::process::Command::new("git")
+        .args(["check-ignore", ".shore/actor-attributes.local.json"])
+        .current_dir(repo.path())
+        .status()
+        .unwrap();
+    assert!(check.success(), "the local override must be git-ignored");
     // INV-E: the git-config full-replace semantics must be surfaced (a local entry
     // fully replaces the committed entry for this actor locally — never a merge).
     let stderr = String::from_utf8_lossy(&out.stderr).to_lowercase();

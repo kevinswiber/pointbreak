@@ -6,7 +6,7 @@ use serde::Serialize;
 use shoreline::model::ActorId;
 use shoreline::session::{
     ACTOR_ATTRIBUTES_LOCAL_REL_PATH, ACTOR_ATTRIBUTES_REL_PATH, ActorAttributesStageOutcome,
-    ActorAttributesWriteRecord, ensure_local_actor_attributes_excluded, stage_actor_attributes,
+    ActorAttributesWriteRecord, ensure_shore_gitignore, stage_actor_attributes,
 };
 
 use crate::cli::json::{self, DiagnosticDocument};
@@ -70,7 +70,7 @@ pub(super) fn run(
     let path = worktree_root.join(rel);
 
     if args.local {
-        ensure_local_actor_attributes_excluded(&worktree_root)?; // INV-E
+        ensure_shore_gitignore(&worktree_root)?; // INV-E
         let _ = writeln!(
             stderr,
             "note: this local entry fully replaces any committed attributes for {} locally",

@@ -679,27 +679,17 @@ fn reload_outcome_is_publicly_nameable() {
     let _: Option<ReloadOutcome> = None;
 }
 
-/// The `--local` override exclusion helpers must be reachable from outside the crate
-/// so the possession-based `identity enroll`/`attest` CLIs can keep their `.local.json`
+/// The exclusion helper must be reachable from outside the crate so the
+/// possession-based `identity enroll`/`attest` CLIs can keep their `.local.json`
 /// overrides out of git status (INV-A/INV-E).
 #[test]
-fn local_override_exclusion_helpers_are_public() {
+fn shore_gitignore_helper_is_public() {
     let repo = support::git_repo::GitRepo::new();
-    // Reachable from outside the crate ⇒ they are pub (INV-A). A no-op on an
-    // already-clean repo; the point is that this compiles and runs.
-    shoreline::session::ensure_local_delegates_excluded(repo.path()).unwrap();
-    shoreline::session::ensure_local_actor_attributes_excluded(repo.path()).unwrap();
-    let exclude = std::fs::read_to_string(repo.path().join(".git/info/exclude")).unwrap();
-    assert!(
-        exclude
-            .lines()
-            .any(|l| l.trim() == ".shore/delegates.local.json")
-    );
-    assert!(
-        exclude
-            .lines()
-            .any(|l| l.trim() == ".shore/actor-attributes.local.json")
-    );
+    // Reachable from outside the crate ⇒ it is pub (INV-A).
+    shoreline::session::ensure_shore_gitignore(repo.path()).unwrap();
+    let body = std::fs::read_to_string(repo.path().join(".shore/.gitignore")).unwrap();
+    assert!(body.lines().any(|l| l.trim() == "*.local.json"));
+    assert!(body.lines().any(|l| l.trim() == "data/"));
 }
 
 /// The sensitivity-scan vocabulary is a typed public contract (#150): kinds,

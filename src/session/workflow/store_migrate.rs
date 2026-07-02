@@ -2,10 +2,11 @@
 //! and rewrite every event's writer fields in place.
 //!
 //! Takes a pre-relocation **flat** store (events/artifacts/state.json directly
-//! under `.shore/`) and nests its store entries under `.shore/data/`, fixes the
-//! `.git/info/exclude` line, then runs the per-event writer migration over every
-//! event. The `.shore/` directory itself stays (it now also holds committed
-//! config); only the store entries move.
+//! under `.shore/`) and nests its store entries under `.shore/data/`, removes
+//! the flat era's wholesale `.shore/` line from `.git/info/exclude` (generating
+//! the committed `.shore/.gitignore` instead), then runs the per-event writer
+//! migration over every event. The `.shore/` directory itself stays (it now
+//! also holds committed config); only the store entries move.
 //!
 //! Crash-safety: `nest_flat_store` copies each entry into `.shore/data/` first
 //! and removes the flat originals only after every copy succeeds. A crash before
@@ -24,7 +25,7 @@ use crate::error::{Result, ShoreError};
 use crate::git::{git_info_exclude_path, git_worktree_root};
 use crate::session::store::{
     EventMigrateOutcome, EventStore, FLAT_STORE_MARKERS, StoreLayout, detect_store_layout,
-    ensure_local_delegates_excluded, ensure_shore_storage_excluded, migrate_event_file,
+    ensure_shore_gitignore, migrate_event_file,
 };
 
 /// The flat store entries that move into `.shore/data/` — the same set the
@@ -79,11 +80,13 @@ pub fn migrate_store(options: MigrateStoreOptions) -> Result<StoreMigrateResult>
         StoreLayout::Nested | StoreLayout::Fresh => false,
     };
 
-    // 2. Exclude: rewrite a wholesale `.shore/` line to `.shore/data/`, then ensure
-    //    the narrow store + local-delegates entries. Committed config stays tracked.
-    rewrite_wholesale_shore_exclude(&worktree_root)?;
-    ensure_shore_storage_excluded(&worktree_root)?;
-    ensure_local_delegates_excluded(&worktree_root)?;
+    // 2. Exclude: remove the flat era's wholesale `.shore/` residue from the
+    //    repo-local exclude, then generate the committed `.shore/.gitignore`.
+    //    Order is load-bearing: while the wholesale line is present every ignore
+    //    probe reports covered, so the generate step would no-op. Committed
+    //    config stays tracked either way.
+    remove_wholesale_shore_exclude(&worktree_root)?;
+    ensure_shore_gitignore(&worktree_root)?;
 
     // 3. Migrate every event file in the nested store (raw JSON; never read_event).
     let store = EventStore::open(&data);
@@ -146,10 +149,14 @@ fn copy_recursively(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Rewrite a wholesale `.shore/` line in `.git/info/exclude` to `.shore/data/`.
-/// Idempotent (a no-op when absent). The additive `ensure_*` helpers cannot do
-/// this: an over-broad existing line would keep hiding the committed config.
-fn rewrite_wholesale_shore_exclude(worktree_root: &Path) -> Result<()> {
+/// Remove the flat era's wholesale `.shore/` line from `.git/info/exclude`.
+/// Idempotent (a no-op when absent), and removal-only: this migration never
+/// writes fresh info/exclude content — exclusion moves to the committed
+/// `.shore/.gitignore`. Removing (rather than narrowing) the residue is what
+/// stops the over-broad line from hiding committed config, and the probe-gated
+/// generate step cannot do it: an existing wholesale line makes every probe
+/// report covered.
+fn remove_wholesale_shore_exclude(worktree_root: &Path) -> Result<()> {
     let exclude_path = git_info_exclude_path(worktree_root)?;
     let current = match std::fs::read_to_string(&exclude_path) {
         Ok(contents) => contents,
@@ -161,16 +168,10 @@ fn rewrite_wholesale_shore_exclude(worktree_root: &Path) -> Result<()> {
     }
     let mut rewritten = current
         .lines()
-        .map(|line| {
-            if line.trim() == ".shore/" {
-                ".shore/data/"
-            } else {
-                line
-            }
-        })
+        .filter(|line| line.trim() != ".shore/")
         .collect::<Vec<_>>()
         .join("\n");
-    if current.ends_with('\n') {
+    if current.ends_with('\n') && !rewritten.is_empty() {
         rewritten.push('\n');
     }
     std::fs::write(&exclude_path, rewritten)
@@ -187,7 +188,7 @@ mod tests {
     use std::process::Command;
 
     use super::*;
-    use crate::git::git_path_is_ignored;
+    use crate::git::git_paths_are_ignored;
     use crate::model::{EventId, JournalId};
     use crate::session::event::{
         EventTarget, EventType, ReviewInitializedPayload, ShoreEvent, Writer,
@@ -337,24 +338,43 @@ mod tests {
     }
 
     #[test]
-    fn migrate_store_rewrites_wholesale_exclude_and_keeps_committed_config_tracked() {
+    fn migrate_store_removes_wholesale_exclude_and_keeps_committed_config_tracked() {
         let repo = git_repo();
         let shore = repo.path().join(".shore");
         seed_legacy_store(&shore, 1);
         std::fs::write(shore.join("delegates.json"), r#"{"delegates":{}}"#).unwrap();
-        // Pre-migration exclude lists the WHOLESALE .shore/ (today's behavior).
+        // Pre-migration exclude lists the WHOLESALE .shore/ (the flat-era residue),
+        // plus an unrelated user line that must survive verbatim.
         let excl = git_info_exclude_path(repo.path()).unwrap();
         std::fs::create_dir_all(excl.parent().unwrap()).unwrap();
-        std::fs::write(&excl, ".shore/\n").unwrap();
+        std::fs::write(&excl, "# user line\nbuild-cache/\n.shore/\n").unwrap();
 
         migrate_store(MigrateStoreOptions::new(repo.path())).unwrap();
 
-        // The committed config under .shore/ must NOT be git-ignored after migration.
-        assert!(
-            !git_path_is_ignored(repo.path(), ".shore/delegates.json").unwrap(),
-            "committed config must be tracked, not hidden by a wholesale .shore/ exclude"
+        // The wholesale line is REMOVED (not rewritten) — the migration writes no
+        // fresh info/exclude content; exclusion moves to the generated
+        // .shore/.gitignore. Unrelated user lines survive verbatim.
+        assert_eq!(
+            std::fs::read_to_string(&excl).unwrap(),
+            "# user line\nbuild-cache/\n",
+            "the wholesale .shore/ residue is dropped and nothing new is written"
         );
-        // The store IS still excluded (now via the narrow .shore/data/ entry).
-        assert!(git_path_is_ignored(repo.path(), ".shore/data/state.json").unwrap());
+        assert_eq!(
+            std::fs::read_to_string(repo.path().join(".shore/.gitignore")).unwrap(),
+            "data/\n*.local.json\n"
+        );
+        // The committed config under .shore/ must NOT be git-ignored after
+        // migration, while the store IS still excluded (now via the
+        // .shore/.gitignore data/ entry).
+        let ignored = git_paths_are_ignored(
+            repo.path(),
+            &[".shore/delegates.json", ".shore/data/state.json"],
+        )
+        .unwrap();
+        assert_eq!(
+            ignored,
+            vec![false, true],
+            "committed config tracked; store excluded"
+        );
     }
 }

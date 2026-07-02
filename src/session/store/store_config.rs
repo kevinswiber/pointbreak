@@ -192,11 +192,15 @@ pub fn resolve_store_mode_for_repo(repo: &Path) -> Result<StoreModeOutcome> {
 
 /// Persist `mode` to the committed `.shore/store.json` for `repo` (the worktree
 /// root or any path inside it). The library entry point the `store mode
-/// shared|ephemeral` CLI consumes. Only the committed file is written — it is
-/// tracked, so this never touches the `.git/info/exclude` (the write-path setup
-/// handles excluding the `.local.json` override).
+/// shared|ephemeral` CLI consumes. Opting into `Ephemeral` also ensures the
+/// committed `.shore/.gitignore`, so the soon-to-exist worktree-local
+/// `.shore/data/` store is covered before its first write; the committed
+/// `store.json` itself is tracked and never excluded.
 pub fn set_store_mode_for_repo(repo: &Path, mode: StoreMode) -> Result<()> {
     let worktree_root = git_worktree_root(repo)?;
+    if mode == StoreMode::Ephemeral {
+        crate::session::store::store_init::ensure_shore_gitignore(&worktree_root)?;
+    }
     write_store_config(&worktree_root, mode)
 }
 

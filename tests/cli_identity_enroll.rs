@@ -153,14 +153,16 @@ fn enroll_local_writes_override_excludes_it_and_surfaces_full_replace_caveat() {
         "stderr:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    // The local file exists and is git-excluded.
+    // The local file exists and is git-excluded via the generated .shore/.gitignore.
     assert!(repo.path().join(".shore/delegates.local.json").exists());
-    let exclude = std::fs::read_to_string(repo.path().join(".git/info/exclude")).unwrap();
-    assert!(
-        exclude
-            .lines()
-            .any(|l| l.trim() == ".shore/delegates.local.json")
-    );
+    let ignore = std::fs::read_to_string(repo.path().join(".shore/.gitignore")).unwrap();
+    assert!(ignore.lines().any(|l| l.trim() == "*.local.json"));
+    let check = std::process::Command::new("git")
+        .args(["check-ignore", ".shore/delegates.local.json"])
+        .current_dir(repo.path())
+        .status()
+        .unwrap();
+    assert!(check.success(), "the local override must be git-ignored");
     // The full-replace caveat is surfaced (committed record(s) shadowed locally) — INV-E.
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(

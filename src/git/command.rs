@@ -206,20 +206,11 @@ pub fn git_info_exclude_path(repo: &Path) -> Result<PathBuf> {
     })
 }
 
-/// Reports whether `pathspec` is ignored by the standard Git exclude sources
-/// (the worktree `.gitignore`, the global excludes file, and the repository
-/// `.git/info/exclude`). This mirrors the `--exclude-standard` rules used when
-/// Shoreline discovers untracked files.
-pub fn git_path_is_ignored(repo: &Path, pathspec: &str) -> Result<bool> {
-    // `git check-ignore` prints matching paths to stdout and exits 1 (no error)
-    // when nothing matches, so a non-empty stdout is the "ignored" signal.
-    let output = run_git_allowing_statuses(repo, ["check-ignore", pathspec], &[0, 1])?;
-    Ok(!output.stdout.is_empty())
-}
-
-/// Batched form of [`git_path_is_ignored`]: reports, for each pathspec, whether it is
-/// ignored by the standard Git exclude sources, in a single `git check-ignore`
-/// invocation. Returns one bool per input path, in input order.
+/// Reports, for each pathspec, whether it is ignored by the standard Git
+/// exclude sources (the worktree `.gitignore`, the global excludes file, and
+/// the repository `.git/info/exclude`), in a single `git check-ignore`
+/// invocation — mirroring the `--exclude-standard` rules used when Shoreline
+/// discovers untracked files. Returns one bool per input path, in input order.
 ///
 /// Pathspecs are passed as arguments (not via `--stdin`), so plain check-ignore echoes
 /// the ignored subset one per `\n`-delimited line; this is exact for newline-free

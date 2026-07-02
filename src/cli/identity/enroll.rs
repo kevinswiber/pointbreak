@@ -6,7 +6,7 @@ use serde::Serialize;
 use shoreline::model::ActorId;
 use shoreline::session::{
     DELEGATES_LOCAL_REL_PATH, DELEGATES_REL_PATH, DelegationMap, DelegationStageOutcome,
-    DelegationWriteRecord, ensure_local_delegates_excluded, now_rfc3339_utc, stage_delegation,
+    DelegationWriteRecord, ensure_shore_gitignore, now_rfc3339_utc, stage_delegation,
 };
 
 use crate::cli::json::{self, DiagnosticDocument};
@@ -84,7 +84,7 @@ pub(super) fn run(
     // INV-E: a local override is git-excluded before it is written.
     let mut local_shadows_committed = None;
     if args.local {
-        ensure_local_delegates_excluded(&worktree_root)?;
+        ensure_shore_gitignore(&worktree_root)?;
         // Count committed records that this local entry will shadow (full-replace).
         let committed_path = worktree_root.join(DELEGATES_REL_PATH);
         if committed_path.exists()
