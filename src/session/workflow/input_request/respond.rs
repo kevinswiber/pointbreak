@@ -140,7 +140,7 @@ pub fn respond_input_request(
     let InputRequestProjectionRecords {
         mut request_records,
         ..
-    } = collect_input_request_projection_records(&validation_events, None)?;
+    } = collect_input_request_projection_records(&validation_events)?;
     let request_record = request_records
         .remove(&options.input_request_id)
         .ok_or_else(|| {

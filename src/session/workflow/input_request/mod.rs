@@ -1021,8 +1021,8 @@ mod tests {
         ];
         let reverse: Vec<ShoreEvent> = forward.iter().rev().cloned().collect();
 
-        let forward_records = collect_input_request_projection_records(&forward, None).unwrap();
-        let reverse_records = collect_input_request_projection_records(&reverse, None).unwrap();
+        let forward_records = collect_input_request_projection_records(&forward).unwrap();
+        let reverse_records = collect_input_request_projection_records(&reverse).unwrap();
 
         assert_eq!(forward_records.request_records.len(), 1);
         assert_eq!(
@@ -1040,16 +1040,27 @@ mod tests {
             lowest_request_event_id,
         );
 
-        let forward_responses = &forward_records.responses[&input_request_id];
-        let reverse_responses = &reverse_records.responses[&input_request_id];
+        let response_keys = |records: &super::view::InputRequestProjectionRecords<'_>| {
+            records.responses[&input_request_id]
+                .iter()
+                .map(|record| {
+                    (
+                        record.payload.input_request_response_id.clone(),
+                        record.event.event_id.as_str().to_owned(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let forward_responses = response_keys(&forward_records);
+        let reverse_responses = response_keys(&reverse_records);
         assert_eq!(forward_responses, reverse_responses);
         assert_eq!(forward_responses.len(), 2);
 
-        let approve_view = forward_responses
+        let approve_record = forward_responses
             .iter()
-            .find(|view| view.id == approve_response_id)
+            .find(|(response_id, _)| response_id == &approve_response_id)
             .unwrap();
-        assert_eq!(approve_view.event_id.as_str(), lowest_approve_event_id);
+        assert_eq!(approve_record.1, lowest_approve_event_id);
     }
 
     #[test]

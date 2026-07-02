@@ -111,10 +111,7 @@ pub(crate) fn project_input_requests(
     let InputRequestProjectionRecords {
         request_records,
         responses,
-    } = collect_input_request_projection_records(
-        options.events,
-        Some((options.backend, options.removal_lens)),
-    )?;
+    } = collect_input_request_projection_records(options.events)?;
     let mut input_requests = Vec::new();
 
     for record in request_records.into_values() {
@@ -145,11 +142,24 @@ pub(crate) fn project_input_requests(
             continue;
         }
 
+        // Status derives from the response count alone, so it gates BEFORE any
+        // response-reason bytes resolve: a request this surface will not return
+        // must never hydrate (or hard-error on) its responses.
         let input_request_id = record.payload.input_request_id.clone();
-        let responses = responses
-            .get(&input_request_id)
-            .cloned()
-            .unwrap_or_default();
+        let response_records = responses.get(&input_request_id);
+        let status = status_for_response_count(response_records.map_or(0, |records| records.len()));
+        if !options.status_filter.matches(status) {
+            continue;
+        }
+        let responses = match response_records {
+            Some(records) => response_views_from_records(
+                options.backend,
+                options.removal_lens,
+                options.include_body,
+                records,
+            )?,
+            None => Vec::new(),
+        };
         let view = input_request_view_from_event(
             options.backend,
             options.removal_lens,
@@ -159,9 +169,7 @@ pub(crate) fn project_input_requests(
             responses,
             options.include_body,
         )?;
-        if options.status_filter.matches(view.status) {
-            input_requests.push(view);
-        }
+        input_requests.push(view);
     }
 
     sort_input_request_views(&mut input_requests);
@@ -174,22 +182,22 @@ pub(super) struct InputRequestOpenRecord<'a> {
     pub(super) track_id: TrackId,
 }
 
-struct InputRequestResponseRecord<'a> {
-    event: &'a ShoreEvent,
-    payload: InputRequestRespondedPayload,
+pub(super) struct InputRequestResponseRecord<'a> {
+    pub(super) event: &'a ShoreEvent,
+    pub(super) payload: InputRequestRespondedPayload,
 }
 
 pub(super) struct InputRequestProjectionRecords<'a> {
     pub(super) request_records: BTreeMap<InputRequestId, InputRequestOpenRecord<'a>>,
-    pub(super) responses: BTreeMap<InputRequestId, Vec<InputRequestResponseView>>,
+    pub(super) responses: BTreeMap<InputRequestId, Vec<InputRequestResponseRecord<'a>>>,
 }
 
+// A pure record pass: no store reads and no removal-lens consultation happen
+// here. Response reasons resolve later, per request a surface actually
+// returns (`response_views_from_records`), so a missing artifact on a request
+// a caller filters out can never fail that caller's read.
 pub(super) fn collect_input_request_projection_records<'a>(
     events: &'a [ShoreEvent],
-    // Response reasons resolve their removed state at view construction (the
-    // artifact path does not survive onto the view). `None` for non-render
-    // callers; the state-only resolve never reads bytes.
-    reason_lens: Option<(&StoreBackend, &BodyRemovalLens<'_>)>,
 ) -> Result<InputRequestProjectionRecords<'a>> {
     let mut request_records: BTreeMap<InputRequestId, InputRequestOpenRecord<'a>> = BTreeMap::new();
     let mut response_records: BTreeMap<InputRequestResponseId, InputRequestResponseRecord<'a>> =
@@ -237,47 +245,58 @@ pub(super) fn collect_input_request_projection_records<'a>(
         }
     }
 
-    let mut responses: BTreeMap<InputRequestId, Vec<InputRequestResponseView>> = BTreeMap::new();
+    let mut responses: BTreeMap<InputRequestId, Vec<InputRequestResponseRecord<'a>>> =
+        BTreeMap::new();
     for record in response_records.into_values() {
-        let event = record.event;
-        let payload = record.payload;
-        let reason_content_state = match reason_lens {
-            Some((backend, lens)) => resolve_body_content(
-                backend,
-                lens,
-                // State-only: this surface deliberately does not hydrate
-                // externalized reasons; `reason` stays the payload's value.
-                false,
-                payload.reason.clone(),
-                payload.reason_artifact_path.as_deref(),
-            )?
-            .state(),
-            None => BodyContentState::default(),
-        };
         responses
-            .entry(payload.input_request_id)
+            .entry(record.payload.input_request_id.clone())
             .or_default()
-            .push(InputRequestResponseView {
-                id: payload.input_request_response_id,
-                event_id: event.event_id.clone(),
-                outcome: payload.outcome,
-                reason: payload.reason,
-                reason_content_type: payload.reason_content_type,
-                reason_content_hash: payload.reason_content_hash,
-                reason_content_state,
-                created_at: event.occurred_at.clone(),
-                writer: event.writer.clone(),
-            });
+            .push(record);
     }
 
-    for response_views in responses.values_mut() {
-        sort_response_views(response_views);
+    for response_records in responses.values_mut() {
+        sort_response_records(response_records);
     }
 
     Ok(InputRequestProjectionRecords {
         request_records,
         responses,
     })
+}
+
+/// Build the response views for one request this surface will return,
+/// resolving each reason's text and state through the shared body resolution
+/// with the calling surface's include-body flag.
+pub(super) fn response_views_from_records(
+    backend: &StoreBackend,
+    removal_lens: &BodyRemovalLens<'_>,
+    include_body: bool,
+    records: &[InputRequestResponseRecord<'_>],
+) -> Result<Vec<InputRequestResponseView>> {
+    records
+        .iter()
+        .map(|record| {
+            let content = resolve_body_content(
+                backend,
+                removal_lens,
+                include_body,
+                record.payload.reason.clone(),
+                record.payload.reason_artifact_path.as_deref(),
+            )?;
+            let reason_content_state = content.state();
+            Ok(InputRequestResponseView {
+                id: record.payload.input_request_response_id.clone(),
+                event_id: record.event.event_id.clone(),
+                outcome: record.payload.outcome,
+                reason: content.into_text(),
+                reason_content_type: record.payload.reason_content_type,
+                reason_content_hash: record.payload.reason_content_hash.clone(),
+                reason_content_state,
+                created_at: record.event.occurred_at.clone(),
+                writer: record.event.writer.clone(),
+            })
+        })
+        .collect()
 }
 
 // Event IDs are deterministic storage addresses, not causal order. Pick the lowest one
@@ -304,7 +323,7 @@ pub(super) fn input_request_view_from_event(
     )?;
     let body_content_state = content.state();
     let body = content.into_text();
-    let status = status_for_responses(&responses);
+    let status = status_for_response_count(responses.len());
 
     Ok(InputRequestView {
         id: payload.input_request_id,
@@ -325,8 +344,8 @@ pub(super) fn input_request_view_from_event(
     })
 }
 
-fn status_for_responses(responses: &[InputRequestResponseView]) -> InputRequestStatus {
-    match responses.len() {
+fn status_for_response_count(count: usize) -> InputRequestStatus {
+    match count {
         0 => InputRequestStatus::Open,
         1 => InputRequestStatus::Responded,
         _ => InputRequestStatus::Ambiguous,
@@ -341,10 +360,16 @@ pub(super) fn sort_input_request_views(input_requests: &mut [InputRequestView]) 
     });
 }
 
-fn sort_response_views(responses: &mut [InputRequestResponseView]) {
-    responses.sort_by(|left, right| {
-        left.created_at
-            .cmp(&right.created_at)
-            .then_with(|| left.event_id.as_str().cmp(right.event_id.as_str()))
+fn sort_response_records(records: &mut [InputRequestResponseRecord<'_>]) {
+    records.sort_by(|left, right| {
+        left.event
+            .occurred_at
+            .cmp(&right.event.occurred_at)
+            .then_with(|| {
+                left.event
+                    .event_id
+                    .as_str()
+                    .cmp(right.event.event_id.as_str())
+            })
     });
 }

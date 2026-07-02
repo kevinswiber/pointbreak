@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::view::{
     InputRequestProjectionRecords, InputRequestView, collect_input_request_projection_records,
-    input_request_view_from_event,
+    input_request_view_from_event, response_views_from_records,
 };
 use crate::error::{Result, ShoreError};
 use crate::model::InputRequestId;
@@ -74,22 +74,27 @@ pub fn fetch_input_request(options: InputRequestFetchOptions) -> Result<InputReq
     let InputRequestProjectionRecords {
         mut request_records,
         responses,
-    } = collect_input_request_projection_records(
-        &events,
-        Some((read_store.backend(), &removal_lens)),
-    )?;
+    } = collect_input_request_projection_records(&events)?;
 
     if let Some(record) = request_records.remove(&options.input_request_id) {
+        // Only the fetched request's responses resolve their reasons; other
+        // requests' artifacts are never read here.
+        let responses = match responses.get(&options.input_request_id) {
+            Some(records) => response_views_from_records(
+                read_store.backend(),
+                &removal_lens,
+                options.include_body,
+                records,
+            )?,
+            None => Vec::new(),
+        };
         let view = input_request_view_from_event(
             read_store.backend(),
             &removal_lens,
             record.event,
             record.payload,
             record.track_id,
-            responses
-                .get(&options.input_request_id)
-                .cloned()
-                .unwrap_or_default(),
+            responses,
             options.include_body,
         )?;
         let mut diagnostics = SessionState::from_events(&events)?.diagnostics;

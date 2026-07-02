@@ -886,3 +886,288 @@ fn modified_repo() -> GitRepo {
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
     repo
 }
+
+/// Respond to `input_request_id` with `reason`; returns the respond document.
+fn respond_with_reason(repo: &GitRepo, input_request_id: &str, reason: &str) -> Value {
+    let output = shore([
+        "review",
+        "input-request",
+        "respond",
+        input_request_id,
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--outcome",
+        "approved",
+        "--reason",
+        reason,
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    parse_json(&output.stdout)
+}
+
+/// Delete the note-body blob for a `sha256:<hex>` content hash without
+/// recording a removal event.
+fn delete_note_blob(repo: &GitRepo, content_hash: &str) {
+    let hex = content_hash.strip_prefix("sha256:").unwrap();
+    std::fs::remove_file(
+        support::common_dir_store(repo.path())
+            .join("artifacts")
+            .join("notes")
+            .join(format!("{hex}.json")),
+    )
+    .expect("delete the note blob without a removal event");
+}
+
+#[test]
+fn externalized_response_reason_hydrates_with_include_body() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    let requested = request(&repo, "Need approval");
+    let input_request_id = requested["inputRequestId"].as_str().unwrap();
+    let reason = "x".repeat(5000);
+    let responded = respond_with_reason(&repo, input_request_id, &reason);
+    assert!(
+        responded["reasonContentHash"].as_str().is_some(),
+        "a >4096-byte reason must externalize"
+    );
+    let arg = repo.path().to_str().unwrap();
+
+    let list = shore([
+        "review",
+        "input-request",
+        "list",
+        "--repo",
+        arg,
+        "--status",
+        "all",
+        "--include-body",
+    ]);
+    assert!(
+        list.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&list.stderr)
+    );
+    let list = parse_json(&list.stdout);
+    assert_eq!(
+        list["inputRequests"][0]["responses"][0]["reason"],
+        reason.as_str(),
+        "list --include-body must hydrate the externalized reason"
+    );
+
+    let fetch = shore([
+        "review",
+        "input-request",
+        "fetch",
+        input_request_id,
+        "--repo",
+        arg,
+        "--include-body",
+    ]);
+    assert!(
+        fetch.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&fetch.stderr)
+    );
+    let fetch = parse_json(&fetch.stdout);
+    assert_eq!(
+        fetch["inputRequest"]["responses"][0]["reason"],
+        reason.as_str(),
+        "fetch --include-body must hydrate the externalized reason"
+    );
+
+    let show = shore(["review", "show", "--repo", arg, "--include-body"]);
+    assert!(
+        show.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&show.stderr)
+    );
+    let show = parse_json(&show.stdout);
+    assert_eq!(
+        show["inputRequests"][0]["responses"][0]["reason"],
+        reason.as_str(),
+        "show --include-body must hydrate the externalized reason"
+    );
+}
+
+#[test]
+fn response_reason_renders_only_with_include_body() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    let requested = request(&repo, "Need approval");
+    let input_request_id = requested["inputRequestId"].as_str().unwrap();
+    respond_with_reason(&repo, input_request_id, "a short inline reason");
+    let arg = repo.path().to_str().unwrap();
+
+    let without = shore([
+        "review",
+        "input-request",
+        "list",
+        "--repo",
+        arg,
+        "--status",
+        "all",
+    ]);
+    assert!(
+        without.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&without.stderr)
+    );
+    let without = parse_json(&without.stdout);
+    let response = &without["inputRequests"][0]["responses"][0];
+    assert!(
+        response.get("reason").is_none(),
+        "an inline reason must stay absent without --include-body, \
+         matching the request body on the same surface: {response}"
+    );
+    assert!(response["reasonContentHash"].as_str().is_some());
+
+    let with = shore([
+        "review",
+        "input-request",
+        "list",
+        "--repo",
+        arg,
+        "--status",
+        "all",
+        "--include-body",
+    ]);
+    let with = parse_json(&with.stdout);
+    assert_eq!(
+        with["inputRequests"][0]["responses"][0]["reason"],
+        "a short inline reason"
+    );
+}
+
+#[test]
+fn missing_reason_artifact_errors_only_when_reading() {
+    let repo = modified_repo();
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    let requested = request(&repo, "Need approval");
+    let input_request_id = requested["inputRequestId"].as_str().unwrap();
+    let responded = respond_with_reason(&repo, input_request_id, &"x".repeat(5000));
+    delete_note_blob(
+        &repo,
+        responded["reasonContentHash"]
+            .as_str()
+            .expect("a >4096-byte reason must externalize"),
+    );
+    let arg = repo.path().to_str().unwrap();
+
+    let hydrating = shore([
+        "review",
+        "input-request",
+        "fetch",
+        input_request_id,
+        "--repo",
+        arg,
+        "--include-body",
+    ]);
+    assert!(
+        !hydrating.status.success(),
+        "absent reason bytes without an operative removal must keep the hard error"
+    );
+    assert!(
+        String::from_utf8_lossy(&hydrating.stderr).contains("import referenced artifacts"),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&hydrating.stderr)
+    );
+
+    let state_only = shore([
+        "review",
+        "input-request",
+        "fetch",
+        input_request_id,
+        "--repo",
+        arg,
+    ]);
+    assert!(
+        state_only.status.success(),
+        "without --include-body no read is attempted, so no error: stderr:\n{}",
+        String::from_utf8_lossy(&state_only.stderr)
+    );
+}
+
+#[test]
+fn missing_reason_artifact_on_an_unrelated_request_does_not_poison_other_reads() {
+    let repo = modified_repo();
+    let arg = repo.path().to_str().unwrap();
+    shore(["review", "capture", "--repo", arg]);
+    let broken = request(&repo, "Broken");
+    let broken_id = broken["inputRequestId"].as_str().unwrap();
+    let responded = respond_with_reason(&repo, broken_id, &"x".repeat(5000));
+    delete_note_blob(
+        &repo,
+        responded["reasonContentHash"]
+            .as_str()
+            .expect("a >4096-byte reason must externalize"),
+    );
+    let healthy = request(&repo, "Healthy");
+    let healthy_id = healthy["inputRequestId"].as_str().unwrap();
+
+    // The broken request is responded, so `--status open` excludes it; the
+    // list must not resolve a reason it will not return.
+    let open_list = shore([
+        "review",
+        "input-request",
+        "list",
+        "--repo",
+        arg,
+        "--status",
+        "open",
+        "--include-body",
+    ]);
+    assert!(
+        open_list.status.success(),
+        "a status-excluded request must not be hydrated: stderr:\n{}",
+        String::from_utf8_lossy(&open_list.stderr)
+    );
+    let open_list = parse_json(&open_list.stdout);
+    assert_eq!(open_list["inputRequests"].as_array().unwrap().len(), 1);
+    assert_eq!(open_list["inputRequests"][0]["title"], "Healthy");
+
+    // Fetching a different request must not resolve the broken one's reason.
+    let fetch_healthy = shore([
+        "review",
+        "input-request",
+        "fetch",
+        healthy_id,
+        "--repo",
+        arg,
+        "--include-body",
+    ]);
+    assert!(
+        fetch_healthy.status.success(),
+        "fetch of an unrelated request must not read the broken blob: stderr:\n{}",
+        String::from_utf8_lossy(&fetch_healthy.stderr)
+    );
+
+    // A later revision does not carry the broken request; show/list of the
+    // latest revision must not resolve it either.
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+    let recapture = shore(["review", "capture", "--repo", arg]);
+    assert!(
+        recapture.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&recapture.stderr)
+    );
+    let recapture = parse_json(&recapture.stdout);
+    let latest_revision = recapture["revision"]["id"].as_str().unwrap();
+    let show = shore([
+        "review",
+        "show",
+        "--repo",
+        arg,
+        "--revision",
+        latest_revision,
+        "--include-body",
+    ]);
+    assert!(
+        show.status.success(),
+        "show of the latest revision must not read the older revision's broken blob: stderr:\n{}",
+        String::from_utf8_lossy(&show.stderr)
+    );
+}

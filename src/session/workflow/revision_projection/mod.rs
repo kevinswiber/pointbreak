@@ -2815,12 +2815,12 @@ mod tests {
         assert!(err.to_string().contains("import referenced artifacts"));
     }
 
-    /// The response view deliberately does not hydrate externalized reasons
-    /// (a pre-existing surface gap); this adds the removed-state cue without
-    /// changing that: `reason` stays what the payload carries, the state and
-    /// the diagnostic explain the removal.
+    /// Response reasons hydrate through the shared body resolution like every
+    /// other note-shaped body, so a removed reason renders the explained
+    /// state: `reason` is absent, the state and the diagnostic explain the
+    /// removal, and the read never hard-errors.
     #[test]
-    fn removed_response_reason_reports_state_without_hydration_change() {
+    fn removed_response_reason_renders_explained_state() {
         let (repo, _body_hash, reason_hash) = revision_with_externalized_input_request();
         record_artifact_removed(repo.path(), &reason_hash);
         delete_note_body_blob(repo.path(), &reason_hash);
