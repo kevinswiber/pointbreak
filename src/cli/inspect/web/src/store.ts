@@ -93,7 +93,7 @@ export interface State {
   // field:value clauses. The track/object filters mirror the active clauses.
   filterText: string;
   filterTrack: string;
-  filterObject: string;
+  filterSnapshot: string;
   // "desc" = newest first (default), "asc" = chronological.
   order: string;
   // The route-preserving diff overlay: the object id shown, its optional
@@ -117,7 +117,7 @@ const state: State = {
   seenTypes: new Set(TYPES.map((t) => t.id)),
   filterText: "",
   filterTrack: "",
-  filterObject: "",
+  filterSnapshot: "",
   order: "desc",
   diff: null,
   diffHash: null,

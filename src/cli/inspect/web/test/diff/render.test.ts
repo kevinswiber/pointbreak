@@ -361,7 +361,7 @@ describe("renderDiff", () => {
       anchoredObs,
       unanchoredAssessment,
     ]);
-    expect(ctx.objectId).toBe("obj:sha256:lib");
+    expect(ctx.snapshotId).toBe("obj:sha256:lib");
     expect(ctx.files).toBe(artifact.snapshot?.files);
     expect(ctx.anchored).toEqual([anchoredObs]);
     expect(ctx.unanchored).toEqual([unanchoredAssessment]);

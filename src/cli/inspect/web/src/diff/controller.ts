@@ -12,7 +12,7 @@
 //     store subscriber repaints, so `closeDiff` only changes route state and the
 //     reconciler (`renderDiffOverlay`, run by render) opens/closes the modal.
 //
-// It consumes the pure `diff/render.renderDiff(objectId, artifact, annotations) →
+// It consumes the pure `diff/render.renderDiff(snapshotId, artifact, annotations) →
 // { html, ctx }`, assigning the returned `ctx` (and resetting the cursors/filter
 // the pure renderer no longer writes) to module-local state. The diff cursors /
 // `diffCtx` / `shownDiff*` / nav filter stay module-local — never on the store.
@@ -23,9 +23,9 @@ import { escapeHtml } from "../escape";
 import { fetchJSON } from "../http";
 import {
   annotationsForRevision,
-  objectArtifactHashForRevision,
-  objectIdForRevision,
-  revisionIdForObject,
+  revisionIdForSnapshot,
+  snapshotContentHashForRevision,
+  snapshotIdForRevision,
 } from "../model";
 import { activeName, close, open, register } from "../overlay";
 import { shortId } from "../refs";
@@ -45,14 +45,14 @@ import {
   unanchoredReason,
 } from "./render";
 
-// The object artifact currently painted in the modal, so a re-render with an
+// The snapshot artifact currently painted in the modal, so a re-render with an
 // unchanged overlay does not re-fetch.
-let shownDiffObject: string | null = null;
+let shownDiffSnapshot: string | null = null;
 let shownDiffHash: string | null = null;
 // Module-local render context for the open diff: the files + anchored facts the
 // delegated #diff-body / #diff-nav listeners read to lazily fill a collapsed file
 // body or expand-then-scroll to a fact. Set when renderDiff paints, cleared when
-// the overlay closes. NOT route state (state.diff stays the object-id string|null).
+// the overlay closes. NOT route state (state.diff stays the snapshot-id string|null).
 let diffCtx: DiffCtx | null = null;
 // Cursors for the diff-local jump keys (next/prev fact, next/prev change) and the
 // navigator filter, reset each time a new diff renders.
@@ -77,27 +77,27 @@ function isDiffNavFilter(value: string): value is DiffNavFilter {
 // DIFF_LENS_ROUTE_SEAM: this modal remains quick readback over `diff=` route
 // state. A full-page diff lens route/data contract is deferred until it can be
 // designed as its own route and payload seam rather than inferred here.
-/** Open the snapshot diff for an object id (optionally focusing a fact), route-only. */
+/** Open the snapshot diff for a snapshot id (optionally focusing a fact), route-only. */
 export function openDiff(
-  objectId: string,
+  snapshotId: string,
   focusId: string | null = null,
   contentHash: string | null = null,
 ): void {
   navigate({
-    diff: objectId,
+    diff: snapshotId,
     diffHash: contentHash || null,
     focus: focusId || null,
   });
 }
 
-/** Open the diff for the object a revision captured, with its artifact content hash. */
+/** Open the diff for the snapshot a revision captured, with its content hash. */
 export function openRevisionDiff(
   revisionId: string,
   focusId: string | null = null,
 ): void {
-  const objectId = objectIdForRevision(revisionId);
-  if (objectId)
-    openDiff(objectId, focusId, objectArtifactHashForRevision(revisionId));
+  const snapshotId = snapshotIdForRevision(revisionId);
+  if (snapshotId)
+    openDiff(snapshotId, focusId, snapshotContentHashForRevision(revisionId));
 }
 
 /** Clear the diff route (replace, so Back does not reopen it); the repaint closes it. */
@@ -121,29 +121,29 @@ export function renderDiffOverlay(): Promise<void> {
   const state = getState();
   if (!state.diff) {
     close("diff");
-    shownDiffObject = null;
+    shownDiffSnapshot = null;
     shownDiffHash = null;
     diffCtx = null;
     return Promise.resolve();
   }
-  if (state.diff === shownDiffObject && state.diffHash === shownDiffHash) {
+  if (state.diff === shownDiffSnapshot && state.diffHash === shownDiffHash) {
     // Re-show only if the diff is not already the active overlay, so an unrelated
     // repaint while the diff is open never re-steals focus to the close button.
     if (activeName() !== "diff") open("diff", "#diff-close");
     applyDiffFocus();
     return Promise.resolve();
   }
-  shownDiffObject = state.diff;
+  shownDiffSnapshot = state.diff;
   shownDiffHash = state.diffHash;
-  const objectId = state.diff;
+  const snapshotId = state.diff;
   const contentHash = state.diffHash;
-  const revisionId = revisionIdForObject(objectId, contentHash);
+  const revisionId = revisionIdForSnapshot(snapshotId, contentHash);
   const label = revisionId ? shortId(revisionId) : "";
   const title = $("#diff-title");
   if (title)
     title.textContent = label
-      ? `${label} · snapshot ${shortId(objectId)}`
-      : shortId(objectId);
+      ? `${label} · snapshot ${shortId(snapshotId)}`
+      : shortId(snapshotId);
   const body = $("#diff-body");
   if (body) body.innerHTML = `<p class="${CLASS.empty}">loading snapshot…</p>`;
   const nav = $("#diff-nav");
@@ -151,18 +151,18 @@ export function renderDiffOverlay(): Promise<void> {
   // Opening through the manager tears down any prior overlay (palette/help) with
   // no focus restore — the indirection that replaces the served explicit closes.
   open("diff", "#diff-close");
-  // The snapshot endpoint is object-scoped (no revision id on the wire); the revision
+  // The snapshot endpoint is snapshot-scoped (no revision id on the wire); the revision
   // id is recovered from the revisions list for annotation lookup.
-  let objectUrl = `/api/snapshots/${encodeURIComponent(objectId)}`;
+  let snapshotUrl = `/api/snapshots/${encodeURIComponent(snapshotId)}`;
   if (contentHash)
-    objectUrl += `?contentHash=${encodeURIComponent(contentHash)}`;
-  return fetchJSON(objectUrl)
+    snapshotUrl += `?contentHash=${encodeURIComponent(contentHash)}`;
+  return fetchJSON(snapshotUrl)
     .then((artifact) => {
       // A later overlay change may have superseded this fetch.
-      if (state.diff !== objectId || state.diffHash !== contentHash) return;
+      if (state.diff !== snapshotId || state.diffHash !== contentHash) return;
       const annotations = revisionId ? annotationsForRevision(revisionId) : [];
       const { html, ctx } = renderDiff(
-        objectId,
+        snapshotId,
         artifact as DiffArtifact,
         annotations,
       );
@@ -177,7 +177,7 @@ export function renderDiffOverlay(): Promise<void> {
       applyDiffFocus();
     })
     .catch((err: unknown) => {
-      if (state.diff !== objectId || state.diffHash !== contentHash) return;
+      if (state.diff !== snapshotId || state.diffHash !== contentHash) return;
       const liveBody = $("#diff-body");
       if (liveBody)
         liveBody.innerHTML = `<p class="${CLASS.empty}">error: ${escapeHtml(

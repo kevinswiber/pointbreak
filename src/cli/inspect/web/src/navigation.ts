@@ -26,7 +26,7 @@ export function navigateToRevision(id: string): void {
     lens: "timeline",
     filterText: `revision:${id}`,
     filterTrack: "",
-    filterObject: "",
+    filterSnapshot: "",
   });
 }
 

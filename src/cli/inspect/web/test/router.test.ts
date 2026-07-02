@@ -63,7 +63,7 @@ function routeFields(p: RoutePatch) {
     lens: p.lens,
     selected: p.selected,
     filterTrack: p.filterTrack,
-    filterObject: p.filterObject,
+    filterSnapshot: p.filterSnapshot,
     order: p.order,
     enabledTypes: p.enabledTypes,
     filterText: p.filterText,
@@ -79,7 +79,7 @@ function snapshotFrom(p: RoutePatch): SerializeSnapshot {
     lens: p.lens,
     selected: p.selected,
     filterTrack: p.filterTrack,
-    filterObject: p.filterObject,
+    filterSnapshot: p.filterSnapshot,
     order: p.order,
     enabledTypes: p.enabledTypes,
     filterText: p.filterText,
@@ -97,7 +97,7 @@ describe("parseHash", () => {
     expect(p.order).toBe("desc");
     expect(p.filterText).toBe("");
     expect(p.filterTrack).toBe("");
-    expect(p.filterObject).toBe("");
+    expect(p.filterSnapshot).toBe("");
     expect(p.diff).toBeNull();
     expect(p.diffHash).toBeNull();
     expect(p.focus).toBeNull();
@@ -155,7 +155,7 @@ describe("parseHash", () => {
       PT,
     );
     expect(p.filterTrack).toBe("human:kevin");
-    expect(p.filterObject).toBe("obj:1");
+    expect(p.filterSnapshot).toBe("obj:1");
     expect(p.order).toBe("asc");
     expect(p.filterText).toBe("hello world");
   });
@@ -215,7 +215,7 @@ describe("serializeState", () => {
       lens: "timeline",
       selected: { kind: null, id: null },
       filterTrack: "",
-      filterObject: "",
+      filterSnapshot: "",
       order: "desc",
       enabledTypes: new Set(PT),
       filterText: "",
@@ -256,7 +256,7 @@ describe("serializeState", () => {
       router.serializeState(
         snap({
           filterTrack: "human:kevin",
-          filterObject: "obj:1",
+          filterSnapshot: "obj:1",
           order: "asc",
           filterText: "hello world",
           diff: "obj:1",
@@ -450,7 +450,7 @@ describe("applyHash (derive the view from the fragment, repaint via the subscrip
         diagnostics: [],
       } as unknown as HistoryDoc,
       revisions: {
-        entries: [{ revisionId: REV, objectId: "obj:1" }],
+        entries: [{ revisionId: REV, snapshotId: "obj:1" }],
       } as unknown as RevisionsDoc,
       threads: {
         threads: [{ revisions: [REV] }],

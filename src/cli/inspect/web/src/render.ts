@@ -258,8 +258,9 @@ function onMasterClick(ev: Event): void {
   }
   const diffBtn = t.closest<HTMLElement>("[data-open-diff]");
   if (diffBtn) {
-    const objectId = diffBtn.dataset.openDiff;
-    if (objectId) openDiff(objectId, null, diffBtn.dataset.diffHash || null);
+    const snapshotId = diffBtn.dataset.openDiff;
+    if (snapshotId)
+      openDiff(snapshotId, null, diffBtn.dataset.diffHash || null);
     return;
   }
   const eventEl = t.closest<HTMLElement>("[data-event-id]");

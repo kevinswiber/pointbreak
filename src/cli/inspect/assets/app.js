@@ -643,7 +643,7 @@
     const cues = attentionTokens(overview);
     const text = [
       r.revisionId,
-      r.objectId,
+      r.snapshotId,
       target.label,
       head.label,
       currentAssessment.status,
@@ -658,7 +658,9 @@
       text,
       type: "revision",
       revision: r.revisionId,
-      object: r.objectId,
+      // The search-index key stays `object` (shared history/query grammar);
+      // only the value source is snapshot-named.
+      object: r.snapshotId,
       status: currentAssessment.assessment || currentAssessment.status || "",
       attention: cues.map((cue) => cue.token).join(" ")
     };
@@ -734,7 +736,7 @@
     seenTypes: new Set(TYPES.map((t) => t.id)),
     filterText: "",
     filterTrack: "",
-    filterObject: "",
+    filterSnapshot: "",
     order: "desc",
     diff: null,
     diffHash: null,
@@ -816,27 +818,22 @@
     ) ?? null;
   }
   __name(revisionForId, "revisionForId");
-  function objectIdForRevision(revisionId) {
-    return revisionForId(revisionId)?.objectId ?? "";
-  }
-  __name(objectIdForRevision, "objectIdForRevision");
-  function objectArtifactHashForRevision(revisionId) {
-    return revisionForId(revisionId)?.objectArtifactContentHash ?? "";
-  }
-  __name(objectArtifactHashForRevision, "objectArtifactHashForRevision");
   function snapshotIdForRevision(revisionId) {
-    const revision = revisionForId(revisionId);
-    return revision ? revision.objectId ?? null : null;
+    return revisionForId(revisionId)?.snapshotId ?? "";
   }
   __name(snapshotIdForRevision, "snapshotIdForRevision");
-  function revisionIdForObject(objectId, contentHash = null) {
+  function snapshotContentHashForRevision(revisionId) {
+    return revisionForId(revisionId)?.snapshotContentHash ?? "";
+  }
+  __name(snapshotContentHashForRevision, "snapshotContentHashForRevision");
+  function revisionIdForSnapshot(snapshotId, contentHash = null) {
     const entries = getState().revisions?.entries ?? [];
     const revision = entries.find(
-      (r) => r.objectId === objectId && (!contentHash || r.objectArtifactContentHash === contentHash)
-    ) ?? entries.find((r) => r.objectId === objectId);
+      (r) => r.snapshotId === snapshotId && (!contentHash || r.snapshotContentHash === contentHash)
+    ) ?? entries.find((r) => r.snapshotId === snapshotId);
     return revision ? revision.revisionId ?? null : null;
   }
-  __name(revisionIdForObject, "revisionIdForObject");
+  __name(revisionIdForSnapshot, "revisionIdForSnapshot");
   function overviewForRevision(revisionId) {
     return revisionForId(revisionId)?.overview ?? null;
   }
@@ -927,20 +924,20 @@
   __name(renderThreadRevisionOverview, "renderThreadRevisionOverview");
   function matchesRevisionFilters(r) {
     const s = getState();
-    if (s.filterObject && r.objectId !== s.filterObject) return false;
+    if (s.filterSnapshot && r.snapshotId !== s.filterSnapshot) return false;
     return matchesQuery(revisionSearchIndex(r), parseSearchQuery(s.filterText));
   }
   __name(matchesRevisionFilters, "matchesRevisionFilters");
   function threadMatchesRevisionFilters(thread) {
     const revisions = thread.revisions ?? [];
     const s = getState();
-    if (!s.filterText && !s.filterObject) return true;
+    if (!s.filterText && !s.filterSnapshot) return true;
     return revisions.map(revisionForId).filter((r) => r !== null).some(matchesRevisionFilters);
   }
   __name(threadMatchesRevisionFilters, "threadMatchesRevisionFilters");
   function filteredThreadRevisionIds(thread, revisions = thread.revisions ?? []) {
     const s = getState();
-    if (!s.filterText && !s.filterObject) return revisions;
+    if (!s.filterText && !s.filterSnapshot) return revisions;
     return revisions.filter((revisionId) => {
       const revision = revisionForId(revisionId);
       return revision ? matchesRevisionFilters(revision) : false;
@@ -990,7 +987,7 @@
     const p = new URLSearchParams();
     if (s.filterText) p.set("q", s.filterText);
     if (s.filterTrack) p.set("track", s.filterTrack);
-    if (s.filterObject) p.set("object", s.filterObject);
+    if (s.filterSnapshot) p.set("object", s.filterSnapshot);
     if (s.order && s.order !== "asc") p.set("order", s.order);
     const present = presentTypes();
     if (present.some((id) => !s.enabledTypes.has(id))) {
@@ -1137,7 +1134,7 @@
       selected: { kind: "event", id: eventId },
       filterText: "",
       filterTrack: "",
-      filterObject: "",
+      filterSnapshot: "",
       enabledTypes: page.enabledTypes,
       diff: null,
       diffHash: null,
@@ -1660,7 +1657,9 @@
       lens: DEFAULT_LENS2,
       selected: { kind: null, id: null },
       filterTrack: p.track != null ? p.track : "",
-      filterObject: p.object != null ? p.object : "",
+      // The URL param stays `object` (shared history grammar); client state is
+      // snapshot-named.
+      filterSnapshot: p.object != null ? p.object : "",
       order: p.order === "asc" || p.order === "desc" ? p.order : "desc",
       filterText: p.q != null ? p.q : "",
       enabledTypes: p.types != null ? new Set(p.types.split(",").filter(Boolean)) : new Set(presentTypes2),
@@ -1704,8 +1703,8 @@
     }
     if (snapshot.filterTrack)
       params.push(`track=${encodeURIComponent(snapshot.filterTrack)}`);
-    if (snapshot.filterObject)
-      params.push(`object=${encodeURIComponent(snapshot.filterObject)}`);
+    if (snapshot.filterSnapshot)
+      params.push(`object=${encodeURIComponent(snapshot.filterSnapshot)}`);
     if (snapshot.order && snapshot.order !== "desc")
       params.push(`order=${encodeURIComponent(snapshot.order)}`);
     if (presentTypes2.some((id) => !snapshot.enabledTypes.has(id))) {
@@ -1805,7 +1804,7 @@
       lens: patch.lens,
       selected: patch.selected,
       filterTrack: patch.filterTrack,
-      filterObject: patch.filterObject,
+      filterSnapshot: patch.filterSnapshot,
       order: patch.order,
       filterText: patch.filterText,
       enabledTypes: patch.enabledTypes,
@@ -2054,7 +2053,7 @@
     return html;
   }
   __name(renderDiffFileBody, "renderDiffFileBody");
-  function renderDiff(objectId, artifact, annotations) {
+  function renderDiff(snapshotId, artifact, annotations) {
     const annos = annotations ?? [];
     const files = artifact.snapshot?.files ?? [];
     const filePaths = /* @__PURE__ */ new Set();
@@ -2077,7 +2076,7 @@
         unanchored.push(a);
       }
     }
-    const ctx = { objectId, files, anchored, unanchored, filePaths };
+    const ctx = { snapshotId, files, anchored, unanchored, filePaths };
     const counts = {};
     for (const a of annos) {
       counts[a.kind] = (counts[a.kind] ?? 0) + 1;
@@ -2137,7 +2136,7 @@
   __name(unanchoredReason, "unanchoredReason");
 
   // src/diff/controller.ts
-  var shownDiffObject = null;
+  var shownDiffSnapshot = null;
   var shownDiffHash = null;
   var diffCtx = null;
   var diffFactCursor = -1;
@@ -2152,18 +2151,18 @@
     return DIFF_NAV_FILTERS.includes(value);
   }
   __name(isDiffNavFilter, "isDiffNavFilter");
-  function openDiff(objectId, focusId = null, contentHash = null) {
+  function openDiff(snapshotId, focusId = null, contentHash = null) {
     navigate({
-      diff: objectId,
+      diff: snapshotId,
       diffHash: contentHash || null,
       focus: focusId || null
     });
   }
   __name(openDiff, "openDiff");
   function openRevisionDiff(revisionId, focusId = null) {
-    const objectId = objectIdForRevision(revisionId);
-    if (objectId)
-      openDiff(objectId, focusId, objectArtifactHashForRevision(revisionId));
+    const snapshotId = snapshotIdForRevision(revisionId);
+    if (snapshotId)
+      openDiff(snapshotId, focusId, snapshotContentHashForRevision(revisionId));
   }
   __name(openRevisionDiff, "openRevisionDiff");
   function closeDiff() {
@@ -2176,38 +2175,38 @@
     const state2 = getState();
     if (!state2.diff) {
       close("diff");
-      shownDiffObject = null;
+      shownDiffSnapshot = null;
       shownDiffHash = null;
       diffCtx = null;
       return Promise.resolve();
     }
-    if (state2.diff === shownDiffObject && state2.diffHash === shownDiffHash) {
+    if (state2.diff === shownDiffSnapshot && state2.diffHash === shownDiffHash) {
       if (activeName() !== "diff") open("diff", "#diff-close");
       applyDiffFocus();
       return Promise.resolve();
     }
-    shownDiffObject = state2.diff;
+    shownDiffSnapshot = state2.diff;
     shownDiffHash = state2.diffHash;
-    const objectId = state2.diff;
+    const snapshotId = state2.diff;
     const contentHash = state2.diffHash;
-    const revisionId = revisionIdForObject(objectId, contentHash);
+    const revisionId = revisionIdForSnapshot(snapshotId, contentHash);
     const label = revisionId ? shortId(revisionId) : "";
     const title = $("#diff-title");
     if (title)
-      title.textContent = label ? `${label} · snapshot ${shortId(objectId)}` : shortId(objectId);
+      title.textContent = label ? `${label} · snapshot ${shortId(snapshotId)}` : shortId(snapshotId);
     const body = $("#diff-body");
     if (body) body.innerHTML = `<p class="${CLASS.empty}">loading snapshot…</p>`;
     const nav = $("#diff-nav");
     if (nav) nav.innerHTML = "";
     open("diff", "#diff-close");
-    let objectUrl = `/api/snapshots/${encodeURIComponent(objectId)}`;
+    let snapshotUrl = `/api/snapshots/${encodeURIComponent(snapshotId)}`;
     if (contentHash)
-      objectUrl += `?contentHash=${encodeURIComponent(contentHash)}`;
-    return fetchJSON(objectUrl).then((artifact) => {
-      if (state2.diff !== objectId || state2.diffHash !== contentHash) return;
+      snapshotUrl += `?contentHash=${encodeURIComponent(contentHash)}`;
+    return fetchJSON(snapshotUrl).then((artifact) => {
+      if (state2.diff !== snapshotId || state2.diffHash !== contentHash) return;
       const annotations = revisionId ? annotationsForRevision(revisionId) : [];
       const { html, ctx } = renderDiff(
-        objectId,
+        snapshotId,
         artifact,
         annotations
       );
@@ -2221,7 +2220,7 @@
       if (liveNav) liveNav.innerHTML = renderDiffNav();
       applyDiffFocus();
     }).catch((err) => {
-      if (state2.diff !== objectId || state2.diffHash !== contentHash) return;
+      if (state2.diff !== snapshotId || state2.diffHash !== contentHash) return;
       const liveBody = $("#diff-body");
       if (liveBody)
         liveBody.innerHTML = `<p class="${CLASS.empty}">error: ${escapeHtml(
@@ -2510,7 +2509,7 @@
       ["track", entryTrack(e) || "—"],
       ["writer", principalLabel(e) || (e.writer ? e.writer.actorId || "—" : "—")]
     ];
-    const snapshotId = revisionId ? snapshotIdForRevision(revisionId) : null;
+    const snapshotId = revisionId ? snapshotIdForRevision(revisionId) : "";
     const s = e.summary ?? {};
     if (e.eventType === "work_object_proposed") {
       const predecessors = supersedesRevision(revisionId);
@@ -2541,7 +2540,7 @@
     const verifyChip = verificationChip(e.verificationStatus ?? "");
     const endorse = endorsementsBlock(e.endorsements);
     const readback = verifyChip || endorse ? `<div class="${CLASS.readback}"><p class="${CLASS.readerScopeNote}">reader-relative — computed against your enrolled keys</p>${verifyChip ? `<div class="${CLASS.readbackRow}">${verifyChip}</div>` : ""}${endorse}</div>` : "";
-    const diffButton = snapshotId ? `<button class="${CLASS.ghost} ${CLASS.diffBtn}" id="detail-diff-btn" data-open-diff="${escapeHtml(snapshotId)}" data-diff-hash="${escapeHtml(objectArtifactHashForRevision(revisionId))}" data-diff-focus="${escapeHtml(focusId ?? "")}">${escapeHtml(btnLabel)}</button>` : "";
+    const diffButton = snapshotId ? `<button class="${CLASS.ghost} ${CLASS.diffBtn}" id="detail-diff-btn" data-open-diff="${escapeHtml(snapshotId)}" data-diff-hash="${escapeHtml(snapshotContentHashForRevision(revisionId))}" data-diff-focus="${escapeHtml(focusId ?? "")}">${escapeHtml(btnLabel)}</button>` : "";
     el.innerHTML = `
     <h2>${linkify(entryTitle(e))}</h2>
     <dl class="${CLASS.kv}">${kv.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${linkify(v)}</dd>`).join("")}</dl>
@@ -2665,10 +2664,10 @@
       if (!(t instanceof Element)) return;
       const diffBtn = t.closest("[data-open-diff]");
       if (diffBtn) {
-        const objectId = diffBtn.dataset.openDiff;
-        if (objectId)
+        const snapshotId = diffBtn.dataset.openDiff;
+        if (snapshotId)
           openDiff(
-            objectId,
+            snapshotId,
             diffBtn.dataset.diffFocus || null,
             diffBtn.dataset.diffHash || null
           );
@@ -2820,7 +2819,7 @@
       lens: "timeline",
       filterText: `revision:${id}`,
       filterTrack: "",
-      filterObject: ""
+      filterSnapshot: ""
     });
   }
   __name(navigateToRevision, "navigateToRevision");
@@ -2945,7 +2944,7 @@
     const overview = u.overview ?? {};
     const cues = attentionTokens(overview).map((cue) => cue.label);
     const latest = overview.latestActivity?.title;
-    return [cues.join(", ") || "review context", latest, shortId(u.objectId)].filter(Boolean).join(" · ");
+    return [cues.join(", ") || "review context", latest, shortId(u.snapshotId)].filter(Boolean).join(" · ");
   }
   __name(revisionCommandHint, "revisionCommandHint");
   function currentSelectionCommand() {
@@ -3012,7 +3011,7 @@
         {
           filterText: "",
           filterTrack: "",
-          filterObject: "",
+          filterSnapshot: "",
           enabledTypes: new Set(presentTypes())
         },
         { replace: true }
@@ -3071,11 +3070,11 @@
     }
     for (const o of [
       ...new Set(
-        (state2.revisions?.entries ?? []).map((u) => u.objectId).filter((x) => Boolean(x))
+        (state2.revisions?.entries ?? []).map((u) => u.snapshotId).filter((x) => Boolean(x))
       )
     ]) {
       cmds.push({
-        kind: "Objects",
+        kind: "Snapshots",
         label: shortRef(o),
         hint: "open diff",
         run: /* @__PURE__ */ __name(() => openDiff(o), "run")
@@ -3456,7 +3455,7 @@
       matchesRevisionFilters
     );
     if (!entries.length) {
-      el.innerHTML = `<p class="${CLASS.empty}" style="color:var(--fg-dim)">${state2.filterText || state2.filterObject ? "No revisions match the current filters." : "No captured revisions in this store."}</p>`;
+      el.innerHTML = `<p class="${CLASS.empty}" style="color:var(--fg-dim)">${state2.filterText || state2.filterSnapshot ? "No revisions match the current filters." : "No captured revisions in this store."}</p>`;
       return;
     }
     const selected = state2.selected;
@@ -3474,7 +3473,7 @@
           base.commitOid ? `${shortId(base.commitOid)} (${base.kind ?? ""})` : base.kind ?? "—"
         ]
       ];
-      const tail = [["snapshot", shortId(u.objectId)]];
+      const tail = [["snapshot", shortId(u.snapshotId)]];
       const targetCell = `<span>target</span><b>${targetDisplayLabel(u.targetDisplay)}${targetHeadBadge(u.targetDisplay)}</b>`;
       return `<div class="${CLASS.unitCard}" data-revision-id="${escapeHtml(revisionId)}"${isSelected ? ' aria-selected="true"' : ""} title="${escapeHtml(revisionId)}
 click to open the revision page">
@@ -3482,7 +3481,7 @@ click to open the revision page">
       ${badge ? `<div class="${CLASS.supersessionBadges}">${badge}</div>` : ""}
       ${renderRevisionOverview(u, overview)}
       <div class="${CLASS.kv}">${rows.map(kv).join("")}${targetCell}${tail.map(kv).join("")}</div>
-      <div class="${CLASS.actions}"><button class="${CLASS.ghost} ${CLASS.diffBtn}" data-open-diff="${escapeHtml(u.objectId ?? "")}" data-diff-hash="${escapeHtml(u.objectArtifactContentHash ?? "")}">view snapshot diff</button></div>
+      <div class="${CLASS.actions}"><button class="${CLASS.ghost} ${CLASS.diffBtn}" data-open-diff="${escapeHtml(u.snapshotId ?? "")}" data-diff-hash="${escapeHtml(u.snapshotContentHash ?? "")}">view snapshot diff</button></div>
     </div>`;
     }).join("");
   }
@@ -3493,7 +3492,7 @@ click to open the revision page">
     const state2 = getState();
     const threads = currentThreads().filter(threadMatchesRevisionFilters);
     if (!threads.length) {
-      el.innerHTML = `<p class="${CLASS.empty}" style="color:var(--fg-dim)">${state2.filterText || state2.filterObject ? "No revision threads match the current filters." : "No captured revisions in this store."}</p>`;
+      el.innerHTML = `<p class="${CLASS.empty}" style="color:var(--fg-dim)">${state2.filterText || state2.filterSnapshot ? "No revision threads match the current filters." : "No captured revisions in this store."}</p>`;
       return;
     }
     el.innerHTML = "";
@@ -3739,8 +3738,9 @@ click to open the revision page">
     }
     const diffBtn = t.closest("[data-open-diff]");
     if (diffBtn) {
-      const objectId = diffBtn.dataset.openDiff;
-      if (objectId) openDiff(objectId, null, diffBtn.dataset.diffHash || null);
+      const snapshotId = diffBtn.dataset.openDiff;
+      if (snapshotId)
+        openDiff(snapshotId, null, diffBtn.dataset.diffHash || null);
       return;
     }
     const eventEl = t.closest("[data-event-id]");
@@ -3779,7 +3779,7 @@ click to open the revision page">
         {
           filterText: "",
           filterTrack: "",
-          filterObject: "",
+          filterSnapshot: "",
           enabledTypes: new Set(presentTypes())
         },
         { replace: true }

@@ -43,8 +43,8 @@ import { fmtDateTime } from "./format";
 import { fetchJSON } from "./http";
 import { renderBodyContent } from "./markdown";
 import {
-  objectArtifactHashForRevision,
   selectedEventId,
+  snapshotContentHashForRevision,
   snapshotIdForRevision,
   supersededByRevision,
   supersedesRevision,
@@ -76,6 +76,9 @@ import { type EntryBase, type HistoryEntry, typeLabel } from "./types";
 interface RevisionPageRevision {
   id?: string;
   base?: EntryBase;
+  // Shared `shore.review-revision` vocabulary: the member doc keeps `objectId`
+  // and `objectArtifactContentHash` on the wire, unlike the snapshot-named
+  // `/api/revisions` list entries.
   objectId?: string;
   objectArtifactContentHash?: string;
   targetDisplay?: TargetDisplay;
@@ -144,7 +147,7 @@ export function renderDetail(): void {
     ["track", entryTrack(e) || "—"],
     ["writer", principalLabel(e) || (e.writer ? e.writer.actorId || "—" : "—")],
   ];
-  const snapshotId = revisionId ? snapshotIdForRevision(revisionId) : null;
+  const snapshotId = revisionId ? snapshotIdForRevision(revisionId) : "";
   const s = e.summary ?? {};
   if (e.eventType === "work_object_proposed") {
     const predecessors = supersedesRevision(revisionId);
@@ -186,7 +189,7 @@ export function renderDetail(): void {
   // #detail delegate opens the overlay through diff/controller (no per-render
   // listener). data-diff-hash pairs the snapshot with its captured artifact hash.
   const diffButton = snapshotId
-    ? `<button class="${CLASS.ghost} ${CLASS.diffBtn}" id="detail-diff-btn" data-open-diff="${escapeHtml(snapshotId)}" data-diff-hash="${escapeHtml(objectArtifactHashForRevision(revisionId))}" data-diff-focus="${escapeHtml(focusId ?? "")}">${escapeHtml(btnLabel)}</button>`
+    ? `<button class="${CLASS.ghost} ${CLASS.diffBtn}" id="detail-diff-btn" data-open-diff="${escapeHtml(snapshotId)}" data-diff-hash="${escapeHtml(snapshotContentHashForRevision(revisionId))}" data-diff-focus="${escapeHtml(focusId ?? "")}">${escapeHtml(btnLabel)}</button>`
     : "";
   el.innerHTML = `
     <h2>${linkify(entryTitle(e))}</h2>
@@ -356,10 +359,10 @@ export function initControls(): void {
     if (!(t instanceof Element)) return;
     const diffBtn = t.closest<HTMLElement>("[data-open-diff]");
     if (diffBtn) {
-      const objectId = diffBtn.dataset.openDiff;
-      if (objectId)
+      const snapshotId = diffBtn.dataset.openDiff;
+      if (snapshotId)
         openDiff(
-          objectId,
+          snapshotId,
           diffBtn.dataset.diffFocus || null,
           diffBtn.dataset.diffHash || null,
         );

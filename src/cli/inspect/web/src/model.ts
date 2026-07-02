@@ -180,34 +180,28 @@ export function revisionForId(revisionId: string): Revision | null {
   );
 }
 
-/** The content object id a revision captured, or "". */
-export function objectIdForRevision(revisionId: string): string {
-  return revisionForId(revisionId)?.objectId ?? "";
+/** The snapshot id a revision captured, or "". */
+export function snapshotIdForRevision(revisionId: string): string {
+  return revisionForId(revisionId)?.snapshotId ?? "";
 }
 
-/** The captured object artifact content hash for a revision, or "". */
-export function objectArtifactHashForRevision(revisionId: string): string {
-  return revisionForId(revisionId)?.objectArtifactContentHash ?? "";
+/** The captured snapshot content hash for a revision, or "". */
+export function snapshotContentHashForRevision(revisionId: string): string {
+  return revisionForId(revisionId)?.snapshotContentHash ?? "";
 }
 
-/** The snapshot (object) id captured for a revision, or null. */
-export function snapshotIdForRevision(revisionId: string): string | null {
-  const revision = revisionForId(revisionId);
-  return revision ? (revision.objectId ?? null) : null;
-}
-
-/** The revision that captured an object, disambiguated by content hash when given. */
-export function revisionIdForObject(
-  objectId: string,
+/** The revision that captured a snapshot, disambiguated by content hash when given. */
+export function revisionIdForSnapshot(
+  snapshotId: string,
   contentHash: string | null = null,
 ): string | null {
   const entries = getState().revisions?.entries ?? [];
   const revision =
     entries.find(
       (r) =>
-        r.objectId === objectId &&
-        (!contentHash || r.objectArtifactContentHash === contentHash),
-    ) ?? entries.find((r) => r.objectId === objectId);
+        r.snapshotId === snapshotId &&
+        (!contentHash || r.snapshotContentHash === contentHash),
+    ) ?? entries.find((r) => r.snapshotId === snapshotId);
   return revision ? (revision.revisionId ?? null) : null;
 }
 
@@ -326,7 +320,7 @@ export function renderThreadRevisionOverview(revisionId: string): string {
 /** Whether a revision passes the object filter and the query clauses. */
 export function matchesRevisionFilters(r: Revision): boolean {
   const s = getState();
-  if (s.filterObject && r.objectId !== s.filterObject) return false;
+  if (s.filterSnapshot && r.snapshotId !== s.filterSnapshot) return false;
   return matchesQuery(revisionSearchIndex(r), parseSearchQuery(s.filterText));
 }
 
@@ -334,7 +328,7 @@ export function matchesRevisionFilters(r: Revision): boolean {
 export function threadMatchesRevisionFilters(thread: Thread): boolean {
   const revisions = thread.revisions ?? [];
   const s = getState();
-  if (!s.filterText && !s.filterObject) return true;
+  if (!s.filterText && !s.filterSnapshot) return true;
   return revisions
     .map(revisionForId)
     .filter((r): r is Revision => r !== null)
@@ -347,7 +341,7 @@ export function filteredThreadRevisionIds(
   revisions: string[] = thread.revisions ?? [],
 ): string[] {
   const s = getState();
-  if (!s.filterText && !s.filterObject) return revisions;
+  if (!s.filterText && !s.filterSnapshot) return revisions;
   return revisions.filter((revisionId) => {
     const revision = revisionForId(revisionId);
     return revision ? matchesRevisionFilters(revision) : false;

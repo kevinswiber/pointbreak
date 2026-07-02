@@ -102,10 +102,10 @@ export interface Annotation {
  * The render context the diff controller's delegated listeners read to fill a
  * lazy file body or scroll to a fact. `renderDiff` returns this instead of
  * writing it to a global. (NOT the `state.diff` route string — that stays the
- * object-id the route grammar serializes.)
+ * snapshot-id the route grammar serializes.)
  */
 export interface DiffCtx {
-  objectId: string;
+  snapshotId: string;
   files: DiffFile[];
   anchored: Annotation[];
   unanchored: Annotation[];
@@ -367,7 +367,7 @@ export function renderDiffFileBody(
 // the cursor/filter globals from `ctx`.
 /** Render the whole diff overlay body, returning the html plus its render context. */
 export function renderDiff(
-  objectId: string,
+  snapshotId: string,
   artifact: DiffArtifact,
   annotations: Annotation[],
 ): { html: string; ctx: DiffCtx } {
@@ -398,7 +398,7 @@ export function renderDiff(
     }
   }
 
-  const ctx: DiffCtx = { objectId, files, anchored, unanchored, filePaths };
+  const ctx: DiffCtx = { snapshotId, files, anchored, unanchored, filePaths };
 
   const counts: Record<string, number> = {};
   for (const a of annos) {

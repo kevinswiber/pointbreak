@@ -26,7 +26,7 @@ describe("getState defaults", () => {
     expect(s.selected).toEqual({ kind: null, id: null });
     expect(s.filterText).toBe("");
     expect(s.filterTrack).toBe("");
-    expect(s.filterObject).toBe("");
+    expect(s.filterSnapshot).toBe("");
     expect(s.order).toBe("desc");
     expect(s.diff).toBeNull();
     expect(s.diffHash).toBeNull();

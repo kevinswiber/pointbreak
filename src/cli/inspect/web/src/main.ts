@@ -45,7 +45,7 @@ function wireToolbar(): void {
       {
         filterText: "",
         filterTrack: "",
-        filterObject: "",
+        filterSnapshot: "",
         enabledTypes: new Set(presentTypes()),
       },
       { replace: true },

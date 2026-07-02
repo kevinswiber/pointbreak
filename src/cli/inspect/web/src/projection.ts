@@ -32,12 +32,12 @@ import {
 /** A revision as served by `/api/revisions` (the fields the pure layer reads). */
 export interface Revision {
   revisionId?: string;
-  objectId?: string;
+  snapshotId?: string;
   overview?: Overview;
   targetDisplay?: TargetDisplay;
-  // The content hash of the captured object artifact, used to disambiguate a
-  // rebased recapture that shares a stable object id.
-  objectArtifactContentHash?: string;
+  // The content hash of the captured snapshot payload, used to disambiguate a
+  // rebased recapture that shares a stable snapshot id.
+  snapshotContentHash?: string;
   // The captured base commit and the capture timestamp, shown in a revision card.
   base?: EntryBase;
   capturedAt?: string;
@@ -301,7 +301,7 @@ export function revisionSearchIndex(r: Revision): SearchIndex {
   const cues = attentionTokens(overview);
   const text = [
     r.revisionId,
-    r.objectId,
+    r.snapshotId,
     target.label,
     head.label,
     currentAssessment.status,
@@ -319,7 +319,9 @@ export function revisionSearchIndex(r: Revision): SearchIndex {
     text,
     type: "revision",
     revision: r.revisionId,
-    object: r.objectId,
+    // The search-index key stays `object` (shared history/query grammar);
+    // only the value source is snapshot-named.
+    object: r.snapshotId,
     status: currentAssessment.assessment || currentAssessment.status || "",
     attention: cues.map((cue) => cue.token).join(" "),
   };

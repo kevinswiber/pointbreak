@@ -46,7 +46,7 @@ export function renderRevisionList(): void {
   );
   if (!entries.length) {
     el.innerHTML = `<p class="${CLASS.empty}" style="color:var(--fg-dim)">${
-      state.filterText || state.filterObject
+      state.filterText || state.filterSnapshot
         ? "No revisions match the current filters."
         : "No captured revisions in this store."
     }</p>`;
@@ -72,14 +72,14 @@ export function renderRevisionList(): void {
             : (base.kind ?? "—"),
         ],
       ];
-      const tail: [string, string][] = [["snapshot", shortId(u.objectId)]];
+      const tail: [string, string][] = [["snapshot", shortId(u.snapshotId)]];
       // The target cell carries pre-escaped derived HTML (label + head badge), so
       // it bypasses the generic escaping cell renderer rather than double-escaping.
       const targetCell = `<span>target</span><b>${targetDisplayLabel(u.targetDisplay)}${targetHeadBadge(u.targetDisplay)}</b>`;
       // The diff button and the card both carry delegation datasets; the #master
       // delegate (wired by the composition root) opens the diff and selects the
-      // card. The data-open-diff value is the captured object id, paired with its
-      // artifact content hash for rebased-recapture disambiguation.
+      // card. The data-open-diff value is the captured snapshot id, paired with
+      // its content hash for rebased-recapture disambiguation.
       return `<div class="${CLASS.unitCard}" data-revision-id="${escapeHtml(revisionId)}"${
         isSelected ? ' aria-selected="true"' : ""
       } title="${escapeHtml(revisionId)}\nclick to open the revision page">
@@ -87,7 +87,7 @@ export function renderRevisionList(): void {
       ${badge ? `<div class="${CLASS.supersessionBadges}">${badge}</div>` : ""}
       ${renderRevisionOverview(u, overview)}
       <div class="${CLASS.kv}">${rows.map(kv).join("")}${targetCell}${tail.map(kv).join("")}</div>
-      <div class="${CLASS.actions}"><button class="${CLASS.ghost} ${CLASS.diffBtn}" data-open-diff="${escapeHtml(u.objectId ?? "")}" data-diff-hash="${escapeHtml(u.objectArtifactContentHash ?? "")}">view snapshot diff</button></div>
+      <div class="${CLASS.actions}"><button class="${CLASS.ghost} ${CLASS.diffBtn}" data-open-diff="${escapeHtml(u.snapshotId ?? "")}" data-diff-hash="${escapeHtml(u.snapshotContentHash ?? "")}">view snapshot diff</button></div>
     </div>`;
     })
     .join("");
@@ -108,7 +108,7 @@ export function renderRevisions(): void {
   const threads = currentThreads().filter(threadMatchesRevisionFilters);
   if (!threads.length) {
     el.innerHTML = `<p class="${CLASS.empty}" style="color:var(--fg-dim)">${
-      state.filterText || state.filterObject
+      state.filterText || state.filterSnapshot
         ? "No revision threads match the current filters."
         : "No captured revisions in this store."
     }</p>`;

@@ -47,7 +47,9 @@ export function historyQueryParams(s: State): string {
   const p = new URLSearchParams();
   if (s.filterText) p.set("q", s.filterText);
   if (s.filterTrack) p.set("track", s.filterTrack);
-  if (s.filterObject) p.set("object", s.filterObject);
+  // The `/api/history` param stays `object` (shared history grammar); client
+  // state is snapshot-named.
+  if (s.filterSnapshot) p.set("object", s.filterSnapshot);
   if (s.order && s.order !== "asc") p.set("order", s.order);
   const present = presentTypes();
   if (present.some((id) => !s.enabledTypes.has(id))) {
@@ -289,7 +291,7 @@ export function revealPatch(page: RevealPage, eventId: string): Partial<State> {
     selected: { kind: "event", id: eventId },
     filterText: "",
     filterTrack: "",
-    filterObject: "",
+    filterSnapshot: "",
     enabledTypes: page.enabledTypes,
     diff: null,
     diffHash: null,

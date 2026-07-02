@@ -107,7 +107,7 @@ function revisionCommandHint(u: Revision): string {
   const overview = u.overview ?? {};
   const cues = attentionTokens(overview).map((cue) => cue.label);
   const latest = overview.latestActivity?.title;
-  return [cues.join(", ") || "review context", latest, shortId(u.objectId)]
+  return [cues.join(", ") || "review context", latest, shortId(u.snapshotId)]
     .filter(Boolean)
     .join(" · ");
 }
@@ -183,7 +183,7 @@ function buildCommands(): Command[] {
         {
           filterText: "",
           filterTrack: "",
-          filterObject: "",
+          filterSnapshot: "",
           enabledTypes: new Set(presentTypes()),
         },
         { replace: true },
@@ -247,12 +247,12 @@ function buildCommands(): Command[] {
   for (const o of [
     ...new Set(
       (state.revisions?.entries ?? [])
-        .map((u) => u.objectId)
+        .map((u) => u.snapshotId)
         .filter((x): x is string => Boolean(x)),
     ),
   ]) {
     cmds.push({
-      kind: "Objects",
+      kind: "Snapshots",
       label: shortRef(o),
       hint: "open diff",
       run: () => openDiff(o),

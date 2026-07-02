@@ -231,8 +231,8 @@ const KO2 =
   "obj:sha256:2222222222222222222222222222222222222222222222222222222222222222";
 const FILTERED_REVISIONS = {
   entries: [
-    { revisionId: KR1, objectId: KO1 },
-    { revisionId: KR2, objectId: KO2 },
+    { revisionId: KR1, snapshotId: KO1 },
+    { revisionId: KR2, snapshotId: KO2 },
   ],
 };
 const FILTERED_THREAD: Thread = {
@@ -280,7 +280,7 @@ describe("keyboard stepping visits only the filtered revision set", () => {
     store.commit({
       revisions: FILTERED_REVISIONS as unknown as RevisionsDoc,
       threads: { threads: [FILTERED_THREAD] } as unknown as ThreadsDoc,
-      filterObject: KO1,
+      filterSnapshot: KO1,
       lens: "list",
       selected: { kind: null, id: null },
     });

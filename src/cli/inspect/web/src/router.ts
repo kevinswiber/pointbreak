@@ -12,7 +12,7 @@
 //   ?lens=<lens>               the master lens behind an entity-primary path
 //   ?track= ?object=           cross-lens scope (survive a lens switch)
 //   ?order= ?types= ?q=        per-lens timeline controls
-//   ?diff=<objectId> ?focus=<factId> ?diffHash=<objectArtifactContentHash>
+//   ?diff=<snapshotId> ?focus=<factId> ?diffHash=<snapshotContentHash>
 //                              the route-preserving diff overlay
 //   ?v=1                       grammar version (reserved; parsed-but-ignored)
 //   ?journal= ?asof=           reserved: reported as unsupported live-state input
@@ -50,7 +50,7 @@ export interface RoutePatch {
   lens: string;
   selected: Selection;
   filterTrack: string;
-  filterObject: string;
+  filterSnapshot: string;
   order: string;
   filterText: string;
   enabledTypes: Set<string>;
@@ -73,7 +73,7 @@ export interface SerializeSnapshot {
   lens: string;
   selected: Selection;
   filterTrack: string;
-  filterObject: string;
+  filterSnapshot: string;
   order: string;
   enabledTypes: Set<string>;
   filterText: string;
@@ -128,7 +128,9 @@ export function parseHash(
     lens: DEFAULT_LENS,
     selected: { kind: null, id: null },
     filterTrack: p.track != null ? p.track : "",
-    filterObject: p.object != null ? p.object : "",
+    // The URL param stays `object` (shared history grammar); client state is
+    // snapshot-named.
+    filterSnapshot: p.object != null ? p.object : "",
     order: p.order === "asc" || p.order === "desc" ? p.order : "desc",
     filterText: p.q != null ? p.q : "",
     enabledTypes:
@@ -189,8 +191,10 @@ export function serializeState(
   }
   if (snapshot.filterTrack)
     params.push(`track=${encodeURIComponent(snapshot.filterTrack)}`);
-  if (snapshot.filterObject)
-    params.push(`object=${encodeURIComponent(snapshot.filterObject)}`);
+  // The URL param stays `object` (shared history grammar); client state is
+  // snapshot-named.
+  if (snapshot.filterSnapshot)
+    params.push(`object=${encodeURIComponent(snapshot.filterSnapshot)}`);
   if (snapshot.order && snapshot.order !== "desc")
     params.push(`order=${encodeURIComponent(snapshot.order)}`);
   if (presentTypes.some((id) => !snapshot.enabledTypes.has(id))) {
@@ -325,7 +329,7 @@ function statePatchFrom(patch: RoutePatch): Partial<State> {
     lens: patch.lens,
     selected: patch.selected,
     filterTrack: patch.filterTrack,
-    filterObject: patch.filterObject,
+    filterSnapshot: patch.filterSnapshot,
     order: patch.order,
     filterText: patch.filterText,
     enabledTypes: patch.enabledTypes,

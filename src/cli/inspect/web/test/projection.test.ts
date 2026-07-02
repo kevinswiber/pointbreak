@@ -455,7 +455,7 @@ describe("revisionSearchIndex", () => {
     const idx = revisionSearchIndex(revision);
     expect(idx.type).toBe("revision");
     expect(idx.revision).toBe(revision.revisionId);
-    expect(idx.object).toBe(revision.objectId);
+    expect(idx.object).toBe(revision.snapshotId);
     expect(idx.status).toBe("accepted");
     expect(idx.attention).toBe("open-request validation-context");
   });

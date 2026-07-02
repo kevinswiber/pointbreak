@@ -162,30 +162,32 @@ describe("revisionClassification family", () => {
   });
 });
 
-describe("object/artifact accessors over the revisions list", () => {
+describe("snapshot accessors over the revisions list", () => {
   beforeEach(seedFixtures);
 
-  it("resolves a revision to its content object id", () => {
-    expect(model.objectIdForRevision(REV)).toBe(OBJ);
-    expect(model.objectIdForRevision("rev:missing")).toBe("");
-  });
-
-  it("resolves a revision to its captured object artifact hash", () => {
-    expect(model.objectArtifactHashForRevision(REV)).toBe(ARTIFACT);
-    expect(model.objectArtifactHashForRevision("rev:missing")).toBe("");
-  });
-
-  it("resolves a revision to its snapshot (object) id, or null", () => {
+  it("resolves a revision to its captured snapshot id", () => {
     expect(model.snapshotIdForRevision(REV)).toBe(OBJ);
-    expect(model.snapshotIdForRevision("rev:missing")).toBeNull();
+    expect(model.snapshotIdForRevision("rev:missing")).toBe("");
   });
 
-  it("finds the revision that captured an object, disambiguating by content hash", () => {
-    expect(model.revisionIdForObject(OBJ)).toBe(REV);
-    expect(model.revisionIdForObject(OBJ, ARTIFACT)).toBe(REV);
-    // A mismatched content hash falls back to the first object-id match.
-    expect(model.revisionIdForObject(OBJ, "sha256:nomatch")).toBe(REV);
-    expect(model.revisionIdForObject("obj:missing")).toBeNull();
+  it("resolves a revision to its captured snapshot content hash", () => {
+    expect(model.snapshotContentHashForRevision(REV)).toBe(ARTIFACT);
+    expect(model.snapshotContentHashForRevision("rev:missing")).toBe("");
+  });
+
+  it("finds the revision that captured a snapshot, disambiguating by content hash", () => {
+    expect(model.revisionIdForSnapshot(OBJ)).toBe(REV);
+    expect(model.revisionIdForSnapshot(OBJ, ARTIFACT)).toBe(REV);
+    // A mismatched content hash falls back to the first snapshot-id match.
+    expect(model.revisionIdForSnapshot(OBJ, "sha256:nomatch")).toBe(REV);
+    expect(model.revisionIdForSnapshot("obj:missing")).toBeNull();
+  });
+
+  it("no longer exports the object-vocabulary accessors", () => {
+    const m = model as unknown as Record<string, unknown>;
+    expect(m.objectIdForRevision).toBeUndefined();
+    expect(m.objectArtifactHashForRevision).toBeUndefined();
+    expect(m.revisionIdForObject).toBeUndefined();
   });
 });
 
@@ -193,7 +195,7 @@ describe("revisionForId / overviewForRevision", () => {
   beforeEach(seedFixtures);
 
   it("finds a revision entry by id", () => {
-    expect(model.revisionForId(REV)?.objectId).toBe(OBJ);
+    expect(model.revisionForId(REV)?.snapshotId).toBe(OBJ);
     expect(model.revisionForId("rev:missing")).toBeNull();
   });
 
@@ -470,8 +472,8 @@ function seedTimeline(): void {
     history: { entries, diagnostics: [] } as unknown as HistoryDoc,
     revisions: {
       entries: [
-        { revisionId: "rev:a", objectId: "obj:a" },
-        { revisionId: "rev:b", objectId: "obj:b" },
+        { revisionId: "rev:a", snapshotId: "obj:a" },
+        { revisionId: "rev:b", snapshotId: "obj:b" },
       ],
     } as unknown as RevisionsDoc,
   });
@@ -495,15 +497,15 @@ describe("revision filter predicates", () => {
   beforeEach(seedTimeline);
 
   it("matchesRevisionFilters honors the object filter and the query clauses", () => {
-    const revA = { revisionId: "rev:a", objectId: "obj:a" };
-    const revB = { revisionId: "rev:b", objectId: "obj:b" };
-    store.commit({ filterObject: "obj:a" });
+    const revA = { revisionId: "rev:a", snapshotId: "obj:a" };
+    const revB = { revisionId: "rev:b", snapshotId: "obj:b" };
+    store.commit({ filterSnapshot: "obj:a" });
     expect(model.matchesRevisionFilters(revA)).toBe(true);
     expect(model.matchesRevisionFilters(revB)).toBe(false);
   });
 
   it("threadMatchesRevisionFilters keeps a thread with any matching revision", () => {
-    store.commit({ filterObject: "obj:a" });
+    store.commit({ filterSnapshot: "obj:a" });
     expect(
       model.threadMatchesRevisionFilters({ revisions: ["rev:a", "rev:b"] }),
     ).toBe(true);
@@ -519,7 +521,7 @@ describe("revision filter predicates", () => {
   });
 
   it("filteredThreadRevisionIds keeps only the matching revision ids in order", () => {
-    store.commit({ filterObject: "obj:a" });
+    store.commit({ filterSnapshot: "obj:a" });
     expect(
       model.filteredThreadRevisionIds({ revisions: ["rev:a", "rev:b"] }),
     ).toEqual(["rev:a"]);

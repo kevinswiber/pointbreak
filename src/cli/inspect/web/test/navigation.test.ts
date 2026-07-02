@@ -141,7 +141,7 @@ describe("reveal helpers fetch the target page and select through the router", (
     store.commit({
       filterText: "something",
       filterTrack: "human:kevin",
-      filterObject: OBJ,
+      filterSnapshot: OBJ,
       lens: "list",
     });
     const obsEntry = {
@@ -155,7 +155,7 @@ describe("reveal helpers fetch the target page and select through the router", (
     expect(s.lens).toBe("timeline");
     expect(s.filterText).toBe("");
     expect(s.filterTrack).toBe("");
-    expect(s.filterObject).toBe("");
+    expect(s.filterSnapshot).toBe("");
     expect(s.enabledTypes.has("review_observation_recorded")).toBe(true);
   });
 
