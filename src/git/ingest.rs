@@ -171,7 +171,7 @@ pub(crate) fn capture_worktree_diff_files_scoped(
     pathspecs: &[String],
 ) -> Result<Vec<DiffFile>> {
     let mut files = diff_files_for_args(repo, &["HEAD"], pathspecs)?;
-    files.extend(synthesize_untracked_files(repo)?);
+    files.extend(synthesize_untracked_files(repo, pathspecs)?);
     Ok(files)
 }
 
@@ -187,18 +187,23 @@ pub(crate) fn capture_commit_range_diff_files(
     diff_files_for_args(repo, &[base_oid, target_oid], &[])
 }
 
-fn synthesize_untracked_files(repo: &Path) -> Result<Vec<DiffFile>> {
-    discover_untracked_files(repo)?
+fn synthesize_untracked_files(repo: &Path, pathspecs: &[String]) -> Result<Vec<DiffFile>> {
+    discover_untracked_files(repo, pathspecs)?
         .into_iter()
         .map(|path| synthesize_untracked_file(repo, &path))
         .collect()
 }
 
-fn discover_untracked_files(repo: &Path) -> Result<Vec<String>> {
-    let output = run_git(
-        repo,
-        ["ls-files", "--others", "--exclude-standard", "-z", "--"],
-    )?;
+/// Discover untracked files, optionally scoped: the pathspecs ride after `--`,
+/// so git matches them itself and untracked scoping shares one semantics with
+/// the tracked diff. `--exclude-standard` still applies within the scope.
+fn discover_untracked_files(repo: &Path, pathspecs: &[String]) -> Result<Vec<String>> {
+    let mut args: Vec<OsString> = ["ls-files", "--others", "--exclude-standard", "-z", "--"]
+        .into_iter()
+        .map(OsString::from)
+        .collect();
+    args.extend(pathspecs.iter().map(OsString::from));
+    let output = run_git(repo, args)?;
     output
         .stdout
         .split(|byte| *byte == 0)
@@ -421,6 +426,35 @@ mod tests {
         let unscoped = capture_worktree_diff_files(repo.path()).unwrap();
         let empty_scope = capture_worktree_diff_files_scoped(repo.path(), &[]).unwrap();
         assert_eq!(unscoped, empty_scope);
+    }
+
+    #[test]
+    fn scoped_worktree_diff_synthesizes_only_untracked_files_under_the_pathspec() {
+        let repo = TestRepo::new();
+        repo.write("a/tracked.txt", "tracked\n");
+        repo.commit_all("base");
+        repo.write("a/new.txt", "new in scope\n");
+        repo.write("b/new.txt", "new out of scope\n");
+
+        let files = capture_worktree_diff_files_scoped(repo.path(), &["a".to_owned()]).unwrap();
+
+        let paths: Vec<&str> = files.iter().filter_map(|f| f.new_path.as_deref()).collect();
+        assert_eq!(paths, vec!["a/new.txt"]);
+        assert!(files.iter().all(|file| file.synthetic));
+    }
+
+    #[test]
+    fn unscoped_worktree_diff_still_synthesizes_all_untracked_files() {
+        let repo = TestRepo::new();
+        repo.write("a/tracked.txt", "tracked\n");
+        repo.commit_all("base");
+        repo.write("a/new.txt", "new\n");
+        repo.write("b/new.txt", "new\n");
+
+        let files = capture_worktree_diff_files_scoped(repo.path(), &[]).unwrap();
+
+        let paths: Vec<&str> = files.iter().filter_map(|f| f.new_path.as_deref()).collect();
+        assert_eq!(paths, vec!["a/new.txt", "b/new.txt"]);
     }
 
     #[test]
