@@ -95,6 +95,10 @@ pub(crate) struct IdPrefix {
     pub(crate) kind: PrefixKind,
     /// False only for legacy display entries that no production path mints.
     pub(crate) minted: bool,
+    /// Whether the inspector's reference regex linkifies this prefix — mirrored
+    /// by REF_ID_PREFIXES in src/cli/inspect/web/src/classNames.ts; the drift
+    /// test keeps the two lists identical.
+    pub(crate) linkified: bool,
 }
 
 /// Every prefix Shoreline has ever put in front of an id, artifact reference,
@@ -107,136 +111,163 @@ pub(crate) const ID_PREFIXES: &[IdPrefix] = &[
         prefix: EVENT,
         kind: PrefixKind::ContentId,
         minted: true,
+        linkified: true,
     },
     IdPrefix {
         prefix: REVISION,
         kind: PrefixKind::ContentId,
         minted: true,
+        linkified: true,
     },
     IdPrefix {
         prefix: OBJECT,
         kind: PrefixKind::ContentId,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: ENGAGEMENT,
         kind: PrefixKind::ContentId,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: OBSERVATION,
         kind: PrefixKind::ContentId,
         minted: true,
+        linkified: true,
     },
     IdPrefix {
         prefix: ASSESSMENT,
         kind: PrefixKind::ContentId,
         minted: true,
+        linkified: true,
     },
     IdPrefix {
         prefix: VALIDATION,
         kind: PrefixKind::ContentId,
         minted: true,
+        linkified: true,
     },
     IdPrefix {
         prefix: INPUT_REQUEST,
         kind: PrefixKind::ContentId,
         minted: true,
+        linkified: true,
     },
     IdPrefix {
         prefix: INPUT_REQUEST_RESPONSE,
         kind: PrefixKind::ContentId,
         minted: true,
+        linkified: true,
     },
     IdPrefix {
         prefix: COMMIT_ASSOCIATION,
         kind: PrefixKind::ContentId,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: REF_ASSOCIATION,
         kind: PrefixKind::ContentId,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: COMMIT_WITHDRAWAL,
         kind: PrefixKind::ContentId,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: REF_WITHDRAWAL,
         kind: PrefixKind::ContentId,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: TASK_ATTEMPT,
         kind: PrefixKind::ContentId,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: CHECKPOINT,
         kind: PrefixKind::ContentId,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: NOTE,
         kind: PrefixKind::ContentId,
         minted: true,
+        linkified: true,
     },
     IdPrefix {
         prefix: JOURNAL,
         kind: PrefixKind::StructuralId,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: REVIEW,
         kind: PrefixKind::StructuralId,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: ACTOR,
         kind: PrefixKind::StructuralId,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: ROW,
         kind: PrefixKind::StructuralId,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: ARTIFACT_OBJECT,
         kind: PrefixKind::ArtifactRef,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: ARTIFACT_BODY,
         kind: PrefixKind::ArtifactRef,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: NOTE_BODY,
         kind: PrefixKind::ArtifactRef,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: REDACTED_FILE,
         kind: PrefixKind::ArtifactRef,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: UNIX_MS,
         kind: PrefixKind::Token,
         minted: true,
+        linkified: false,
     },
     IdPrefix {
         prefix: "review-unit",
         kind: PrefixKind::ContentId,
         minted: false,
+        linkified: true,
     },
     IdPrefix {
         prefix: "snap",
         kind: PrefixKind::ContentId,
         minted: false,
+        linkified: true,
     },
 ];
 
@@ -365,6 +396,69 @@ mod tests {
         assert_eq!(count(PrefixKind::StructuralId), 4);
         assert_eq!(count(PrefixKind::ArtifactRef), 4);
         assert_eq!(count(PrefixKind::Token), 1);
+    }
+
+    #[test]
+    fn inspector_ref_prefixes_match_the_registry() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/cli/inspect/web/src/classNames.ts");
+        if !path.exists() {
+            // The published crate excludes src/cli/inspect/web/** (Cargo.toml
+            // `exclude`); the drift guard only means something in the repo.
+            eprintln!("skipping inspector drift check: web sources not present");
+            return;
+        }
+        let source = std::fs::read_to_string(&path).expect("read classNames.ts");
+        let mut web = parse_ref_id_prefixes(&source);
+        let mut registry: Vec<&str> = ID_PREFIXES
+            .iter()
+            .filter(|entry| entry.linkified)
+            .map(|entry| entry.prefix)
+            .collect();
+        web.sort_unstable();
+        registry.sort_unstable();
+        assert_eq!(
+            web, registry,
+            "REF_ID_PREFIXES (classNames.ts) and the registry's linkified entries drifted; \
+             change both together"
+        );
+    }
+
+    #[test]
+    fn linkified_entries_are_content_ids() {
+        for entry in ID_PREFIXES {
+            if entry.linkified {
+                assert_eq!(
+                    entry.kind,
+                    PrefixKind::ContentId,
+                    "{}: only content ids are linkifiable",
+                    entry.prefix
+                );
+            }
+            if !entry.minted {
+                assert!(
+                    entry.linkified,
+                    "{}: a legacy entry that is neither minted nor linkified is dead weight",
+                    entry.prefix
+                );
+            }
+        }
+    }
+
+    /// The quoted strings inside the `REF_ID_PREFIXES = [ … ]` block.
+    fn parse_ref_id_prefixes(source: &str) -> Vec<&str> {
+        let start = source
+            .find("REF_ID_PREFIXES = [")
+            .expect("classNames.ts must declare REF_ID_PREFIXES");
+        let block = &source[start..];
+        let end = block.find(']').expect("REF_ID_PREFIXES block must close");
+        let block = &block[..end];
+        let prefixes: Vec<&str> = block.split('"').skip(1).step_by(2).collect();
+        assert!(
+            !prefixes.is_empty(),
+            "REF_ID_PREFIXES parsed empty — the parser or the list is broken"
+        );
+        prefixes
     }
 
     #[test]
