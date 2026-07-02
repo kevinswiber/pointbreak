@@ -231,9 +231,10 @@ pub(crate) struct SourceSubsetVerification {
 /// including the envelope and any signature, must match). Enumerates the
 /// source's physical directories — never a manifest or projection, which
 /// cannot see orphan/unreferenced files — because this gate fronts an
-/// irreversible delete. `state.json` (a regenerable projection) and `*.tmp`
-/// (in-flight temp files) are excluded. Never consults import counters;
-/// re-reads both stores.
+/// irreversible delete. Only in-flight `*.tmp` files are excluded; the
+/// regenerable store-root `state.json` sits outside the walked trees and a
+/// nested file merely named `state.json` is verified like any other. Never
+/// consults import counters; re-reads both stores.
 pub(crate) fn verify_source_subset_of_target(
     source_store_dir: &Path,
     target_store_dir: &Path,
@@ -324,8 +325,13 @@ fn events_match_modulo_ingest_stamp(source_bytes: &[u8], target_bytes: &[u8]) ->
 }
 
 /// Recursively collect the durable files under `dir` as store-relative paths,
-/// skipping the regenerable `state.json` projection and in-flight `*.tmp`
-/// files. A missing directory contributes zero files (the walk is total).
+/// skipping only in-flight `*.tmp` files. The regenerable store-root
+/// `state.json` needs no filename rule: the walk roots at `events/` and
+/// `artifacts/`, so the root projection is never enumerated — and a file
+/// merely NAMED `state.json` nested inside those trees is durable bytes that
+/// must be verified like any other (a filename skip here would let a retire
+/// delete it unverified). A missing directory contributes zero files (the
+/// walk is total).
 fn collect_durable_files(dir: &Path, relative: &Path, collected: &mut Vec<PathBuf>) -> Result<()> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -349,8 +355,7 @@ fn collect_durable_files(dir: &Path, relative: &Path, collected: &mut Vec<PathBu
         if entry.path().is_dir() {
             collect_durable_files(&entry.path(), &child_relative, collected)?;
         } else {
-            let file_name = name.to_string_lossy();
-            if file_name == "state.json" || file_name.ends_with(".tmp") {
+            if name.to_string_lossy().ends_with(".tmp") {
                 continue;
             }
             collected.push(child_relative);
@@ -1520,6 +1525,24 @@ mod tests {
             .expect_err("an unreferenced source artifact absent from the target must fail");
         assert!(
             error.to_string().contains("orphan.json"),
+            "names the file: {error}"
+        );
+    }
+
+    #[test]
+    fn verify_source_subset_does_not_skip_nested_files_named_state_json() {
+        let (_repo, source, _target_root, target) = imported_pair();
+        // Only the STORE-ROOT state.json is a regenerable projection — and the
+        // walk roots at events/ + artifacts/, so it is never enumerated at all.
+        // A file merely NAMED state.json nested inside artifacts/ is durable
+        // bytes like any other and must fail verification when the target lacks
+        // it, never be skipped.
+        fs::write(source.join("artifacts/objects/state.json"), "{}").unwrap();
+
+        let error = verify_source_subset_of_target(&source, &target)
+            .expect_err("a nested file named state.json must be verified, not skipped");
+        assert!(
+            error.to_string().contains("state.json"),
             "names the file: {error}"
         );
     }

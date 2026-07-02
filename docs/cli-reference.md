@@ -300,12 +300,13 @@ or sensitivity-flagged worktree unless you pass `--include-ephemeral`.
 
 **`--retire-source`** completes the switch in one command: after the fold, an independent
 verification walks every durable file in the source store (`events/` and `artifacts/`, recursively;
-the regenerable `state.json` and in-flight `*.tmp` files are excluded) and requires each to be
+only in-flight `*.tmp` files are excluded — the regenerable store-root `state.json` sits outside
+those trees, and a nested file merely named `state.json` is verified like any other) and requires each to be
 present in the shared store with identical content — byte-identical for artifacts, canonically
 identical modulo the import's own ingest-provenance stamp for events. Only then is `.shore/data`
 deleted, so the very next read resolves. On **any** missing or divergent file — including an orphan
 artifact no event references, which the fold deliberately does not carry — the command errors,
-names the offending paths, and deletes nothing. A source with no durable files at all (only a stale
+names the offending paths, and deletes nothing. A source with no durable files at all (only the store-root
 `state.json` or the empty directories the writer pre-creates) is removed as a husk without a fold;
 a source holding artifact files but no event files is refused outright. Classification is by file
 counts, never directory existence.

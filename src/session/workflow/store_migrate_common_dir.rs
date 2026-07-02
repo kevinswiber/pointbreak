@@ -195,7 +195,9 @@ pub fn migrate_store_to_common_dir(
 }
 
 /// The retire-path classification of a worktree-local source store, by durable
-/// file counts (excluding the regenerable `state.json` and `*.tmp` files).
+/// file counts under `events/` and `artifacts/` (excluding in-flight `*.tmp`
+/// files; the regenerable store-root `state.json` is a sibling of those trees
+/// and is never counted — a nested file merely NAMED `state.json` is durable).
 enum RetireSourceShape {
     /// Event files present: fold, verify, then delete.
     Populated,
@@ -217,7 +219,7 @@ fn classify_retire_source(source: &Path) -> Result<RetireSourceShape> {
 }
 
 /// Count durable files under `dir` recursively; a missing dir counts zero.
-/// Skips `state.json` and `*.tmp`, mirroring `verify_source_subset_of_target`.
+/// Skips only in-flight `*.tmp` files, mirroring `verify_source_subset_of_target`.
 fn count_durable_files(dir: &Path) -> Result<usize> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -239,12 +241,8 @@ fn count_durable_files(dir: &Path) -> Result<usize> {
         })?;
         if entry.path().is_dir() {
             count += count_durable_files(&entry.path())?;
-        } else {
-            let name = entry.file_name();
-            let file_name = name.to_string_lossy();
-            if file_name != "state.json" && !file_name.ends_with(".tmp") {
-                count += 1;
-            }
+        } else if !entry.file_name().to_string_lossy().ends_with(".tmp") {
+            count += 1;
         }
     }
     Ok(count)
@@ -586,6 +584,33 @@ mod tests {
         assert!(
             repo.path()
                 .join(".shore/data/artifacts/objects/orphan.json")
+                .is_file(),
+            "the unverified bytes survive"
+        );
+    }
+
+    #[test]
+    fn retire_source_refuses_a_nested_file_named_state_json_under_artifacts() {
+        // Only the STORE-ROOT state.json is regenerable; a nested file merely
+        // NAMED state.json is durable bytes — it must classify as an artifact
+        // file (refusal), never be skipped as a husk and deleted unverified.
+        let repo = modified_repo();
+        fs::create_dir_all(repo.path().join(".shore/data/events")).unwrap();
+        fs::create_dir_all(repo.path().join(".shore/data/artifacts/objects")).unwrap();
+        fs::write(
+            repo.path().join(".shore/data/artifacts/objects/state.json"),
+            "{}",
+        )
+        .unwrap();
+
+        let error = migrate_store_to_common_dir(
+            MigrateToCommonDirOptions::new(repo.path()).with_retire_source(true),
+        )
+        .expect_err("a nested state.json is durable bytes, never silently deletable");
+        assert!(error.to_string().contains("artifact"));
+        assert!(
+            repo.path()
+                .join(".shore/data/artifacts/objects/state.json")
                 .is_file(),
             "the unverified bytes survive"
         );
