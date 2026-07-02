@@ -53,6 +53,7 @@ use self::rows::{
     build_observation_rows, build_snapshot_rows, build_validation_rows, renumber_projection_rows,
 };
 use self::snapshot::{SnapshotContent, resolve_snapshot_content};
+use crate::session::projection::body_content::{BodyRemovalLens, body_content_diagnostics};
 
 /// A removal is recorded for the bound snapshot content, but its bytes are still
 /// stored: the suppression is reversible and a compact would reclaim them.
@@ -142,6 +143,14 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
         options.removal_policy,
         &cosig_index,
     )?;
+    // The body twin of the bound-snapshot decision: one lens per read, shared by
+    // every body-bearing projection below.
+    let body_removal_lens = BodyRemovalLens::new(
+        &removal,
+        &options.trust_set,
+        options.removal_policy,
+        &cosig_index,
+    );
     let snapshot_content = resolve_snapshot_content(&options.repo, &revision, bound_status)?;
     let snapshot_content_state = SnapshotContentState::from(&snapshot_content);
     let (snapshot, removed_snapshot_content_hash) = match snapshot_content {
@@ -164,6 +173,7 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
         file_filter: None,
         tag_filters: &[],
         include_body: options.include_body,
+        removal_lens: &body_removal_lens,
     })?;
     let input_requests = project_input_requests(InputRequestProjectionOptions {
         backend: read_store.backend(),
@@ -257,6 +267,13 @@ pub fn show_revision(options: RevisionShowOptions) -> Result<RevisionShowResult>
             SnapshotContentState::Present => {}
         }
     }
+    // The body twin of the snapshot block above: every body-bearing view's
+    // (state, hash) pairs fold through the shared mapper. Later projections
+    // chain their pairs here as they gain states.
+    let body_states = observations
+        .iter()
+        .map(|o| (o.body_content_state, o.body_content_hash.as_deref()));
+    diagnostics.extend(body_content_diagnostics(body_states));
 
     // The bound hash's claim diagnostic, mapped from the operative status decided
     // once above (reused, not recomputed). A non-operative claim renders the bytes
@@ -614,6 +631,7 @@ fn build_revision_overview(
         removal_policy,
         cosig_index,
     )?;
+    let body_removal_lens = BodyRemovalLens::new(removal, trust_set, removal_policy, cosig_index);
     let snapshot_content = resolve_snapshot_content(repo, revision, bound_status)?;
     let (snapshot, removed_snapshot_content_hash) = match snapshot_content {
         SnapshotContent::Present(snapshot) => (snapshot, None),
@@ -638,6 +656,7 @@ fn build_revision_overview(
         file_filter: None,
         tag_filters: &[],
         include_body: false,
+        removal_lens: &body_removal_lens,
     })?;
     let input_requests = project_input_requests(InputRequestProjectionOptions {
         backend,
@@ -729,13 +748,14 @@ mod tests {
     use crate::session::signing::test_support::DeterministicSigner;
     use crate::session::store::backend::{InMemoryStore, StoreBackend};
     use crate::session::{
-        AssessmentAddOptions, AssessmentShowOptions, CaptureOptions, CaptureResult,
-        CurrentAssessmentStatus, EventStore, ImportNotesOptions, InputRequestListOptions,
-        InputRequestOpenOptions, InputRequestRespondOptions, InputRequestStatus,
-        InputRequestStatusFilter, ObservationAddOptions, ObservationListOptions,
-        ObservationTargetSelector, RemovalPolicy, RevisionListOptions, capture_worktree_review,
-        import_notes, list_input_requests, list_observations, list_revisions, open_input_request,
-        record_assessment, record_observation, respond_input_request, show_assessments,
+        AssessmentAddOptions, AssessmentShowOptions, BodyContentState, CaptureOptions,
+        CaptureResult, CurrentAssessmentStatus, EventStore, ImportNotesOptions,
+        InputRequestListOptions, InputRequestOpenOptions, InputRequestRespondOptions,
+        InputRequestStatus, InputRequestStatusFilter, ObservationAddOptions,
+        ObservationListOptions, ObservationTargetSelector, RemovalPolicy, RevisionListOptions,
+        capture_worktree_review, import_notes, list_input_requests, list_observations,
+        list_revisions, open_input_request, record_assessment, record_observation,
+        respond_input_request, show_assessments,
     };
 
     // ---- Overview batch: golden-equality + single-read invariants ----
@@ -966,10 +986,24 @@ mod tests {
             ValidationStatus::Failed,
         );
 
-        // Revision C: an operatively-removed snapshot (operative_status → empty rows).
+        // Revision C: an operatively-removed snapshot (operative_status → empty rows),
+        // plus a removed-and-swept externalized observation body (the body twin).
         repo.write("src/lib.rs", "pub fn value() -> u32 { 4 }\n");
         let c = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let removed_body = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_revision_id(c.revision_id.clone())
+                .with_track("agent:codex")
+                .with_title("C removed body")
+                .with_body("x".repeat(5000)),
+        )
+        .unwrap();
+        let removed_body_hash = removed_body
+            .body_content_hash
+            .expect("a >4096-byte body is stored as a note artifact");
         record_artifact_removed(repo.path(), &c.object_artifact_content_hash);
+        record_artifact_removed(repo.path(), &removed_body_hash);
+        delete_note_body_blob(repo.path(), &removed_body_hash);
 
         repo
     }
@@ -2409,6 +2443,149 @@ mod tests {
     fn delete_snapshot_blob(repo: &Path, object_id: &ObjectId) {
         let path = object_artifact_path(repo, object_id);
         fs::remove_file(path).expect("delete snapshot blob");
+    }
+
+    /// Twin of `delete_snapshot_blob` for note-body artifacts: unlink the
+    /// `artifacts/notes/<hex>.json` blob behind a normalized `sha256:` hash.
+    fn delete_note_body_blob(repo: &Path, body_content_hash: &str) {
+        let hex = body_content_hash
+            .strip_prefix("sha256:")
+            .expect("normalized body content hash");
+        let path = resolved_store_dir(repo)
+            .join("artifacts")
+            .join("notes")
+            .join(format!("{hex}.json"));
+        fs::remove_file(path).expect("delete note body blob");
+    }
+
+    /// Capture plus one externalized (> 4096-byte) observation body; returns
+    /// the repo and the body's normalized content hash (the removal key).
+    fn revision_with_externalized_observation_body() -> (TestRepo, String) {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let observation = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_revision_id(capture.revision_id.clone())
+                .with_track("agent:tester")
+                .with_title("a large observation")
+                .with_body("x".repeat(5000)),
+        )
+        .unwrap();
+        let hash = observation
+            .body_content_hash
+            .expect("a >4096-byte body is stored as a note artifact");
+        (repo, hash)
+    }
+
+    #[test]
+    fn removed_and_swept_observation_body_renders_physically_removed_not_a_hard_error() {
+        let (repo, body_hash) = revision_with_externalized_observation_body();
+        record_artifact_removed(repo.path(), &body_hash);
+        delete_note_body_blob(repo.path(), &body_hash);
+
+        let result = show_revision(RevisionShowOptions::new(repo.path()).with_include_body(true))
+            .expect("swept observation body must not hard-error");
+
+        let observation = &result.observations[0];
+        assert_eq!(observation.body, None);
+        assert_eq!(
+            observation.body_content_state,
+            BodyContentState::PhysicallyRemoved
+        );
+        assert!(
+            observation.body_content_hash.is_some(),
+            "hash survives removal"
+        );
+    }
+
+    #[test]
+    fn removed_unswept_observation_body_is_suppressed_present() {
+        let (repo, body_hash) = revision_with_externalized_observation_body();
+        record_artifact_removed(repo.path(), &body_hash);
+
+        let result = show_revision(RevisionShowOptions::new(repo.path()).with_include_body(true))
+            .expect("suppressed body renders without a hard error");
+
+        let observation = &result.observations[0];
+        assert_eq!(observation.body, None);
+        assert_eq!(
+            observation.body_content_state,
+            BodyContentState::SuppressedPresent
+        );
+        assert!(observation.body_content_hash.is_some());
+    }
+
+    #[test]
+    fn ingested_unsigned_body_removal_renders_present_under_default_policy() {
+        let (repo, body_hash) = revision_with_externalized_observation_body();
+        record_ingested_artifact_removed(repo.path(), &body_hash);
+
+        let result = show_revision(RevisionShowOptions::new(repo.path()).with_include_body(true))
+            .expect("non-operative claim renders the bytes");
+
+        let observation = &result.observations[0];
+        assert_eq!(observation.body_content_state, BodyContentState::Present);
+        assert_eq!(observation.body.as_deref(), Some("x".repeat(5000).as_str()));
+    }
+
+    #[test]
+    fn possessed_body_removal_renders_present_under_trusted_strict() {
+        let (repo, body_hash) = revision_with_externalized_observation_body();
+        record_artifact_removed(repo.path(), &body_hash);
+
+        let result = show_revision(
+            RevisionShowOptions::new(repo.path())
+                .with_include_body(true)
+                .with_removal_policy(RemovalPolicy::TrustedStrict),
+        )
+        .expect("possession arm dropped under trusted-strict");
+
+        let observation = &result.observations[0];
+        assert_eq!(observation.body_content_state, BodyContentState::Present);
+        assert!(observation.body.is_some());
+    }
+
+    #[test]
+    fn truly_missing_unremoved_body_still_errors() {
+        let (repo, body_hash) = revision_with_externalized_observation_body();
+        delete_note_body_blob(repo.path(), &body_hash);
+
+        let err = show_revision(RevisionShowOptions::new(repo.path()).with_include_body(true))
+            .expect_err("absent bytes without an operative removal keep the hard error");
+
+        assert!(err.to_string().contains("import referenced artifacts"));
+    }
+
+    #[test]
+    fn removed_body_diagnostics_surface_on_show_revision() {
+        let (repo, body_hash) = revision_with_externalized_observation_body();
+        record_artifact_removed(repo.path(), &body_hash);
+        delete_note_body_blob(repo.path(), &body_hash);
+
+        // Default options: the state (and so the diagnostic) surfaces even when
+        // bodies are not hydrated.
+        let result = show_revision(RevisionShowOptions::new(repo.path())).expect("renders");
+
+        assert!(result.diagnostics.iter().any(|d| {
+            d.code == "body_content_physically_removed" && d.message.contains(&body_hash)
+        }));
+    }
+
+    #[test]
+    fn suppressed_present_body_diagnostic_does_not_claim_bytes_are_gone() {
+        let (repo, body_hash) = revision_with_externalized_observation_body();
+        record_artifact_removed(repo.path(), &body_hash);
+
+        let result = show_revision(RevisionShowOptions::new(repo.path())).expect("renders");
+
+        let diagnostic = result
+            .diagnostics
+            .iter()
+            .find(|d| d.code == "body_content_suppressed_present")
+            .expect("suppressed-present body diagnostic");
+        assert!(diagnostic.message.contains(&body_hash));
+        assert!(diagnostic.message.contains("still stored"));
+        assert!(!diagnostic.message.contains("swept"));
     }
 
     #[test]

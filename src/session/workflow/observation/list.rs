@@ -5,9 +5,12 @@ use super::util::validated_track_id;
 use super::view::{ObservationProjectionOptions, ObservationView, project_observations};
 use crate::error::Result;
 use crate::model::{RevisionId, TrackId};
-use crate::session::EventStore;
+use crate::session::projection::body_content::BodyRemovalLens;
+use crate::session::projection::cosignature::CosignatureIndex;
+use crate::session::signing::{RemovalPolicy, TrustSet};
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::resolution::resolve_read_store;
+use crate::session::{ArtifactRemovalProjection, EventStore};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObservationListOptions {
@@ -87,6 +90,11 @@ pub fn list_observations(options: ObservationListOptions) -> Result<ObservationL
         .as_deref()
         .map(validated_track_id)
         .transpose()?;
+    let removal = ArtifactRemovalProjection::from_events(&events)?;
+    let cosig_index = CosignatureIndex::build(&events)?;
+    let trust_set = TrustSet::default();
+    let removal_lens =
+        BodyRemovalLens::new(&removal, &trust_set, RemovalPolicy::default(), &cosig_index);
     let observations = project_observations(ObservationProjectionOptions {
         backend: read_store.backend(),
         events: &events,
@@ -95,6 +103,7 @@ pub fn list_observations(options: ObservationListOptions) -> Result<ObservationL
         file_filter: options.file.as_deref(),
         tag_filters: &options.tags,
         include_body: options.include_body,
+        removal_lens: &removal_lens,
     })?;
     let diagnostics = SessionState::from_events(&events)?.diagnostics;
 

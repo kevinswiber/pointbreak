@@ -27,7 +27,7 @@ pub use projection::cosignature::{
 };
 pub(crate) use projection::state;
 pub use projection::{
-    ArtifactRemovalProjection, CommitEdgeSource, CommitOidGroupingProjection,
+    ArtifactRemovalProjection, BodyContentState, CommitEdgeSource, CommitOidGroupingProjection,
     CurrentCommitAssociation, CurrentRefAssociation, EngagementGrouping, EngagementLifecycle,
     EngagementView, LivenessScope, LivenessToken, ProjectionDiagnostic, RemovalClaim,
     RemovalOperativeStatus, RevisionCommitRangeProjection, RevisionCommitRangeView,

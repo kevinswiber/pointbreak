@@ -5,9 +5,11 @@ use serde::Serialize;
 use super::target::ResolvedRevision;
 use crate::error::{Result, ShoreError};
 use crate::model::{EventId, ObservationId, ReviewTargetRef, TrackId};
-use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
     BodyContentType, EventType, ReviewObservationRecordedPayload, ShoreEvent, Writer,
+};
+use crate::session::projection::body_content::{
+    BodyContentState, BodyRemovalLens, resolve_body_content,
 };
 use crate::session::store::backend::StoreBackend;
 
@@ -25,6 +27,9 @@ pub(crate) struct ObservationProjectionOptions<'a> {
     pub file_filter: Option<&'a str>,
     pub tag_filters: &'a [String],
     pub include_body: bool,
+    /// The reader's removal lens: an operative removal over an externalized
+    /// body renders an explained removed state instead of the bytes.
+    pub removal_lens: &'a BodyRemovalLens<'a>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -43,6 +48,7 @@ pub struct ObservationView {
     pub responds_to: Vec<ObservationId>,
     pub responded_by: Vec<ObservationId>,
     pub body_content_hash: Option<String>,
+    pub body_content_state: BodyContentState,
     pub created_at: String,
     pub writer: Writer,
 }
@@ -133,11 +139,15 @@ pub(crate) fn project_observations(
 
     let mut observations = Vec::new();
     for (_, record) in observation_records {
-        let body = if options.include_body {
-            observation_body(options.backend, &record.payload)?
-        } else {
-            None
-        };
+        let content = resolve_body_content(
+            options.backend,
+            options.removal_lens,
+            options.include_body,
+            record.payload.body.clone(),
+            record.payload.body_artifact_path.as_deref(),
+        )?;
+        let body_content_state = content.state();
+        let body = content.into_text();
 
         observations.push(ObservationView {
             id: record.payload.observation_id,
@@ -154,6 +164,7 @@ pub(crate) fn project_observations(
             responds_to: record.payload.responds_to_observation_ids,
             responded_by: Vec::new(),
             body_content_hash: record.payload.body_content_hash,
+            body_content_state,
             created_at: record.event.occurred_at.clone(),
             writer: record.event.writer.clone(),
         });
@@ -182,19 +193,6 @@ pub(crate) fn target_matches_file(target: &ReviewTargetRef, file: &str) -> bool 
         | ReviewTargetRef::InputRequest { .. }
         | ReviewTargetRef::Assessment { .. }
         | ReviewTargetRef::Event { .. } => false,
-    }
-}
-
-fn observation_body(
-    backend: &StoreBackend,
-    payload: &ReviewObservationRecordedPayload,
-) -> Result<Option<String>> {
-    if payload.body.is_some() {
-        return Ok(payload.body.clone());
-    }
-    match payload.body_artifact_path.as_deref() {
-        Some(path) => load_body_artifact(backend, path),
-        None => Ok(None),
     }
 }
 

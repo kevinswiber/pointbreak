@@ -953,6 +953,7 @@ mod tests {
             responds_to: vec![],
             responded_by: vec![],
             body_content_hash: None,
+            body_content_state: Default::default(),
             created_at: created_at.to_owned(),
             writer: Writer::shore_local("test"),
         }

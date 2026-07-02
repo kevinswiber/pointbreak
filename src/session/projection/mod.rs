@@ -1,4 +1,5 @@
 pub mod artifact_removal;
+pub(crate) mod body_content;
 pub(crate) mod commit_oid_grouping;
 pub(crate) mod commit_range;
 pub(crate) mod cosignature;
@@ -14,6 +15,7 @@ pub(crate) mod task;
 pub(crate) mod test_support;
 
 pub use artifact_removal::{ArtifactRemovalProjection, RemovalClaim, RemovalOperativeStatus};
+pub use body_content::BodyContentState;
 pub use commit_oid_grouping::CommitOidGroupingProjection;
 pub use commit_range::{
     CommitEdgeSource, CurrentCommitAssociation, CurrentRefAssociation,
