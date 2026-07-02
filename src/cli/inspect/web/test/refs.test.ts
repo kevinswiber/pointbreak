@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { REF_ID_PREFIXES, REF_KINDS } from "../src/classNames";
 import {
   isMarkdownContentType,
   linkify,
   linkifyEscaped,
+  REF_RE,
   refInfo,
   safeMarkdownHref,
   shortId,
@@ -79,6 +81,34 @@ describe("refInfo", () => {
     expect(refInfo("agent:codex")).toEqual({ kind: "track", clickable: true });
     expect(refInfo("human:kevin")).toEqual({ kind: "track", clickable: true });
     expect(refInfo("not-a-ref")).toBeNull();
+  });
+});
+
+describe("REF_RE derivation", () => {
+  it("derives REF_RE byte-identically from REF_ID_PREFIXES", () => {
+    // The alternation lock: change REF_ID_PREFIXES and this expected literal
+    // together, deliberately — that is the display-membership decision.
+    expect(REF_RE.source).toBe(
+      "\\b(?:review-unit|input-request-response|input-request|obs|assess|snap|rev|evt|note|validation):(?:git:)?sha256:[0-9a-f]{6,}\\b|\\bsha256:[0-9a-f]{16,}\\b|\\b[0-9a-f]{40}\\b|\\b(?:agent|human):[a-z0-9][a-z0-9_-]*\\b",
+    );
+    expect(REF_RE.flags).toBe("gi");
+  });
+
+  it("derives REF_KINDS as the prefix list plus the non-prefix classifier kinds", () => {
+    expect([...REF_KINDS]).toEqual([
+      ...REF_ID_PREFIXES,
+      "hash",
+      "commit",
+      "track",
+    ]);
+  });
+
+  it("keeps longer prefixes distinguishable from their own prefixes", () => {
+    // input-request-response must never classify as input-request.
+    expect(refInfo("input-request-response:sha256:abcdef12")).toEqual({
+      kind: "input-request-response",
+      clickable: true,
+    });
   });
 });
 

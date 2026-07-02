@@ -1,7 +1,7 @@
 // Id short-forms, reference classification, and linkification.
 // Ported from the served app.js refs/linkify cluster. Imports escape only.
 
-import { CLASS, refClass } from "./classNames";
+import { CLASS, REF_ID_PREFIXES, refClass } from "./classNames";
 import { escapeHtml } from "./escape";
 
 /** Classification of a reference token: its kind and whether it navigates. */
@@ -79,8 +79,13 @@ export function refInfo(token: string): RefInfo | null {
   return null;
 }
 
-export const REF_RE =
-  /\b(?:review-unit|input-request-response|input-request|obs|assess|snap|rev|evt|note|validation):(?:git:)?sha256:[0-9a-f]{6,}\b|\bsha256:[0-9a-f]{16,}\b|\b[0-9a-f]{40}\b|\b(?:agent|human):[a-z0-9][a-z0-9_-]*\b/gi;
+export const REF_RE = new RegExp(
+  `\\b(?:${REF_ID_PREFIXES.join("|")}):(?:git:)?sha256:[0-9a-f]{6,}\\b` +
+    "|\\bsha256:[0-9a-f]{16,}\\b" +
+    "|\\b[0-9a-f]{40}\\b" +
+    "|\\b(?:agent|human):[a-z0-9][a-z0-9_-]*\\b",
+  "gi",
+);
 
 /** Replace embedded ids in already-escaped text with truncated reference chips. */
 export function linkifyEscaped(escaped: string): string {

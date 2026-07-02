@@ -147,7 +147,8 @@ export const CLASS = {
 //   ENDORSE_CLASSES     ← projection `endorsementRow` (ENDORSEMENT_LABELS keys)
 //   VERDICT_ASSESSMENTS ← cards `verdictBadge`
 //   FACT_STATUSES       ← cards `factCard` + projection `assessmentCue`
-//   REF_KINDS           ← refs `refInfo` + the `REF_RE` prefix alternation
+//   REF_KINDS           ← derived from REF_ID_PREFIXES (the one prefix list;
+//                         refs `REF_RE` derives from it too) + hash/commit/track
 //
 // The status/kind values are server-supplied strings, so the helpers below take
 // `string`; these arrays name the known value space the drift test enumerates.
@@ -232,10 +233,12 @@ export const FACT_STATUSES = [
   "unassessed",
 ] as const;
 
-// The short prefixes `refInfo`/`REF_RE` classify a token into — not the long
-// `revision`/`event`/`object` forms. Only `.ref-commit`/`.ref-hash` have a CSS
-// rule; the rest use base `.ref` styling (PR2 allowlist).
-export const REF_KINDS = [
+// The id prefixes `refInfo`/`REF_RE` linkify, in REF_RE alternation order.
+// Single web-side source: REF_RE (refs.ts) and REF_KINDS derive from this
+// list, and the Rust registry drift test (src/model/id_prefix.rs) parses it —
+// keep the `REF_ID_PREFIXES = [` spelling. Membership changes are a display
+// decision; change the refs.test.ts alternation lock in the same edit.
+export const REF_ID_PREFIXES = [
   "review-unit",
   "input-request-response",
   "input-request",
@@ -246,6 +249,13 @@ export const REF_KINDS = [
   "evt",
   "note",
   "validation",
+] as const;
+
+// The prefixes plus the non-prefix classifier kinds — not the long
+// `revision`/`event`/`object` forms. Only `.ref-commit`/`.ref-hash` have a CSS
+// rule; the rest use base `.ref` styling (PR2 allowlist).
+export const REF_KINDS = [
+  ...REF_ID_PREFIXES,
   "hash",
   "commit",
   "track",

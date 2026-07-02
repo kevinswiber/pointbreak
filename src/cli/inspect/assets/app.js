@@ -208,7 +208,7 @@
     "superseded",
     "unassessed"
   ];
-  var REF_KINDS = [
+  var REF_ID_PREFIXES = [
     "review-unit",
     "input-request-response",
     "input-request",
@@ -218,7 +218,10 @@
     "rev",
     "evt",
     "note",
-    "validation",
+    "validation"
+  ];
+  var REF_KINDS = [
+    ...REF_ID_PREFIXES,
     "hash",
     "commit",
     "track"
@@ -341,7 +344,10 @@
     return null;
   }
   __name(refInfo, "refInfo");
-  var REF_RE = /\b(?:review-unit|input-request-response|input-request|obs|assess|snap|rev|evt|note|validation):(?:git:)?sha256:[0-9a-f]{6,}\b|\bsha256:[0-9a-f]{16,}\b|\b[0-9a-f]{40}\b|\b(?:agent|human):[a-z0-9][a-z0-9_-]*\b/gi;
+  var REF_RE = new RegExp(
+    `\\b(?:${REF_ID_PREFIXES.join("|")}):(?:git:)?sha256:[0-9a-f]{6,}\\b|\\bsha256:[0-9a-f]{16,}\\b|\\b[0-9a-f]{40}\\b|\\b(?:agent|human):[a-z0-9][a-z0-9_-]*\\b`,
+    "gi"
+  );
   function linkifyEscaped(escaped) {
     return escaped.replace(REF_RE, (token) => {
       const info = refInfo(token);
