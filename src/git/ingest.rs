@@ -177,14 +177,18 @@ pub(crate) fn capture_worktree_diff_files_scoped(
 
 /// Tree diff between two resolved commits. Never reads the working tree or
 /// index and never synthesizes untracked rows: the inventory is exactly
-/// `git diff <base_oid> <target_oid>`. Callers pass already-resolved OIDs
-/// (see `git_rev_parse_commit_oid`), so there is no `--end-of-options` concern.
+/// `git diff <base_oid> <target_oid> -- <pathspecs>`. Callers pass
+/// already-resolved OIDs (see `git_rev_parse_commit_oid`), so there is no
+/// `--end-of-options` concern. Scope-boundary renames follow git's pairing
+/// rules: a rename whose old side falls outside the pathspec scope reports as
+/// an add of the new side (and vice versa).
 pub(crate) fn capture_commit_range_diff_files(
     repo: &Path,
     base_oid: &str,
     target_oid: &str,
+    pathspecs: &[String],
 ) -> Result<Vec<DiffFile>> {
-    diff_files_for_args(repo, &[base_oid, target_oid], &[])
+    diff_files_for_args(repo, &[base_oid, target_oid], pathspecs)
 }
 
 fn synthesize_untracked_files(repo: &Path, pathspecs: &[String]) -> Result<Vec<DiffFile>> {
@@ -458,6 +462,77 @@ mod tests {
     }
 
     #[test]
+    fn scoped_commit_range_diff_includes_only_pathspec_matches() {
+        let repo = TestRepo::new();
+        repo.write("a/one.txt", "one\n");
+        repo.write("b/two.txt", "two\n");
+        repo.commit_all("base");
+        let base_oid = repo.rev_parse("HEAD");
+        repo.write("a/one.txt", "one changed\n");
+        repo.write("b/two.txt", "two changed\n");
+        repo.commit_all("change");
+        let head_oid = repo.rev_parse("HEAD");
+
+        let files =
+            capture_commit_range_diff_files(repo.path(), &base_oid, &head_oid, &["a".to_owned()])
+                .unwrap();
+
+        let paths: Vec<&str> = files.iter().filter_map(|f| f.new_path.as_deref()).collect();
+        assert_eq!(paths, vec!["a/one.txt"]);
+    }
+
+    #[test]
+    fn rename_witnessed_from_only_its_new_side_degrades_to_an_add() {
+        // Native git pathspec semantics: rename pairing needs both sides in
+        // scope. Scoped to the new side only, `a/x.txt -> b/y.txt` reports as
+        // an Added `b/y.txt`. We lock, not fight, git here — the scoped
+        // inventory is exactly `git diff <base> <target> -- <pathspec>`.
+        let repo = TestRepo::new();
+        repo.write("a/x.txt", "line one\nline two\nline three\n");
+        repo.commit_all("base");
+        let base_oid = repo.rev_parse("HEAD");
+        // `git mv` requires the destination directory to exist.
+        fs::create_dir_all(repo.path().join("b")).unwrap();
+        repo.git(["mv", "a/x.txt", "b/y.txt"]);
+        repo.commit_all("move");
+        let head_oid = repo.rev_parse("HEAD");
+
+        let files =
+            capture_commit_range_diff_files(repo.path(), &base_oid, &head_oid, &["b".to_owned()])
+                .unwrap();
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].status, FileStatus::Added);
+        assert_eq!(files[0].new_path.as_deref(), Some("b/y.txt"));
+    }
+
+    #[test]
+    fn rename_with_both_sides_in_scope_is_preserved() {
+        let repo = TestRepo::new();
+        repo.write("a/x.txt", "line one\nline two\nline three\n");
+        repo.commit_all("base");
+        let base_oid = repo.rev_parse("HEAD");
+        // `git mv` requires the destination directory to exist.
+        fs::create_dir_all(repo.path().join("b")).unwrap();
+        repo.git(["mv", "a/x.txt", "b/y.txt"]);
+        repo.commit_all("move");
+        let head_oid = repo.rev_parse("HEAD");
+
+        let files = capture_commit_range_diff_files(
+            repo.path(),
+            &base_oid,
+            &head_oid,
+            &["a".to_owned(), "b".to_owned()],
+        )
+        .unwrap();
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].status, FileStatus::Renamed);
+        assert_eq!(files[0].old_path.as_deref(), Some("a/x.txt"));
+        assert_eq!(files[0].new_path.as_deref(), Some("b/y.txt"));
+    }
+
+    #[test]
     fn commit_range_diff_files_capture_committed_change_with_clean_worktree() {
         let repo = TestRepo::new();
         repo.write("file.txt", "one\n");
@@ -467,7 +542,8 @@ mod tests {
         repo.commit_all("change");
         let head_oid = repo.rev_parse("HEAD");
 
-        let files = capture_commit_range_diff_files(repo.path(), &base_oid, &head_oid).unwrap();
+        let files =
+            capture_commit_range_diff_files(repo.path(), &base_oid, &head_oid, &[]).unwrap();
 
         assert_eq!(files.len(), 1);
         let file = &files[0];
@@ -490,12 +566,14 @@ mod tests {
         repo.commit_all("change");
         let head_oid = repo.rev_parse("HEAD");
 
-        let clean = capture_commit_range_diff_files(repo.path(), &base_oid, &head_oid).unwrap();
+        let clean =
+            capture_commit_range_diff_files(repo.path(), &base_oid, &head_oid, &[]).unwrap();
 
         // Dirty the tracked file and add an untracked file; the tree diff must not see either.
         repo.write("file.txt", "dirty worktree edit\n");
         repo.write("untracked.txt", "untracked\n");
-        let dirty = capture_commit_range_diff_files(repo.path(), &base_oid, &head_oid).unwrap();
+        let dirty =
+            capture_commit_range_diff_files(repo.path(), &base_oid, &head_oid, &[]).unwrap();
 
         assert_eq!(clean, dirty);
         assert!(
@@ -515,7 +593,8 @@ mod tests {
         repo.commit_all("rename");
         let head_oid = repo.rev_parse("HEAD");
 
-        let files = capture_commit_range_diff_files(repo.path(), &base_oid, &head_oid).unwrap();
+        let files =
+            capture_commit_range_diff_files(repo.path(), &base_oid, &head_oid, &[]).unwrap();
 
         assert_eq!(files.len(), 1);
         let file = &files[0];
@@ -536,7 +615,8 @@ mod tests {
         repo.commit_all("base");
         let head_oid = repo.rev_parse("HEAD");
 
-        let files = capture_commit_range_diff_files(repo.path(), &head_oid, &head_oid).unwrap();
+        let files =
+            capture_commit_range_diff_files(repo.path(), &head_oid, &head_oid, &[]).unwrap();
 
         assert!(files.is_empty());
     }

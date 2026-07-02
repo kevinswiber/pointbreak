@@ -710,7 +710,7 @@ mod tests {
         let base = resolved_endpoint(repo.path(), "HEAD~1");
         let target = resolved_endpoint(repo.path(), "HEAD");
         let files =
-            capture_commit_range_diff_files(repo.path(), &base.commit_oid, &target.commit_oid)
+            capture_commit_range_diff_files(repo.path(), &base.commit_oid, &target.commit_oid, &[])
                 .unwrap();
 
         let first =
@@ -733,7 +733,7 @@ mod tests {
         let base = resolved_endpoint(repo.path(), "HEAD~1");
         let target = resolved_endpoint(repo.path(), "HEAD");
         let files =
-            capture_commit_range_diff_files(repo.path(), &base.commit_oid, &target.commit_oid)
+            capture_commit_range_diff_files(repo.path(), &base.commit_oid, &target.commit_oid, &[])
                 .unwrap();
 
         let worktree = revision_fingerprint_for_files(repo.path(), &files).unwrap();
@@ -756,6 +756,7 @@ mod tests {
             repo_a.path(),
             &base_a.commit_oid,
             &target_a.commit_oid,
+            &[],
         )
         .unwrap();
         let first = commit_range_revision_fingerprint_for_files(
@@ -775,6 +776,7 @@ mod tests {
             repo_b.path(),
             &base_b.commit_oid,
             &target_b.commit_oid,
+            &[],
         )
         .unwrap();
         let second = commit_range_revision_fingerprint_for_files(

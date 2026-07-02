@@ -381,7 +381,7 @@ fn prepare_commit_range_capture(
     let target_rev = range.target_rev.as_deref().unwrap_or("HEAD");
     let target = resolve_commit_endpoint(worktree_root, target_rev)?;
     let files =
-        capture_commit_range_diff_files(worktree_root, &base.commit_oid, &target.commit_oid)?;
+        capture_commit_range_diff_files(worktree_root, &base.commit_oid, &target.commit_oid, &[])?;
     let fingerprint = crate::session::fingerprint::commit_range_revision_fingerprint_for_files(
         worktree_root,
         &base,
