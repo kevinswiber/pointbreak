@@ -90,6 +90,10 @@ pub struct IngestEventsResult {
     pub events_created: usize,
     pub events_existing: usize,
     pub events_created_by_type: BTreeMap<String, usize>,
+    /// One row per verified event. Rows for non-carrier events appear in input
+    /// order; a stored detached co-signature carrier appends its row when the
+    /// write loop stores it; a dropped carrier has no row. On a successful ingest
+    /// every row's `write_outcome` is `Some`.
     pub verification: Vec<IngestEventVerification>,
     pub diagnostics: Vec<ProjectionDiagnostic>,
 }
@@ -158,6 +162,11 @@ pub fn ingest_events(options: IngestEventsOptions) -> Result<IngestEventsResult>
     let mut events_created_by_type: BTreeMap<String, usize> = BTreeMap::new();
     let mut ingest_diagnostics = Vec::new();
     let mut write_error = None;
+    // The nth non-carrier stamped event corresponds to `verification[n]`: both are
+    // input-ordered with carriers skipped, and carrier rows only ever append past
+    // the initial segment. Index matching, not event-id matching — duplicate event
+    // ids in one batch would mis-assign by id.
+    let mut verified_row_cursor = 0usize;
 
     for event in &stamped {
         // A standalone detached co-signature carrier from a peer flows through the
@@ -189,39 +198,48 @@ pub fn ingest_events(options: IngestEventsOptions) -> Result<IngestEventsResult>
             continue;
         }
 
+        let row_index = verified_row_cursor;
+        verified_row_cursor += 1;
         match event_store.record_event_once(event) {
-            Ok(EventWriteOutcome::Created) => {
-                events_created += 1;
-                *events_created_by_type
-                    .entry(event.event_type.as_str().to_owned())
-                    .or_default() += 1;
-            }
-            Ok(EventWriteOutcome::Existing) => events_existing += 1,
-            Ok(EventWriteOutcome::ExistingDivergentSignature) => {
-                // Class-(b) dissolution: a divergent inline signature over the same
-                // content record is not a conflict — the store keeps its first-stored
-                // copy and transcribes the incoming attestation into a co-signature
-                // carrier, converging the set to both signers with no winner-selection.
-                events_existing += 1;
-                match transcribe_divergent_signature(
-                    &event_store,
-                    event,
-                    worktree_root,
-                    &options.trust_set,
-                    &mut ingest_diagnostics,
-                ) {
-                    Ok((created, existing)) => {
-                        events_existing += existing;
-                        if created > 0 {
-                            events_created += created;
-                            *events_created_by_type
-                                .entry(EventType::EventSignatureRecorded.as_str().to_owned())
-                                .or_default() += 1;
-                        }
+            Ok(outcome) => {
+                verification[row_index].write_outcome = Some(outcome);
+                match outcome {
+                    EventWriteOutcome::Created => {
+                        events_created += 1;
+                        *events_created_by_type
+                            .entry(event.event_type.as_str().to_owned())
+                            .or_default() += 1;
                     }
-                    Err(err) => {
-                        write_error = Some(err);
-                        break;
+                    EventWriteOutcome::Existing => events_existing += 1,
+                    EventWriteOutcome::ExistingDivergentSignature => {
+                        // Class-(b) dissolution: a divergent inline signature over the same
+                        // content record is not a conflict — the store keeps its first-stored
+                        // copy and transcribes the incoming attestation into a co-signature
+                        // carrier, converging the set to both signers with no winner-selection.
+                        events_existing += 1;
+                        match transcribe_divergent_signature(
+                            &event_store,
+                            event,
+                            worktree_root,
+                            &options.trust_set,
+                            &mut ingest_diagnostics,
+                        ) {
+                            Ok((created, existing)) => {
+                                events_existing += existing;
+                                if created > 0 {
+                                    events_created += created;
+                                    *events_created_by_type
+                                        .entry(
+                                            EventType::EventSignatureRecorded.as_str().to_owned(),
+                                        )
+                                        .or_default() += 1;
+                                }
+                            }
+                            Err(err) => {
+                                write_error = Some(err);
+                                break;
+                            }
+                        }
                     }
                 }
             }
@@ -295,6 +313,7 @@ fn ingest_detached_cosignature(
                 event_id: event.event_id.clone(),
                 status,
                 message: cosignature_verification_message(status),
+                write_outcome: Some(outcome),
             });
             if status == EventVerificationStatus::UntrustedKey
                 && outcome == EventWriteOutcome::Created
@@ -2255,5 +2274,118 @@ mod tests {
             other => panic!("expected EventVerificationRejected, got {other:?}"),
         }
         assert_eq!(stored_event_count(dest.path()), 0);
+    }
+    #[test]
+    fn ingest_reports_per_event_write_outcomes_in_input_order() {
+        let (_origin, events) = origin_events();
+        let expected_ids: Vec<_> = events.iter().map(|event| event.event_id.clone()).collect();
+        let dest = dest_repo();
+
+        let first = ingest_events(IngestEventsOptions::new(dest.path(), events.clone())).unwrap();
+        assert_eq!(first.verification.len(), expected_ids.len());
+        for (row, expected_id) in first.verification.iter().zip(&expected_ids) {
+            assert_eq!(row.event_id, *expected_id, "rows stay in input order");
+            assert_eq!(row.write_outcome, Some(EventWriteOutcome::Created));
+        }
+
+        let again = ingest_events(IngestEventsOptions::new(dest.path(), events)).unwrap();
+        for row in &again.verification {
+            assert_eq!(row.write_outcome, Some(EventWriteOutcome::Existing));
+        }
+    }
+
+    #[test]
+    fn duplicate_events_in_one_batch_stamp_rows_by_index() {
+        // Two copies of the SAME event in one batch share an event_id; only index
+        // matching assigns their outcomes correctly (id-matching would mis-assign).
+        let (_origin, events) = origin_events();
+        let event = events
+            .into_iter()
+            .find(|event| event.event_type == EventType::WorkObjectProposed)
+            .unwrap();
+        let dest = dest_repo();
+
+        let result = ingest_events(IngestEventsOptions::new(
+            dest.path(),
+            vec![event.clone(), event],
+        ))
+        .unwrap();
+
+        assert_eq!(result.verification.len(), 2);
+        assert_eq!(
+            result.verification[0].event_id,
+            result.verification[1].event_id
+        );
+        assert_eq!(
+            result.verification[0].write_outcome,
+            Some(EventWriteOutcome::Created)
+        );
+        assert_eq!(
+            result.verification[1].write_outcome,
+            Some(EventWriteOutcome::Existing)
+        );
+    }
+
+    #[test]
+    fn divergent_signature_row_reports_existing_divergent_signature() {
+        let (base, _fixture, actor) = signed_captured_event();
+        let signer_a = DeterministicSigner::from_seed([61u8; 32]);
+        let signer_b = DeterministicSigner::from_seed([62u8; 32]);
+        let trust = two_signer_trust(&actor, &signer_a, &signer_b);
+        let dest = dest_repo();
+
+        ingest_events(
+            IngestEventsOptions::new(dest.path(), vec![signed_copy(&base, &signer_a)])
+                .with_trust_set(trust.clone()),
+        )
+        .unwrap();
+        let result = ingest_events(
+            IngestEventsOptions::new(dest.path(), vec![signed_copy(&base, &signer_b)])
+                .with_trust_set(trust),
+        )
+        .unwrap();
+
+        // The input event's row carries the divergence signal; the transcribed
+        // carrier is a separate created event with no verification row.
+        assert_eq!(
+            result.verification.len(),
+            1,
+            "no row for the transcribed carrier"
+        );
+        assert_eq!(
+            result.verification[0].write_outcome,
+            Some(EventWriteOutcome::ExistingDivergentSignature)
+        );
+        assert_eq!(result.events_created, 1, "the transcribed carrier");
+        assert_eq!(result.events_existing, 1, "the divergent original kept");
+    }
+
+    #[test]
+    fn stored_detached_carrier_row_reports_its_write_outcome() {
+        let signer = DeterministicSigner::fixture();
+        let actor = ActorId::new("actor:git-email:alice@example.com");
+        let (target, carrier) = peer_target_and_carrier(&signer, &actor);
+        let trust = trust_for_actor(&actor, &signer);
+        let dest = dest_repo();
+
+        let result = ingest_events(
+            IngestEventsOptions::new(dest.path(), vec![target.clone(), carrier.clone()])
+                .with_trust_set(trust),
+        )
+        .unwrap();
+
+        // Non-carrier rows first (input order), then the stored carrier's appended row.
+        let target_row = result
+            .verification
+            .iter()
+            .find(|row| row.event_id == target.event_id)
+            .expect("target row");
+        assert_eq!(target_row.write_outcome, Some(EventWriteOutcome::Created));
+        let carrier_row = result
+            .verification
+            .iter()
+            .find(|row| row.event_id == carrier.event_id)
+            .expect("stored carrier row is appended");
+        assert_eq!(carrier_row.write_outcome, Some(EventWriteOutcome::Created));
     }
 }
