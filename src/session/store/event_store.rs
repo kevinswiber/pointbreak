@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::error::{Result, SchemaBreakRecord, ShoreError};
 use crate::session::event::{AssertionMode, EventType, ShoreEvent};
@@ -283,11 +285,35 @@ impl EventStore {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// How the store resolved a single event write. The store keeps the first stored
+/// event under an idempotency key (first-stored-wins); `ExistingDivergentSignature`
+/// means the same content record arrived under a different signature binding — an
+/// incoming attestation, when present and resolvable, transcribes into a detached
+/// co-signature carrier rather than replacing the stored event, and an unsigned
+/// divergent duplicate is a clean keep-first no-op.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum EventWriteOutcome {
     Created,
     Existing,
     ExistingDivergentSignature,
+}
+
+impl EventWriteOutcome {
+    /// The canonical outcome code — exactly the serde snake_case wire form.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Created => "created",
+            Self::Existing => "existing",
+            Self::ExistingDivergentSignature => "existing_divergent_signature",
+        }
+    }
+}
+
+impl std::fmt::Display for EventWriteOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// A stored event that a lenient read recognized as a retired schema and skipped

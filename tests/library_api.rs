@@ -17,8 +17,8 @@ use shoreline::session::event::{
 };
 use shoreline::session::{
     ArtifactKind, ArtifactRef, AssessmentAddOptions, CaptureOptions, EventVerificationPolicy,
-    EventVerificationStatus, ImportArtifactOptions, ImportArtifactOutcome, ImportNotesOptions,
-    IngestEventsOptions, InputRequestFetchOptions, InputRequestListOptions,
+    EventVerificationStatus, EventWriteOutcome, ImportArtifactOptions, ImportArtifactOutcome,
+    ImportNotesOptions, IngestEventsOptions, InputRequestFetchOptions, InputRequestListOptions,
     InputRequestOpenOptions, InputRequestRespondOptions, InputRequestStatus,
     InputRequestStatusFilter, ObservationAddOptions, ReloadOutcome, ReviewHistoryOptions,
     RevisionShowOptions, SensitivityKind, SensitivityPolicyOutcome, SensitivitySeverity, TrustSet,
@@ -885,5 +885,32 @@ fn library_api_documents_typed_ingest_rejection() {
             api.contains(required),
             "library API docs should mention {required}"
         );
+    }
+}
+
+/// `EventWriteOutcome` is part of the supported surface (#145): nameable from an
+/// external build, with snake_case wire strings agreed between serde, as_str, and
+/// Display.
+#[test]
+fn event_write_outcome_is_publicly_nameable() {
+    fn _accepts(_: EventWriteOutcome) {}
+
+    for (outcome, name) in [
+        (EventWriteOutcome::Created, "created"),
+        (EventWriteOutcome::Existing, "existing"),
+        (
+            EventWriteOutcome::ExistingDivergentSignature,
+            "existing_divergent_signature",
+        ),
+    ] {
+        assert_eq!(outcome.as_str(), name);
+        assert_eq!(outcome.to_string(), name);
+        assert_eq!(
+            serde_json::to_value(outcome).unwrap(),
+            Value::String(name.to_owned())
+        );
+        let parsed: EventWriteOutcome =
+            serde_json::from_value(Value::String(name.to_owned())).unwrap();
+        assert_eq!(parsed, outcome);
     }
 }

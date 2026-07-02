@@ -13,7 +13,8 @@ pub(in crate::session) mod store_config;
 pub(in crate::session) mod store_init;
 
 pub(crate) use event_migrate::{EventMigrateOutcome, migrate_event_file};
-pub(crate) use event_store::{EventStore, EventWriteOutcome, SkippedEvent};
+pub use event_store::EventWriteOutcome;
+pub(crate) use event_store::{EventStore, SkippedEvent};
 #[cfg(test)]
 pub use fingerprint::compute_revision_fingerprint;
 pub(crate) use fingerprint::worktree_fingerprint_for_files;
