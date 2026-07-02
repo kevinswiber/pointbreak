@@ -29,6 +29,15 @@ pub(super) struct CaptureArgs {
     #[arg(long = "supersedes")]
     supersedes: Vec<String>,
 
+    /// Scope the capture to the given git pathspec(s): both the tracked diff
+    /// and untracked-file synthesis include only matching files. May be
+    /// repeated; the recorded set is order-independent. Pathspecs are
+    /// interpreted relative to the repository root (native git pathspec
+    /// syntax, including magic like ":(exclude)..."). A scope that matches no
+    /// changed files is an error.
+    #[arg(long = "path", value_name = "PATHSPEC")]
+    paths: Vec<String>,
+
     /// Sign this write with a specific key: a keystore key name or a path to a
     /// key file. Overrides SHORE_SIGNING_KEY. A key that cannot be loaded leaves
     /// the write unsigned (exit 0) with an advisory diagnostic — signing never
@@ -72,6 +81,9 @@ fn capture_options(
                 .map(|id| RevisionId::new(id.clone()))
                 .collect(),
         );
+    }
+    if !args.paths.is_empty() {
+        options = options.with_pathspecs(args.paths.clone());
     }
     if let Some(log_file) = &tracing.log_file {
         options = options.with_excluded_helper_path(log_file);

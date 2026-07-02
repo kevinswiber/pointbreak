@@ -511,3 +511,110 @@ fn modified_repo() -> GitRepo {
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
     repo
 }
+
+fn two_dir_repo() -> GitRepo {
+    let repo = GitRepo::new();
+    repo.write("a/one.txt", "one\n");
+    repo.write("b/two.txt", "two\n");
+    repo.commit_all("base");
+    repo.write("a/one.txt", "one changed\n");
+    repo.write("b/two.txt", "two changed\n");
+    repo
+}
+
+#[test]
+fn review_capture_with_path_scopes_the_captured_revision() {
+    let repo = two_dir_repo();
+
+    let scoped = shore([
+        "review",
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--path",
+        "a",
+    ]);
+    assert!(
+        scoped.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&scoped.stderr)
+    );
+    let scoped = parse_json(&scoped.stdout);
+
+    let unscoped = parse_json(
+        &shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout,
+    );
+
+    // A scoped capture is a distinct revision from the whole-repo capture of the
+    // same worktree (their content and provenance both differ here).
+    assert_ne!(scoped["revision"]["id"], unscoped["revision"]["id"]);
+}
+
+#[test]
+fn review_capture_path_is_repeatable() {
+    let repo = two_dir_repo();
+
+    let output = shore([
+        "review",
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--path",
+        "a",
+        "--path",
+        "b",
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn review_capture_with_path_matching_nothing_fails_with_a_pathspec_error() {
+    let repo = two_dir_repo();
+
+    let output = shore([
+        "review",
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--path",
+        "docs",
+    ]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("matched no changed files") && stderr.contains("docs"),
+        "stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn review_capture_path_composes_with_base_and_target() {
+    let repo = two_dir_repo();
+    repo.commit_all("change");
+
+    let output = shore([
+        "review",
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--base",
+        "HEAD~1",
+        "--target",
+        "HEAD",
+        "--path",
+        "a",
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    assert_eq!(json["revision"]["base"]["kind"], "git_commit");
+    assert_eq!(json["revision"]["target"]["kind"], "git_commit");
+}
