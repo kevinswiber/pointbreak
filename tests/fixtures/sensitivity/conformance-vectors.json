@@ -1,0 +1,60 @@
+{
+  "note": "Conformance vectors for the sensitivity-scan vocabulary (issue #150). Each repo is a fresh git repository containing exactly these files; expectations are asserted against the `sensitivity` object of `store_status`. Wire strings are the typed vocabulary at shoreline::session::{SensitivityKind, SensitivitySeverity, SensitivityPolicyOutcome}. Downstream boundaries (e.g. shoreline-relay's egress classification gate) can assert identical per-kind behavior from this file. A file may legitimately trigger more than one kind: expectedKinds lists every shoreline finding the file contributes to.",
+  "knownTokenDivergence": "shoreline's known_token detector matches the sk-/ghp_/github_pat_/AKIA prefixes only at the start of a token. shoreline-relay's egress gate deliberately matches the prefix anywhere in a token: its threat model is 'the secret must not cross the wire', not 'the token starts with a known prefix'. The embedded-prefix vector pins the divergence — shoreline expects no finding (expectedKinds is empty); the relay expects known_token (relayExpectedKinds).",
+  "repos": {
+    "positive": {
+      "expectedPolicyOutcome": "block",
+      "files": [
+        {
+          "path": "src/token.txt",
+          "contents": "let key = \"sk-test000000000000000000000000\";\n",
+          "expectedKinds": ["known_token", "sensitive_filename"]
+        },
+        {
+          "path": "keys/dev.pem",
+          "contents": "-----BEGIN PRIVATE KEY-----\nredacted\n",
+          "expectedKinds": ["private_key"]
+        },
+        {
+          "path": ".env",
+          "contents": "DATABASE_URL=postgres://user:pass@example/db\n",
+          "expectedKinds": ["sensitive_filename"]
+        },
+        {
+          "path": "config/value.txt",
+          "contents": "token = hQ7x9Zp4Lm2N8vR5sT1aBcD3eFgH6jK0\n",
+          "expectedKinds": ["high_entropy"]
+        },
+        {
+          "path": "target/generated/cache.bin",
+          "fill": { "byte": "x", "sizeBytes": 1048577 },
+          "expectedKinds": ["generated_path"]
+        }
+      ],
+      "expectedFindings": [
+        { "kind": "known_token", "severity": "high", "policyOutcome": "block" },
+        { "kind": "private_key", "severity": "high", "policyOutcome": "block" },
+        { "kind": "high_entropy", "severity": "medium", "policyOutcome": "warn" },
+        { "kind": "sensitive_filename", "severity": "medium", "policyOutcome": "warn" },
+        { "kind": "generated_path", "severity": "medium", "policyOutcome": "warn" }
+      ]
+    },
+    "negative": {
+      "expectedPolicyOutcome": "allow",
+      "files": [
+        {
+          "path": "notes/near-miss.txt",
+          "contents": "value = hQ7x9Zp4Lm2N8vR5sT1aBcD3eFgH6jK\n",
+          "expectedKinds": []
+        },
+        {
+          "path": "notes/embedded-prefix.txt",
+          "contents": "value = not-an-actor-sk-test000000000000000000000000\n",
+          "expectedKinds": [],
+          "relayExpectedKinds": ["known_token"]
+        }
+      ],
+      "expectedFindings": []
+    }
+  }
+}
