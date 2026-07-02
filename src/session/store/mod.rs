@@ -9,6 +9,7 @@ pub(in crate::session) mod inventory;
 pub(in crate::session) mod object_artifact;
 pub(in crate::session) mod resolution;
 pub(in crate::session) mod sensitivity;
+pub(in crate::session) mod sensitivity_config;
 pub(in crate::session) mod store_config;
 pub(in crate::session) mod store_init;
 
