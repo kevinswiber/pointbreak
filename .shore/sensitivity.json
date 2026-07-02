@@ -1,0 +1,5 @@
+{
+  "schema": "shore.sensitivity-config",
+  "version": 1,
+  "excludeGlobs": ["tests/**", "src/session/store/sensitivity.rs"]
+}

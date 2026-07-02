@@ -426,6 +426,14 @@ findings are hashed `file:sha256:*` values and do not disclose secret contents o
 Sensitivity findings are reported but do not currently abort a write; a hard-blocking policy and
 explicit override controls are a forward-looking note for when movement can target a wider store.
 
+Known-safe paths that trip the scanner (a repo's own test fixtures, for example) can be excluded
+with a committed `.shore/sensitivity.json` (plus a git-excluded `.shore/sensitivity.local.json`
+override, merged by union) — the targeted alternative to the blanket `--include-ephemeral`
+override, which disables the migrate gate wholesale. An excluded path is not scanned; the scan
+reports the excluded-path count and per-glob match counts so an over-broad exclude stays visible.
+See [cli-reference.md](./cli-reference.md#sensitivity-exclude-globs) for the format and glob
+semantics.
+
 Reads resolve the shared common-dir store on every review read surface. `shore review revisions` and
 `show`, `shore review history`, the observation, input-request, and validation lists,
 `shore review assessment show`, the association list, and the inspector API all

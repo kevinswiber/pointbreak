@@ -290,6 +290,44 @@ error rather than a silent fallback. `shore store mode show` reports the resolve
 it. All three forms emit `shore.store-mode` JSON with `mode` (`shared` | `ephemeral`) and `source`
 (`default` | `committed` | `local`); the body embeds no storage path.
 
+### Sensitivity exclude globs
+
+The worktree sensitivity scan (run by `shore store status` and `shore store migrate`'s consent
+gate) supports a committed **`.shore/sensitivity.json`** plus a git-excluded
+**`.shore/sensitivity.local.json`** (covered by `.shore/.gitignore`'s `*.local.json` line) listing
+path globs the scan skips — the targeted alternative to the blanket `--include-ephemeral` override
+when a repo's own test fixtures carry scanner-triggering strings:
+
+```json
+{
+  "schema": "shore.sensitivity-config",
+  "version": 1,
+  "excludeGlobs": ["tests/**", "src/session/store/sensitivity.rs"]
+}
+```
+
+The two files merge by **union** (committed order first, then novel local entries) — deliberately
+diverging from the local-replaces-committed rule `store.json`/`delegates.json` use, because this is
+a *list*: replace would force copying the whole committed list to add one local entry, union grants
+nothing replace couldn't, and the audit counts make any widening visible. Default is empty (scan
+everything; opt-in only).
+
+Glob semantics are a documented gitignore-style subset matched against the repo-relative path: a
+leading `/` or any interior `/` makes the pattern rooted (`tests/**`, `src/lib.rs`); a slash-free
+pattern matches any path component at any depth (`*.pem`, `data`); a trailing `/` marks a directory
+pattern matching only paths inside it; `**` spans segments (zero or more interior, one or more
+trailing); `*` and `?` never cross `/`. Negation (`!`), empty patterns, and malformed or
+unsupported-version config are hard errors naming the offending file — the config gates a
+protection, so a misread never silently changes coverage.
+
+An excluded path is **not scanned** — an explicit operator opt-out, kept honest by the audit
+surfaces: `shore store status` reports `sensitivity.excludedPathCount` and
+`sensitivity.excludeGlobs[{glob, matched}]` (zero-count globs included; a dead glob is itself worth
+seeing), and `shore store migrate` reports `sensitivityExcludedPathCount` whenever its gate scan
+ran (absent under `--include-ephemeral`, which skips the scan). Excluded paths themselves are never
+listed — the scan's redacted `file:sha256:*` posture stands. The gate behavior is unchanged: a
+`block` finding outside the excludes still refuses without `--include-ephemeral`.
+
 A pre-flip worktree-local `.shore/data` store on a non-ephemeral worktree (data written before the
 shared common-dir default) is detected on any read or write and errors with a hint to run
 `shore store migrate`. `shore store migrate` folds that legacy store into the shared common-dir store
