@@ -242,6 +242,8 @@ mod tests {
         let payload = InputRequestRespondedPayload {
             input_request_response_id: InputRequestResponseId::new("resp:sha256:one"),
             input_request_id: InputRequestId::new("input:sha256:one"),
+            revision_id: Some(revision_id("one")),
+            task_target: None,
             outcome: InputRequestResponseOutcome::Approved,
             reason: None,
             reason_content_type: Default::default(),
@@ -614,12 +616,12 @@ mod tests {
 
     #[test]
     fn review_history_entry_subject_narrows_task_target_ref_to_none() {
-        use crate::model::{CheckpointId, TargetRef, TaskTargetRef};
-
-        let mut event = review_initialized_event("narrow");
-        event.target.subject = TargetRef::Task(TaskTargetRef::Checkpoint {
-            checkpoint_id: CheckpointId::new("checkpoint:sha256:narrow"),
-        });
+        // The signed envelope no longer carries an assignable subject field;
+        // the subject is reconstructed from the event's payload, and a
+        // `ReviewInitialized` event always reconstructs to the subject-less
+        // `TargetRef::Journal` carrier, which narrows the same as a task
+        // subject would.
+        let event = review_initialized_event("narrow");
 
         let entry =
             history_entry_from_event(&event, &ResolvedHistoryFilters::default(), None, None, None)
@@ -730,9 +732,12 @@ mod tests {
             "task_attempt_proposal",
             EventTarget::for_subject(
                 JournalId::new("journal:claude:abc"),
-                TargetRef::Task(crate::model::TaskTargetRef::TaskAttempt),
+                TargetRef::Task(crate::model::TaskTargetRef::TaskAttempt {
+                    task_attempt_id: crate::model::WorkObjectId::new("task-attempt:sha256:t"),
+                }),
                 None,
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("test"),
             task_payload,
             "2026-05-18T10:00:05Z",
@@ -1304,7 +1309,10 @@ mod tests {
             )),
             work_object: WorkObjectProposal::Revision {
                 revision: Revision {
-                    id: RevisionId::new(format!("rev:{}", revision_id.as_str())),
+                    // The payload revision must match the envelope subject (and the
+                    // observation's target) so the object-join resolves — the
+                    // subject is now reconstructed from this payload, not the envelope.
+                    id: revision_id.clone(),
                     object_id: ObjectId::new(format!("snap:{}", revision_id.as_str())),
                     git_provenance: Some(GitProvenance {
                         source: RevisionSource::GitWorktree {
@@ -1328,7 +1336,8 @@ mod tests {
         ShoreEvent::new(
             EventType::WorkObjectProposed,
             "capture:one",
-            EventTarget::for_revision(JournalId::new("journal:default"), revision_id, None),
+            EventTarget::for_revision(JournalId::new("journal:default"), revision_id, None)
+                .unwrap(),
             Writer::shore_local("test"),
             payload,
             "2026-05-13T10:00:00Z",
@@ -1499,6 +1508,7 @@ mod tests {
             target: ReviewTargetRef::Revision {
                 revision_id: revision_id("one"),
             },
+            task_target: None,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "Need decision".to_owned(),
             body: Some("body".to_owned()),
@@ -1524,6 +1534,8 @@ mod tests {
                 "input-request-response:sha256:one",
             ),
             input_request_id: InputRequestId::new("input-request:sha256:one"),
+            revision_id: Some(revision_id("one")),
+            task_target: None,
             outcome: InputRequestResponseOutcome::Approved,
             reason: Some("approved".to_owned()),
             reason_content_type: Default::default(),
@@ -1635,12 +1647,14 @@ mod tests {
     where
         P: crate::session::event::EventPayload,
     {
-        let mut target =
-            EventTarget::for_revision(JournalId::new("journal:default"), revision_id.clone(), None);
-        target.track_id = Some(TrackId::new(track_id));
-        target.subject = TargetRef::Review(ReviewTargetRef::Revision {
-            revision_id: revision_id.clone(),
-        });
+        let target = EventTarget::for_subject(
+            JournalId::new("journal:default"),
+            TargetRef::Review(ReviewTargetRef::Revision {
+                revision_id: revision_id.clone(),
+            }),
+            Some(TrackId::new(track_id)),
+        )
+        .unwrap();
         ShoreEvent::new(
             event_type,
             idempotency_key,

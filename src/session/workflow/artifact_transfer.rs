@@ -323,9 +323,12 @@ mod tests {
 
     fn validation_event_with_summary_path(path: &str) -> ShoreEvent {
         let revision_id = RevisionId::new("review-unit:sha256:one");
-        let mut target =
-            EventTarget::for_revision(JournalId::new("journal:default"), revision_id.clone(), None);
-        target.track_id = Some(TrackId::new("agent:codex"));
+        let target = EventTarget::for_revision(
+            JournalId::new("journal:default"),
+            revision_id.clone(),
+            Some(TrackId::new("agent:codex")),
+        )
+        .unwrap();
         ShoreEvent::new(
             EventType::ValidationCheckRecorded,
             "validation_check_recorded:one",

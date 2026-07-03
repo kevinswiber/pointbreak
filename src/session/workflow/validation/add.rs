@@ -11,8 +11,8 @@ use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::crypto::EventSigner;
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    ActorId, EventId, ReviewTargetRef, RevisionId, TargetRef, TrackId, ValidationCheckId,
-    ValidationStatus, ValidationTarget, ValidationTrigger, id_prefix,
+    ActorId, EventId, RevisionId, TrackId, ValidationCheckId, ValidationStatus, ValidationTarget,
+    ValidationTrigger, id_prefix,
 };
 use crate::session::event::{
     BodyContentType, EventTarget, EventType, ShoreEvent, ValidationCheckRecordedPayload,
@@ -307,15 +307,13 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
             .put_note_body(artifact_path, bytes)?;
     }
 
-    let mut event_target = EventTarget::for_revision(
+    // `for_revision` already addresses the `Review(Revision)` subject; the track
+    // is the only envelope field the validation write adds.
+    let event_target = EventTarget::for_revision(
         input.resolved.journal_id,
         input.resolved.revision_id.clone(),
-        None,
-    );
-    event_target.track_id = Some(track_id.clone());
-    event_target.subject = TargetRef::Review(ReviewTargetRef::Revision {
-        revision_id: input.resolved.revision_id.clone(),
-    });
+        Some(track_id.clone()),
+    )?;
 
     let mut event = ShoreEvent::new(
         EventType::ValidationCheckRecorded,

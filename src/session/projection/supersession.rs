@@ -446,7 +446,8 @@ mod tests {
                     JournalId::new("journal:default"),
                     revision_id.clone(),
                     None,
-                ),
+                )
+                .unwrap(),
                 Writer::shore_local("test"),
                 WorkObjectProposedPayload {
                     engagement_id: EngagementId::new(format!("engagement:sha256:{suffix}")),
@@ -484,9 +485,12 @@ mod tests {
                 format!("task-capture:{suffix}"),
                 EventTarget::for_subject(
                     JournalId::new("journal:default"),
-                    TargetRef::Task(TaskTargetRef::TaskAttempt),
+                    TargetRef::Task(TaskTargetRef::TaskAttempt {
+                        task_attempt_id: WorkObjectId::new(format!("task-attempt:sha256:{suffix}")),
+                    }),
                     None,
-                ),
+                )
+                .unwrap(),
                 Writer::shore_local("test"),
                 WorkObjectProposedPayload {
                     engagement_id: EngagementId::new(format!("engagement:sha256:{suffix}")),

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::revision::ReviewTargetRef;
-use super::{CheckpointId, RevisionId};
+use super::{CheckpointId, RevisionId, WorkObjectId};
 
 /// The kind of work object a subject addresses, derived from the subject's
 /// domain variant rather than asserted as a standalone field. `Revision` is the
@@ -25,7 +25,8 @@ pub enum EngagementType {
     Task,
 }
 
-/// Within-task-attempt sub-target reference.
+/// Task-domain subject reference, self-identifying like [`ReviewTargetRef`]:
+/// every variant carries the id its opaque `subjectId` is derived from.
 ///
 /// `Checkpoint` is a sub-target of the parent `TaskAttempt`, not a peer
 /// `WorkObjectType` variant: the addressed work object stays the `TaskAttempt`,
@@ -38,7 +39,7 @@ pub enum EngagementType {
     rename_all_fields = "camelCase"
 )]
 pub enum TaskTargetRef {
-    TaskAttempt,
+    TaskAttempt { task_attempt_id: WorkObjectId },
     Checkpoint { checkpoint_id: CheckpointId },
 }
 
@@ -143,7 +144,9 @@ mod tests {
         let review = TargetRef::Review(ReviewTargetRef::Revision {
             revision_id: RevisionId::new("rev:sha256:abc"),
         });
-        let task = TargetRef::Task(TaskTargetRef::TaskAttempt);
+        let task = TargetRef::Task(TaskTargetRef::TaskAttempt {
+            task_attempt_id: WorkObjectId::new("task-attempt:sha256:abc"),
+        });
 
         assert_eq!(
             engagement_type_of_subject(&review),
@@ -166,14 +169,22 @@ mod tests {
     }
 
     #[test]
-    fn task_target_ref_task_attempt_variant_serializes_with_kind_only() {
-        let task = TaskTargetRef::TaskAttempt;
+    fn task_target_ref_task_attempt_variant_serializes_kind_and_attempt_id() {
+        let task = TaskTargetRef::TaskAttempt {
+            task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
+        };
 
         let json = serde_json::to_value(&task).unwrap();
-        assert_eq!(json, serde_json::json!({"kind": "task_attempt"}));
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "kind": "task_attempt",
+                "taskAttemptId": "task-attempt:sha256:ta"
+            })
+        );
 
         let parsed: TaskTargetRef = serde_json::from_value(json).unwrap();
-        assert_eq!(parsed, TaskTargetRef::TaskAttempt);
+        assert_eq!(parsed, task);
     }
 
     #[test]

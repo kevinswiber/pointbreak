@@ -698,7 +698,8 @@ mod tests {
         ShoreEvent::new(
             EventType::WorkObjectProposed,
             format!("capture:{suffix}"),
-            EventTarget::for_revision(JournalId::new("journal:default"), revision_id, None),
+            EventTarget::for_revision(JournalId::new("journal:default"), revision_id, None)
+                .unwrap(),
             Writer::shore_local("test"),
             payload,
             occurred_at,
@@ -727,9 +728,12 @@ mod tests {
             format!("task-capture:{suffix}"),
             EventTarget::for_subject(
                 JournalId::new("journal:default"),
-                TargetRef::Task(TaskTargetRef::TaskAttempt),
+                TargetRef::Task(TaskTargetRef::TaskAttempt {
+                    task_attempt_id: WorkObjectId::new(format!("task-attempt:sha256:{suffix}")),
+                }),
                 None,
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("test"),
             payload,
             occurred_at,
@@ -889,7 +893,8 @@ mod tests {
         ShoreEvent::new(
             EventType::WorkObjectProposed,
             format!("capture:{suffix}"),
-            EventTarget::for_revision(JournalId::new("journal:default"), revision_id, None),
+            EventTarget::for_revision(JournalId::new("journal:default"), revision_id, None)
+                .unwrap(),
             Writer::shore_local("test"),
             payload,
             occurred_at,
@@ -915,7 +920,8 @@ mod tests {
         ShoreEvent::new(
             EventType::RevisionCommitAssociated,
             RevisionCommitAssociatedPayload::idempotency_key(&revision_id, commit_oid),
-            EventTarget::for_revision(JournalId::new("journal:default"), revision_id, None),
+            EventTarget::for_revision(JournalId::new("journal:default"), revision_id, None)
+                .unwrap(),
             Writer::shore_local("test"),
             payload,
             "2026-05-13T10:00:09Z",
@@ -1185,7 +1191,8 @@ mod tests {
         ShoreEvent::new(
             EventType::WorkObjectProposed,
             format!("capture:{}", unit.as_str()),
-            EventTarget::for_revision(JournalId::new("journal:default"), unit.clone(), None),
+            EventTarget::for_revision(JournalId::new("journal:default"), unit.clone(), None)
+                .unwrap(),
             Writer::shore_local("test"),
             payload,
             occurred_at,
@@ -1211,7 +1218,8 @@ mod tests {
         ShoreEvent::new(
             EventType::RevisionCommitAssociated,
             RevisionCommitAssociatedPayload::idempotency_key(unit, commit_oid),
-            EventTarget::for_revision(JournalId::new("journal:default"), unit.clone(), None),
+            EventTarget::for_revision(JournalId::new("journal:default"), unit.clone(), None)
+                .unwrap(),
             Writer::shore_local("test"),
             payload,
             "2026-06-19T00:00:09Z",
@@ -1260,7 +1268,8 @@ mod tests {
         ShoreEvent::new(
             EventType::WorkObjectProposed,
             format!("capture:{suffix}"),
-            EventTarget::for_revision(JournalId::new("journal:default"), revision_id, None),
+            EventTarget::for_revision(JournalId::new("journal:default"), revision_id, None)
+                .unwrap(),
             Writer::shore_local("test"),
             payload,
             occurred_at,

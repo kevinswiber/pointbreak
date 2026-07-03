@@ -90,7 +90,7 @@ fn resolve_native_observation_target(
         .iter()
         .filter(|event| event.event_type == EventType::ReviewObservationRecorded)
     {
-        if crate::model::subject_revision_id(&event.target.subject) != Some(&resolved.revision_id) {
+        if event.subject_revision_id()?.as_ref() != Some(&resolved.revision_id) {
             continue;
         }
 

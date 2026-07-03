@@ -561,8 +561,8 @@ pub(super) fn history_entry_from_event(
         payload_hash: event.payload_hash.clone(),
         journal_id: event.target.journal_id.clone(),
         track_id: event.target.track_id.clone(),
-        subject: match &event.target.subject {
-            TargetRef::Review(r) => Some(r.clone()),
+        subject: match event.reconstruct_subject()? {
+            TargetRef::Review(r) => Some(r),
             TargetRef::Task(_) | TargetRef::Journal => None,
         },
         writer: event.writer.clone(),
@@ -656,11 +656,16 @@ fn event_matches_filters(event: &ShoreEvent, filters: &ResolvedHistoryFilters) -
     // A generative move can propose either a revision or a task attempt; the
     // task-domain proposal carries a Task subject and belongs to the sibling
     // task projection, so the review-domain stream skips it (the same exclusion
-    // the dedicated task event types get above).
-    if matches!(event.target.subject, TargetRef::Task(_)) {
+    // the dedicated task event types get above). The subject is reconstructed
+    // from the payload (the envelope carries only the opaque subjectId); a
+    // reconstruction failure excludes the event from the review stream.
+    let Ok(subject) = event.reconstruct_subject() else {
+        return false;
+    };
+    if matches!(subject, TargetRef::Task(_)) {
         return false;
     }
-    let subject_revision_id = subject_revision_id(&event.target.subject);
+    let subject_revision_id = subject_revision_id(&subject);
     if filters
         .revision_id
         .as_ref()

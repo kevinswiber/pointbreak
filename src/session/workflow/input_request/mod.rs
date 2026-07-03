@@ -1273,6 +1273,8 @@ mod tests {
         let payload = InputRequestRespondedPayload {
             input_request_response_id: response_id,
             input_request_id: requested.input_request_id.clone(),
+            revision_id: Some(requested.revision_id.clone()),
+            task_target: None,
             outcome,
             reason: Some("responded".to_owned()),
             reason_content_type: Default::default(),
@@ -1291,7 +1293,8 @@ mod tests {
                     input_request_id: requested.input_request_id.clone(),
                 }),
                 Some(requested.track_id.clone()),
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("test"),
             payload,
             current_timestamp(),
@@ -1341,6 +1344,7 @@ mod tests {
             target: ReviewTargetRef::Revision {
                 revision_id: revision_id.clone(),
             },
+            task_target: None,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "projection".to_owned(),
             body: None,
@@ -1359,7 +1363,8 @@ mod tests {
                     revision_id: revision_id.clone(),
                 }),
                 Some(track_id.clone()),
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("test"),
             payload,
             occurred_at.to_owned(),
@@ -1379,6 +1384,8 @@ mod tests {
         let payload = InputRequestRespondedPayload {
             input_request_response_id: response_id.clone(),
             input_request_id: input_request_id.clone(),
+            revision_id: Some(revision_id.clone()),
+            task_target: None,
             outcome: InputRequestResponseOutcome::Approved,
             reason: None,
             reason_content_type: Default::default(),
@@ -1397,7 +1404,8 @@ mod tests {
                     input_request_id: input_request_id.clone(),
                 }),
                 Some(track_id.clone()),
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("test"),
             payload,
             occurred_at.to_owned(),

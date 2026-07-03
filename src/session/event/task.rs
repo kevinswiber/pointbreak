@@ -113,7 +113,9 @@ mod tests {
     };
 
     fn task_attempt_subject() -> TargetRef {
-        TargetRef::Task(TaskTargetRef::TaskAttempt)
+        TargetRef::Task(TaskTargetRef::TaskAttempt {
+            task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
+        })
     }
 
     fn sample_checkpoint_payload() -> TaskCheckpointCapturedPayload {
@@ -224,7 +226,8 @@ mod tests {
             JournalId::new("journal:claude:uuid-1"),
             task_attempt_subject(),
             None,
-        );
+        )
+        .unwrap();
         let idempotency_key = TaskCheckpointCapturedPayload::idempotency_key_for_work_object(
             &WorkObjectId::new("task-attempt:sha256:ta"),
             WorkObjectType::TaskAttempt,
@@ -409,7 +412,8 @@ mod tests {
             JournalId::new("journal:claude:uuid-1"),
             task_attempt_subject(),
             None,
-        );
+        )
+        .unwrap();
         let idempotency_key = TaskObservationRecordedPayload::idempotency_key_for_work_object(
             &WorkObjectId::new("task-attempt:sha256:ta"),
             WorkObjectType::TaskAttempt,

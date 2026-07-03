@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::subject_id::subject_id;
 use crate::error::{Result, ShoreError};
 use crate::model::{
     EngagementType, JournalId, ReviewTargetRef, RevisionId, TargetRef, TrackId,
@@ -7,32 +8,43 @@ use crate::model::{
 };
 
 /// The addressed triple every event envelope carries: the journal it files into,
-/// the non-optional `subject` it addresses, and an optional review track.
+/// the opaque `subjectId` it addresses, and an optional review track.
 ///
-/// `subject` is never absent. Genuinely subject-less carriers (the detached
-/// co-signature carrier and content removal) address their real target by
-/// payload content and ride the fieldless `TargetRef::Journal`.
+/// `subjectId` is a sha256 over the subject's identity-bearing fields only (seam
+/// **S2**), so a future display rename of a subject's kind tag is projection-only:
+/// the signed envelope binds the rename-proof id, not the structural subject. The
+/// structural subject lives in the event payload and is reconstructed for display
+/// by the projection ([`ShoreEvent::reconstruct_subject`](super::ShoreEvent::reconstruct_subject)).
+///
+/// `subjectId` is `None` only for the fieldless `TargetRef::Journal` carrier:
+/// genuinely subject-less events (the detached co-signature carrier and content
+/// removal) address their real target by payload content and ride the journal
+/// carrier.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EventTarget {
     pub journal_id: JournalId,
-    pub subject: TargetRef,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subject_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub track_id: Option<TrackId>,
 }
 
 impl EventTarget {
-    /// Address an explicit subject in a journal, optionally on a review track.
+    /// Address an explicit subject, deriving and storing only its opaque
+    /// `subjectId`. Every non-journal [`TargetRef`] is self-identifying, so this
+    /// serves all domains; a `TargetRef::Journal` yields no `subjectId` (use
+    /// [`Self::for_journal`] for the bare carrier).
     pub fn for_subject(
         journal_id: JournalId,
         subject: TargetRef,
         track_id: Option<TrackId>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        Ok(Self {
             journal_id,
-            subject,
+            subject_id: subject_id(&subject)?,
             track_id,
-        }
+        })
     }
 
     /// Carrier for a genuinely subject-less event: the detached co-signature
@@ -40,11 +52,11 @@ impl EventTarget {
     /// `target_event_record_hash`) and content removal (addresses its blob by
     /// the payload `content_hash`). The envelope files the fact into its journal
     /// by `journal_id`; the target stays addressed by payload content and is
-    /// never duplicated onto the envelope.
+    /// never duplicated onto the envelope. `subjectId` is absent.
     pub fn for_journal(journal_id: JournalId) -> Self {
         Self {
             journal_id,
-            subject: TargetRef::Journal,
+            subject_id: None,
             track_id: None,
         }
     }
@@ -53,7 +65,8 @@ impl EventTarget {
     /// (`EngagementType`) must match the subject's derived domain. A `Review`
     /// engagement cannot mint a `Task` subject and vice versa — the single
     /// domain axis enforced at the write boundary rather than asserted as a
-    /// free wire field.
+    /// free wire field. The domain is checked against the structural `subject`
+    /// before it is reduced to its opaque `subjectId`.
     pub fn for_generative_move(
         journal_id: JournalId,
         engagement_type: EngagementType,
@@ -62,7 +75,7 @@ impl EventTarget {
     ) -> Result<Self> {
         match engagement_type_of_subject(&subject) {
             Some(subject_domain) if subject_domain == engagement_type => {
-                Ok(Self::for_subject(journal_id, subject, track_id))
+                Self::for_subject(journal_id, subject, track_id)
             }
             other => Err(ShoreError::Message(format!(
                 "generative move domain mismatch: a {engagement_type:?} engagement cannot address a {other:?} subject"
@@ -77,7 +90,7 @@ impl EventTarget {
         journal_id: JournalId,
         revision_id: RevisionId,
         track_id: Option<TrackId>,
-    ) -> Self {
+    ) -> Result<Self> {
         Self::for_subject(
             journal_id,
             TargetRef::Review(ReviewTargetRef::Revision { revision_id }),
@@ -89,7 +102,7 @@ impl EventTarget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{ObjectId, TaskTargetRef};
+    use crate::model::{TaskTargetRef, WorkObjectId};
 
     fn journal_id() -> JournalId {
         JournalId::new("journal:default")
@@ -102,33 +115,33 @@ mod tests {
     }
 
     #[test]
-    fn event_target_is_the_addressed_triple() {
+    fn for_subject_binds_an_opaque_subject_id_not_the_structure() {
         let target =
-            EventTarget::for_subject(journal_id(), TargetRef::Review(revision_ref()), None);
+            EventTarget::for_subject(journal_id(), TargetRef::Review(revision_ref()), None)
+                .unwrap();
 
         assert_eq!(target.journal_id, journal_id());
-        assert!(matches!(
-            target.subject,
-            TargetRef::Review(ReviewTargetRef::Revision { .. })
-        ));
+        let id = target
+            .subject_id
+            .as_deref()
+            .expect("review subject has an id");
+        assert!(id.starts_with("subject:sha256:"), "got {id}");
         assert!(target.track_id.is_none());
     }
 
     #[test]
-    fn journal_carrier_addresses_target_by_payload_not_envelope() {
+    fn journal_carrier_has_no_subject_id() {
         let target = EventTarget::for_journal(journal_id());
 
-        assert!(matches!(target.subject, TargetRef::Journal));
+        assert!(target.subject_id.is_none());
         assert!(target.track_id.is_none());
     }
 
     #[test]
     fn event_target_names_the_container_journal() {
-        // The store-level container is the append-only Journal: the envelope
-        // field/type/wire-key and the carrier subject tag all read "journal", and
-        // the container-id value carries the `journal:` prefix.
+        // The store-level container is the append-only Journal. The wire key is
+        // `journalId` with the `journal:` prefix; the carrier binds no subjectId.
         let target = EventTarget::for_journal(JournalId::new("journal:claude:uuid"));
-        assert!(matches!(target.subject, TargetRef::Journal));
 
         let json = serde_json::to_value(&target).unwrap();
         assert!(json.get("journalId").is_some(), "wire key is journalId");
@@ -137,16 +150,23 @@ mod tests {
             "legacy ledgerId key is gone"
         );
         assert!(json["journalId"].as_str().unwrap().starts_with("journal:"));
-        assert_eq!(json["subject"], serde_json::json!("journal"));
+        assert!(
+            json.get("subjectId").is_none(),
+            "the journal carrier binds no subjectId"
+        );
     }
 
     #[test]
-    fn for_journal_serializes_subject_as_bare_journal_tag_and_round_trips() {
+    fn for_journal_binds_no_subject_id_and_round_trips() {
         let target = EventTarget::for_journal(JournalId::new("journal:fixture"));
 
         let json = serde_json::to_value(&target).unwrap();
         assert_eq!(json["journalId"], "journal:fixture");
-        assert_eq!(json["subject"], "journal");
+        assert!(json.get("subjectId").is_none());
+        assert!(
+            json.get("subject").is_none(),
+            "no structural subject on the wire"
+        );
         assert!(json.get("trackId").is_none());
 
         // Path-free: the carrier files into the journal by identity, not path.
@@ -159,35 +179,59 @@ mod tests {
     }
 
     #[test]
-    fn for_subject_serializes_the_review_subject_with_external_tag() {
+    fn signed_target_binds_subject_id_not_structure() {
+        // The reshaped envelope carries the opaque subjectId (DD2) and none of the
+        // structural subject tags — a future kind rename is projection-only.
         let target =
-            EventTarget::for_subject(journal_id(), TargetRef::Review(revision_ref()), None);
+            EventTarget::for_subject(journal_id(), TargetRef::Review(revision_ref()), None)
+                .unwrap();
 
         let json = serde_json::to_value(&target).unwrap();
-        assert_eq!(json["subject"]["review"]["kind"], "revision");
-        assert_eq!(json["subject"]["review"]["revisionId"], "rev:sha256:abc");
-        assert!(json.get("workUnitId").is_none());
+        assert!(
+            json["subjectId"]
+                .as_str()
+                .unwrap()
+                .starts_with("subject:sha256:"),
+            "got {}",
+            json
+        );
+        assert!(json.get("subject").is_none(), "no structural subject");
+        assert!(json.get("review").is_none());
         assert!(json.get("workObjectId").is_none());
         assert!(json.get("workObjectType").is_none());
-        assert!(json.get("reviewUnitId").is_none());
-        assert!(json.get("snapshotId").is_none());
+        assert!(json.get("domain").is_none());
+
+        let parsed: EventTarget = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed, target);
     }
 
     #[test]
-    fn the_envelope_has_no_independent_domain_field() {
-        // The domain is derived from the subject variant, never a standalone
-        // wire field.
-        let target =
-            EventTarget::for_subject(journal_id(), TargetRef::Review(revision_ref()), None);
-        let json = serde_json::to_value(&target).unwrap();
+    fn for_subject_derives_a_task_subject_id_from_the_self_identifying_ref() {
+        let target = EventTarget::for_subject(
+            journal_id(),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: WorkObjectId::new("task-attempt:sha256:abc"),
+            }),
+            None,
+        )
+        .unwrap();
 
-        assert!(json["subject"].get("workObjectType").is_none());
-        assert!(json.get("workObjectType").is_none());
-        assert!(json.get("domain").is_none());
-        assert_eq!(
-            crate::model::work_object_type_of_subject(&target.subject),
-            Some(crate::model::WorkObjectType::Revision)
-        );
+        let id = target
+            .subject_id
+            .as_deref()
+            .expect("task subject has an id");
+        assert!(id.starts_with("subject:sha256:"), "got {id}");
+
+        // Distinct attempts derive distinct subject ids.
+        let other = EventTarget::for_subject(
+            journal_id(),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: WorkObjectId::new("task-attempt:sha256:def"),
+            }),
+            None,
+        )
+        .unwrap();
+        assert_ne!(target.subject_id, other.subject_id);
     }
 
     #[test]
@@ -195,7 +239,9 @@ mod tests {
         let err = EventTarget::for_generative_move(
             journal_id(),
             EngagementType::Review,
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
+            }),
             None,
         )
         .unwrap_err();
@@ -213,10 +259,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(matches!(
-            target.subject,
-            TargetRef::Review(ReviewTargetRef::Revision { .. })
-        ));
+        assert!(target.subject_id.is_some());
     }
 
     #[test]
@@ -233,9 +276,9 @@ mod tests {
     }
 
     #[test]
-    fn rejects_legacy_envelope_with_no_subject() {
-        // The old envelope shape (a sessionId/workUnitId pair with no `subject`)
-        // must fail to deserialize: subject is now non-optional.
+    fn rejects_legacy_envelope_with_no_journal_id() {
+        // The old envelope shape (a sessionId/workUnitId pair) must fail to
+        // deserialize: journalId is required.
         let legacy = r#"{"sessionId":"session:default","workUnitId":"work:default"}"#;
         let result: Result<EventTarget> = serde_json::from_str(legacy).map_err(Into::into);
         assert!(
@@ -247,7 +290,6 @@ mod tests {
 
     #[test]
     fn rejects_legacy_envelope_with_review_id() {
-        let _ = ObjectId::new("obj:sha256:unused"); // keep ObjectId import exercised
         let legacy = r#"{"reviewId":"review:default","subject":"ledger"}"#;
         let result: Result<EventTarget> = serde_json::from_str(legacy).map_err(Into::into);
         assert!(

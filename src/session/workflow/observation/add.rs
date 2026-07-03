@@ -283,7 +283,7 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
             input.resolved.journal_id,
             TargetRef::Review(input.target.clone()),
             Some(track_id.clone()),
-        ),
+        )?,
         writer,
         ReviewObservationRecordedPayload {
             observation_id: observation_id.clone(),

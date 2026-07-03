@@ -46,7 +46,7 @@ mod tests {
             .expect("validation event");
         assert_eq!(event.event_type, EventType::ValidationCheckRecorded);
         assert_eq!(
-            crate::model::subject_revision_id(&event.target.subject),
+            crate::model::subject_revision_id(&event.reconstruct_subject().unwrap()),
             Some(&capture.revision_id)
         );
     }

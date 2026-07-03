@@ -1093,12 +1093,12 @@ mod tests {
         } else {
             1
         });
-        let mut target = EventTarget::for_revision(
+        let target = EventTarget::for_revision(
             JournalId::new("journal:default"),
             capture.revision_id.clone(),
-            None,
-        );
-        target.track_id = Some(crate::model::TrackId::new("agent:codex"));
+            Some(crate::model::TrackId::new("agent:codex")),
+        )
+        .unwrap();
         let event = ShoreEvent::new(
             EventType::ValidationCheckRecorded,
             format!("validation_check_recorded:{validation_check_id}"),
@@ -1182,7 +1182,7 @@ mod tests {
         ShoreEvent::new(
             EventType::WorkObjectProposed,
             format!("work_object_proposed:{}", revision_id.as_str()),
-            EventTarget::for_revision(journal_id.clone(), revision_id.clone(), None),
+            EventTarget::for_revision(journal_id.clone(), revision_id.clone(), None).unwrap(),
             Writer::shore_local("0.1.0"),
             WorkObjectProposedPayload {
                 engagement_id: EngagementId::new(format!("engagement:{}", revision_id.as_str())),
@@ -1917,12 +1917,12 @@ mod tests {
         use crate::session::event::{RevisionCommitAssociatedPayload, build_commit_association_id};
         let commit_association_id =
             build_commit_association_id(&capture.revision_id, commit_oid).unwrap();
-        let mut target = EventTarget::for_revision(
+        let target = EventTarget::for_revision(
             crate::model::JournalId::new("journal:default"),
             capture.revision_id.clone(),
-            None,
-        );
-        target.track_id = Some(crate::model::TrackId::new("agent:codex"));
+            Some(crate::model::TrackId::new("agent:codex")),
+        )
+        .unwrap();
         let event = ShoreEvent::new(
             EventType::RevisionCommitAssociated,
             RevisionCommitAssociatedPayload::idempotency_key(&capture.revision_id, commit_oid),
@@ -1956,12 +1956,12 @@ mod tests {
     }
 
     fn record_validation_event(repo: &Path, capture: &CaptureResult, validation_check_id: &str) {
-        let mut target = EventTarget::for_revision(
+        let target = EventTarget::for_revision(
             crate::model::JournalId::new("journal:default"),
             capture.revision_id.clone(),
-            None,
-        );
-        target.track_id = Some(crate::model::TrackId::new("agent:codex"));
+            Some(crate::model::TrackId::new("agent:codex")),
+        )
+        .unwrap();
         let event = ShoreEvent::new(
             EventType::ValidationCheckRecorded,
             format!("validation_check_recorded:{validation_check_id}"),
@@ -2454,7 +2454,8 @@ mod tests {
         let event = ShoreEvent::new(
             EventType::WorkObjectProposed,
             format!("work_object_proposed:{}", sibling_unit.as_str()),
-            EventTarget::for_revision(capture.journal_id.clone(), sibling_unit.clone(), None),
+            EventTarget::for_revision(capture.journal_id.clone(), sibling_unit.clone(), None)
+                .unwrap(),
             Writer::shore_local("0.1.0"),
             WorkObjectProposedPayload {
                 engagement_id: EngagementId::new("engagement:sha256:reuse"),

@@ -558,11 +558,14 @@ fn linked_reader_respond_copies_request_event_target_fields() {
             event.event_type == shoreline::session::event::EventType::InputRequestResponded
         })
         .expect("the response event is in the linked store");
-    // The response addresses the same review-domain revision the request did, via
-    // the envelope's single `subject` (the object id rides the payload, never the
-    // envelope), on the same track — copied verbatim from the union-read request.
+    // The response addresses the same review-domain revision the request did. The
+    // signed envelope now carries only an opaque `subjectId`, so the revision rides
+    // the payload's `revisionId` (reconstructable without re-reading the request) —
+    // copied verbatim from the union-read request, on the same track.
+    let response_payload: shoreline::session::event::InputRequestRespondedPayload =
+        serde_json::from_value(response.payload.clone()).unwrap();
     assert_eq!(
-        shoreline::model::subject_revision_id(&response.target.subject).map(|id| id.as_str()),
+        response_payload.revision_id.as_ref().map(|id| id.as_str()),
         Some(fixture.seed_revision_id.as_str())
     );
     assert_eq!(

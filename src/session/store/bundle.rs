@@ -1628,9 +1628,12 @@ mod tests {
     ) -> ShoreEvent {
         let revision_id = RevisionId::new("review-unit:sha256:bundle");
         let track_id = TrackId::new("agent:codex");
-        let mut target =
-            EventTarget::for_revision(JournalId::new("journal:default"), revision_id.clone(), None);
-        target.track_id = Some(track_id.clone());
+        let target = EventTarget::for_revision(
+            JournalId::new("journal:default"),
+            revision_id.clone(),
+            Some(track_id.clone()),
+        )
+        .unwrap();
 
         ShoreEvent::new(
             EventType::ValidationCheckRecorded,

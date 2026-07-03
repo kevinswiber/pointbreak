@@ -339,7 +339,8 @@ mod tests {
                     JournalId::new("journal:default"),
                     revision_id.clone(),
                     None,
-                ),
+                )
+                .unwrap(),
                 Writer::shore_local("test"),
                 WorkObjectProposedPayload {
                     engagement_id: EngagementId::new("engagement:sha256:e"),

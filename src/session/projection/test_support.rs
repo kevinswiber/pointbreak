@@ -14,7 +14,9 @@ use crate::session::event::{
 };
 
 fn task_attempt_subject() -> TargetRef {
-    TargetRef::Task(TaskTargetRef::TaskAttempt)
+    TargetRef::Task(TaskTargetRef::TaskAttempt {
+        task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
+    })
 }
 
 fn task_engagement_id(task_attempt_id: &WorkObjectId) -> EngagementId {
@@ -44,7 +46,8 @@ pub(crate) fn task_attempt_event(
     claude_session_uuid: &str,
     occurred_at: &str,
 ) -> ShoreEvent {
-    let target = EventTarget::for_subject(session_id.clone(), task_attempt_subject(), None);
+    let target =
+        EventTarget::for_subject(session_id.clone(), task_attempt_subject(), None).unwrap();
     let payload = WorkObjectProposedPayload {
         engagement_id: task_engagement_id(task_attempt_id),
         work_object: WorkObjectProposal::TaskAttempt {
@@ -80,10 +83,14 @@ pub(crate) fn checkpoint_event(
     tool_use_ids: Vec<String>,
     occurred_at: &str,
 ) -> ShoreEvent {
-    let mut target = EventTarget::for_subject(session_id.clone(), task_attempt_subject(), None);
-    target.subject = TargetRef::Task(TaskTargetRef::Checkpoint {
-        checkpoint_id: checkpoint_id.clone(),
-    });
+    let target = EventTarget::for_subject(
+        session_id.clone(),
+        TargetRef::Task(TaskTargetRef::Checkpoint {
+            checkpoint_id: checkpoint_id.clone(),
+        }),
+        None,
+    )
+    .unwrap();
     let payload = TaskCheckpointCapturedPayload {
         checkpoint_id: checkpoint_id.clone(),
         parent_task_attempt_id: task_attempt_id.clone(),
@@ -124,13 +131,19 @@ pub(crate) fn task_input_request_event_with_target(
     subject: TargetRef,
     title: &str,
 ) -> ShoreEvent {
-    let mut target = EventTarget::for_subject(session_id.clone(), task_attempt_subject(), None);
-    target.subject = subject;
+    // The payload task_target mirrors the envelope's task subject (attempt or
+    // checkpoint) — captured before `subject` is moved into the constructor.
+    let task_target = match &subject {
+        TargetRef::Task(task) => Some(task.clone()),
+        _ => None,
+    };
+    let target = EventTarget::for_subject(session_id.clone(), subject, None).unwrap();
     let payload = InputRequestOpenedPayload {
         input_request_id: input_request_id.clone(),
         target: ReviewTargetRef::Revision {
             revision_id: RevisionId::new("review-unit:placeholder"),
         },
+        task_target,
         reason_code: InputRequestReasonCode::ManualDecisionRequired,
         title: title.to_owned(),
         body: None,
@@ -170,10 +183,15 @@ pub(crate) fn user_response_event(
         JournalId::new("journal:claude:uuid-1"),
         task_attempt_subject(),
         None,
-    );
+    )
+    .unwrap();
     let payload = InputRequestRespondedPayload {
         input_request_response_id: response_id.clone(),
         input_request_id: input_request_id.clone(),
+        revision_id: None,
+        task_target: Some(TaskTargetRef::TaskAttempt {
+            task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
+        }),
         outcome,
         reason: None,
         reason_content_type: Default::default(),

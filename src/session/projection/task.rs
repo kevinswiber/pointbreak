@@ -295,9 +295,10 @@ pub(crate) fn task_attempt_summary_from_events(
 /// broad — any task-subject observation is admitted; the checkpoint bucketing
 /// and diagnostics downstream route or flag each one by its `checkpoint_id`.
 fn targets_task_attempt(event: &ShoreEvent, task_attempt_id: &WorkObjectId) -> Result<bool> {
-    if !matches!(event.target.subject, TargetRef::Task(_)) {
-        return Ok(false);
-    }
+    // The per-type match below is authoritative: a review `WorkObjectProposed`
+    // proposes a `Revision` (not a matching `TaskAttempt`), and every non-task
+    // event falls through to `false` — so no separate task-subject pre-check is
+    // needed now that the subject is not carried on the envelope.
     let matches = match event.event_type {
         EventType::WorkObjectProposed => {
             let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
@@ -393,10 +394,10 @@ pub(crate) fn open_task_input_requests_from_events(
 
         match event.event_type {
             EventType::InputRequestOpened => {
-                if !envelope_targets_task_attempt(&event.target, task_attempt_id) {
+                if !event_targets_task_attempt(event, task_attempt_id)? {
                     continue;
                 }
-                let subject = event.target.subject.clone();
+                let subject = event.reconstruct_subject()?;
                 let payload = decode_input_request_opened_payload(event.payload.clone())?;
                 requests.push((
                     TaskProjectionEventEnvelope::from_event(event),
@@ -463,12 +464,13 @@ pub(crate) fn open_task_input_requests_from_events(
     })
 }
 
-/// Whether an envelope addresses a task attempt at all. The attempt id is no
-/// longer carried on the envelope, so this admits any task subject; callers that
-/// need the specific attempt narrow further by payload. `task_attempt_id` is
-/// retained for the call signature but no longer disambiguates here.
-fn envelope_targets_task_attempt(target: &EventTarget, _task_attempt_id: &WorkObjectId) -> bool {
-    matches!(target.subject, TargetRef::Task(_))
+/// Whether an event addresses a task attempt at all, reconstructed from its
+/// payload (the subject is no longer carried on the envelope). This admits any
+/// task subject; callers that need the specific attempt narrow further by
+/// payload. `task_attempt_id` is retained for the call signature but no longer
+/// disambiguates here.
+fn event_targets_task_attempt(event: &ShoreEvent, _task_attempt_id: &WorkObjectId) -> Result<bool> {
+    event.addresses_task_subject()
 }
 
 /// Agent-resumption state. Diagnostic-rich rather than scalar so the caller
@@ -1062,10 +1064,10 @@ fn collect_task_input_request_records(
 
         match event.event_type {
             EventType::InputRequestOpened => {
-                if !envelope_targets_task_attempt(&event.target, task_attempt_id) {
+                if !event_targets_task_attempt(event, task_attempt_id)? {
                     continue;
                 }
-                let subject = event.target.subject.clone();
+                let subject = event.reconstruct_subject()?;
                 let payload = decode_input_request_opened_payload(event.payload.clone())?;
                 request_views.push(TaskInputRequestView {
                     input_request_id: payload.input_request_id,
@@ -1157,7 +1159,7 @@ fn freshness_for_task_target(
     }
 
     match &view.target {
-        TargetRef::Task(TaskTargetRef::TaskAttempt) => {
+        TargetRef::Task(TaskTargetRef::TaskAttempt { .. }) => {
             FreshnessBasis::TaskAttemptNoFingerprintCheck
         }
         TargetRef::Task(TaskTargetRef::Checkpoint { checkpoint_id }) => match latest_checkpoint {
@@ -1318,9 +1320,11 @@ mod tests {
             Some(checkpoint_id) => TargetRef::Task(TaskTargetRef::Checkpoint {
                 checkpoint_id: checkpoint_id.clone(),
             }),
-            None => TargetRef::Task(TaskTargetRef::TaskAttempt),
+            None => TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
         };
-        let target = EventTarget::for_subject(session_id.clone(), subject, None);
+        let target = EventTarget::for_subject(session_id.clone(), subject, None).unwrap();
         let payload = TaskObservationRecordedPayload {
             observation_id: observation_id.clone(),
             checkpoint_id: checkpoint_id.cloned(),
@@ -1721,9 +1725,12 @@ mod tests {
     ) -> ShoreEvent {
         let target = EventTarget::for_subject(
             session_id.clone(),
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
             None,
-        );
+        )
+        .unwrap();
         // Current `InputRequestOpenedPayload.target` is review-shaped. The
         // task envelope is authoritative; this placeholder is preserved by the
         // projection only as diagnostic evidence.
@@ -1732,6 +1739,9 @@ mod tests {
             target: ReviewTargetRef::Revision {
                 revision_id: RevisionId::new("review-unit:placeholder"),
             },
+            task_target: Some(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
             reason_code,
             title: title.to_owned(),
             body: None,
@@ -1769,12 +1779,19 @@ mod tests {
     ) -> ShoreEvent {
         let target = EventTarget::for_subject(
             session_id.clone(),
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: _task_attempt_id.clone(),
+            }),
             None,
-        );
+        )
+        .unwrap();
         let payload = InputRequestRespondedPayload {
             input_request_response_id: response_id.clone(),
             input_request_id: input_request_id.clone(),
+            revision_id: None,
+            task_target: Some(TaskTargetRef::TaskAttempt {
+                task_attempt_id: _task_attempt_id.clone(),
+            }),
             outcome: InputRequestResponseOutcome::Approved,
             reason: None,
             reason_content_type: Default::default(),
@@ -1809,12 +1826,14 @@ mod tests {
                 revision_id: revision_id.clone(),
             }),
             Some(track_id.clone()),
-        );
+        )
+        .unwrap();
         let payload = InputRequestOpenedPayload {
             input_request_id: input_request_id.clone(),
             target: ReviewTargetRef::Revision {
                 revision_id: revision_id.clone(),
             },
+            task_target: None,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "review-domain".to_owned(),
             body: None,
@@ -1866,7 +1885,9 @@ mod tests {
         assert_eq!(view.input_request_id, input_request_id);
         assert_eq!(
             view.target,
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
             "task target is read from the durable envelope, not the payload"
         );
         // The payload placeholder is preserved verbatim as evidence.
@@ -2215,7 +2236,9 @@ mod tests {
             &input_request_id,
             "source:adv",
             "2026-05-18T00:00:02Z",
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
             "heads up",
             AssertionMode::Advisory,
         ));
@@ -2249,7 +2272,9 @@ mod tests {
             &input_request_id,
             "source:ambig-adv",
             "2026-05-18T00:00:02Z",
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
             "heads up",
             AssertionMode::Advisory,
         ));
@@ -2347,7 +2372,9 @@ mod tests {
             &input_request_id,
             "source:op",
             "2026-05-18T00:00:02Z",
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
             "needs decision",
             AssertionMode::Operative,
         ));
@@ -2389,7 +2416,9 @@ mod tests {
             &input_request_id,
             "source:open",
             "2026-05-18T00:00:02Z",
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
             "open call",
         ));
 
@@ -3267,7 +3296,9 @@ mod tests {
             &input_request_id,
             "source:speaker",
             "2026-05-18T00:00:02Z",
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
             "needs approval",
         ));
         let mut response = user_response_event(
@@ -3422,7 +3453,9 @@ mod tests {
             &input_request_id,
             "source:adv",
             "2026-05-18T00:00:02Z",
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
             "needs approval",
         ));
         events.push(user_response_event(
@@ -3461,7 +3494,9 @@ mod tests {
             &input_request_id,
             "source:ambig",
             "2026-05-18T00:00:02Z",
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
             "needs approval",
         ));
         events.push(user_response_event(
@@ -3852,12 +3887,19 @@ mod tests {
     ) -> ShoreEvent {
         let target = EventTarget::for_subject(
             JournalId::new("journal:claude:uuid-1"),
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
+            }),
             None,
-        );
+        )
+        .unwrap();
         let payload = InputRequestRespondedPayload {
             input_request_response_id: response_id.clone(),
             input_request_id: input_request_id.clone(),
+            revision_id: None,
+            task_target: Some(TaskTargetRef::TaskAttempt {
+                task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
+            }),
             outcome,
             reason,
             reason_content_type: Default::default(),
@@ -3903,7 +3945,9 @@ mod tests {
             &input_request_id,
             "source:no-loss",
             "2026-05-18T00:00:02Z",
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
             "needs approval",
             Some("sha256:request-state"),
         ));
@@ -3960,7 +4004,9 @@ mod tests {
             &input_request_id,
             "source:reason",
             "2026-05-18T00:00:02Z",
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
             "needs approval",
         ));
         events.push(user_response_event_with_reason(
@@ -4018,7 +4064,9 @@ mod tests {
             &input_request_id,
             "source:dup",
             "2026-05-18T00:00:02Z",
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
             "needs approval",
         ));
         let first = user_response_event(
@@ -4079,7 +4127,9 @@ mod tests {
             &input_request_id,
             "source:dup-ids",
             "2026-05-18T00:00:02Z",
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
             "needs approval",
         ));
 
@@ -4154,7 +4204,8 @@ mod tests {
                 checkpoint_id: checkpoint_id.clone(),
             }),
             None,
-        );
+        )
+        .unwrap();
         let payload = TaskCheckpointCapturedPayload {
             checkpoint_id: checkpoint_id.clone(),
             parent_task_attempt_id: task_attempt_id.clone(),
@@ -4196,12 +4247,19 @@ mod tests {
         title: &str,
         target_fingerprint: Option<&str>,
     ) -> ShoreEvent {
-        let target = EventTarget::for_subject(session_id.clone(), subject, None);
+        // task_target mirrors the envelope task subject (attempt or checkpoint),
+        // captured before `subject` is moved into the constructor.
+        let task_target = match &subject {
+            TargetRef::Task(task) => Some(task.clone()),
+            _ => None,
+        };
+        let target = EventTarget::for_subject(session_id.clone(), subject, None).unwrap();
         let payload = InputRequestOpenedPayload {
             input_request_id: input_request_id.clone(),
             target: ReviewTargetRef::Revision {
                 revision_id: RevisionId::new("review-unit:placeholder"),
             },
+            task_target,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: title.to_owned(),
             body: None,
@@ -4241,12 +4299,19 @@ mod tests {
     ) -> ShoreEvent {
         let target = EventTarget::for_subject(
             JournalId::new("journal:claude:uuid-1"),
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
+            }),
             None,
-        );
+        )
+        .unwrap();
         let payload = InputRequestRespondedPayload {
             input_request_response_id: response_id.clone(),
             input_request_id: input_request_id.clone(),
+            revision_id: None,
+            task_target: Some(TaskTargetRef::TaskAttempt {
+                task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
+            }),
             outcome,
             reason: None,
             reason_content_type: Default::default(),
@@ -4706,9 +4771,12 @@ mod tests {
     ) -> ShoreEvent {
         let target = EventTarget::for_subject(
             session_id.clone(),
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
             None,
-        );
+        )
+        .unwrap();
         let engagement_id = crate::model::EngagementId::new(format!(
             "engagement:sha256:{}",
             sha256_bytes_hex(task_attempt_id.as_str().as_bytes())

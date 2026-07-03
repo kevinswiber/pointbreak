@@ -219,7 +219,7 @@ fn content_hash_unit_index(
 ) -> Result<BTreeMap<String, BTreeSet<RevisionId>>> {
     let mut index: BTreeMap<String, BTreeSet<RevisionId>> = BTreeMap::new();
     for event in events {
-        let Some(unit) = crate::model::subject_revision_id(&event.target.subject).cloned() else {
+        let Some(unit) = event.subject_revision_id()? else {
             continue;
         };
         for artifact in referenced_artifacts(std::slice::from_ref(event))? {
@@ -803,7 +803,8 @@ mod tests {
         let event = ShoreEvent::new(
             EventType::WorkObjectProposed,
             format!("work_object_proposed:{}", sibling_unit.as_str()),
-            EventTarget::for_revision(original.journal_id.clone(), sibling_unit.clone(), None),
+            EventTarget::for_revision(original.journal_id.clone(), sibling_unit.clone(), None)
+                .unwrap(),
             Writer {
                 actor_id: ActorId::new("actor:sibling"),
                 producer: WriterProducer {
@@ -820,7 +821,10 @@ mod tests {
                 )),
                 work_object: WorkObjectProposal::Revision {
                     revision: Revision {
-                        id: original.revision_id.clone(),
+                        // The payload revision must match the envelope subject
+                        // (`sibling_unit`): the content-hash→unit index now derives
+                        // the unit from this payload, not the envelope.
+                        id: sibling_unit.clone(),
                         object_id: sibling_snapshot,
                         git_provenance: Some(GitProvenance {
                             source: original.source.clone(),
@@ -1076,9 +1080,9 @@ mod tests {
         assert_eq!(keys, vec!["contentHash"]);
         // The envelope is journal-only: no review unit, no snapshot binding — it
         // rides the subject-less journal carrier.
-        assert!(crate::model::subject_revision_id(&event.target.subject).is_none());
+        assert!(crate::model::subject_revision_id(&event.reconstruct_subject().unwrap()).is_none());
         assert!(matches!(
-            event.target.subject,
+            event.reconstruct_subject().unwrap(),
             crate::model::TargetRef::Journal
         ));
     }

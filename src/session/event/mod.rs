@@ -20,6 +20,7 @@ mod review;
 mod signature;
 mod source;
 mod subject_id;
+mod subject_reconstruction;
 mod target;
 mod task;
 mod tbs;
@@ -375,7 +376,8 @@ mod tests {
             JournalId::new("journal:default"),
             RevisionId::new("review-unit:sha256:abc"),
             None,
-        );
+        )
+        .unwrap();
         let payload = WorkObjectProposedPayload {
             engagement_id: EngagementId::new(format!(
                 "engagement:sha256:{}",
@@ -480,6 +482,7 @@ mod tests {
             target: ReviewTargetRef::Revision {
                 revision_id: RevisionId::new("review-unit:sha256:unit"),
             },
+            task_target: None,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "Need a decision".to_owned(),
             body: Some("Which path should win?".to_owned()),
@@ -511,6 +514,8 @@ mod tests {
                 "input-request-response:sha256:def",
             ),
             input_request_id: InputRequestId::new("input-request:sha256:abc"),
+            revision_id: None,
+            task_target: None,
             outcome: InputRequestResponseOutcome::Approved,
             reason: Some("Approved locally".to_owned()),
             reason_content_type: Default::default(),
@@ -540,6 +545,7 @@ mod tests {
             target: ReviewTargetRef::Revision {
                 revision_id: RevisionId::new("review-unit:sha256:unit"),
             },
+            task_target: None,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "Need a decision".to_owned(),
             body: Some("Which path should win?".to_owned()),
@@ -569,7 +575,8 @@ mod tests {
                 JournalId::new("journal:default"),
                 RevisionId::new("review-unit:sha256:abc"),
                 None,
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("test"),
             WorkObjectProposedPayload {
                 engagement_id: EngagementId::new(format!(
@@ -620,7 +627,8 @@ mod tests {
             JournalId::new("journal:default"),
             TargetRef::Review(target_ref.clone()),
             Some(TrackId::new("agent:codex")),
-        );
+        )
+        .unwrap();
 
         let event = ShoreEvent::new(
             EventType::ReviewObservationRecorded,
@@ -679,7 +687,8 @@ mod tests {
                 JournalId::new("journal:default"),
                 TargetRef::Review(target_ref.clone()),
                 Some(TrackId::new("agent:codex")),
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("test"),
             ReviewObservationRecordedPayload {
                 observation_id: ObservationId::new("obs:sha256:abc"),
@@ -719,7 +728,8 @@ mod tests {
                 JournalId::new("journal:default"),
                 TargetRef::Review(target_ref.clone()),
                 Some(track_id),
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("test"),
             ReviewAssessmentRecordedPayload {
                 assessment_id,
@@ -1081,7 +1091,8 @@ mod tests {
                 JournalId::new("journal:default"),
                 RevisionId::new("review-unit:sha256:abc"),
                 None,
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("0.1.0"),
             WorkObjectProposedPayload {
                 engagement_id: EngagementId::new(format!(

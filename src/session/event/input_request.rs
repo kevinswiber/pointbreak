@@ -4,8 +4,8 @@ use super::kind::EventType;
 use super::payload::{BodyContentType, EventPayload};
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    InputRequestId, InputRequestResponseId, ReviewTargetRef, RevisionId, TrackId, WorkObjectId,
-    WorkObjectType,
+    InputRequestId, InputRequestResponseId, ReviewTargetRef, RevisionId, TaskTargetRef, TrackId,
+    WorkObjectId, WorkObjectType,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -36,6 +36,15 @@ pub enum InputRequestResponseOutcome {
 pub struct InputRequestOpenedPayload {
     pub input_request_id: InputRequestId,
     pub target: ReviewTargetRef,
+    /// The task subject this request addresses (a task attempt or a checkpoint
+    /// under it), when it is a task-domain request. Absent for the review-domain
+    /// path (whose subject is `target`). The signed envelope carries only an
+    /// opaque `subjectId`, so the full task subject a task-domain request
+    /// addresses must live here; a review-shaped `target` alone cannot represent
+    /// a task subject, and the attempt-vs-checkpoint distinction is load-bearing
+    /// for agent-resumption freshness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_target: Option<TaskTargetRef>,
     pub reason_code: InputRequestReasonCode,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -117,6 +126,18 @@ impl EventPayload for InputRequestOpenedPayload {
 pub struct InputRequestRespondedPayload {
     pub input_request_response_id: InputRequestResponseId,
     pub input_request_id: InputRequestId,
+    /// The revision the answered request addresses, threaded onto the payload so
+    /// the review-domain subject is reconstructable without re-reading the
+    /// opened request's envelope (the signed envelope now carries only an opaque
+    /// `subjectId`). Absent for a task-domain response, whose subject is the
+    /// parent task attempt (`work_object_id`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision_id: Option<RevisionId>,
+    /// The task subject a task-domain response addresses (attempt or checkpoint),
+    /// mirroring [`InputRequestOpenedPayload::task_target`]. Absent for the
+    /// review-domain path (whose subject is `revision_id`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_target: Option<TaskTargetRef>,
     pub outcome: InputRequestResponseOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
@@ -267,6 +288,8 @@ mod tests {
                 "input-request-response:sha256:r",
             ),
             input_request_id: InputRequestId::new("input-request:sha256:abc"),
+            revision_id: None,
+            task_target: None,
             outcome: InputRequestResponseOutcome::Approved,
             reason: None,
             reason_content_type: Default::default(),
@@ -288,6 +311,8 @@ mod tests {
                 "input-request-response:sha256:r",
             ),
             input_request_id: InputRequestId::new("input-request:sha256:abc"),
+            revision_id: None,
+            task_target: None,
             outcome: InputRequestResponseOutcome::Approved,
             reason: None,
             reason_content_type: Default::default(),
@@ -312,6 +337,7 @@ mod tests {
         let payload = InputRequestOpenedPayload {
             input_request_id: InputRequestId::new("input-request:sha256:abc"),
             target: target.clone(),
+            task_target: None,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "Need a decision".to_owned(),
             body: Some("Which path should win?".to_owned()),
@@ -331,7 +357,8 @@ mod tests {
                 JournalId::new("journal:default"),
                 revision_id.clone(),
                 Some(track_id.clone()),
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("test"),
             payload,
             "2026-05-20T00:00:00Z",
@@ -382,6 +409,8 @@ mod tests {
                 "input-request-response:sha256:def",
             ),
             input_request_id: InputRequestId::new("input-request:sha256:abc"),
+            revision_id: None,
+            task_target: None,
             outcome: InputRequestResponseOutcome::Approved,
             reason: Some("Approved locally".to_owned()),
             reason_content_type: Default::default(),
@@ -402,7 +431,8 @@ mod tests {
                 JournalId::new("journal:default"),
                 RevisionId::new("review-unit:sha256:unit"),
                 None,
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("test"),
             payload,
             "2026-05-20T00:00:01Z",
@@ -441,6 +471,7 @@ mod tests {
             target: ReviewTargetRef::Revision {
                 revision_id: RevisionId::new("ru-1"),
             },
+            task_target: None,
             reason_code: InputRequestReasonCode::ManualDecisionRequired,
             title: "t".to_owned(),
             body: None,

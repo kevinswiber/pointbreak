@@ -394,10 +394,12 @@ mod convergence_tests {
     }
 
     fn target_for(revision_id: &RevisionId, track: &str) -> EventTarget {
-        let mut target =
-            EventTarget::for_revision(JournalId::new("journal:default"), revision_id.clone(), None);
-        target.track_id = Some(TrackId::new(track));
-        target
+        EventTarget::for_revision(
+            JournalId::new("journal:default"),
+            revision_id.clone(),
+            Some(TrackId::new(track)),
+        )
+        .unwrap()
     }
 
     fn writer_for(writer: &str) -> Writer {

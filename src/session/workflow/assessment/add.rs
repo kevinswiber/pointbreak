@@ -266,7 +266,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
             resolved.journal_id,
             TargetRef::Review(target.clone()),
             Some(track_id.clone()),
-        ),
+        )?,
         writer,
         ReviewAssessmentRecordedPayload {
             assessment_id: assessment_id.clone(),
@@ -362,7 +362,7 @@ fn has_assessment(
         .iter()
         .filter(|event| event.event_type == EventType::ReviewAssessmentRecorded)
     {
-        if crate::model::subject_revision_id(&event.target.subject) != Some(revision_id) {
+        if event.subject_revision_id()?.as_ref() != Some(revision_id) {
             continue;
         }
         let payload: ReviewAssessmentRecordedPayload =
@@ -383,7 +383,7 @@ fn has_observation(
         .iter()
         .filter(|event| event.event_type == EventType::ReviewObservationRecorded)
     {
-        if crate::model::subject_revision_id(&event.target.subject) != Some(revision_id) {
+        if event.subject_revision_id()?.as_ref() != Some(revision_id) {
             continue;
         }
         let payload: ReviewObservationRecordedPayload =
@@ -404,7 +404,7 @@ fn has_input_request(
         .iter()
         .filter(|event| event.event_type == EventType::InputRequestOpened)
     {
-        if crate::model::subject_revision_id(&event.target.subject) != Some(revision_id) {
+        if event.subject_revision_id()?.as_ref() != Some(revision_id) {
             continue;
         }
         let payload = decode_input_request_opened_payload(event.payload.clone())?;

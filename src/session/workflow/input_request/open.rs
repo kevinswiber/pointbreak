@@ -236,11 +236,13 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
             resolved.journal_id,
             TargetRef::Review(target.clone()),
             Some(track_id.clone()),
-        ),
+        )?,
         writer,
         InputRequestOpenedPayload {
             input_request_id: input_request_id.clone(),
             target: target.clone(),
+            // `shore review input-request open` only opens review-domain requests.
+            task_target: None,
             reason_code,
             title,
             body,

@@ -30,9 +30,11 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
         } => {
             let target = EventTarget::for_subject(
                 session_id.clone(),
-                TargetRef::Task(TaskTargetRef::TaskAttempt),
+                TargetRef::Task(TaskTargetRef::TaskAttempt {
+                    task_attempt_id: task_attempt_id.clone(),
+                }),
                 None,
-            );
+            )?;
             // The engagement grouping hint seeds deterministically from the
             // task attempt's own id, mirroring how the review path seeds an
             // engagement from its revision id: two captures of the same attempt
@@ -92,7 +94,7 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
                     checkpoint_id: checkpoint_id.clone(),
                 }),
                 None,
-            );
+            )?;
             let payload = TaskCheckpointCapturedPayload {
                 checkpoint_id: checkpoint_id.clone(),
                 parent_task_attempt_id: parent_task_attempt_id.clone(),
@@ -152,14 +154,14 @@ pub(crate) fn intent_to_event(intent: &AdapterIntent) -> Result<ShoreEvent> {
                 TargetRef::Task(TaskTargetRef::Checkpoint { checkpoint_id }) => {
                     Some(checkpoint_id.clone())
                 }
-                TargetRef::Task(TaskTargetRef::TaskAttempt) => None,
+                TargetRef::Task(TaskTargetRef::TaskAttempt { .. }) => None,
                 _ => {
                     return Err(ShoreError::Message(
                         "ObservationRecorded intent target must be TargetRef::Task(...)".to_owned(),
                     ));
                 }
             };
-            let target = EventTarget::for_subject(session_id.clone(), target_ref.clone(), None);
+            let target = EventTarget::for_subject(session_id.clone(), target_ref.clone(), None)?;
             let payload = TaskObservationRecordedPayload {
                 observation_id: observation_id.clone(),
                 checkpoint_id,
@@ -299,8 +301,10 @@ mod tests {
             "work_object_proposed:task-attempt:sha256:ta"
         );
         assert_eq!(
-            event.target.subject,
-            TargetRef::Task(TaskTargetRef::TaskAttempt)
+            event.reconstruct_subject().unwrap(),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: WorkObjectId::new("task-attempt:sha256:ta"),
+            })
         );
         assert_eq!(
             event.target.journal_id,
@@ -321,7 +325,7 @@ mod tests {
 
         assert_eq!(event.event_type, EventType::TaskCheckpointCaptured);
         assert_eq!(
-            event.target.subject,
+            event.reconstruct_subject().unwrap(),
             TargetRef::Task(TaskTargetRef::Checkpoint {
                 checkpoint_id: CheckpointId::new("checkpoint:sha256:cp"),
             })
@@ -347,7 +351,7 @@ mod tests {
 
         assert_eq!(event.event_type, EventType::TaskObservationRecorded);
         assert_eq!(
-            event.target.subject,
+            event.reconstruct_subject().unwrap(),
             TargetRef::Task(TaskTargetRef::Checkpoint {
                 checkpoint_id: CheckpointId::new("checkpoint:sha256:cp"),
             })
@@ -441,7 +445,7 @@ mod tests {
         let event = intent_to_event(&intent).unwrap();
 
         assert_eq!(
-            event.target.subject,
+            event.reconstruct_subject().unwrap(),
             TargetRef::Task(TaskTargetRef::Checkpoint {
                 checkpoint_id: payload_checkpoint,
             })

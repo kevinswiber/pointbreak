@@ -418,7 +418,7 @@ mod tests {
     }
 
     fn envelope() -> EventTarget {
-        EventTarget::for_revision(JournalId::new("journal:default"), revision_id(), None)
+        EventTarget::for_revision(JournalId::new("journal:default"), revision_id(), None).unwrap()
     }
 
     fn capture(target_endpoint: ReviewEndpoint) -> ShoreEvent {

@@ -1717,7 +1717,9 @@ mod tests {
                 &input_request_id,
                 "source:approve",
                 "2026-05-18T00:00:02Z",
-                TargetRef::Task(TaskTargetRef::TaskAttempt),
+                TargetRef::Task(TaskTargetRef::TaskAttempt {
+                    task_attempt_id: task_attempt_id.clone(),
+                }),
                 "needs approval",
             ),
             user_response_event(

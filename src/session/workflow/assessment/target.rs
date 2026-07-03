@@ -136,7 +136,7 @@ fn resolve_observation_ref(
         .iter()
         .filter(|event| event.event_type == EventType::ReviewObservationRecorded)
     {
-        if crate::model::subject_revision_id(&event.target.subject) != Some(&resolved.revision_id) {
+        if event.subject_revision_id()?.as_ref() != Some(&resolved.revision_id) {
             continue;
         }
 
@@ -165,7 +165,7 @@ fn resolve_input_request_ref(
         .iter()
         .filter(|event| event.event_type == EventType::InputRequestOpened)
     {
-        if crate::model::subject_revision_id(&event.target.subject) != Some(&resolved.revision_id) {
+        if event.subject_revision_id()?.as_ref() != Some(&resolved.revision_id) {
             continue;
         }
 
@@ -193,7 +193,7 @@ fn resolve_assessment_ref(
         .iter()
         .filter(|event| event.event_type == EventType::ReviewAssessmentRecorded)
     {
-        if crate::model::subject_revision_id(&event.target.subject) != Some(&resolved.revision_id) {
+        if event.subject_revision_id()?.as_ref() != Some(&resolved.revision_id) {
             continue;
         }
 

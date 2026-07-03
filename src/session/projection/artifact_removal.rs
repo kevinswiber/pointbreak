@@ -331,7 +331,8 @@ mod tests {
         ShoreEvent::new(
             EventType::WorkObjectProposed,
             format!("work_object_proposed:{}", revision_id.as_str()),
-            EventTarget::for_revision(JournalId::new("journal:fixture"), revision_id.clone(), None),
+            EventTarget::for_revision(JournalId::new("journal:fixture"), revision_id.clone(), None)
+                .unwrap(),
             Writer::shore_local("test"),
             WorkObjectProposedPayload {
                 engagement_id: EngagementId::new("engagement:sha256:fixture"),

@@ -66,7 +66,7 @@ mod tests {
     };
 
     fn envelope(unit: &RevisionId) -> EventTarget {
-        EventTarget::for_revision(JournalId::new("journal:default"), unit.clone(), None)
+        EventTarget::for_revision(JournalId::new("journal:default"), unit.clone(), None).unwrap()
     }
 
     fn capture_for(

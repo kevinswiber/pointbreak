@@ -86,7 +86,7 @@ pub fn project_validation_checks(
         .iter()
         .filter(|event| event.event_type == EventType::ValidationCheckRecorded)
     {
-        if crate::model::subject_revision_id(&event.target.subject) != Some(options.revision_id) {
+        if event.subject_revision_id()?.as_ref() != Some(options.revision_id) {
             continue;
         }
 
@@ -682,12 +682,12 @@ mod tests {
         payload: ValidationCheckRecordedPayload,
         occurred_at: &str,
     ) -> ShoreEvent {
-        let mut target = EventTarget::for_revision(
+        let target = EventTarget::for_revision(
             JournalId::new("journal:default"),
             RevisionId::new(revision_id),
-            None,
-        );
-        target.track_id = Some(TrackId::new("agent:codex"));
+            Some(TrackId::new("agent:codex")),
+        )
+        .unwrap();
         let mut event = ShoreEvent::new(
             EventType::ValidationCheckRecorded,
             format!(

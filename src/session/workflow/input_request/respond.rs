@@ -197,8 +197,13 @@ pub fn respond_input_request(
             .put_note_body(artifact_path, bytes)?;
     }
 
-    let revision_id = crate::model::subject_revision_id(&request_event.target.subject)
-        .cloned()
+    // The opened request is review-domain here (task-attempt requests were
+    // rejected above); its subject — hence the revision — is reconstructed from
+    // the opened event's payload, and threaded onto the response payload so the
+    // response's own subject is reconstructable without re-reading the opened
+    // envelope.
+    let revision_id = request_event
+        .subject_revision_id()?
         .ok_or_else(|| ShoreError::Message("input request event missing review unit".to_owned()))?;
     let mut event = ShoreEvent::new(
         EventType::InputRequestResponded,
@@ -206,15 +211,18 @@ pub fn respond_input_request(
         EventTarget::for_subject(
             request_event.target.journal_id.clone(),
             TargetRef::Review(ReviewTargetRef::InputRequest {
-                revision_id,
+                revision_id: revision_id.clone(),
                 input_request_id: request_payload.input_request_id.clone(),
             }),
             request_event.target.track_id.clone(),
-        ),
+        )?,
         writer,
         InputRequestRespondedPayload {
             input_request_response_id: input_request_response_id.clone(),
             input_request_id: request_payload.input_request_id.clone(),
+            revision_id: Some(revision_id),
+            // Review-domain response: its subject is the revision, not a task subject.
+            task_target: None,
             outcome,
             reason,
             reason_content_type,
@@ -274,10 +282,9 @@ fn reject_task_attempt_input_request(
         .filter(|event| event.event_type == EventType::InputRequestOpened)
     {
         let payload = decode_input_request_opened_payload(event.payload.clone())?;
-        if &payload.input_request_id == input_request_id
-            && crate::model::subject_revision_id(&event.target.subject).is_none()
-            && matches!(event.target.subject, crate::model::TargetRef::Task(_))
-        {
+        // A task-domain request carries its task subject in the payload; the
+        // review-domain path leaves it absent.
+        if &payload.input_request_id == input_request_id && payload.task_target.is_some() {
             return Err(ShoreError::WorkflowInputInvalid {
                 reason: format!(
                     "input request {} targets a task attempt, not a review unit; \
@@ -341,7 +348,9 @@ mod tests {
             &input_request_id,
             "source:approve",
             "2026-06-13T00:00:00Z",
-            TargetRef::Task(TaskTargetRef::TaskAttempt),
+            TargetRef::Task(TaskTargetRef::TaskAttempt {
+                task_attempt_id: task_attempt_id.clone(),
+            }),
             "approve?",
         );
         EventStore::open(resolved_store_dir(repo.path()))

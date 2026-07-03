@@ -67,8 +67,9 @@ pub(crate) fn event_type_from_code(code: &str) -> Option<EventType> {
 /// envelope binds the code. A snake_case value in the code position fails to decode —
 /// the strict reader turns that into a typed schema-break error.
 pub(crate) mod serde_code {
-    use super::{EventType, event_type_from_code, type_code};
     use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::{EventType, event_type_from_code, type_code};
 
     pub(crate) fn serialize<S: Serializer>(
         event_type: &EventType,

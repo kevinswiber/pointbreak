@@ -1133,7 +1133,8 @@ mod tests {
                 JournalId::new("journal:default"),
                 TargetRef::Review(target_ref.clone()),
                 Some(track_id),
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("test"),
             ReviewAssessmentRecordedPayload {
                 assessment_id,

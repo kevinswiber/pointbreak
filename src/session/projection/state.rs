@@ -466,9 +466,12 @@ mod tests {
             "work_object_proposed:task-1",
             EventTarget::for_subject(
                 JournalId::new("journal:claude:abc"),
-                TargetRef::Task(TaskTargetRef::TaskAttempt),
+                TargetRef::Task(TaskTargetRef::TaskAttempt {
+                    task_attempt_id: WorkObjectId::new("task-attempt:sha256:task-1"),
+                }),
                 None,
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("test"),
             WorkObjectProposedPayload {
                 engagement_id: EngagementId::new("engagement:sha256:task-1"),
@@ -825,7 +828,8 @@ mod tests {
                 JournalId::new("journal:default"),
                 RevisionId::new(revision_id),
                 None,
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("0.1.0"),
             WorkObjectProposedPayload {
                 engagement_id: EngagementId::new(format!(
@@ -870,7 +874,8 @@ mod tests {
                 JournalId::new("journal:default"),
                 RevisionId::new("review-unit:sha256:one"),
                 None,
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("0.1.0"),
             ReviewObservationRecordedPayload {
                 observation_id: ObservationId::new(observation_id),
@@ -905,7 +910,8 @@ mod tests {
                 JournalId::new("journal:default"),
                 RevisionId::new("review-unit:sha256:one"),
                 None,
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("0.1.0"),
             ReviewAssessmentRecordedPayload {
                 assessment_id: AssessmentId::new(assessment_id),
@@ -935,7 +941,8 @@ mod tests {
                 JournalId::new("journal:default"),
                 RevisionId::new("review-unit:sha256:one"),
                 None,
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("0.1.0"),
             ValidationCheckRecordedPayload {
                 validation_check_id: ValidationCheckId::new(validation_check_id),
@@ -967,12 +974,12 @@ mod tests {
         input_request_id: &str,
         assertion_mode: AssertionMode,
     ) -> ShoreEvent {
-        let mut target = EventTarget::for_revision(
+        let target = EventTarget::for_revision(
             JournalId::new("journal:default"),
             RevisionId::new("review-unit:sha256:one"),
-            None,
-        );
-        target.track_id = Some(crate::model::TrackId::new("agent:codex"));
+            Some(crate::model::TrackId::new("agent:codex")),
+        )
+        .unwrap();
         ShoreEvent::new(
             EventType::InputRequestOpened,
             format!("input_request_opened:{source_key}"),
@@ -991,6 +998,7 @@ mod tests {
                 body_byte_size: None,
                 body_content_hash: None,
                 target_fingerprint: None,
+                task_target: None,
             },
             "2026-05-10T00:00:02Z",
         )
@@ -1003,15 +1011,15 @@ mod tests {
         input_request_response_id: &str,
         input_request_id: &str,
     ) -> ShoreEvent {
-        let mut target = EventTarget::for_revision(
+        let target = EventTarget::for_subject(
             JournalId::new("journal:default"),
-            RevisionId::new("review-unit:sha256:one"),
+            crate::model::TargetRef::Review(ReviewTargetRef::InputRequest {
+                revision_id: RevisionId::new("review-unit:sha256:one"),
+                input_request_id: InputRequestId::new(input_request_id),
+            }),
             None,
-        );
-        target.subject = crate::model::TargetRef::Review(ReviewTargetRef::InputRequest {
-            revision_id: RevisionId::new("review-unit:sha256:one"),
-            input_request_id: InputRequestId::new(input_request_id),
-        });
+        )
+        .unwrap();
         ShoreEvent::new(
             EventType::InputRequestResponded,
             format!("input_request_responded:{source_key}"),
@@ -1027,6 +1035,8 @@ mod tests {
                 reason_byte_size: None,
                 reason_content_hash: None,
                 target_fingerprint: None,
+                revision_id: Some(RevisionId::new("review-unit:sha256:one")),
+                task_target: None,
             },
             "2026-05-10T00:00:03Z",
         )

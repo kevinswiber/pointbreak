@@ -45,7 +45,7 @@ impl LivenessToken {
         let scoped: Vec<ShoreEvent> = events
             .iter()
             .filter(|event| {
-                crate::model::subject_revision_id(&event.target.subject) == Some(work_object)
+                event.subject_revision_id().ok().flatten().as_ref() == Some(work_object)
             })
             .cloned()
             .collect();
@@ -141,7 +141,8 @@ mod tests {
                 JournalId::new("journal:default"),
                 RevisionId::new(revision_id),
                 None,
-            ),
+            )
+            .unwrap(),
             Writer::shore_local("0.1.0"),
             WorkObjectProposedPayload {
                 engagement_id: EngagementId::new(format!(
