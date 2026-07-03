@@ -532,6 +532,168 @@ fn unit_show_renders_endorsement_on_capture_identity() {
     assert_eq!(endorsement["endorserAttributes"]["kind"], "human");
 }
 
+#[test]
+fn human_digest_is_bounded_and_never_renders_rows() {
+    let repo = modified_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+    shore(["review", "capture", "--repo", repo_arg]);
+    add_observation(&repo, "agent:codex", "Narrative");
+    add_input_request_with_body(&repo, "please decide");
+    add_assessment(&repo);
+
+    let output = shore(["review", "show", "--repo", repo_arg, "--format", "human"]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(stdout.contains("current call"), "stdout:\n{stdout}");
+    assert!(stdout.contains("rev:"), "stdout:\n{stdout}");
+    assert!(stdout.contains("observation"), "stdout:\n{stdout}");
+    assert!(!stdout.contains("file_header"), "stdout:\n{stdout}");
+    assert!(!stdout.contains("\"rows\""), "stdout:\n{stdout}");
+    assert!(
+        stdout.lines().count() < 40,
+        "digest must be bounded, got {} lines:\n{stdout}",
+        stdout.lines().count()
+    );
+}
+
+#[test]
+fn human_digest_reports_signed_by_enrolled_key() {
+    const ENROLLED: &str = "actor:git-email:kevin@swiber.dev";
+
+    // Enrolled key signs the assessment → the current call verifies valid.
+    let yes_home = tempfile::tempdir().unwrap();
+    let yes_home_s = yes_home.path().to_str().unwrap();
+    let yes_env: [(&str, &str); 1] = [("SHORE_HOME", yes_home_s)];
+    assert!(
+        shore_env(["keys", "init", "--name", "default"], &yes_env)
+            .status
+            .success()
+    );
+    let yes_repo = modified_repo();
+    let yes_repo_arg = yes_repo.path().to_str().unwrap();
+    assert!(
+        shore_env(
+            [
+                "keys",
+                "enroll",
+                "default",
+                "--actor",
+                ENROLLED,
+                "--repo",
+                yes_repo_arg,
+            ],
+            &yes_env,
+        )
+        .status
+        .success()
+    );
+    assert!(
+        shore_env(["review", "capture", "--repo", yes_repo_arg], &yes_env)
+            .status
+            .success()
+    );
+    assert!(
+        shore_env(
+            [
+                "review",
+                "assessment",
+                "add",
+                "--repo",
+                yes_repo_arg,
+                "--track",
+                "human:kevin",
+                "--assessment",
+                "accepted",
+                "--summary",
+                "ship it",
+            ],
+            &[("SHORE_HOME", yes_home_s), ("SHORE_ACTOR_ID", ENROLLED)],
+        )
+        .status
+        .success()
+    );
+    let yes_out = shore_env(
+        [
+            "review",
+            "show",
+            "--repo",
+            yes_repo_arg,
+            "--format",
+            "human",
+        ],
+        &yes_env,
+    );
+    let yes_stdout = String::from_utf8_lossy(&yes_out.stdout);
+    assert!(
+        yes_stdout.contains("signed by enrolled key: yes"),
+        "stdout:\n{yes_stdout}"
+    );
+
+    // Unsigned assessment → not signed by an enrolled key.
+    let no_home = tempfile::tempdir().unwrap();
+    let no_home_s = no_home.path().to_str().unwrap();
+    let no_repo = modified_repo();
+    let no_repo_arg = no_repo.path().to_str().unwrap();
+    assert!(
+        shore_env(
+            ["review", "capture", "--repo", no_repo_arg],
+            &[("SHORE_HOME", no_home_s), ("SHORE_SIGNING", "off")],
+        )
+        .status
+        .success()
+    );
+    assert!(
+        shore_env(
+            [
+                "review",
+                "assessment",
+                "add",
+                "--repo",
+                no_repo_arg,
+                "--track",
+                "human:kevin",
+                "--assessment",
+                "accepted",
+                "--summary",
+                "ship it",
+            ],
+            &[("SHORE_HOME", no_home_s), ("SHORE_SIGNING", "off")],
+        )
+        .status
+        .success()
+    );
+    let no_out = shore_env(
+        ["review", "show", "--repo", no_repo_arg, "--format", "human"],
+        &[("SHORE_HOME", no_home_s)],
+    );
+    let no_stdout = String::from_utf8_lossy(&no_out.stdout);
+    assert!(
+        no_stdout.contains("signed by enrolled key: no"),
+        "stdout:\n{no_stdout}"
+    );
+}
+
+#[test]
+fn human_digest_groups_fact_counts_by_track() {
+    let repo = multi_file_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+    shore(["review", "capture", "--repo", repo_arg]);
+    add_observation(&repo, "agent:codex", "Codex finding");
+    add_observation(&repo, "agent:claude", "Claude finding");
+
+    let output = shore(["review", "show", "--repo", repo_arg, "--format", "human"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(stdout.contains("tracks:"), "stdout:\n{stdout}");
+    assert!(stdout.contains("agent:codex"), "stdout:\n{stdout}");
+    assert!(stdout.contains("agent:claude"), "stdout:\n{stdout}");
+}
+
 /// Find the captured Revision event id via the public read path (`read_events`).
 fn captured_event_id(repo_path: &std::path::Path) -> String {
     shoreline::session::read_events(repo_path)
