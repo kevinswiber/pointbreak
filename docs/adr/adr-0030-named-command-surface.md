@@ -2,8 +2,8 @@
 
 **Status:** Accepted (owner-approved 2026-07-02); landed 2026-07-02 (grounding issue #96).
 **Date:** 2026-07-02
-**See also:** **ADR-0029** (CLI output-mode convention — the text-default/`--format` split this
-surface rides), **ADR-0018**
+**See also:** **ADR-0029** (CLI output-mode convention — the `--format` output-lane split this
+surface rides: JSON default, opt-in text, per its 2026-07-03 amendment), **ADR-0018**
 (event-borne supersession — the reshape that made the captured revision the product's subject),
 the "Old dump/show stream vs. revision ledger" section of `docs/review-workflow.md` (the two-surface
 seam this ADR resolves), and `docs/cli-reference.md` §`shore show`/`shore dump`. Grounding issue:
@@ -53,9 +53,11 @@ top-level bare `show` names none). This principle decides every case below.
 ### 2. `shore diff` — captured-revision human diff readback (the #96 home)
 
 `shore diff` prints a captured revision's diff — base to target, from the frozen captured snapshot
-— as a text unified diff on stdout. Under ADR-0029's text-default convention it is
-**text-only**: its text lane is its only lane (it offers no `--format json` initially — passing
-one is an error; machine consumers keep using the review documents). It is non-interactive and a
+— as a text unified diff on stdout. It is **text-only**: git-diff is its only lane — it offers no
+`--format json` initially (passing one is an error), because the output is already git-diff (pipeable
+to any diff tool as-is) and a machine wanting structured diff data reads it from the review
+documents. Under ADR-0029 (JSON default, opt-in text) it is therefore the one command with no JSON
+lane, emitting git-diff regardless of the default. It is non-interactive and a
 well-behaved **filter**: piped, redirected, or paged output is plain git-diff bytes, and it applies
 its own syntax coloring only when writing directly to a TTY (ADR-0029 Decision 5's
 `--color`/`NO_COLOR`/`CLICOLOR_FORCE` precedence; `--color always` forces color through a pipe). It
