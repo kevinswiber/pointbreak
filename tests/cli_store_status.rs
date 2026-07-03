@@ -237,6 +237,118 @@ fn store_status_reports_exclude_glob_audit_counts() {
     assert_eq!(globs[0]["matched"], 1);
 }
 
+#[test]
+fn text_store_digest_reports_counts_size_and_sensitivity() {
+    let repo = GitRepo::new();
+    repo.write("README.md", "base\n");
+    repo.commit_all("base");
+    repo.write("README.md", "changed\n");
+    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+
+    // A large observation body spills to a note artifact, so the store holds at
+    // least a snapshot and a note (the artifact count is plural).
+    let body_dir = tempfile::tempdir().expect("create body file directory");
+    let body_file = body_dir.path().join("body.txt");
+    fs::write(&body_file, "x".repeat(4097)).unwrap();
+    shore([
+        "review",
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "agent:digest",
+        "--title",
+        "large body",
+        "--body-file",
+        body_file.to_str().unwrap(),
+    ]);
+
+    let output = shore([
+        "store",
+        "status",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--format",
+        "text",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("events"), "counts events: {stdout}");
+    assert!(stdout.contains("artifacts"), "counts artifacts: {stdout}");
+    assert!(stdout.contains("B"), "byte suffix present: {stdout}");
+    assert!(stdout.contains("sensitivity"), "sensitivity line: {stdout}");
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.lines().count() <= 6, "digest is bounded: {stdout}");
+    // Privacy: the text lane must not leak store paths any more than the JSON lane.
+    assert!(!stdout.contains(".shore"), "no store path: {stdout}");
+    assert!(!stdout.contains("artifacts/"), "no artifact path: {stdout}");
+    assert!(!stdout.contains("state.json"), "no state path: {stdout}");
+}
+
+#[test]
+fn text_store_digest_summarizes_blocked_sensitivity_findings() {
+    let repo = GitRepo::new();
+    repo.write(
+        "src/token.txt",
+        "let key = \"sk-test000000000000000000000000\";\n",
+    );
+    repo.write("keys/dev.pem", "-----BEGIN PRIVATE KEY-----\nredacted\n");
+    repo.write(".env", "DATABASE_URL=postgres://user:pass@example/db\n");
+    repo.write(
+        "config/value.txt",
+        "token = hQ7x9Zp4Lm2N8vR5sT1aBcD3eFgH6jK0\n",
+    );
+    repo.write("target/generated/cache.bin", "x".repeat(1024 * 1024 + 1));
+
+    let output = shore([
+        "store",
+        "status",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--format",
+        "text",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    // The blocking outcome and a bounded finding summary: at most three kinds are
+    // named inline, and the surplus is summarized rather than listed.
+    assert!(
+        stdout.contains("sensitivity: block"),
+        "block outcome: {stdout}"
+    );
+    assert!(
+        stdout.contains("more"),
+        "surplus findings summarized: {stdout}"
+    );
+    assert!(
+        stdout.lines().count() <= 6,
+        "digest stays bounded: {stdout}"
+    );
+    // Redaction holds on the text lane too — no secret material, no raw paths.
+    assert!(!stdout.contains("sk-test"), "{stdout}");
+    assert!(!stdout.contains("PRIVATE KEY"), "{stdout}");
+    assert!(!stdout.contains(".env"), "{stdout}");
+    assert!(!stdout.contains("target/generated"), "{stdout}");
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+}
+
 struct LinkedWorktreeFixture {
     main: GitRepo,
     _linked_parent: tempfile::TempDir,

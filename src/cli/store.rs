@@ -263,13 +263,85 @@ fn status(args: StoreStatusArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn s
     let span = tracing::info_span!("shore.store.status");
     let _entered = span.enter();
     let result = store_status(StoreStatusOptions::new(args.repo))?;
-    let document =
-        json::DiagnosticDocument::new("shore.store-status", StoreStatusBody::from(result), vec![]);
+    let body = StoreStatusBody::from(result);
     let format = output::resolve_format(
         args.format_args.explicit(args.pretty),
         output::OutputFormat::Json,
     )?;
-    output::write_document_json_fallback(stdout, format, &document)
+    // `DiagnosticDocument::new` takes the body by value; render the digest from it
+    // first, only on the text lane (the machine lanes never pay for it).
+    let digest = matches!(format.format, output::OutputFormat::Text)
+        .then(|| render_store_status_text(&body));
+    let document = json::DiagnosticDocument::new("shore.store-status", body, vec![]);
+    output::write_document(stdout, format, &document, || {
+        digest.expect("text lane resolves the digest")
+    })
+}
+
+/// The text digest for `store status`: a one-line-first summary a person reads
+/// over SSH instead of the multi-KB machine document. Store mode/ref (path-free
+/// tokens, never a filesystem path — the same privacy contract the JSON lane
+/// holds), event/artifact counts with a human byte total, and the sensitivity
+/// outcome with a bounded finding summary. Reads only the CLI-local
+/// `StoreStatusBody` (INV-12); sizes via `output::format_bytes`. Every field it
+/// surfaces is a bounded token or a count — no user-controlled free text.
+fn render_store_status_text(body: &StoreStatusBody) -> String {
+    let mut lines: Vec<String> = Vec::new();
+
+    // Store identity — mode and ref tokens only; the JSON lane's no-path contract
+    // guarantees these carry no filesystem path.
+    let mut identity = format!("store: {}", body.mode);
+    if body.store_ref != body.mode {
+        identity.push_str(&format!(" ({})", body.store_ref));
+    }
+    lines.push(identity);
+
+    // Counts and total size, plus the largest artifact when the store has one.
+    let inventory = &body.inventory;
+    let mut counts = format!(
+        "{} · {} · {} total",
+        count_label(inventory.event_count, "event", "events"),
+        count_label(inventory.artifact_count, "artifact", "artifacts"),
+        output::format_bytes(inventory.total_bytes),
+    );
+    if let Some(largest) = inventory.largest_artifacts.first() {
+        counts.push_str(&format!(
+            " · largest artifact {}",
+            output::format_bytes(largest.byte_size),
+        ));
+    }
+    lines.push(counts);
+
+    // Sensitivity outcome and a bounded finding summary (up to three kinds).
+    let sensitivity = &body.sensitivity;
+    let mut line = format!(
+        "sensitivity: {} · {}",
+        sensitivity.policy_outcome,
+        count_label(sensitivity.findings.len(), "finding", "findings"),
+    );
+    if !sensitivity.findings.is_empty() {
+        let shown = sensitivity
+            .findings
+            .iter()
+            .take(3)
+            .map(|finding| format!("{} ×{}", finding.kind, finding.count))
+            .collect::<Vec<_>>()
+            .join(", ");
+        line.push_str(&format!(": {shown}"));
+        let remaining = sensitivity.findings.len().saturating_sub(3);
+        if remaining > 0 {
+            line.push_str(&format!(" … and {remaining} more"));
+        }
+    }
+    lines.push(line);
+
+    lines.join("\n")
+}
+
+/// `N noun`, singular when `count == 1`.
+fn count_label(count: usize, singular: &str, plural: &str) -> String {
+    let noun = if count == 1 { singular } else { plural };
+    format!("{count} {noun}")
 }
 
 fn mode(args: StoreModeArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {

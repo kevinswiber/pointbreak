@@ -192,9 +192,7 @@ fn is_hex(value: &str) -> bool {
 }
 
 /// Readable byte size, e.g. `24588565` -> `"24.6 MB"`. SI (1000-based) units;
-/// exact rounding is disposable.
-// Part of the output seam consumed by the per-command text renderers.
-#[allow(dead_code)]
+/// exact rounding is disposable. Consumed by the store-status text digest.
 pub(super) fn format_bytes(bytes: u64) -> String {
     const KB: f64 = 1_000.0;
     const MB: f64 = 1_000_000.0;
