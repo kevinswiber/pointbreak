@@ -2,6 +2,7 @@ use serde::Serialize;
 
 use crate::canonical_hash::sha256_json_prefixed;
 use crate::error::Result;
+use crate::session::event::type_code::type_code;
 use crate::session::event::{AssertionMode, EventTarget, ShoreEvent, Writer};
 
 /// Signature-exclusive view of a stored event record.
@@ -53,7 +54,7 @@ impl<'a> EventRecordView<'a> {
             schema: event.schema.as_str(),
             version: event.version,
             event_id: event.event_id.as_str(),
-            event_type: event.event_type.as_str(),
+            event_type: type_code(event.event_type),
             idempotency_key: event.idempotency_key.as_str(),
             target: &event.target,
             writer: &event.writer,

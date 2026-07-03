@@ -4,6 +4,7 @@ pub use super::signature::{EffectiveSignerError, resolve_effective_signer};
 use crate::canonical_hash::canonical_json_bytes;
 use crate::crypto::SignerId;
 use crate::error::Result;
+use crate::session::event::type_code::type_code;
 use crate::session::event::{AssertionMode, EventTarget, ShoreEvent};
 
 /// Dead Simple Signing Envelope (DSSE) payload type for v1 event signature bytes.
@@ -37,7 +38,7 @@ impl<'a> EventToBeSigned<'a> {
         Ok(Self {
             schema: event.schema.as_str(),
             version: event.version,
-            event_type: event.event_type.as_str(),
+            event_type: type_code(event.event_type),
             event_id: event.event_id.as_str(),
             payload_hash: event.payload_hash.as_str(),
             target: &event.target,

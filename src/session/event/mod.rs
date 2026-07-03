@@ -22,6 +22,7 @@ mod source;
 mod target;
 mod task;
 mod tbs;
+mod type_code;
 mod validation;
 mod work_object_proposed;
 mod writer;
@@ -90,6 +91,7 @@ pub struct ShoreEvent {
     pub schema: String,
     pub version: u32,
     pub event_id: EventId,
+    #[serde(with = "type_code::serde_code")]
     pub event_type: EventType,
     #[serde(deserialize_with = "payload::deserialize_non_empty_idempotency_key")]
     pub idempotency_key: String,
@@ -246,7 +248,7 @@ mod tests {
 
         assert_eq!(json["schema"], "shore.event");
         assert_eq!(json["version"], 1);
-        assert_eq!(json["eventType"], "work_object_proposed");
+        assert_eq!(json["eventType"], "t:02");
         assert_eq!(
             json["idempotencyKey"],
             "work_object_proposed:review-unit:sha256:abc"
@@ -336,6 +338,34 @@ mod tests {
         let decoded: ShoreEvent = serde_json::from_str(&json).expect("event deserializes");
 
         assert_eq!(decoded, event);
+    }
+
+    #[test]
+    fn stored_envelope_binds_opaque_type_code_not_snake_case() {
+        let event = valid_revision_captured_event();
+        let json = serde_json::to_value(&event).expect("event serializes");
+
+        // The stored envelope carries the frozen opaque code, not the renamable
+        // display name, so a future rename of the family is projection-only.
+        assert_eq!(json["eventType"], "t:02");
+        assert_ne!(json["eventType"], "work_object_proposed");
+
+        let decoded: ShoreEvent = serde_json::from_value(json).expect("event deserializes");
+        assert_eq!(decoded.event_type, EventType::WorkObjectProposed);
+    }
+
+    #[test]
+    fn stored_envelope_rejects_snake_case_event_type_on_decode() {
+        let mut json = serde_json::to_value(valid_revision_captured_event()).unwrap();
+        json["eventType"] = json!("work_object_proposed");
+
+        let error = serde_json::from_value::<ShoreEvent>(json)
+            .expect_err("a snake_case eventType no longer decodes as the opaque envelope");
+
+        assert!(
+            error.to_string().contains("unknown event type code"),
+            "got {error}"
+        );
     }
 
     #[test]
