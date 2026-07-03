@@ -100,6 +100,10 @@ revision recorded; its subject is always the captured snapshot, never the live w
   superseded revision resolves its thread's current head. Omit it to diff the current capture; it is
   required when the store holds more than one candidate.
 - `--stat` prints only the diffstat (a per-file summary and totals), not the diff body.
+- `--color <auto|always|never>` controls ANSI syntax coloring of the diff body. `auto` (the default)
+  colorizes only when stdout is a TTY, honoring `NO_COLOR` and `CLICOLOR_FORCE` (precedence: `--color`
+  > `NO_COLOR` > `CLICOLOR_FORCE` > isatty); piped or redirected output stays plain. Color is pure
+  presentation — stripping the ANSI reproduces the plain diff exactly.
 - The command is **text-only and non-interactive**: it has no `--format` selector and emits no JSON
   (machine consumers read the review documents, e.g. `shore review show --format json`). Its output
   is **disposable** — wording, layout, and ordering may change between releases, so nothing should
