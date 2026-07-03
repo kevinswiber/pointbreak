@@ -15,6 +15,7 @@ use crate::model::{
 use crate::session::event::{
     BodyContentType, EventTarget, EventType, ReviewAssessment, ReviewAssessmentRecordedPayload,
     ReviewObservationRecordedPayload, ShoreEvent, decode_input_request_opened_payload,
+    review_subject_id,
 };
 use crate::session::observation::{
     CurrentRevisionContext, RevisionScope, RevisionSelection, resolve_revision, staged_body,
@@ -228,7 +229,6 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
     let related_observation_ids = sorted_unique(options.related_observation_ids);
     let related_input_request_ids = sorted_unique(options.related_input_request_ids);
     let assessment_id = build_assessment_id(AssessmentIdMaterial {
-        revision_id: &resolved.revision_id,
         track_id: &track_id,
         target: &target,
         assessment,
@@ -415,20 +415,19 @@ fn has_input_request(
     Ok(false)
 }
 
-struct AssessmentIdMaterial<'a> {
-    revision_id: &'a RevisionId,
-    track_id: &'a TrackId,
-    target: &'a ReviewTargetRef,
-    assessment: ReviewAssessment,
-    summary_content_hash: Option<&'a str>,
-    summary_content_type: Option<&'a str>,
-    replaces_assessment_ids: &'a [AssessmentId],
-    related_observation_ids: &'a [ObservationId],
-    related_input_request_ids: &'a [InputRequestId],
-    writer_actor_id: &'a str,
+pub(crate) struct AssessmentIdMaterial<'a> {
+    pub(crate) track_id: &'a TrackId,
+    pub(crate) target: &'a ReviewTargetRef,
+    pub(crate) assessment: ReviewAssessment,
+    pub(crate) summary_content_hash: Option<&'a str>,
+    pub(crate) summary_content_type: Option<&'a str>,
+    pub(crate) replaces_assessment_ids: &'a [AssessmentId],
+    pub(crate) related_observation_ids: &'a [ObservationId],
+    pub(crate) related_input_request_ids: &'a [InputRequestId],
+    pub(crate) writer_actor_id: &'a str,
 }
 
-fn build_assessment_id(material: AssessmentIdMaterial<'_>) -> Result<AssessmentId> {
+pub(crate) fn build_assessment_id(material: AssessmentIdMaterial<'_>) -> Result<AssessmentId> {
     let mut replaces = material
         .replaces_assessment_ids
         .iter()
@@ -448,10 +447,11 @@ fn build_assessment_id(material: AssessmentIdMaterial<'_>) -> Result<AssessmentI
         .collect::<Vec<_>>();
     related_input_requests.sort();
 
+    // Fold the opaque subject id (kind-tag-free), never the renamable structural
+    // target, so a future rename of the target's kind tag is projection-only (DD1).
     let mut value = json!({
-        "revisionId": material.revision_id.as_str(),
+        "subjectId": review_subject_id(material.target)?,
         "trackId": material.track_id.as_str(),
-        "target": material.target,
         "assessment": material.assessment,
         "summaryContentHash": material.summary_content_hash,
         "replacesAssessmentIds": replaces,
@@ -476,7 +476,7 @@ mod tests {
     #[test]
     fn build_assessment_id_uses_stable_material_digest() {
         const EXPECTED_ASSESSMENT_ID_FOR_FIXTURE: &str =
-            "assess:sha256:7ad3d9d70d09ace46116a6fb440b582f50d2742399e7d985e9551fa7f336e7b9";
+            "assess:sha256:b4d7f92a8dd51b715fa40168084c8a76b582d28a903a9a897daf2b0a8a23beb5";
 
         let revision_id = RevisionId::new("review-unit:sha256:one");
         let track_id = TrackId::new("human:kevin");
@@ -485,7 +485,6 @@ mod tests {
         };
 
         let assessment_id = build_assessment_id(AssessmentIdMaterial {
-            revision_id: &revision_id,
             track_id: &track_id,
             target: &target,
             assessment: ReviewAssessment::Accepted,
@@ -499,5 +498,44 @@ mod tests {
         .unwrap();
 
         assert_eq!(assessment_id.as_str(), EXPECTED_ASSESSMENT_ID_FOR_FIXTURE);
+    }
+
+    #[test]
+    fn assessment_id_folds_the_kind_tag_free_subject() {
+        // DD1: the content id folds the opaque subject id under `subjectId`, never
+        // the structural target, so a future kind-tag rename is projection-only.
+        let track_id = TrackId::new("human:kevin");
+        let target = ReviewTargetRef::Revision {
+            revision_id: RevisionId::new("review-unit:sha256:one"),
+        };
+        let id = build_assessment_id(AssessmentIdMaterial {
+            track_id: &track_id,
+            target: &target,
+            assessment: ReviewAssessment::Accepted,
+            summary_content_hash: Some("sha256:summary"),
+            summary_content_type: None,
+            replaces_assessment_ids: &[],
+            related_observation_ids: &[],
+            related_input_request_ids: &[],
+            writer_actor_id: "human:kevin",
+        })
+        .unwrap();
+
+        let expected_material = json!({
+            "subjectId": review_subject_id(&target).unwrap(),
+            "trackId": track_id.as_str(),
+            "assessment": ReviewAssessment::Accepted,
+            "summaryContentHash": "sha256:summary",
+            "replacesAssessmentIds": [],
+            "relatedObservationIds": [],
+            "relatedInputRequestIds": [],
+            "writerActorId": "human:kevin",
+        });
+        let expected = AssessmentId::new(format!(
+            "{}:{}",
+            id_prefix::ASSESSMENT,
+            sha256_json_prefixed(&expected_material).unwrap()
+        ));
+        assert_eq!(id, expected);
     }
 }

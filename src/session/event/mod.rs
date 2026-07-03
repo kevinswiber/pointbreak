@@ -57,7 +57,7 @@ pub use review::{
 };
 pub use signature::{EffectiveSignerError, EventSignature, resolve_effective_signer};
 pub use source::SourceRef;
-pub(crate) use subject_id::subject_id;
+pub(crate) use subject_id::{review_subject_id, subject_id};
 pub use target::EventTarget;
 pub use task::{SourceSpeaker, TaskCheckpointCapturedPayload, TaskObservationRecordedPayload};
 pub use tbs::{

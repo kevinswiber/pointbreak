@@ -298,15 +298,15 @@ fn reject_task_attempt_input_request(
     Ok(())
 }
 
-struct InputRequestResponseIdMaterial<'a> {
-    input_request_id: &'a InputRequestId,
-    outcome: InputRequestResponseOutcome,
-    reason_content_hash: Option<&'a str>,
-    reason_content_type: Option<&'a str>,
-    writer_actor_id: &'a str,
+pub(crate) struct InputRequestResponseIdMaterial<'a> {
+    pub(crate) input_request_id: &'a InputRequestId,
+    pub(crate) outcome: InputRequestResponseOutcome,
+    pub(crate) reason_content_hash: Option<&'a str>,
+    pub(crate) reason_content_type: Option<&'a str>,
+    pub(crate) writer_actor_id: &'a str,
 }
 
-fn build_input_request_response_id(
+pub(crate) fn build_input_request_response_id(
     material: InputRequestResponseIdMaterial<'_>,
 ) -> Result<InputRequestResponseId> {
     let mut value = json!({

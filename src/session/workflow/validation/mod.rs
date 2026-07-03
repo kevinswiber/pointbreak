@@ -1,4 +1,6 @@
-mod add;
+// `add` is crate::session-visible so the store migrator can call the content-id
+// builder (`build_validation_check_id`) and its `ValidationCheckIdMaterial` directly.
+pub(in crate::session) mod add;
 mod list;
 mod view;
 
@@ -20,7 +22,7 @@ mod tests {
 
     use super::add::{ValidationCheckIdMaterial, build_validation_check_id};
     use super::*;
-    use crate::model::{RevisionId, ValidationStatus, ValidationTarget};
+    use crate::model::{ReviewTargetRef, RevisionId, ValidationStatus, ValidationTarget};
     use crate::session::body_artifact::BODY_INLINE_LIMIT;
     use crate::session::event::{EventType, ValidationCheckRecordedPayload};
     use crate::session::{CaptureOptions, EventStore, capture_worktree_review};
@@ -129,9 +131,6 @@ mod tests {
         let id = build_validation_check_id(ValidationCheckIdMaterial {
             revision_id: &RevisionId::new("review-unit:sha256:unit"),
             track_id: &crate::model::TrackId::new("agent:codex"),
-            target: &ValidationTarget::Revision {
-                revision_id: RevisionId::new("review-unit:sha256:unit"),
-            },
             check_name: "cargo test",
             command: Some("cargo test --all"),
             status: ValidationStatus::Passed,
@@ -149,8 +148,63 @@ mod tests {
 
         assert_eq!(
             id.as_str(),
-            "validation:sha256:57ce1189814a48ec98523b046ab73a533af8cb9942332be729c61a517faecee9"
+            "validation:sha256:37f7365e260eb7cec20f6d6b28b755f9f34b4b2a6cf58cf84c43b6f40b07c5bc"
         );
+    }
+
+    #[test]
+    fn validation_check_id_folds_the_kind_tag_free_subject() {
+        // DD1: the content id folds the opaque revision subject id under
+        // `subjectId`, never the `ValidationTarget` kind tag, so a future rename of
+        // that tag is projection-only.
+        use crate::canonical_hash::sha256_json_prefixed;
+        use crate::model::id_prefix;
+        use crate::session::event::review_subject_id;
+
+        let revision_id = RevisionId::new("review-unit:sha256:unit");
+        let track_id = crate::model::TrackId::new("agent:codex");
+        let id = build_validation_check_id(ValidationCheckIdMaterial {
+            revision_id: &revision_id,
+            track_id: &track_id,
+            check_name: "cargo test",
+            command: None,
+            status: ValidationStatus::Passed,
+            exit_code: None,
+            trigger: crate::model::ValidationTrigger::Manual,
+            source_fingerprint: None,
+            summary_content_hash: None,
+            summary_content_type: None,
+            started_at: None,
+            completed_at: None,
+            log_artifact_content_hashes: &[],
+            writer_actor_id: "actor:test",
+        })
+        .unwrap();
+
+        let subject = ReviewTargetRef::Revision {
+            revision_id: revision_id.clone(),
+        };
+        let expected_material = serde_json::json!({
+            "subjectId": review_subject_id(&subject).unwrap(),
+            "trackId": track_id.as_str(),
+            "checkName": "cargo test",
+            "command": null,
+            "status": ValidationStatus::Passed,
+            "exitCode": null,
+            "trigger": crate::model::ValidationTrigger::Manual,
+            "sourceFingerprint": null,
+            "summaryContentHash": null,
+            "startedAt": null,
+            "completedAt": null,
+            "logArtifactContentHashes": [],
+            "writerActorId": "actor:test",
+        });
+        let expected = format!(
+            "{}:{}",
+            id_prefix::VALIDATION,
+            sha256_json_prefixed(&expected_material).unwrap()
+        );
+        assert_eq!(id.as_str(), expected);
     }
 
     #[test]

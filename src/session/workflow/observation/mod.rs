@@ -1,4 +1,6 @@
-mod add;
+// `add` is crate::session-visible so the store migrator can call the content-id
+// builder (`build_observation_id`) and its `ObservationIdMaterial` directly.
+pub(in crate::session) mod add;
 mod list;
 mod target;
 mod util;
@@ -583,6 +585,90 @@ mod tests {
         )
         .unwrap();
         assert_ne!(plain.observation_id, acking.observation_id);
+    }
+
+    #[test]
+    fn reordered_responds_to_links_dedupe_instead_of_conflicting() {
+        // A set-equal but reordered fact-pointer re-write must converge to the
+        // stored event, not hard-conflict on payload_hash. The content id already
+        // folds a sorted set, so the two writes share an idempotency key;
+        // normalizing the *stored* payload the same way lets the retry classify as
+        // Existing rather than raising an "event conflict".
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let a = ObservationId::new("obs:sha256:aaa");
+        let b = ObservationId::new("obs:sha256:bbb");
+
+        let first = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:codex")
+                .with_title("ack")
+                .responding_to(a.clone())
+                .responding_to(b.clone()),
+        )
+        .unwrap();
+        assert_eq!(first.events_created, 1);
+
+        let reordered = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:codex")
+                .with_title("ack")
+                .responding_to(b)
+                .responding_to(a),
+        )
+        .unwrap();
+
+        assert_eq!(reordered.observation_id, first.observation_id);
+        assert_eq!(reordered.events_created, 0);
+        assert_eq!(reordered.events_existing, 1);
+    }
+
+    #[test]
+    fn duplicate_responds_to_links_dedupe_to_one_stored_link() {
+        // A duplicate-bearing fact-pointer re-write must dedupe, proving the stored
+        // payload is `sorted_unique`-normalized (sort *and* dedup), not merely
+        // sorted: a bare sort would keep `[a, a, b]` distinct from `[a, b]` and
+        // spawn a second observation.
+        let repo = modified_repo();
+        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let a = ObservationId::new("obs:sha256:aaa");
+        let b = ObservationId::new("obs:sha256:bbb");
+
+        let first = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:codex")
+                .with_title("ack")
+                .responding_to(a.clone())
+                .responding_to(b.clone()),
+        )
+        .unwrap();
+
+        let duplicated = record_observation(
+            ObservationAddOptions::new(repo.path())
+                .with_track("agent:codex")
+                .with_title("ack")
+                .responding_to(a.clone())
+                .responding_to(a.clone())
+                .responding_to(b.clone()),
+        )
+        .unwrap();
+
+        assert_eq!(duplicated.observation_id, first.observation_id);
+        assert_eq!(duplicated.events_created, 0);
+        assert_eq!(duplicated.events_existing, 1);
+
+        // The single stored payload carries the deduped set, in sorted order.
+        let events = EventStore::open(resolved_store_dir(repo.path()))
+            .list_events()
+            .unwrap();
+        let stored = events
+            .iter()
+            .find(|event| event.event_id == first.event_id)
+            .unwrap();
+        assert_eq!(
+            stored.payload["respondsToObservationIds"],
+            serde_json::json!([a.as_str(), b.as_str()])
+        );
     }
 
     #[test]

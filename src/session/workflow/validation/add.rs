@@ -11,11 +11,12 @@ use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
 use crate::crypto::EventSigner;
 use crate::error::{Result, ShoreError};
 use crate::model::{
-    ActorId, EventId, RevisionId, TrackId, ValidationCheckId, ValidationStatus, ValidationTarget,
-    ValidationTrigger, id_prefix,
+    ActorId, EventId, ReviewTargetRef, RevisionId, TrackId, ValidationCheckId, ValidationStatus,
+    ValidationTarget, ValidationTrigger, id_prefix,
 };
 use crate::session::event::{
     BodyContentType, EventTarget, EventType, ShoreEvent, ValidationCheckRecordedPayload,
+    review_subject_id,
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::content::ContentArtifacts;
@@ -273,7 +274,6 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
     let validation_check_id = build_validation_check_id(ValidationCheckIdMaterial {
         revision_id: &input.resolved.revision_id,
         track_id: &track_id,
-        target: &target,
         check_name: &input.check_name,
         command: input.command.as_deref(),
         status: input.status,
@@ -375,34 +375,38 @@ fn write_validation_check_event(input: ValidationWriteInput) -> Result<Validatio
     })
 }
 
-pub(super) struct ValidationCheckIdMaterial<'a> {
-    pub revision_id: &'a RevisionId,
-    pub track_id: &'a TrackId,
-    pub target: &'a ValidationTarget,
-    pub check_name: &'a str,
-    pub command: Option<&'a str>,
-    pub status: ValidationStatus,
-    pub exit_code: Option<i64>,
-    pub trigger: ValidationTrigger,
-    pub source_fingerprint: Option<&'a str>,
-    pub summary_content_hash: Option<&'a str>,
-    pub summary_content_type: Option<&'a str>,
-    pub started_at: Option<&'a str>,
-    pub completed_at: Option<&'a str>,
-    pub log_artifact_content_hashes: &'a [String],
-    pub writer_actor_id: &'a str,
+pub(crate) struct ValidationCheckIdMaterial<'a> {
+    pub(crate) revision_id: &'a RevisionId,
+    pub(crate) track_id: &'a TrackId,
+    pub(crate) check_name: &'a str,
+    pub(crate) command: Option<&'a str>,
+    pub(crate) status: ValidationStatus,
+    pub(crate) exit_code: Option<i64>,
+    pub(crate) trigger: ValidationTrigger,
+    pub(crate) source_fingerprint: Option<&'a str>,
+    pub(crate) summary_content_hash: Option<&'a str>,
+    pub(crate) summary_content_type: Option<&'a str>,
+    pub(crate) started_at: Option<&'a str>,
+    pub(crate) completed_at: Option<&'a str>,
+    pub(crate) log_artifact_content_hashes: &'a [String],
+    pub(crate) writer_actor_id: &'a str,
 }
 
-pub(super) fn build_validation_check_id(
+pub(crate) fn build_validation_check_id(
     material: ValidationCheckIdMaterial<'_>,
 ) -> Result<ValidationCheckId> {
     let mut log_hashes = material.log_artifact_content_hashes.to_vec();
     log_hashes.sort();
     log_hashes.dedup();
+    // A validation check always addresses a revision subject; fold its opaque
+    // subject id (kind-tag-free) rather than the `ValidationTarget` kind tag, so a
+    // future rename of that tag is projection-only (DD1).
+    let subject = ReviewTargetRef::Revision {
+        revision_id: material.revision_id.clone(),
+    };
     let mut value = json!({
-        "revisionId": material.revision_id.as_str(),
+        "subjectId": review_subject_id(&subject)?,
         "trackId": material.track_id.as_str(),
-        "target": material.target,
         "checkName": material.check_name,
         "command": material.command,
         "status": material.status,

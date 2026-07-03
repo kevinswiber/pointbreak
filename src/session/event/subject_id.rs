@@ -14,8 +14,18 @@
 //! `TargetRef::Journal` carrier has no subject, so it yields `None`.
 
 use crate::canonical_hash::sha256_json_prefixed;
-use crate::error::Result;
-use crate::model::{TargetRef, id_prefix};
+use crate::error::{Result, ShoreError};
+use crate::model::{ReviewTargetRef, TargetRef, id_prefix};
+
+/// Fold the opaque subject id for a review subject, which always has one. The
+/// workflow content-id builders share this seam so a review target's renamable
+/// kind tag never enters a content id — a future rename of that tag is
+/// projection-only (seam **S2**, decision **DD1**).
+pub(crate) fn review_subject_id(target: &ReviewTargetRef) -> Result<String> {
+    subject_id(&TargetRef::Review(target.clone()))?.ok_or_else(|| {
+        ShoreError::Message("a review subject must have an opaque subject id".to_owned())
+    })
+}
 
 /// Derive the opaque `subjectId` for a subject, or `None` for the fieldless
 /// `TargetRef::Journal` carrier. The digest folds the subject's identity-bearing

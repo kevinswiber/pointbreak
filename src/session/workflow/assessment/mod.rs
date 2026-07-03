@@ -1,4 +1,6 @@
-mod add;
+// `add` is crate::session-visible so the store migrator can call the content-id
+// builder (`build_assessment_id`) and its `AssessmentIdMaterial` directly.
+pub(in crate::session) mod add;
 mod show;
 mod target;
 mod view;

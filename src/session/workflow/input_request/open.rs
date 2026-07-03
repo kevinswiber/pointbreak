@@ -12,7 +12,7 @@ use crate::model::{
 };
 use crate::session::event::{
     AssertionMode, BodyContentType, EventTarget, EventType, InputRequestOpenedPayload,
-    InputRequestReasonCode, ShoreEvent,
+    InputRequestReasonCode, ShoreEvent, review_subject_id,
 };
 use crate::session::observation::{
     CurrentRevisionContext, RevisionScope, RevisionSelection, required_title, resolve_revision,
@@ -202,7 +202,6 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
     let (body, body_artifact_path, body_artifact_bytes, body_byte_size) =
         staged_body(options.body.as_deref())?;
     let input_request_id = build_input_request_id(InputRequestIdMaterial {
-        revision_id: &resolved.revision_id,
         track_id: &track_id,
         target: &target,
         assertion_mode: options.assertion_mode,
@@ -292,23 +291,25 @@ pub fn open_input_request(options: InputRequestOpenOptions) -> Result<InputReque
     Ok(result)
 }
 
-struct InputRequestIdMaterial<'a> {
-    revision_id: &'a RevisionId,
-    track_id: &'a TrackId,
-    target: &'a ReviewTargetRef,
-    assertion_mode: AssertionMode,
-    reason_code: InputRequestReasonCode,
-    title: &'a str,
-    body_content_hash: Option<&'a str>,
-    body_content_type: Option<&'a str>,
-    writer_actor_id: &'a str,
+pub(crate) struct InputRequestIdMaterial<'a> {
+    pub(crate) track_id: &'a TrackId,
+    pub(crate) target: &'a ReviewTargetRef,
+    pub(crate) assertion_mode: AssertionMode,
+    pub(crate) reason_code: InputRequestReasonCode,
+    pub(crate) title: &'a str,
+    pub(crate) body_content_hash: Option<&'a str>,
+    pub(crate) body_content_type: Option<&'a str>,
+    pub(crate) writer_actor_id: &'a str,
 }
 
-fn build_input_request_id(material: InputRequestIdMaterial<'_>) -> Result<InputRequestId> {
+pub(crate) fn build_input_request_id(
+    material: InputRequestIdMaterial<'_>,
+) -> Result<InputRequestId> {
+    // Fold the opaque subject id (kind-tag-free), never the renamable structural
+    // target, so a future rename of the target's kind tag is projection-only (DD1).
     let mut value = json!({
-        "revisionId": material.revision_id.as_str(),
+        "subjectId": review_subject_id(material.target)?,
         "trackId": material.track_id.as_str(),
-        "target": material.target,
         "assertionMode": material.assertion_mode,
         "reasonCode": material.reason_code,
         "title": material.title,
@@ -323,4 +324,46 @@ fn build_input_request_id(material: InputRequestIdMaterial<'_>) -> Result<InputR
         "{}:{digest}",
         id_prefix::INPUT_REQUEST
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_request_id_folds_the_kind_tag_free_subject() {
+        // DD1: the content id folds the opaque subject id under `subjectId`, never
+        // the structural target, so a future kind-tag rename is projection-only.
+        let track_id = TrackId::new("agent:codex");
+        let target = ReviewTargetRef::Revision {
+            revision_id: RevisionId::new("rev:sha256:fixed"),
+        };
+        let id = build_input_request_id(InputRequestIdMaterial {
+            track_id: &track_id,
+            target: &target,
+            assertion_mode: AssertionMode::Advisory,
+            reason_code: InputRequestReasonCode::AmbiguousState,
+            title: "x",
+            body_content_hash: None,
+            body_content_type: None,
+            writer_actor_id: "actor:test",
+        })
+        .unwrap();
+
+        let expected_material = json!({
+            "subjectId": review_subject_id(&target).unwrap(),
+            "trackId": track_id.as_str(),
+            "assertionMode": AssertionMode::Advisory,
+            "reasonCode": InputRequestReasonCode::AmbiguousState,
+            "title": "x",
+            "bodyContentHash": null,
+            "writerActorId": "actor:test",
+        });
+        let expected = InputRequestId::new(format!(
+            "{}:{}",
+            id_prefix::INPUT_REQUEST,
+            sha256_json_prefixed(&expected_material).unwrap()
+        ));
+        assert_eq!(id, expected);
+    }
 }

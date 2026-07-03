@@ -16,6 +16,7 @@ use crate::model::{
 };
 use crate::session::event::{
     BodyContentType, EventTarget, EventType, ReviewObservationRecordedPayload, ShoreEvent,
+    review_subject_id,
 };
 use crate::session::state::{ProjectionDiagnostic, SessionState};
 use crate::session::store::content::ContentArtifacts;
@@ -23,6 +24,7 @@ use crate::session::store::resolution::{
     prepare_write_landing, resolve_write_store, resolve_write_validation_store,
 };
 use crate::session::store_init::ShoreStorePaths;
+use crate::session::workflow::util::sorted_unique;
 use crate::session::{
     BestEffortSkipSink, EventSigningOptions, EventStore, EventWriteOutcome, current_timestamp,
     sign_event_if_requested, writer_from_options,
@@ -245,17 +247,22 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
     let tags = input.tags.clone();
     let (body, body_artifact_path, body_artifact_bytes, body_byte_size) =
         staged_body(input.body.as_deref())?;
+    // Normalize the fact-pointer lists once (sort *and* dedup) and feed the same
+    // canonical lists to both the content id and the stored payload, so set-equal
+    // or duplicate-bearing re-writes converge byte-identically (GH #324; ADR-0026
+    // D2) instead of hard-conflicting on payload_hash.
+    let supersedes_observation_ids = sorted_unique(input.supersedes_observation_ids);
+    let responds_to_observation_ids = sorted_unique(input.responds_to_observation_ids);
     let observation_id = build_observation_id(ObservationIdMaterial {
-        revision_id: &input.resolved.revision_id,
-        track_id: &track_id,
         target: &input.target,
+        track_id: &track_id,
         title: &input.title,
         body_content_hash: body_content_hash.as_deref(),
         body_content_type: body_content_type.identity_tag(),
         tags: &input.tags,
         confidence: input.confidence.as_deref(),
-        supersedes_observation_ids: &input.supersedes_observation_ids,
-        responds_to_observation_ids: &input.responds_to_observation_ids,
+        supersedes_observation_ids: &supersedes_observation_ids,
+        responds_to_observation_ids: &responds_to_observation_ids,
         writer_actor_id: writer.actor_id.as_str(),
     })?;
     let source_key = input
@@ -296,8 +303,8 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
             body_content_hash: body_content_hash.clone(),
             tags: input.tags,
             confidence: input.confidence,
-            supersedes_observation_ids: input.supersedes_observation_ids,
-            responds_to_observation_ids: input.responds_to_observation_ids,
+            supersedes_observation_ids,
+            responds_to_observation_ids,
         },
         current_timestamp(),
     )?;
@@ -336,39 +343,43 @@ fn write_observation_event(input: ObservationWriteInput) -> Result<ObservationAd
     })
 }
 
-struct ObservationIdMaterial<'a> {
-    revision_id: &'a RevisionId,
-    track_id: &'a TrackId,
-    target: &'a ReviewTargetRef,
-    title: &'a str,
-    body_content_hash: Option<&'a str>,
-    body_content_type: Option<&'a str>,
-    tags: &'a [String],
-    confidence: Option<&'a str>,
-    supersedes_observation_ids: &'a [ObservationId],
-    responds_to_observation_ids: &'a [ObservationId],
-    writer_actor_id: &'a str,
+pub(crate) struct ObservationIdMaterial<'a> {
+    pub(crate) track_id: &'a TrackId,
+    pub(crate) target: &'a ReviewTargetRef,
+    pub(crate) title: &'a str,
+    pub(crate) body_content_hash: Option<&'a str>,
+    pub(crate) body_content_type: Option<&'a str>,
+    pub(crate) tags: &'a [String],
+    pub(crate) confidence: Option<&'a str>,
+    pub(crate) supersedes_observation_ids: &'a [ObservationId],
+    pub(crate) responds_to_observation_ids: &'a [ObservationId],
+    pub(crate) writer_actor_id: &'a str,
 }
 
-fn build_observation_id(material: ObservationIdMaterial<'_>) -> Result<ObservationId> {
+pub(crate) fn build_observation_id(material: ObservationIdMaterial<'_>) -> Result<ObservationId> {
     let mut tags = material.tags.to_vec();
     tags.sort();
+    // Sort *and* dedup so a set-equal or duplicate-bearing fact-pointer list folds
+    // to one id; the stored payload normalizes identically (GH #324).
     let mut supersedes = material
         .supersedes_observation_ids
         .iter()
         .map(|observation_id| observation_id.as_str())
         .collect::<Vec<_>>();
     supersedes.sort();
+    supersedes.dedup();
     let mut responds_to = material
         .responds_to_observation_ids
         .iter()
         .map(|observation_id| observation_id.as_str())
         .collect::<Vec<_>>();
     responds_to.sort();
+    responds_to.dedup();
+    // Fold the opaque subject id (kind-tag-free), never the renamable structural
+    // target, so a future rename of the target's kind tag is projection-only (DD1).
     let mut value = json!({
-        "revisionId": material.revision_id.as_str(),
+        "subjectId": review_subject_id(material.target)?,
         "trackId": material.track_id.as_str(),
-        "target": material.target,
         "title": material.title,
         "bodyContentHash": material.body_content_hash,
         "tags": tags,
@@ -396,28 +407,24 @@ fn build_observation_id(material: ObservationIdMaterial<'_>) -> Result<Observati
 mod tests {
     use super::*;
 
-    fn synthetic_material() -> (RevisionId, TrackId, ReviewTargetRef) {
-        let revision_id = RevisionId::new("rev:sha256:fixed");
+    fn synthetic_material() -> (TrackId, ReviewTargetRef) {
         let track_id = TrackId::new("agent:codex");
         let target = ReviewTargetRef::Revision {
             revision_id: RevisionId::new("rev:sha256:fixed"),
         };
-        (revision_id, track_id, target)
+        (track_id, target)
     }
 
-    /// The id a byte-identical observation produced before a response-link field
-    /// existed in the id material. Captured once from the pre-field material, this
-    /// pins the empty case to its historical value: folding an empty response list
-    /// must leave the id untouched (otherwise every already-stored observation
-    /// would silently re-key).
+    /// The id a byte-identical observation with no response links produces. Pins
+    /// the empty case: folding an empty response list must leave the id untouched
+    /// (otherwise every already-stored observation would silently re-key).
     const EMPTY_RESPONSE_LINK_ID: &str =
-        "obs:sha256:61da623e21717eedce2eea746b4d059ce726479fa8f757ce09d3040dd18f5084";
+        "obs:sha256:c9dab47033e41a95e1f4c020658bb336bc3139d9124fd667187d2df6a95bccad";
 
     #[test]
     fn empty_response_links_keep_the_historical_observation_id() {
-        let (revision_id, track_id, target) = synthetic_material();
+        let (track_id, target) = synthetic_material();
         let id = build_observation_id(ObservationIdMaterial {
-            revision_id: &revision_id,
             track_id: &track_id,
             target: &target,
             title: "x",
@@ -434,13 +441,51 @@ mod tests {
     }
 
     #[test]
+    fn observation_id_folds_the_kind_tag_free_subject() {
+        // DD1: the content id folds the opaque subject id (kind-tag-free) under
+        // `subjectId`, never the structural target, so a future rename of the
+        // target's kind tag is projection-only. `review_subject_id` strips the
+        // renamable `kind` tag (proven in `event::subject_id`).
+        let (track_id, target) = synthetic_material();
+        let id = build_observation_id(ObservationIdMaterial {
+            track_id: &track_id,
+            target: &target,
+            title: "x",
+            body_content_hash: None,
+            body_content_type: None,
+            tags: &[],
+            confidence: None,
+            supersedes_observation_ids: &[],
+            responds_to_observation_ids: &[],
+            writer_actor_id: "actor:test",
+        })
+        .unwrap();
+
+        let expected_material = json!({
+            "subjectId": review_subject_id(&target).unwrap(),
+            "trackId": track_id.as_str(),
+            "title": "x",
+            "bodyContentHash": null,
+            "tags": [],
+            "confidence": null,
+            "supersedesObservationIds": [],
+            "writerActorId": "actor:test",
+        });
+        let expected = ObservationId::new(format!(
+            "{}:{}",
+            id_prefix::OBSERVATION,
+            sha256_json_prefixed(&expected_material).unwrap()
+        ));
+        assert_eq!(id, expected);
+    }
+
+    #[test]
     fn response_links_fold_order_independently() {
-        let (revision_id, track_id, target) = synthetic_material();
+        let (track_id, target) = synthetic_material();
         let a = ObservationId::new("obs:sha256:aaa");
         let b = ObservationId::new("obs:sha256:bbb");
         let build = |links: &[ObservationId]| {
             build_observation_id(ObservationIdMaterial {
-                revision_id: &revision_id,
                 track_id: &track_id,
                 target: &target,
                 title: "x",
@@ -456,5 +501,30 @@ mod tests {
         };
         // Set-equal links fold to one id regardless of the order they were authored in.
         assert_eq!(build(&[a.clone(), b.clone()]), build(&[b, a]));
+    }
+
+    #[test]
+    fn response_links_dedupe_duplicate_entries() {
+        let (track_id, target) = synthetic_material();
+        let a = ObservationId::new("obs:sha256:aaa");
+        let b = ObservationId::new("obs:sha256:bbb");
+        let build = |links: &[ObservationId]| {
+            build_observation_id(ObservationIdMaterial {
+                track_id: &track_id,
+                target: &target,
+                title: "x",
+                body_content_hash: None,
+                body_content_type: None,
+                tags: &[],
+                confidence: None,
+                supersedes_observation_ids: &[],
+                responds_to_observation_ids: links,
+                writer_actor_id: "actor:test",
+            })
+            .unwrap()
+        };
+        // A duplicate-bearing list folds to the same id as its deduped set: the
+        // builder normalizes with sort *and* dedup, not a bare sort.
+        assert_eq!(build(&[a.clone(), a.clone(), b.clone()]), build(&[a, b]));
     }
 }

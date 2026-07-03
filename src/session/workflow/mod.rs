@@ -15,7 +15,7 @@ mod store_migrate;
 mod store_migrate_common_dir;
 mod store_status;
 pub(in crate::session) mod util;
-mod validation;
+pub(in crate::session) mod validation;
 
 pub(in crate::session) mod input_request;
 pub(in crate::session) mod observation;

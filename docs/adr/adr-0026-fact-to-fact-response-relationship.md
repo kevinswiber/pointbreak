@@ -114,6 +114,16 @@ path, not the revision one:
   converge byte-equal; `responds_to` mirrors the observation fact-pointer family, which stores as-authored.)
   A byte-identical re-record remains an idempotent no-op. `responds_to` inherits this behavior unchanged and
   adds no new `sigVersion`.
+
+  > **Erratum (opaque-coded signed-identity store break).** The paragraph above describes the pre-break
+  > *as-authored → reorder hard-conflict* behavior. As of the signed-store break that re-mints every
+  > `payload_hash`, the observation fact-pointer family (`supersedes_observation_ids` and
+  > `responds_to_observation_ids`) now `sorted_unique`-normalizes its **stored payload** and feeds the same
+  > normalized lists to both the observation id and the payload — mirroring the revision `supersedes` and
+  > assessment `replaces_*`/`related_*` families. So a set-equal-but-reordered *or* duplicate-bearing
+  > re-write now converges byte-equal (`Existing`) instead of raising a hard conflict (GH #324). D2's
+  > *contract* is otherwise unchanged — `responds_to` is still proposer-asserted and folded into the
+  > observation id — and this adds no new `sigVersion`; only the stored-payload normalization changed.
 - **`responds_to` references an `ObservationId`** (a fact), carried in the payload — never the envelope
   `EventTarget`, never a `ReviewTargetRef`. The observation's own `target` (what it is *about*) is unchanged
   and orthogonal.

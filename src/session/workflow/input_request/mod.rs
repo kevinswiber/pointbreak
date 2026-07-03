@@ -1,7 +1,10 @@
 mod fetch;
 mod list;
-mod open;
-mod respond;
+// `open`/`respond` are crate::session-visible so the store migrator can call the
+// content-id builders (`build_input_request_id`, `build_input_request_response_id`)
+// and their `*IdMaterial` inputs directly.
+pub(in crate::session) mod open;
+pub(in crate::session) mod respond;
 mod target;
 mod view;
 
@@ -294,9 +297,8 @@ mod tests {
         let event = only_input_request_opened_event(repo.path());
 
         let expected_digest = sha256_json_prefixed(&serde_json::json!({
-            "revisionId": result.revision_id.as_str(),
+            "subjectId": crate::session::event::review_subject_id(&result.target).unwrap(),
             "trackId": result.track_id.as_str(),
-            "target": result.target.clone(),
             "assertionMode": AssertionMode::Operative,
             "reasonCode": InputRequestReasonCode::ManualDecisionRequired,
             "title": "Need approval",
