@@ -864,6 +864,40 @@
     return `<span class="${CLASS.badge} ${CLASS.supersedes}">supersedes ${predecessors.map(linkify).join(" ")}</span>`;
   }
   __name(captureSupersedesBadge, "captureSupersedesBadge");
+  function entryFactId(e) {
+    if (e.eventType === "review_observation_recorded")
+      return e.summary?.observationId ?? "";
+    if (e.eventType === "review_assessment_recorded")
+      return e.summary?.assessmentId ?? "";
+    return "";
+  }
+  __name(entryFactId, "entryFactId");
+  function factSupersessionIndex() {
+    const index = /* @__PURE__ */ new Map();
+    for (const e of getState().history?.entries ?? []) {
+      const superseder = entryFactId(e);
+      if (!superseder) continue;
+      const targets = e.summary?.supersedes ?? e.summary?.replaces ?? [];
+      for (const target of targets) {
+        const supersedersOf = index.get(target) ?? [];
+        supersedersOf.push(superseder);
+        index.set(target, supersedersOf);
+      }
+    }
+    return index;
+  }
+  __name(factSupersessionIndex, "factSupersessionIndex");
+  function factSupersededBy(factId) {
+    return factSupersessionIndex().get(factId) ?? [];
+  }
+  __name(factSupersededBy, "factSupersededBy");
+  function factSupersessionBadge(e) {
+    const factId = entryFactId(e);
+    if (!factId || !factSupersededBy(factId).length) return "";
+    const label = e.eventType === "review_assessment_recorded" ? "replaced" : "superseded";
+    return `<span class="${CLASS.badge} ${CLASS.superseded}">${label}</span>`;
+  }
+  __name(factSupersessionBadge, "factSupersessionBadge");
   function supersessionBadge(revisionId) {
     if (!revisionId) return "";
     if (revisionIsHead(revisionId))
@@ -2761,11 +2795,12 @@
     const revisionId = entryRevisionId(e);
     const staleTag = supersessionStaleBadge(e);
     const supersedesTag = captureSupersedesBadge(e);
+    const factTag = factSupersessionBadge(e);
     li.innerHTML = `
       <span class="${CLASS.time}">${escapeHtml(fmtTime(e.occurredAt ?? ""))}</span>
       <span class="${CLASS.rail}" style="background:${typeColor(e.eventType)}"></span>
       <span class="${CLASS.body}">
-        <span class="${CLASS.title}">${linkify(entryTitle(e))} ${tags} ${supersedesTag} ${staleTag}</span>
+        <span class="${CLASS.title}">${linkify(entryTitle(e))} ${tags} ${supersedesTag} ${staleTag} ${factTag}</span>
         <span class="${CLASS.meta}">
           <span class="${CLASS.type}" style="color:${typeColor(e.eventType)}">${escapeHtml(typeLabel(e.eventType))}</span>
           ${entryTrack(e) ? `<span>${escapeHtml(entryTrack(e))}</span>` : ""}

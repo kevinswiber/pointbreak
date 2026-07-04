@@ -22,6 +22,7 @@ import { escapeHtml } from "../escape";
 import { fmtTime } from "../format";
 import {
   captureSupersedesBadge,
+  factSupersessionBadge,
   selectedEventId,
   supersessionStaleBadge,
 } from "../model";
@@ -119,11 +120,12 @@ function eventRow(e: HistoryEntry, selected: string | null): HTMLLIElement {
   const revisionId = entryRevisionId(e);
   const staleTag = supersessionStaleBadge(e);
   const supersedesTag = captureSupersedesBadge(e);
+  const factTag = factSupersessionBadge(e);
   li.innerHTML = `
       <span class="${CLASS.time}">${escapeHtml(fmtTime(e.occurredAt ?? ""))}</span>
       <span class="${CLASS.rail}" style="background:${typeColor(e.eventType)}"></span>
       <span class="${CLASS.body}">
-        <span class="${CLASS.title}">${linkify(entryTitle(e))} ${tags} ${supersedesTag} ${staleTag}</span>
+        <span class="${CLASS.title}">${linkify(entryTitle(e))} ${tags} ${supersedesTag} ${staleTag} ${factTag}</span>
         <span class="${CLASS.meta}">
           <span class="${CLASS.type}" style="color:${typeColor(e.eventType)}">${escapeHtml(typeLabel(e.eventType))}</span>
           ${entryTrack(e) ? `<span>${escapeHtml(entryTrack(e))}</span>` : ""}

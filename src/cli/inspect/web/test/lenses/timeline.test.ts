@@ -125,6 +125,48 @@ describe("renderTimeline", () => {
     expect(chip?.dataset.refId).toBe(ref);
   });
 
+  it("pills a fact superseded by a loaded sibling, and leaves the superseder unpilled", () => {
+    seedHistory([
+      entry("e-super", {
+        eventType: "review_observation_recorded",
+        summary: { observationId: "obs:new", supersedes: ["obs:old"] },
+      }),
+      entry("e-old", {
+        eventType: "review_observation_recorded",
+        summary: { observationId: "obs:old" },
+      }),
+    ]);
+    timeline.renderTimeline();
+    const oldPill = document.querySelector<HTMLElement>(
+      '#timeline li[data-event-id="e-old"] .badge.superseded',
+    );
+    expect(oldPill?.textContent).toBe("superseded");
+    // The still-current superseding fact carries no pill (advisory, additive).
+    expect(
+      document.querySelector(
+        '#timeline li[data-event-id="e-super"] .badge.superseded',
+      ),
+    ).toBeNull();
+  });
+
+  it("labels a replaced assessment pill `replaced`", () => {
+    seedHistory([
+      entry("e-super", {
+        eventType: "review_assessment_recorded",
+        summary: { assessmentId: "assess:new", replaces: ["assess:old"] },
+      }),
+      entry("e-old", {
+        eventType: "review_assessment_recorded",
+        summary: { assessmentId: "assess:old" },
+      }),
+    ]);
+    timeline.renderTimeline();
+    const pill = document.querySelector<HTMLElement>(
+      '#timeline li[data-event-id="e-old"] .badge.superseded',
+    );
+    expect(pill?.textContent).toBe("replaced");
+  });
+
   it("attaches no per-row click listener — selection is left to the #master delegate", () => {
     seedHistory([entry("e1")]);
     timeline.renderTimeline();

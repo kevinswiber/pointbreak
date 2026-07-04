@@ -162,6 +162,12 @@ export interface EntrySummary {
   assessmentId?: string;
   inputRequestId?: string;
   validationCheckId?: string;
+  // Event-authored fact-level supersession forward pointers, already on the
+  // /api/history wire (skipped when empty): the observation ids this observation
+  // supersedes, and the assessment ids this assessment replaces. Consumed by the
+  // client-side fact-status reverse index (model.ts) for the advisory timeline pill.
+  supersedes?: string[];
+  replaces?: string[];
   // The content type and request mode the annotation gatherer reads when it
   // folds a fact into the review-annotation list.
   bodyContentType?: string;

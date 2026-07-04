@@ -308,6 +308,67 @@ describe("supersession badges", () => {
   });
 });
 
+describe("fact-level supersession (client-side reverse index over the loaded window)", () => {
+  /** Seed a history window whose loaded siblings carry forward pointers. */
+  function seedFactSupersession(): void {
+    store.commit({
+      history: {
+        entries: [
+          {
+            eventType: "review_assessment_recorded",
+            summary: { assessmentId: "assess:new", replaces: ["assess:old"] },
+          },
+          {
+            eventType: "review_assessment_recorded",
+            summary: { assessmentId: "assess:old" },
+          },
+          {
+            eventType: "review_observation_recorded",
+            summary: { observationId: "obs:new", supersedes: ["obs:old"] },
+          },
+          {
+            eventType: "review_observation_recorded",
+            summary: { observationId: "obs:old" },
+          },
+        ],
+        diagnostics: [],
+      } as unknown as HistoryDoc,
+    });
+  }
+
+  it("reverses the loaded forward pointers into a superseded-by index", () => {
+    seedFactSupersession();
+    expect(model.factSupersededBy("assess:old")).toEqual(["assess:new"]);
+    expect(model.factSupersededBy("obs:old")).toEqual(["obs:new"]);
+    // A superseder is not itself superseded; an unknown id has no superseders.
+    expect(model.factSupersededBy("assess:new")).toEqual([]);
+    expect(model.factSupersededBy("obs:unknown")).toEqual([]);
+  });
+
+  it("pills a superseded observation and a replaced assessment; leaves current facts unpilled", () => {
+    seedFactSupersession();
+    const obsBadge = model.factSupersessionBadge({
+      eventType: "review_observation_recorded",
+      summary: { observationId: "obs:old" },
+    });
+    expect(obsBadge).toContain("superseded");
+    expect(obsBadge).toContain("badge superseded");
+
+    const assessBadge = model.factSupersessionBadge({
+      eventType: "review_assessment_recorded",
+      summary: { assessmentId: "assess:old" },
+    });
+    expect(assessBadge).toContain("replaced");
+
+    expect(
+      model.factSupersessionBadge({
+        eventType: "review_observation_recorded",
+        summary: { observationId: "obs:new" },
+      }),
+    ).toBe("");
+  });
+});
+
 describe("annotationsForRevision", () => {
   beforeEach(seedFixtures);
 

@@ -235,6 +235,58 @@ export function captureSupersedesBadge(e: HistoryEntry): string {
   return `<span class="${CLASS.badge} ${CLASS.supersedes}">supersedes ${predecessors.map(linkify).join(" ")}</span>`;
 }
 
+// The fact id a supersedable entry addresses: an observation/assessment carries
+// its own id in the summary. Other fact families have no fact-level supersession
+// pointer today, so they return "".
+function entryFactId(e: HistoryEntry): string {
+  if (e.eventType === "review_observation_recorded")
+    return e.summary?.observationId ?? "";
+  if (e.eventType === "review_assessment_recorded")
+    return e.summary?.assessmentId ?? "";
+  return "";
+}
+
+// A reverse index over the LOADED history window: superseded/replaced fact id ->
+// the loaded fact ids that supersede/replace it. Built by reversing each entry's
+// event-authored forward pointers (`summary.supersedes` on observations,
+// `summary.replaces` on assessments), mirroring how the server reverses
+// revision-level `supersedes` into `supersededBy`. Completeness is window-scoped:
+// a superseder on a not-yet-fetched page yields no pill (a false-negative), never
+// a false-positive — a pill appears only when a loaded fact actually points at the
+// row's fact. Advisory only (ADR-0019 D6).
+function factSupersessionIndex(): Map<string, string[]> {
+  const index = new Map<string, string[]>();
+  for (const e of getState().history?.entries ?? []) {
+    const superseder = entryFactId(e);
+    if (!superseder) continue;
+    const targets = e.summary?.supersedes ?? e.summary?.replaces ?? [];
+    for (const target of targets) {
+      const supersedersOf = index.get(target) ?? [];
+      supersedersOf.push(superseder);
+      index.set(target, supersedersOf);
+    }
+  }
+  return index;
+}
+
+/** The loaded facts that supersede/replace the given fact id (window-scoped), or []. */
+export function factSupersededBy(factId: string): string[] {
+  return factSupersessionIndex().get(factId) ?? [];
+}
+
+/**
+ * An advisory pill for a fact superseded/replaced by a loaded sibling: `superseded`
+ * on a superseded observation row, `replaced` on a replaced assessment row, or "".
+ * Reuses the amber `.badge.superseded` treatment; strictly additive (never gates).
+ */
+export function factSupersessionBadge(e: HistoryEntry): string {
+  const factId = entryFactId(e);
+  if (!factId || !factSupersededBy(factId).length) return "";
+  const label =
+    e.eventType === "review_assessment_recorded" ? "replaced" : "superseded";
+  return `<span class="${CLASS.badge} ${CLASS.superseded}">${label}</span>`;
+}
+
 /** The per-revision supersession status badge for a card or page, or "". */
 export function supersessionBadge(revisionId: string): string {
   if (!revisionId) return "";
