@@ -33,34 +33,28 @@ masquerade as healthy. The break is clean; the one-shot tool is what bridges it.
 prior version's dual-read branch is part of committing to the break and is permanent (it
 outlives the tool).
 
-### 1a. The bounded exception: read-time VIEW upcast for interpretation changes
+### 1a. No read-time view upcast at the floor: the strict reader is fail-loud
 
 §1's "no silent dual-read" governs the **signed identity** of an event — its `eventType`, `target`,
 and `payloadHash`, and anything those digests bind. A change to that identity is still a **clean
 break**: the strict reader rejects the old shape, and the one-shot migrator bridges it (§2-§8). There
 is no dual-read of the signed bytes.
 
-A different class of change — re-*interpreting* an event whose signed identity is unchanged, for
-example surfacing an old payload field under a new name in the rendered view, or adding a derived
-field to a projection — is governed by the opposite rule. For these, a **read-time payload-VIEW
-upcast** is allowed and preferred: a pure `upcast(old_value) -> current_model` runs in the projection
-layer, keyed on a hash-excluded per-payload view version, leaving the stored bytes and **all** digests
-untouched. This is signature-safe by construction, because every digest (`payloadHash`, the
-to-be-signed bytes, `eventRecordHash`, `eventSetHash`) is computed over the stored event, never over
-the upcast view — the same reason a hop can stamp `ingest` on a signed event without invalidating it.
+Earlier revisions carved a bounded exception into that rule for a *different* class of change —
+re-*interpreting* an event whose signed identity is unchanged, for example surfacing an old payload
+field under a new name in the rendered view. Such a change was allowed to run a pure
+`upcast(old_value) -> current_model` in the projection layer, keyed on the hash-excluded per-payload
+`payloadVersion`, leaving the stored bytes and every digest untouched. **That exception is retired.**
+1.0 is the store-format floor: there is no read-time view upcast, and the strict reader is fail-loud
+with no bounded exception. A pre-1.0 payload view — for example a revision capture that bound its
+object artifact under the retired `snapshotArtifactContentHash` wire key instead of the current
+`objectArtifactContentHash` — is **refused with a clear error at read time, never re-presented**.
 
-The dividing line is sharp: **the view upcast may re-present a payload or target; it may never change
-`payloadHash`, `eventType`, or `target` as signed, nor re-serialize the upcast view to re-derive any
-digest.** Re-hashing from an upcast view is the §8 "re-key the payload, carry the old id forward"
-anti-pattern and silently forks the store; it is forbidden. When the signed identity itself must
-change, you are back in §1's clean-break discipline.
-
-The upcast keys on the hash-excluded per-payload `payloadVersion` field, **not** the envelope
-`version`: the envelope `version` is reject-only on read — the strict reader rejects a non-current
-envelope version before any projection runs — so it cannot key a view upcast.
-
-In short: **clean break + migrator for signed-identity changes; read-time view upcast for
-interpretation changes.** The two were one rule by historical accident; they are two rules.
+The `payloadVersion` field stays hash-excluded (see `event-versioning.md`) so that a *future*
+interpretation-only change could still be versioned without re-signing the store, but no such upcast
+ships at the floor, and no pre-1.0 format is bridged by one — those are refused, not upcast. When the
+signed identity itself must change, you are in §1's clean-break discipline: reject on read, bridge
+with a one-shot migrator (§2-§8).
 
 ## 2. Read legacy → reshape → write through the strict path
 

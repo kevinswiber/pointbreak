@@ -98,8 +98,7 @@ Clones that predate the committed `.shore/.gitignore` may still carry the retire
 narrow entries (`.shore/data/`, `.shore/*.local.json`-style lines) in `.git/info/exclude`; those
 are harmless — redundant with the committed file — and can be removed by hand. A legacy
 **wholesale `.shore/`** line is different: it hides committed `.shore/` config and suppresses the
-generated `.shore/.gitignore`, so the flat-store relocation (`just migrate-store`) removes it
-automatically, and a clone carrying one without a flat store should delete that line by hand.
+generated `.shore/.gitignore`, so a clone carrying one should delete that line by hand.
 
 `events/` is the authoritative log. Events are immutable, independently written, and never moved to
 `failed/`, retried in place, or rewritten on read.
@@ -409,8 +408,9 @@ manifest-driven check, which cannot see orphan/unreferenced files) and only then
 `.shore/data/`; on any divergence it errors and deletes nothing. It is idempotent — re-running
 reports already-present facts as existing — and refuses an ephemeral or sensitivity-flagged worktree
 unless `--include-ephemeral` is passed. It scans for sensitivity findings before moving data and
-reports them in the command document. (Distinct from the owner-run flat-store driver
-`just migrate-store`, which relocates a legacy flat `.shore/` store to `.shore/data/`; see
+reports them in the command document. (`shore store migrate` folds the ephemeral `.shore/data/`
+store into the shared common-dir store; it is unrelated to the legacy flat `.shore/` layout, a
+retired pre-1.0 format that is detected and refused rather than migrated; see
 [Migrations And Doctor](#migrations-and-doctor).)
 
 The legacy-store guard deliberately keeps firing after a plain (no-retire) migrate until
@@ -794,10 +794,9 @@ lock or lease and does not make long-running multi-process writes a supported co
 Earlier development versions of Shoreline wrote a `role` field inside each event's writer
 envelope. Current Shoreline does not store a writer role: the review act is derived from
 `eventType`, and the conversation speaker is recorded by adapters as a `sourceSpeaker` payload
-field. Store reads reject stored events whose writer carries `role`. The supported repair for a
-legacy flat `.shore/` store is to run `just migrate-store`, which relocates the store to
-`.shore/data/` and upgrades the writer fields in place — no recapture needed (see
-[Migrations And Doctor](#migrations-and-doctor)).
+field. Store reads reject stored events whose writer carries `role`. This is a pre-1.0 shape: 1.0 is
+the store-format floor, so such events are not upgraded or migrated — the format is retired and no
+longer supported (see [Migrations And Doctor](#migrations-and-doctor)).
 
 ## Legacy Writer Tool Events
 
@@ -811,10 +810,9 @@ bytes, the embedded signatures, and `sigVersion: 1` are all untouched.
 
 Store reads reject stored events whose writer carries `tool` with a typed
 `UnsupportedEventEnvelope` error naming the retired field (`writer.tool`) and this anchor — which
-names the replacement, `writer.producer` — rather than an opaque missing-field error. The supported repair for a legacy flat `.shore/` store
-is to run `just migrate-store`, which relocates the store to `.shore/data/` and rewrites
-`writer.tool` to `writer.producer` (dropping `writer.role`) in place — no recapture needed (see
-[Migrations And Doctor](#migrations-and-doctor)).
+names the replacement, `writer.producer` — rather than an opaque missing-field error. This is a
+pre-1.0 shape: 1.0 is the store-format floor, so such events are not rewritten or migrated — the
+format is retired and no longer supported (see [Migrations And Doctor](#migrations-and-doctor)).
 
 ## Actor Identity and Delegation
 
@@ -1008,20 +1006,14 @@ rather than loop.
 Runtime code should read canonical storage. Legacy repair and migration belong in a future
 `shore doctor` or equivalent explicit command.
 
-The relocation of a legacy flat `.shore/` store to `.shore/data/` is exactly such an explicit
-command: `just migrate-store [<repo>]` (a thin `examples/migrate-store.rs` driver over the tested
-`migrate_store` library function). It nests the flat store's entries (`events/`, `artifacts/`, and
-`state.json`) under `.shore/data/` crash-safely (copy in, then remove the flat originals), removes
-a legacy wholesale `.shore/` `.git/info/exclude` line (generating the committed `.shore/.gitignore`
-in its place — the relocation never writes fresh info/exclude content), and upgrades every
-event's writer fields in place (`writer.tool` → `writer.producer`, dropping `writer.role`) — the
-writer is outside every hash, so event identity is preserved. It is owner-run and **not** part of
-the shipped `shore` CLI. A legacy flat store is detected by the same flat-store-marker set the
-resolve guard uses; it refuses to run when both a flat and a nested store are present (an interrupted
-migration), and the normal resolve path surfaces the same flat-store and conflict states as typed,
-actionable errors. (This flat-store relocation is distinct from `shore store migrate`, which folds a
-pre-flip `.shore/data/` store into the shared common-dir store; see
-[Shared Common-Dir Store Selection](#shared-common-dir-store-selection).) The still-future
+The legacy flat `.shore/` layout — an early pre-1.0 store that kept `events/`, `artifacts/`, and
+`state.json` directly under `.shore/` instead of nesting them under `.shore/data/` — is a **retired
+pre-1.0 format**. 1.0 is the store-format floor: a flat store is still detected (by the same
+flat-store-marker set the resolve guard uses) and the resolve path surfaces it as a typed,
+actionable error, but it is no longer relocated or upgraded — the format is retired and no longer
+supported, so the error offers no migration to run. (This retired flat layout is distinct from
+`shore store migrate`, which folds a pre-flip `.shore/data/` store into the shared common-dir store;
+see [Shared Common-Dir Store Selection](#shared-common-dir-store-selection).) The still-future
 `shore doctor`
 ([issue #9](https://github.com/kevinswiber/shoreline/issues/9)) remains a separate, read-only
 diagnostic bundle concern — it is not built.

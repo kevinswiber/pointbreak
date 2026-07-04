@@ -239,10 +239,9 @@ tree, including untracked files (source `git_worktree`).
 - Durable state lands in the shared common-dir store at `.git/shore` under the clone's Git common
   directory (the default for every worktree). An `ephemeral` worktree instead keeps its own
   discardable `.shore/data/` store. A legacy flat `.shore/` store from before the `.shore/data/`
-  layout is upgraded with `just migrate-store [<repo>]` (an owner-run one-off driver, not a `shore`
-  subcommand) — distinct from `shore store migrate`, which folds a pre-flip worktree-local
-  `.shore/data/` store into the shared store; see
-  [storage-model.md](./storage-model.md#migrations-and-doctor).
+  layout is a retired pre-1.0 format: it is detected and refused, not migrated — distinct from
+  `shore store migrate`, which folds a pre-flip worktree-local `.shore/data/` store into the shared
+  store; see [storage-model.md](./storage-model.md#migrations-and-doctor).
 - Opting into ephemeral mode generates a committed `.shore/.gitignore` (two lines: `data/` +
   `*.local.json`) when the paths are not already ignored, so the worktree-local store stays out of
   `git status`; the file is visible, meant to be committed, and survives clone. Writer-initializing
@@ -414,8 +413,8 @@ counts, never directory existence.
 
 It emits `shore.store-migrate` JSON with `eventsCreated`, `eventsExisting`, `artifactsCreated`,
 `artifactsExisting`, `sourceEmpty`, `sourceRetired`, `verifiedEvents`, and `verifiedArtifacts`.
-(This is distinct from the owner-run flat-store driver `just migrate-store`, which relocates a
-legacy flat `.shore/` store to `.shore/data/`; see
+(This is distinct from the legacy flat `.shore/` layout, a retired pre-1.0 format that is detected
+and refused rather than migrated; see
 [storage-model.md](./storage-model.md#migrations-and-doctor).)
 
 `shore store remove` retires content-addressed artifacts from the store. It resolves exactly one

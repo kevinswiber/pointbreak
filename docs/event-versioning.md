@@ -15,7 +15,7 @@ display rename or a payload-shape tweak avoid re-signing the store.
 | Axis | Field | Signed / hashed? | Identifies | Changing it costs |
 | ---- | ----- | ---------------- | ---------- | ----------------- |
 | **Family identity** | `eventType` — a frozen type code (`t:NN`) | **yes** — both signed digests and the stored envelope | *what kind of fact this is* | a **new append-only code** for a genuinely new family; an existing code never changes |
-| **Payload view** | `payloadVersion: u32` | **no** — hash-excluded | *which shape the decoded payload takes* | a **cheap, signature-neutral bump** plus a read-time upcast |
+| **Payload view** | `payloadVersion: u32` | **no** — hash-excluded | *which shape the decoded payload takes* | a **cheap, signature-neutral bump** on a hash-excluded axis (no read-time upcast ships at the floor) |
 | **Envelope schema** | `version: u32` | included | *the whole envelope contract* | a reject-only gate — a bump is a schema break |
 | **Signing scheme** | `sigVersion` | part of the signature record | *how the bytes are signed* | a signing-mechanism break (currently pinned at `1`) |
 
@@ -34,14 +34,16 @@ payload shape evolves. Versioning the code would drag every payload-shape bump i
 identity (re-keying every event and forking the store), which is exactly the treadmill the opaque
 coding exists to retire. Payload-shape versioning is a different axis; see below.
 
-### `payloadVersion` — the payload-shape version and upcast dispatch key
+### `payloadVersion` — the hash-excluded payload-shape version
 
 `payloadVersion` is a hash-excluded envelope field that names *which shape the decoded payload takes*.
 Because it is excluded from every digest, bumping it is **signature-neutral** — no re-mint, no
-migrator. It is the dispatch key for a **read-time view upcast**: when a reader encounters an
-older-shaped payload it re-presents it under the current interpretation at projection time, with no
-stored bytes changed (see `store-migration.md` §1a). This is the mechanism for "read an older payload
-format" — it lives here, on a hash-excluded axis, never on the signed code.
+migrator. It is the axis on which a **read-time view upcast** *could* live: because the field is
+hash-excluded, a future interpretation-only change could re-present an older-shaped payload at
+projection time with no stored bytes changed, without re-signing the store. At the 1.0 store-format
+floor no such upcast ships: the strict reader is fail-loud, so an older payload view is refused, not
+re-presented (see `store-migration.md` §1a). The design point stands — interpretation versioning
+belongs here, on a hash-excluded axis, never on the signed type code.
 
 ## Decision procedure: I want to change an event
 
@@ -49,8 +51,10 @@ format" — it lives here, on a hash-excluded axis, never on the signed code.
    type code, both digests, and the stored envelope are unaffected; every consumer is a projection.
    **No migration.**
 2. **Evolve a payload's shape, interpretation-only** — add, rename, or re-present a field that is
-   **not** a content-id input → bump `payloadVersion` and add a read-time view upcast keyed on it
-   (`store-migration.md` §1a). Hash-excluded, so **signature-neutral: no re-mint, no migrator.**
+   **not** a content-id input → bump `payloadVersion` for the new shape. Hash-excluded, so
+   **signature-neutral: no re-mint, no migrator.** Reading events that carry the *older* shape would
+   require a read-time view upcast keyed on `payloadVersion`; none ships at the floor, where the
+   strict reader is fail-loud (`store-migration.md` §1a).
 3. **Change a payload field that feeds a content id** — an idempotency-key or content-id input → this
    is a **signed-store break**: re-derive every affected content id via the live builders in
    dependency order and gate correctness on the content-id-convergence test (`store-migration.md` §8).
@@ -69,14 +73,14 @@ format" — it lives here, on a hash-excluded axis, never on the signed code.
   would make the common case pay the rare case's price.
 - **The signed layer does not dual-read.** A signed-identity break is clean and migrated: the strict
   reader rejects the old shape and a one-shot migrator converts it, so two signed shapes never
-  coexist. There is therefore no "older signed format" to *select* via a code version — versioned
-  coexistence is a property of the unsigned, hash-excluded payload-view layer, where `payloadVersion`
-  and the upcast live.
+  coexist. Versioned coexistence would be a property of the unsigned, hash-excluded payload-view
+  layer where `payloadVersion` lives — but at the store-format floor even that layer is fail-loud: no
+  read-time upcast ships, so there is no "older format" to *select* on either axis.
 
 ## See also
 
 - `docs/adr/adr-0004-event-signatures.md` — the signed-identity model and the opaque-coded-identity /
   view-upcast / storage-descriptor amendment.
-- `docs/store-migration.md` — §1a the bounded read-time view-upcast exception; §8 the
-  content-id-convergence gate that makes a signed-store break safe.
+- `docs/store-migration.md` — §1a the fail-loud floor (the read-time view-upcast exception is
+  retired); §8 the content-id-convergence gate that makes a signed-store break safe.
 - `docs/storage-model.md` — the canonical-JSON hashing the digests are computed over.
