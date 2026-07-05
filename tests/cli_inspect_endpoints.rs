@@ -367,7 +367,7 @@ fn inspect_history_endpoint_renders_endorsement_readback() {
     let target = captured_event_id(repo.path());
     assert!(
         shore_env(
-            ["review", "endorse", &target, "--repo", repo_arg],
+            ["endorse", &target, "--repo", repo_arg],
             &[
                 ("SHORE_HOME", env_home),
                 ("SHORE_ACTOR_ID", "actor:git-email:kevin@swiber.dev"),

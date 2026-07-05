@@ -510,7 +510,7 @@ fn history_renders_endorsement_for_an_endorsed_capture() {
     let target = captured_event_id(repo.path());
     assert!(
         shore_env(
-            ["review", "endorse", &target, "--repo", repo_arg],
+            ["endorse", &target, "--repo", repo_arg],
             &[
                 ("SHORE_HOME", env_home),
                 ("SHORE_ACTOR_ID", "actor:git-email:kevin@swiber.dev"),

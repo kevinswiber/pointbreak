@@ -3,6 +3,59 @@ use serde_json::Value;
 use support::git_repo::GitRepo;
 use support::{shore, shore_env};
 
+#[test]
+fn endorse_is_available_at_the_top_level() {
+    let home = tempfile::tempdir().unwrap();
+    let home_str = home.path().to_str().unwrap();
+    let _ = shore_env(
+        ["keys", "init", "--name", "default"],
+        &[("SHORE_HOME", home_str)],
+    );
+    let (repo, target) = capture_target(home_str);
+
+    let out = shore_env(
+        ["endorse", &target, "--repo", repo.path().to_str().unwrap()],
+        &[("SHORE_HOME", home_str)],
+    );
+
+    assert!(
+        out.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(doc["schema"], "shore.review-endorse"); // INV-1: schema frozen
+}
+
+#[test]
+fn endorse_target_accepts_a_bare_fragment() {
+    let home = tempfile::tempdir().unwrap();
+    let home_str = home.path().to_str().unwrap();
+    let _ = shore_env(
+        ["keys", "init", "--name", "default"],
+        &[("SHORE_HOME", home_str)],
+    );
+    let (repo, target) = capture_target(home_str);
+    // target = "evt:sha256:<64hex>".
+    let fragment = &target["evt:sha256:".len()..][..8];
+
+    let out = shore_env(
+        ["endorse", fragment, "--repo", repo.path().to_str().unwrap()],
+        &[("SHORE_HOME", home_str)],
+    );
+
+    assert!(
+        out.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(
+        doc["targetEventId"], target,
+        "the response must echo the resolved FULL event id, not the bare fragment"
+    );
+}
+
 /// Find the captured Revision event id from the store the CLI wrote, via the
 /// PUBLIC read path (INV-F: `tests/` see only `pub` — `EventStore` is `pub(crate)`,
 /// so use `read_events`, which returns `Vec<ShoreEvent>` with public `event_id`/`event_type`).
@@ -28,7 +81,6 @@ fn endorse_with_signing_off_is_a_hard_error() {
     // SHORE_SIGNING=off → no signer resolves → endorsement has no content → hard error.
     let out = shore_env(
         [
-            "review",
             "endorse",
             "evt:sha256:0000000000000000000000000000000000000000000000000000000000000000",
             "--repo",
@@ -53,7 +105,7 @@ fn endorse_with_signing_off_is_a_hard_error() {
 
 #[test]
 fn endorse_help_is_free_of_substrate_vocabulary() {
-    let output = shore(["review", "endorse", "--help"]);
+    let output = shore(["endorse", "--help"]);
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
     assert!(
@@ -64,7 +116,7 @@ fn endorse_help_is_free_of_substrate_vocabulary() {
 
 #[test]
 fn endorse_help_states_unsigned_is_an_error() {
-    let out = shore_env(["review", "endorse", "--help"], &[]);
+    let out = shore_env(["endorse", "--help"], &[]);
     assert!(out.status.success());
     let help = String::from_utf8_lossy(&out.stdout).to_lowercase();
     // The help must state the no-unsigned-degrade contract (INV-D).
@@ -103,13 +155,7 @@ fn endorse_with_a_key_emits_review_endorse_document_and_writes_a_carrier() {
 
     let (repo, target) = capture_target(home_str);
     let out = shore_env(
-        [
-            "review",
-            "endorse",
-            &target,
-            "--repo",
-            repo.path().to_str().unwrap(),
-        ],
+        ["endorse", &target, "--repo", repo.path().to_str().unwrap()],
         &[
             ("SHORE_HOME", home_str),
             ("SHORE_ACTOR_ID", "actor:git-email:kevin@swiber.dev"),
@@ -156,23 +202,11 @@ fn endorse_is_idempotent_for_the_same_signer_and_target() {
     ];
 
     let first = shore_env(
-        [
-            "review",
-            "endorse",
-            &target,
-            "--repo",
-            repo.path().to_str().unwrap(),
-        ],
+        ["endorse", &target, "--repo", repo.path().to_str().unwrap()],
         &env,
     );
     let second = shore_env(
-        [
-            "review",
-            "endorse",
-            &target,
-            "--repo",
-            repo.path().to_str().unwrap(),
-        ],
+        ["endorse", &target, "--repo", repo.path().to_str().unwrap()],
         &env,
     );
     let a: Value = serde_json::from_slice(&first.stdout).unwrap();

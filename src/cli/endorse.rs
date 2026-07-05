@@ -16,7 +16,8 @@ use crate::cli::output;
 /// Record a detached co-signature (an endorsement) over an existing event.
 #[derive(Debug, Args)]
 pub(super) struct EndorseArgs {
-    /// The event id to endorse (any recorded event's `evt:sha256:…` id).
+    /// The event id to endorse: a full id, a prefixed short id (`evt:<hex>`), or
+    /// a bare hex fragment inferred as an event id (any recorded event).
     target: String,
     /// Signing key (name in the keystore, or a path). Honors `SHORE_SIGNING_KEY`
     /// and the user-default key. UNLIKE ordinary writes, an endorsement has NO
@@ -72,6 +73,11 @@ pub(super) fn run(
             .into()
     })?;
 
+    // Resolve the target only after the signer is in hand, so an invalid/ambiguous
+    // fragment never masks the "no signer" hard error when both conditions hold.
+    let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+    let target = ids.event(&args.target)?;
+
     // The producer is used AS-IS: the resolved boxed signer is the attesting signer
     // (it composes through the blanket `impl EventSigner for Box<dyn EventSigner …>`);
     // the carrier's envelope writer is the endorser's own actor. INV-D. `mode`
@@ -79,7 +85,7 @@ pub(super) fn run(
     // `record_event_signature` via `?` and becomes the same hard error — never a
     // silent degrade.
     let result: EventSignatureRecordResult = record_event_signature(
-        EventSignatureRecordOptions::new(&args.repo, EventId::new(&args.target), signer)
+        EventSignatureRecordOptions::new(&args.repo, EventId::new(&target), signer)
             .with_actor_id(actor.clone()),
     )?;
 

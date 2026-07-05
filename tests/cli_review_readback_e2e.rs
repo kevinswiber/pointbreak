@@ -75,7 +75,7 @@ fn endorsed_repo(home: &str, enroll: bool, attest: bool) -> (GitRepo, String) {
     // Endorse as the ENDORSER, signed by default → attestingSigner = the enrolled did:key.
     assert!(
         shore_env(
-            ["review", "endorse", &target, "--repo", &repo_arg],
+            ["endorse", &target, "--repo", &repo_arg],
             &[("SHORE_HOME", home), ("SHORE_ACTOR_ID", ENDORSER)],
         )
         .status

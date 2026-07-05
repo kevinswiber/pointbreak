@@ -79,7 +79,7 @@ resolves a signer where possible. `SHORE_HOME` overrides the user-level key home
 tests/CI). **Signing never gates a write** (with one exception, below): any resolution failure (no key,
 an unreadable key home, an unsupported algorithm, a malformed configured key, `SHORE_SIGNING=off`)
 degrades to an unsigned write at exit 0 with a one-line advisory diagnostic on stderr — it never blocks.
-The sole exception is `shore review endorse` (below), where unsigned is a hard error because the
+The sole exception is `shore endorse` (below), where unsigned is a hard error because the
 signature *is* the endorsement's content. See
 [signing-ux.md](./signing-ux.md) for the human / agent / CI flows and the
 `unsigned → untrusted_key → valid` ladder.
@@ -563,7 +563,7 @@ blocks. An agent-backed key resolves through an identities-only ssh-agent pre-fl
 unavailable (`signing_agent_unavailable`), does not hold the key (`signing_agent_key_absent`), or fails
 the real sign (`signing_agent_sign_failed`), the write is left unsigned at exit 0 — see
 [signing-ux.md](./signing-ux.md) for the full never-gates table. This never-gates behavior covers the
-ordinary signed review writes listed above; `shore review endorse` is the exception, where an
+ordinary signed review writes listed above; `shore endorse` is the exception, where an
 unresolved signer is a hard error rather than an unsigned write. Only shipped subcommands are listed;
 `rotate` and `revoke` are named follow-ons, not yet available.
 
@@ -728,13 +728,13 @@ Output documents are compact `shore.review-validation-add` and
 `shore.review-validation-list` JSON by default. `validation list` also accepts `--pretty` and
 `--compact`.
 
-## `shore review endorse`
+## `shore endorse`
 
 ```bash
-shore review endorse <target-event-id> [--sign-key <name|path>] [--actor <id>] [--repo .] [--pretty]
+shore endorse <target-event-id> [--sign-key <name|path>] [--actor <id>] [--repo .] [--pretty]
 ```
 
-`shore review endorse` records a detached co-signature (an endorsement) over an existing target event —
+`shore endorse` records a detached co-signature (an endorsement) over an existing target event —
 for example a captured revision's `work_object_proposed` event. The resolved signer is the attesting
 signer and the carrier's envelope writer is the **endorser's own actor** (`--actor`, else the resolved
 writing identity), never the target's author.
