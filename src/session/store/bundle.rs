@@ -8,7 +8,7 @@ use crate::error::{Result, ShoreError};
 use crate::model::id_prefix;
 use crate::session::event::{EventType, IngestVia, ShoreEvent, stamp_ingest_provenance};
 use crate::session::object_artifact::decode_and_validate_object_artifact;
-use crate::session::store::body_artifact::NoteBodyEnvelope;
+use crate::session::store::body_artifact::{NoteBodyEnvelope, body_artifact_field};
 use crate::session::store::{EventStore, ObjectArtifact};
 use crate::session::{
     EventVerificationPolicy, IngestEventVerification, SessionState, TrustSet, current_timestamp,
@@ -668,16 +668,12 @@ fn note_body_artifact_paths_for_event(
     event_type: EventType,
     payload: &serde_json::Value,
 ) -> Vec<&str> {
-    match event_type {
-        EventType::ReviewObservationRecorded
-        | EventType::InputRequestOpened
-        | EventType::ReviewNoteImported
-        | EventType::TaskObservationRecorded => optional_payload_path(payload, "bodyArtifactPath"),
-        EventType::InputRequestResponded => optional_payload_path(payload, "reasonArtifactPath"),
-        EventType::ReviewAssessmentRecorded | EventType::ValidationCheckRecorded => {
-            optional_payload_path(payload, "summaryArtifactPath")
-        }
-        _ => Vec::new(),
+    // Derived from the shared registry, so a new body-bearing family cannot be
+    // silently dropped here (the former `_ => Vec::new()` wildcard did exactly
+    // that until a family was added on both paths).
+    match body_artifact_field(event_type) {
+        Some(field) => optional_payload_path(payload, field.payload_field()),
+        None => Vec::new(),
     }
 }
 
@@ -1083,6 +1079,35 @@ mod tests {
             .map(|requirement| requirement.artifact_ref)
             .collect::<Vec<_>>();
         assert_eq!(refs, vec![format!("note-body:sha256:{}", "2".repeat(64))]);
+    }
+
+    #[test]
+    fn every_registry_body_family_yields_a_note_body_requirement() {
+        use crate::session::store::body_artifact::body_artifact_field;
+
+        let hash = "3".repeat(64);
+        let path = note_body_path_for_hash(hash.clone());
+
+        for event_type in EventType::ALL {
+            let Some(field) = body_artifact_field(event_type) else {
+                continue;
+            };
+            let field_name = field.payload_field(); // the wire field the registry names
+            let mut event = review_initialized_event("registry-agreement", 1);
+            event.event_type = event_type;
+            event.payload = json!({ field_name: path });
+
+            let refs = event_artifact_requirements(&event, event.event_id.as_str())
+                .unwrap()
+                .into_iter()
+                .map(|requirement| requirement.artifact_ref)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                refs,
+                vec![format!("{}:sha256:{hash}", id_prefix::NOTE_BODY)],
+                "path 2 dropped the body artifact for {event_type:?}"
+            );
+        }
     }
 
     #[test]

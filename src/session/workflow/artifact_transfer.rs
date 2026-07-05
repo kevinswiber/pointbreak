@@ -4,13 +4,8 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Result, ShoreError};
 use crate::model::{ObjectId, id_prefix};
-use crate::session::body_artifact::note_body_content_hash_from_path;
-use crate::session::event::{
-    EventType, InputRequestRespondedPayload, ReviewAssessmentRecordedPayload,
-    ReviewNoteImportedPayload, ReviewObservationRecordedPayload, ShoreEvent,
-    TaskObservationRecordedPayload, ValidationCheckRecordedPayload, WorkObjectProposal,
-    WorkObjectProposedPayload, decode_input_request_opened_payload,
-};
+use crate::session::body_artifact::{body_artifact_field, note_body_content_hash_from_path};
+use crate::session::event::{EventType, ShoreEvent, WorkObjectProposal, WorkObjectProposedPayload};
 use crate::session::object_artifact::{
     decode_and_validate_object_artifact, read_bound_object_artifact_bytes,
 };
@@ -192,73 +187,47 @@ fn referenced_artifacts_for_event(
     event: &ShoreEvent,
     refs: &mut BTreeMap<String, ArtifactRef>,
 ) -> Result<()> {
-    match event.event_type {
-        EventType::WorkObjectProposed => {
-            let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
-            match payload.work_object {
-                WorkObjectProposal::Revision {
-                    revision,
-                    object_artifact_content_hash,
-                    ..
-                } => insert_artifact_ref(
-                    refs,
-                    format!(
-                        "{}:{object_artifact_content_hash}",
-                        id_prefix::ARTIFACT_OBJECT
-                    ),
-                    ArtifactRef {
-                        locator: ArtifactLocator::Object {
-                            object_id: revision.object_id,
-                        },
-                        content_hash: object_artifact_content_hash,
-                    },
+    // The object family externalizes a captured Revision's content object; it
+    // needs the typed `ObjectId`, so it stays a typed, strict arm that errors on
+    // a malformed payload.
+    if event.event_type == EventType::WorkObjectProposed {
+        let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
+        if let WorkObjectProposal::Revision {
+            revision,
+            object_artifact_content_hash,
+            ..
+        } = payload.work_object
+        {
+            insert_artifact_ref(
+                refs,
+                format!(
+                    "{}:{object_artifact_content_hash}",
+                    id_prefix::ARTIFACT_OBJECT
                 ),
-                // A task-attempt proposal references no content-addressed artifact.
-                WorkObjectProposal::TaskAttempt { .. } => Ok(()),
-            }
+                ArtifactRef {
+                    locator: ArtifactLocator::Object {
+                        object_id: revision.object_id,
+                    },
+                    content_hash: object_artifact_content_hash,
+                },
+            )?;
         }
-        EventType::InputRequestOpened => {
-            let payload = decode_input_request_opened_payload(event.payload.clone())?;
-            insert_body_ref(refs, payload.body_artifact_path.as_deref())
-        }
-        EventType::InputRequestResponded => {
-            let payload: InputRequestRespondedPayload =
-                serde_json::from_value(event.payload.clone())?;
-            insert_body_ref(refs, payload.reason_artifact_path.as_deref())
-        }
-        EventType::ReviewObservationRecorded => {
-            let payload: ReviewObservationRecordedPayload =
-                serde_json::from_value(event.payload.clone())?;
-            insert_body_ref(refs, payload.body_artifact_path.as_deref())
-        }
-        EventType::ReviewAssessmentRecorded => {
-            let payload: ReviewAssessmentRecordedPayload =
-                serde_json::from_value(event.payload.clone())?;
-            insert_body_ref(refs, payload.summary_artifact_path.as_deref())
-        }
-        EventType::ValidationCheckRecorded => {
-            let payload: ValidationCheckRecordedPayload =
-                serde_json::from_value(event.payload.clone())?;
-            insert_body_ref(refs, payload.summary_artifact_path.as_deref())
-        }
-        EventType::ReviewNoteImported => {
-            let payload: ReviewNoteImportedPayload = serde_json::from_value(event.payload.clone())?;
-            insert_body_ref(refs, payload.body_artifact_path.as_deref())
-        }
-        EventType::TaskObservationRecorded => {
-            let payload: TaskObservationRecordedPayload =
-                serde_json::from_value(event.payload.clone())?;
-            insert_body_ref(refs, payload.body_artifact_path.as_deref())
-        }
-        EventType::ReviewInitialized
-        | EventType::RevisionRefAssociated
-        | EventType::RevisionRefWithdrawn
-        | EventType::RevisionCommitAssociated
-        | EventType::RevisionCommitWithdrawn
-        | EventType::TaskCheckpointCaptured
-        | EventType::EventSignatureRecorded
-        | EventType::ArtifactRemoved => Ok(()),
+        // A task-attempt proposal references no content-addressed artifact.
+        return Ok(());
     }
+
+    // Every body-bearing family externalizes exactly one path field, named by the
+    // shared registry. Read it leniently from raw JSON (aligned with the bundle
+    // path); `insert_body_ref` still validates the path shape and hash.
+    if let Some(field) = body_artifact_field(event.event_type) {
+        let path = event
+            .payload
+            .get(field.payload_field())
+            .and_then(|value| value.as_str());
+        return insert_body_ref(refs, path);
+    }
+
+    Ok(())
 }
 
 fn insert_body_ref(
@@ -319,6 +288,66 @@ mod tests {
             artifact.kind() == ArtifactKind::Body
                 && artifact.content_hash() == format!("sha256:{hash}")
         }));
+    }
+
+    #[test]
+    fn every_registry_body_family_yields_a_body_ref() {
+        let hash = "b".repeat(64);
+        let path = format!("artifacts/notes/{hash}.json");
+
+        for event_type in EventType::ALL {
+            let Some(field) = body_artifact_field(event_type) else {
+                continue;
+            };
+            let field_name = field.payload_field();
+            let mut event = base_event();
+            event.event_type = event_type;
+            event.payload = serde_json::json!({ field_name: path });
+
+            let refs = referenced_artifacts(&[event]).unwrap();
+            assert!(
+                refs.iter().any(|a| a.kind() == ArtifactKind::Body
+                    && a.content_hash() == format!("sha256:{hash}")),
+                "path 1 dropped the body artifact for {event_type:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn non_body_families_yield_no_body_ref() {
+        for event_type in EventType::ALL {
+            if body_artifact_field(event_type).is_some()
+                || event_type == EventType::WorkObjectProposed
+            {
+                continue; // body families and the object family are covered elsewhere
+            }
+            let mut event = base_event();
+            event.event_type = event_type;
+            event.payload = serde_json::json!({ "bodyArtifactPath": "artifacts/notes/x.json" });
+
+            let refs = referenced_artifacts(&[event]).unwrap();
+            assert!(
+                refs.iter().all(|a| a.kind() != ArtifactKind::Body),
+                "path 1 spuriously enumerated a body artifact for non-body {event_type:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_work_object_proposed_payload_still_errors() {
+        // The object family stays typed + strict: a malformed payload must error,
+        // not be silently skipped.
+        let mut event = base_event();
+        event.event_type = EventType::WorkObjectProposed;
+        event.payload = serde_json::json!({ "workObject": "not-an-object" });
+
+        assert!(referenced_artifacts(&[event]).is_err());
+    }
+
+    /// A minimal valid event to clone/overwrite; the enumeration reads only
+    /// `event_type` + `payload`, so any well-formed base works.
+    fn base_event() -> ShoreEvent {
+        validation_event_with_summary_path("artifacts/notes/placeholder.json")
     }
 
     fn validation_event_with_summary_path(path: &str) -> ShoreEvent {

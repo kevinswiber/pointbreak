@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::canonical_hash::sha256_bytes_hex;
 use crate::error::{Result, ShoreError};
+use crate::session::event::EventType;
 use crate::session::store::backend::StoreBackend;
 use crate::session::store::content::ContentArtifacts;
 
@@ -183,9 +184,107 @@ fn invalid_artifact_path(relative_path: &str) -> ShoreError {
     ShoreError::Message(format!("Invalid artifact path: {relative_path}"))
 }
 
+/// Which payload field, if any, carries a note-body artifact path for an event
+/// family — the single registry both artifact-enumeration paths derive from
+/// ([`referenced_artifacts`](crate::session::referenced_artifacts) in
+/// `workflow::artifact_transfer` and `note_body_artifact_paths_for_event` in
+/// `store::bundle`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::session) enum BodyArtifactField {
+    Body,
+    Reason,
+    Summary,
+}
+
+impl BodyArtifactField {
+    /// The camelCase payload field carrying the artifact path.
+    pub(in crate::session) fn payload_field(self) -> &'static str {
+        match self {
+            Self::Body => "bodyArtifactPath",
+            Self::Reason => "reasonArtifactPath",
+            Self::Summary => "summaryArtifactPath",
+        }
+    }
+}
+
+/// The note-body slot an event family externalizes to, or `None` for families
+/// with no externalized body. Exhaustive with no wildcard: a new [`EventType`]
+/// variant fails to compile until it declares its slot here, so a body-bearing
+/// family can never reach only one enumeration path (the failure mode where a
+/// new family was registered on one path but silently missed on the other).
+pub(in crate::session) fn body_artifact_field(event_type: EventType) -> Option<BodyArtifactField> {
+    match event_type {
+        EventType::ReviewObservationRecorded
+        | EventType::InputRequestOpened
+        | EventType::ReviewNoteImported
+        | EventType::TaskObservationRecorded => Some(BodyArtifactField::Body),
+        EventType::InputRequestResponded => Some(BodyArtifactField::Reason),
+        EventType::ReviewAssessmentRecorded | EventType::ValidationCheckRecorded => {
+            Some(BodyArtifactField::Summary)
+        }
+        // Not note-body families. `WorkObjectProposed` externalizes an *object*
+        // artifact, enumerated separately with its typed `ObjectId`.
+        EventType::WorkObjectProposed
+        | EventType::ReviewInitialized
+        | EventType::RevisionRefAssociated
+        | EventType::RevisionRefWithdrawn
+        | EventType::RevisionCommitAssociated
+        | EventType::RevisionCommitWithdrawn
+        | EventType::TaskCheckpointCaptured
+        | EventType::EventSignatureRecorded
+        | EventType::ArtifactRemoved => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn body_artifact_field_pins_every_family() {
+        use BodyArtifactField::{Body, Reason, Summary};
+        for event_type in EventType::ALL {
+            let expected = match event_type {
+                EventType::ReviewObservationRecorded
+                | EventType::InputRequestOpened
+                | EventType::ReviewNoteImported
+                | EventType::TaskObservationRecorded => Some(Body),
+                EventType::InputRequestResponded => Some(Reason),
+                EventType::ReviewAssessmentRecorded | EventType::ValidationCheckRecorded => {
+                    Some(Summary)
+                }
+                _ => None,
+            };
+            assert_eq!(
+                body_artifact_field(event_type),
+                expected,
+                "registry classification drifted for {event_type:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn payload_field_names_match_the_wire() {
+        assert_eq!(BodyArtifactField::Body.payload_field(), "bodyArtifactPath");
+        assert_eq!(
+            BodyArtifactField::Reason.payload_field(),
+            "reasonArtifactPath"
+        );
+        assert_eq!(
+            BodyArtifactField::Summary.payload_field(),
+            "summaryArtifactPath"
+        );
+    }
+
+    #[test]
+    fn validation_check_is_a_summary_body_family() {
+        // Regression pin: this family must be body-bearing so both enumeration
+        // paths carry it (it was once missed on one path).
+        assert_eq!(
+            body_artifact_field(EventType::ValidationCheckRecorded),
+            Some(BodyArtifactField::Summary)
+        );
+    }
 
     /// The file backend (rooted at a temp dir the guard keeps alive) and the
     /// injection-only in-memory backend, so the note-body read is proven to flow

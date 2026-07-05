@@ -44,11 +44,83 @@ impl EventType {
             Self::ArtifactRemoved => "artifact_removed",
         }
     }
+
+    /// Every `EventType` variant, in declaration order. The canonical list tests
+    /// iterate so a variant is enumerated in exactly one place. Kept complete by
+    /// `all_is_exhaustive` below. Test-only: the sole consumers are `#[cfg(test)]`
+    /// registries/agreement tests, so gating it keeps the lib pass free of a
+    /// dead-code warning under `-D warnings`.
+    #[cfg(test)]
+    pub(crate) const ALL: [EventType; 16] = [
+        Self::ReviewInitialized,
+        Self::WorkObjectProposed,
+        Self::ReviewObservationRecorded,
+        Self::ReviewAssessmentRecorded,
+        Self::InputRequestOpened,
+        Self::InputRequestResponded,
+        Self::ReviewNoteImported,
+        Self::RevisionRefAssociated,
+        Self::RevisionRefWithdrawn,
+        Self::RevisionCommitAssociated,
+        Self::RevisionCommitWithdrawn,
+        Self::ValidationCheckRecorded,
+        Self::TaskCheckpointCaptured,
+        Self::TaskObservationRecorded,
+        Self::EventSignatureRecorded,
+        Self::ArtifactRemoved,
+    ];
+}
+
+/// Adding an `EventType` variant breaks this match until the variant is also
+/// appended to [`EventType::ALL`]. It exists only to make that coupling a compile
+/// error rather than a silent test-coverage gap; it is invoked from the tests so
+/// it carries no runtime cost and trips no dead-code lint.
+#[cfg(test)]
+fn all_is_exhaustive(event_type: EventType) {
+    match event_type {
+        EventType::ReviewInitialized
+        | EventType::WorkObjectProposed
+        | EventType::ReviewObservationRecorded
+        | EventType::ReviewAssessmentRecorded
+        | EventType::InputRequestOpened
+        | EventType::InputRequestResponded
+        | EventType::ReviewNoteImported
+        | EventType::RevisionRefAssociated
+        | EventType::RevisionRefWithdrawn
+        | EventType::RevisionCommitAssociated
+        | EventType::RevisionCommitWithdrawn
+        | EventType::ValidationCheckRecorded
+        | EventType::TaskCheckpointCaptured
+        | EventType::TaskObservationRecorded
+        | EventType::EventSignatureRecorded
+        | EventType::ArtifactRemoved => {}
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn all_lists_every_variant_once() {
+        // Every variant appears exactly once, and the count matches the enum arity.
+        assert_eq!(EventType::ALL.len(), 16);
+        for variant in EventType::ALL {
+            let occurrences = EventType::ALL.iter().filter(|&&v| v == variant).count();
+            assert_eq!(
+                occurrences, 1,
+                "{variant:?} must appear exactly once in ALL"
+            );
+            // Anchor the completeness reminder so a new variant forces an ALL update.
+            all_is_exhaustive(variant);
+        }
+        // ALL agrees with the serde round-trip surface for every listed variant.
+        for variant in EventType::ALL {
+            let encoded = serde_json::to_string(&variant).unwrap();
+            let decoded: EventType = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(decoded, variant);
+        }
+    }
 
     #[test]
     fn as_str_matches_serde_wire_string_for_every_variant() {
