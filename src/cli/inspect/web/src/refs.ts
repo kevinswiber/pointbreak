@@ -98,7 +98,10 @@ export function refInfo(token: string): RefInfo | null {
 
 export const REF_RE = new RegExp(
   `\\b(?:${REF_ID_PREFIXES.join("|")}):(?:git:|worktree:)?sha256:[0-9a-f]{6,}\\b` +
-    "|\\bsha256:[0-9a-f]{16,}\\b" +
+    // A bare content hash, but NOT the `sha256:` tail of a prefixed id whose
+    // prefix is not linkified (preceded by `:`) — those render whole as plain
+    // text (e.g. retired `review-unit:`/`snap:` ids), not a partial hash chip.
+    "|(?<!:)\\bsha256:[0-9a-f]{16,}\\b" +
     "|\\b[0-9a-f]{40}\\b" +
     "|\\b(?:agent|human):[a-z0-9][a-z0-9_-]*\\b",
   "gi",

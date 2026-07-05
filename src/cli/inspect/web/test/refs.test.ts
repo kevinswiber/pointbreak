@@ -116,7 +116,7 @@ describe("REF_RE derivation", () => {
     // The alternation lock: change REF_ID_PREFIXES and this expected literal
     // together, deliberately — that is the display-membership decision.
     expect(REF_RE.source).toBe(
-      "\\b(?:input-request-response|input-request|obs|assess|rev|evt|note|validation|obj|engagement|checkpoint|task-attempt|assoc-commit|assoc-ref|withdraw-commit|withdraw-ref):(?:git:|worktree:)?sha256:[0-9a-f]{6,}\\b|\\bsha256:[0-9a-f]{16,}\\b|\\b[0-9a-f]{40}\\b|\\b(?:agent|human):[a-z0-9][a-z0-9_-]*\\b",
+      "\\b(?:input-request-response|input-request|obs|assess|rev|evt|note|validation|obj|engagement|checkpoint|task-attempt|assoc-commit|assoc-ref|withdraw-commit|withdraw-ref):(?:git:|worktree:)?sha256:[0-9a-f]{6,}\\b|(?<!:)\\bsha256:[0-9a-f]{16,}\\b|\\b[0-9a-f]{40}\\b|\\b(?:agent|human):[a-z0-9][a-z0-9_-]*\\b",
     );
     expect(REF_RE.flags).toBe("gi");
   });
@@ -189,6 +189,29 @@ describe("linkify / linkifyEscaped", () => {
     );
     expect(span?.classList.contains("ref-validation")).toBe(true);
     expect(span?.getAttribute("data-ref-kind")).toBeNull();
+  });
+
+  it("renders retired legacy ids as plain text, not a partial hash chip (#344)", () => {
+    // Retiring review-unit/snap from REF_ID_PREFIXES must not leave the sha256
+    // tail matching the generic hash arm — the whole id renders plain.
+    for (const id of [
+      "review-unit:sha256:abcdef0123456789",
+      "snap:sha256:abcdef0123456789",
+      "snap:git:sha256:abcdef0123456789",
+    ]) {
+      const html = linkify(`see ${id}`);
+      expect(parse(html).querySelector("span.ref")).toBeNull();
+      expect(html).toContain(id);
+    }
+  });
+
+  it("still linkifies a genuinely bare sha256 content hash", () => {
+    // The `(?<!:)` guard only excludes a `sha256:` preceded by `:` (a prefixed
+    // id tail); a standalone content hash still chips.
+    const span = parse(linkify("hash sha256:abcdef0123456789")).querySelector(
+      "span.ref",
+    );
+    expect(span?.classList.contains("ref-hash")).toBe(true);
   });
 
   it("escapes surrounding text and coerces null to empty (no raw markup)", () => {
