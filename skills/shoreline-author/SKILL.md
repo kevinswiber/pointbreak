@@ -159,7 +159,7 @@ review context only. It never accepts, rejects, merges, blocks, or replaces the 
 assessment.
 
 ```bash
-shore review validation add \
+shore validation add \
   --revision "$revision_id" \
   --track "$track" \
   --check-name "targeted parser test" \
@@ -168,7 +168,7 @@ shore review validation add \
   --exit-code 0 \
   --summary "Passed after the final edit against the captured revision."
 
-shore review validation add \
+shore validation add \
   --revision "$revision_id" \
   --track "$track" \
   --check-name "just check" \
@@ -216,7 +216,7 @@ Verify that the handoff is visible before you stop:
 
 ```bash
 shore observation list --revision "$revision_id" --track "$track" --pretty
-shore review validation list --revision "$revision_id" --track "$track" --include-body --pretty
+shore validation list --revision "$revision_id" --track "$track" --include-body --pretty
 shore review input-request list --revision "$revision_id" --track "$track" --status open --pretty
 ```
 
@@ -231,7 +231,7 @@ Then stand down with a concise message:
 Created the Shoreline handoff record on `<track>`. Read it with
 `shore observation list --revision <id> --track <track> --include-body --pretty`
 and
-`shore review validation list --revision <id> --track <track> --include-body --pretty`
+`shore validation list --revision <id> --track <track> --include-body --pretty`
 and
 `shore review input-request list --revision <id> --track <track> --status open --include-body --pretty`.
 I did not add an assessment; that is for the reviewer.
@@ -254,7 +254,7 @@ capture a separate handoff when that task reaches its own end.
 - **Claiming verification you did not run.** Record only checks you actually performed, including
   failures or skipped checks when they matter.
 - **Putting check results only in observations.** Record concrete command results with
-  `shore review validation add`; use observations for the surrounding decision or risk context.
+  `shore validation add`; use observations for the surrounding decision or risk context.
 - **Treating validation as acceptance.** Validation evidence is advisory and never replaces the
   reviewer's assessment.
 - **Forgetting `--revision`.** If more than one revision is current, write commands fail until

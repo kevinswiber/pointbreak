@@ -177,7 +177,7 @@ fn review_validation_list(
     let pretty = args.pretty && !args.compact;
     let format_explicit = args.format_args.explicit(pretty);
     let repo = args.repo.clone();
-    let result = list_validation_checks(validation_list_options(args));
+    let result = list_validation_checks(validation_list_options(args)?);
     let delegation_map = crate::cli::common::discover_delegation_map(&repo);
     let document = validation_list_document(result?, delegation_map.as_ref());
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
@@ -199,8 +199,9 @@ fn validation_add_options(
         .with_status(args.status.into())
         .with_trigger(args.trigger.into());
 
-    if let Some(revision) = args.revision {
-        options = options.with_revision_id(RevisionId::new(revision));
+    if let Some(revision) = &args.revision {
+        let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+        options = options.with_revision_id(RevisionId::new(ids.rev(revision)?));
     }
     if let Some(command) = args.command {
         options = options.with_command(command);
@@ -239,12 +240,15 @@ fn validation_add_options(
     Ok((options, skip))
 }
 
-fn validation_list_options(args: ValidationListArgs) -> ValidationListOptions {
+fn validation_list_options(
+    args: ValidationListArgs,
+) -> Result<ValidationListOptions, Box<dyn std::error::Error>> {
     let mut options = ValidationListOptions::new(&args.repo)
         .with_include_body(args.include_body)
         .with_trust_set(crate::cli::common::discover_trust_set(&args.repo));
-    if let Some(revision) = args.revision {
-        options = options.with_revision_id(RevisionId::new(revision));
+    if let Some(revision) = &args.revision {
+        let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+        options = options.with_revision_id(RevisionId::new(ids.rev(revision)?));
     }
     if let Some(track) = args.track {
         options = options.with_track(track);
@@ -252,7 +256,7 @@ fn validation_list_options(args: ValidationListArgs) -> ValidationListOptions {
     if let Some(status) = args.status {
         options = options.with_status(status.into());
     }
-    options
+    Ok(options)
 }
 
 impl From<ValidationStatusArg> for ValidationStatus {

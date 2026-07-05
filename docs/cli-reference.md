@@ -93,12 +93,12 @@ identity. There is no fixed vocabulary or required shape; the label is opaque to
 exists so a revision's facts can be filtered and grouped by who recorded them.
 
 - On every write command that records a fact (`shore observation add`,
-  `shore assessment add`, `shore review validation add`,
+  `shore assessment add`, `shore validation add`,
   `shore review association associate-commit` / `associate-ref` / `withdraw-commit` /
   `withdraw-ref`, `shore review input-request open`), `--track <track-id>` is **required** and
   stamps the lane that owns the new fact.
 - On read/list commands (`shore observation list`, `shore review input-request list`,
-  `shore review validation list`, `shore assessment show`, `shore history`,
+  `shore validation list`, `shore assessment show`, `shore history`,
   `shore review show`), `--track <track-id>` is **optional** and narrows the results to one
   lane; omitted, all lanes are returned.
 
@@ -212,7 +212,7 @@ event type, newest-first by default), a per-event detail view, a composite per-r
 the current-assessment status plus grouped observations, input requests, assessments, and
 competing-head badges, a supersession-thread list/detail view showing heads, threaded revisions,
 diagnostics, and stale superseded-revision facts, and the captured diff for a revision annotated with
-the review facts anchored to each line. Validation checks recorded with `shore review validation add`
+the review facts anchored to each line. Validation checks recorded with `shore validation add`
 appear throughout — as a labeled timeline event type, a "Validation checks" section on the revision
 page (with the check name, status, trigger, and exit code), and on thread cards — shown for context
 only; they do not affect the current assessment and carry no merge or acceptance authority. The
@@ -319,7 +319,7 @@ immediately visible to `review revisions`, `review show`, and `history` from any
 [`shore store`](#shore-store)).
 
 The native review write commands — `shore observation add`, `shore review input-request open`
-and `respond`, `shore assessment add`, and `shore review validation add` — behave the same
+and `respond`, `shore assessment add`, and `shore validation add` — behave the same
 way. They resolve the shared common-dir store, so you can record a
 fact against a revision (or related observation, assessment, or request) captured in a sibling
 worktree, and the fact lands directly in that shared store, visible to every worktree in place. An
@@ -695,12 +695,12 @@ by default. `assessment show` also accepts `--pretty` and `--compact`.
 State-change outcomes such as deferred, split-out, overridden, and superseded are ordinary review
 observations when needed.
 
-## `shore review validation`
+## `shore validation`
 
 ```bash
-shore review validation add --track <track-id> --check-name <name> --status <status> \
+shore validation add --track <track-id> --check-name <name> --status <status> \
   [--revision <revision-id>] [validation options] [--summary-content-type text/plain|text/markdown]
-shore review validation list [--revision <revision-id>] \
+shore validation list [--revision <revision-id>] \
   [--track <track-id>] [--status <status>] [--include-body] [--pretty | --compact]
 ```
 

@@ -49,7 +49,7 @@ the authored handoff:
 
 ```bash
 shore observation list --revision "$revision_id" --pretty
-shore review validation list --revision "$revision_id" --include-body --pretty
+shore validation list --revision "$revision_id" --include-body --pretty
 shore review input-request list --revision "$revision_id" --status open --pretty
 ```
 
@@ -63,7 +63,7 @@ shore observation list \
   --track "$author_track" \
   --include-body --pretty
 
-shore review validation list \
+shore validation list \
   --revision "$revision_id" \
   --track "$author_track" \
   --include-body --pretty
@@ -175,7 +175,7 @@ When you run checks during review, record the concrete result on the reviewer tr
 evidence for command results, and observations for the reasoning around those results.
 
 ```bash
-shore review validation add \
+shore validation add \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --check-name "just check" \
@@ -257,7 +257,7 @@ shore observation list \
   --track "$reviewer_track" \
   --include-body --pretty
 
-shore review validation list \
+shore validation list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-body --pretty
@@ -286,7 +286,7 @@ an implementation role.
 - **Rubber-stamping the handoff.** The author's observations are context. Verify claims yourself.
 - **Treating validation evidence as an assessment.** Check records are advisory context. The
   reviewer still records exactly one assessment.
-- **Hiding reviewer-run checks in observations.** Use `shore review validation add` for concrete
+- **Hiding reviewer-run checks in observations.** Use `shore validation add` for concrete
   command results, and observations for interpretation or risks.
 - **Skipping the live commit check.** If your checkout differs from the captured snapshot, say so in
   a reviewer observation.

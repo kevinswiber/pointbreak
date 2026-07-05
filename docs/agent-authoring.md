@@ -130,7 +130,7 @@ shore observation add \
   --title "Verification covered the changed parser and full suite" \
   --body "Ran the targeted parser test and the repository test suite after the final edit. No generated artifacts were changed."
 
-shore review validation add \
+shore validation add \
   --revision "$revision_id" \
   --track "$track" \
   --check-name "just check" \
@@ -148,7 +148,7 @@ shore review input-request open \
   --body "The implementation accepts the new form, but I did not update user-facing docs because the prompt did not say whether this behavior should be advertised yet."
 
 shore observation list --revision "$revision_id" --track "$track" --pretty
-shore review validation list --revision "$revision_id" --track "$track" --include-body --pretty
+shore validation list --revision "$revision_id" --track "$track" --include-body --pretty
 shore review input-request list --revision "$revision_id" --track "$track" --status open --pretty
 ```
 
@@ -165,7 +165,7 @@ revision only when exactly one current capture exists. If `jq` is not available,
 
 A good handoff is short, concrete, and review-oriented. It names the files that matter, the reason
 the shape of the change is acceptable, what validation actually ran, and where the author is least
-certain. Concrete check results should be recorded with `shore review validation add`; observations
+certain. Concrete check results should be recorded with `shore validation add`; observations
 should explain the surrounding decision, risk, or interpretation. It does not repeat every diff hunk,
 and it does not bury the reviewer in generic status updates.
 
@@ -178,7 +178,7 @@ After the author stops, a reviewer can read the handoff with:
 
 ```bash
 shore observation list --revision <revision-id> --track <track> --include-body --pretty
-shore review validation list --revision <revision-id> --track <track> --include-body --pretty
+shore validation list --revision <revision-id> --track <track> --include-body --pretty
 shore review input-request list --revision <revision-id> --track <track> --status open \
   --include-body --pretty
 ```
@@ -215,7 +215,7 @@ Reviewer readback uses the same bounded surfaces as the author handoff:
 ```bash
 shore observation list --revision <revision-id> --track <author-track> \
   --include-body --pretty
-shore review validation list --revision <revision-id> --track <author-track> \
+shore validation list --revision <revision-id> --track <author-track> \
   --include-body --pretty
 shore review input-request list --revision <revision-id> --track <author-track> \
   --status open --include-body --pretty
@@ -224,7 +224,7 @@ shore review input-request list --revision <revision-id> --track <author-track> 
 When the reviewer runs checks, it records those concrete results separately from the assessment:
 
 ```bash
-shore review validation add \
+shore validation add \
   --revision <revision-id> \
   --track <reviewer-track> \
   --check-name "just check" \
@@ -270,7 +270,7 @@ The author reads the reviewer track with bounded commands:
 ```bash
 shore observation list --revision <revision-id> --track <reviewer-track> \
   --include-body --pretty
-shore review validation list --revision <revision-id> --track <reviewer-track> \
+shore validation list --revision <revision-id> --track <reviewer-track> \
   --include-body --pretty
 shore assessment show --revision <revision-id> --track <reviewer-track> \
   --include-summary --pretty

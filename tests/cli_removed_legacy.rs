@@ -57,6 +57,10 @@ const REMOVED_PATHS: &[RemovedPath] = &[
         argv: &["review", "assessment", "add", "--help"],
         hint_contains: &["shore assessment"],
     },
+    RemovedPath {
+        argv: &["review", "validation", "add", "--help"],
+        hint_contains: &["shore validation"],
+    },
 ];
 
 #[test]

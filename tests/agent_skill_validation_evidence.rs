@@ -2,10 +2,7 @@ use std::path::Path;
 
 #[test]
 fn agent_skills_and_docs_adopt_validation_evidence_workflow() {
-    assert_contains(
-        "skills/shoreline-author/SKILL.md",
-        "shore review validation add",
-    );
+    assert_contains("skills/shoreline-author/SKILL.md", "shore validation add");
     assert_contains(
         "skills/shoreline-author/SKILL.md",
         "That pre-change failure did not run against the captured revision",
@@ -14,24 +11,18 @@ fn agent_skills_and_docs_adopt_validation_evidence_workflow() {
         "skills/shoreline-author/SKILL.md",
         "Initial red run failed before the parser change",
     );
-    assert_contains(
-        "skills/shoreline-author/SKILL.md",
-        "shore review validation list",
-    );
+    assert_contains("skills/shoreline-author/SKILL.md", "shore validation list");
     assert_contains(
         "skills/shoreline-reviewer/SKILL.md",
-        "shore review validation list",
+        "shore validation list",
     );
-    assert_contains(
-        "skills/shoreline-reviewer/SKILL.md",
-        "shore review validation add",
-    );
+    assert_contains("skills/shoreline-reviewer/SKILL.md", "shore validation add");
     assert_contains(
         "skills/shoreline-author-response/SKILL.md",
-        "shore review validation list",
+        "shore validation list",
     );
-    assert_contains("docs/agent-authoring.md", "shore review validation add");
-    assert_contains("docs/agent-authoring.md", "shore review validation list");
+    assert_contains("docs/agent-authoring.md", "shore validation add");
+    assert_contains("docs/agent-authoring.md", "shore validation list");
     assert_contains("skills/README.md", "validation evidence");
 }
 

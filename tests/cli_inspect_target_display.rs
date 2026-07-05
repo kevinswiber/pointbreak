@@ -518,7 +518,6 @@ fn record_review_facts(repo: &Path) {
             "ship it",
         ],
         vec![
-            "review",
             "validation",
             "add",
             "--repo",

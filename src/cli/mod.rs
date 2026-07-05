@@ -26,6 +26,7 @@ mod output;
 mod review;
 mod show;
 mod store;
+mod validation;
 
 #[cfg(test)]
 mod about_bleed_guard;
@@ -72,6 +73,7 @@ enum Command {
     #[command(hide = true)]
     Show(show::ShowArgs),
     Store(store::StoreArgs),
+    Validation(validation::ValidationArgs),
 }
 
 pub(crate) fn run_main() -> ExitCode {
@@ -172,6 +174,10 @@ const REMOVED_COMMAND_HINTS: &[(HintPredicate, &str)] = &[
         "Use `shore observation` instead of `shore review observation`.",
     ),
     (
+        HintPredicate::AdjacentWindow(&["review", "validation"]),
+        "Use `shore validation` instead of `shore review validation`.",
+    ),
+    (
         HintPredicate::AdjacentWindow(&["review", "intervention"]),
         "Use `shore input-request` instead of `shore review intervention`.",
     ),
@@ -232,6 +238,7 @@ fn run_cli(
             show::run(args, &cli.tracing)
         }
         Command::Store(args) => store::run(args, stdout, stderr),
+        Command::Validation(args) => validation::run(args, stdout, stderr),
     }
 }
 

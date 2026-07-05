@@ -397,7 +397,6 @@ pub fn representative_store() -> RepresentativeStore {
     // Two validation checks across two tracks: a passed cargo test and a failed
     // cargo clippy carrying an exit code + command.
     run_shore(&[
-        "review",
         "validation",
         "add",
         "--repo",
@@ -410,7 +409,6 @@ pub fn representative_store() -> RepresentativeStore {
         "passed",
     ]);
     run_shore(&[
-        "review",
         "validation",
         "add",
         "--repo",

@@ -6,7 +6,6 @@ pub(super) mod association;
 pub(super) mod input_request;
 pub(super) mod revisions;
 pub(super) mod show;
-pub(super) mod validation;
 
 #[derive(Debug, Args)]
 pub(super) struct ReviewArgs {
@@ -20,7 +19,6 @@ enum ReviewCommand {
     InputRequest(input_request::InputRequestArgs),
     Revisions(revisions::RevisionsArgs),
     Show(show::ShowArgs),
-    Validation(validation::ValidationArgs),
 }
 
 pub(super) fn run(
@@ -33,6 +31,5 @@ pub(super) fn run(
         ReviewCommand::InputRequest(args) => input_request::run(args, stdout, stderr),
         ReviewCommand::Revisions(args) => revisions::run(args, stdout),
         ReviewCommand::Show(args) => show::run(args, stdout),
-        ReviewCommand::Validation(args) => validation::run(args, stdout, stderr),
     }
 }

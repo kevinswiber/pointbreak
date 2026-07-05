@@ -68,7 +68,7 @@ shore observation list \
   --track "$reviewer_track" \
   --include-body --pretty
 
-shore review validation list \
+shore validation list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-body --pretty
@@ -254,7 +254,7 @@ shore observation list \
   --track "$author_track" \
   --include-body --pretty
 
-shore review validation list \
+shore validation list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --include-body --pretty
@@ -289,7 +289,7 @@ did not change, and which input requests you responded to. Leave the assessment 
   `shore capture` for the response leg.
 - **Using full revision show for readback.** Use bounded observation, input-request, and
   assessment read commands. Do not use `shore review show --pretty` for this response loop.
-- **Ignoring reviewer validation evidence.** Read `shore review validation list` on the reviewer
+- **Ignoring reviewer validation evidence.** Read `shore validation list` on the reviewer
   track before deciding what checks to rerun.
 - **Attaching live-code checks to an old snapshot.** If response edits moved the checkout beyond the
   captured revision, record rerun checks as observations unless you can prove the snapshot matches.

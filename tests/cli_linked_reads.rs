@@ -145,7 +145,6 @@ impl LinkedFixture {
             "ship it",
         ]);
         run_shore_json(&[
-            "review",
             "validation",
             "add",
             "--repo",
@@ -336,7 +335,6 @@ fn deleted_worktree_validation_list_renders() {
     let (fixture, _) = populated_fixture_with_deleted_seed("m7");
 
     let json = run_shore_json(&[
-        "review",
         "validation",
         "list",
         "--repo",
@@ -680,7 +678,6 @@ fn linked_reader_records_validation_on_linked_only_unit() {
     // RED today: record_validation_check validates against the reader's empty
     // local store and fails with "unknown review unit".
     let result = run_shore_json(&[
-        "review",
         "validation",
         "add",
         "--repo",
@@ -742,7 +739,6 @@ fn linked_fact_writes_land_in_linked_store_not_worktree_local() {
         "ok",
     ]);
     run_shore_json(&[
-        "review",
         "validation",
         "add",
         "--repo",
@@ -1187,7 +1183,6 @@ fn linked_validation_list_resolves_linked_unit() {
     fixture.seed_full_facts("short body");
 
     let json = run_shore_json(&[
-        "review",
         "validation",
         "list",
         "--repo",

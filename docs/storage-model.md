@@ -307,7 +307,7 @@ Validation evidence follows the same revision ledger model:
   embed validation history, summary content, logs, or reports
 
 Validation evidence is advisory. It may support review judgment in `shore review show`,
-`shore history`, and `shore review validation list`, but it never grants review acceptance,
+`shore history`, and `shore validation list`, but it never grants review acceptance,
 merge authority, or write authority. It never changes `currentAssessment`, assessment ambiguity,
 operative input-request counts, or any other operative projection.
 

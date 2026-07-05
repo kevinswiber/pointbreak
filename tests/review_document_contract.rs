@@ -415,7 +415,6 @@ fn review_documents_are_byte_stable() {
     let validation_add = run_command(
         &repo,
         &[
-            "review",
             "validation",
             "add",
             "--repo",
@@ -447,14 +446,7 @@ fn review_documents_are_byte_stable() {
     // 14. review validation list
     let validation_list = run_command(
         &repo,
-        &[
-            "review",
-            "validation",
-            "list",
-            "--repo",
-            &repo_path,
-            "--include-body",
-        ],
+        &["validation", "list", "--repo", &repo_path, "--include-body"],
     );
     assert_snapshot("validation_list", &validation_list);
 }

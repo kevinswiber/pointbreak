@@ -74,7 +74,6 @@ fn supersession_thread_join_keys_exist_for_validation_entries() {
     // head, so the fact stays anchored to `first` after it is superseded. (Passing
     // `--revision <superseded>` later would resolve forward to the current head.)
     let added = shore([
-        "review",
         "validation",
         "add",
         "--repo",
