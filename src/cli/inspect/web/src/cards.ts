@@ -208,6 +208,10 @@ export function currentAssessmentSummary(d: RevisionDetail): string {
       );
       return `<div class="${cls}">${renderContentHtml(a.summary, a.summaryContentType)}</div>`;
     }
+    // Mirror the muted removed-body cue the Assessments card below shows, so a
+    // removed current-assessment summary does not leave the rollup silently blank.
+    const cue = removedBodyCue(a?.summaryContentState);
+    if (cue) return cue;
   }
   if (ca.status === "ambiguous") {
     return `<div class="${CLASS.verdictSummary}">${(ca.candidates || []).length} unreplaced assessments — see Assessments below.</div>`;

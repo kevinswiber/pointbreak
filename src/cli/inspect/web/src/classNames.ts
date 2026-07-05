@@ -27,6 +27,7 @@ export const CLASS = {
   body: "body",
   title: "title",
   time: "time",
+  eventDate: "event-date",
   rail: "rail",
   meta: "meta",
   type: "type",

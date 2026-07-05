@@ -19,7 +19,7 @@ import { CLASS } from "../classNames";
 import { fetchHistoryPage, HISTORY_PAGE } from "../data";
 import { $ } from "../dom";
 import { escapeHtml } from "../escape";
-import { fmtTime } from "../format";
+import { fmtDate, fmtTime } from "../format";
 import {
   captureSupersedesBadge,
   factSupersessionBadge,
@@ -122,7 +122,7 @@ function eventRow(e: HistoryEntry, selected: string | null): HTMLLIElement {
   const supersedesTag = captureSupersedesBadge(e);
   const factTag = factSupersessionBadge(e);
   li.innerHTML = `
-      <span class="${CLASS.time}">${escapeHtml(fmtTime(e.occurredAt ?? ""))}</span>
+      <span class="${CLASS.time}"><span class="${CLASS.eventDate}">${escapeHtml(fmtDate(e.occurredAt ?? ""))}</span><span>${escapeHtml(fmtTime(e.occurredAt ?? ""))}</span></span>
       <span class="${CLASS.rail}" style="background:${typeColor(e.eventType)}"></span>
       <span class="${CLASS.body}">
         <span class="${CLASS.title}">${linkify(entryTitle(e))} ${tags} ${supersedesTag} ${staleTag} ${factTag}</span>

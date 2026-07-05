@@ -19,6 +19,8 @@ import { fmtDateTime } from "../format";
 import {
   currentThreads,
   matchesRevisionFilters,
+  orderedRevisionEntries,
+  orderedThreads,
   overviewForRevision,
   renderThreadRevisionOverview,
   supersessionBadge,
@@ -41,8 +43,9 @@ export function renderRevisionList(): void {
   const el = $("#units");
   if (!el) return;
   const state = getState();
-  const entries = (state.revisions?.entries ?? []).filter(
-    matchesRevisionFilters,
+  const entries = orderedRevisionEntries(
+    (state.revisions?.entries ?? []).filter(matchesRevisionFilters),
+    state.order,
   );
   if (!entries.length) {
     el.innerHTML = `<p class="${CLASS.empty}" style="color:var(--fg-dim)">${
@@ -105,7 +108,10 @@ export function renderRevisions(): void {
   const el = $("#revisions");
   if (!el) return;
   const state = getState();
-  const threads = currentThreads().filter(threadMatchesRevisionFilters);
+  const threads = orderedThreads(
+    currentThreads().filter(threadMatchesRevisionFilters),
+    state.order,
+  );
   if (!threads.length) {
     el.innerHTML = `<p class="${CLASS.empty}" style="color:var(--fg-dim)">${
       state.filterText || state.filterSnapshot

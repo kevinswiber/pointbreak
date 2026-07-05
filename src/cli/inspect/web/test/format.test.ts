@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtDateTime, fmtTime, parseMs } from "../src/format";
+import { fmtDate, fmtDateTime, fmtTime, parseMs } from "../src/format";
 
 describe("parseMs", () => {
   it("extracts the trailing millisecond count from a unix-ms token", () => {
@@ -53,5 +53,20 @@ describe("fmtDateTime", () => {
   it("returns the original string (or empty) when it carries no timestamp", () => {
     expect(fmtDateTime("not-a-time")).toBe("not-a-time");
     expect(fmtDateTime("")).toBe("");
+  });
+});
+
+describe("fmtDate", () => {
+  it("renders a locale date (no clock) for a timestamp", () => {
+    const formatted = fmtDate("unix-ms:1782698716556");
+    expect(formatted).not.toBe("unix-ms:1782698716556");
+    expect(formatted).toMatch(/\d/);
+    // date-only: no clock separator
+    expect(formatted).not.toContain(":");
+  });
+
+  it("returns the original string (or empty) when it carries no timestamp", () => {
+    expect(fmtDate("not-a-time")).toBe("not-a-time");
+    expect(fmtDate("")).toBe("");
   });
 });

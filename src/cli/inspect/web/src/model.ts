@@ -14,6 +14,7 @@
 import { CLASS } from "./classNames";
 import type { Annotation } from "./diff/render";
 import { escapeHtml } from "./escape";
+import { parseMs } from "./format";
 import {
   assessmentCue,
   assessmentDisplayLabel,
@@ -208,6 +209,49 @@ export function revisionIdForSnapshot(
 /** The server review overview for a revision, or null. */
 export function overviewForRevision(revisionId: string): Overview | null {
   return revisionForId(revisionId)?.overview ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Recency ordering for the revision-centric list lenses (honors `state.order`)
+// ---------------------------------------------------------------------------
+
+/** The capture instant (ms) for a revision, or -Infinity when it carries no timestamp. */
+function revisionCapturedMs(r: Revision): number {
+  return parseMs(r.capturedAt) ?? Number.NEGATIVE_INFINITY;
+}
+
+/** Compare by ms honoring `order` ("desc" = newest-first default). Stable for equal instants. */
+function byOrder(order: string): (a: number, b: number) => number {
+  return order === "asc" ? (a, b) => a - b : (a, b) => b - a;
+}
+
+/** Revision entries ordered by capture instant; newest-first unless `order` is "asc". */
+export function orderedRevisionEntries(
+  entries: Revision[],
+  order: string,
+): Revision[] {
+  const cmp = byOrder(order);
+  return [...entries].sort((a, b) =>
+    cmp(revisionCapturedMs(a), revisionCapturedMs(b)),
+  );
+}
+
+/** The most-recent capture instant among a thread's member revisions, or -Infinity. */
+export function threadRecencyMs(thread: Thread): number {
+  let max = Number.NEGATIVE_INFINITY;
+  for (const id of thread.revisions ?? []) {
+    const r = revisionForId(id);
+    if (r) max = Math.max(max, revisionCapturedMs(r));
+  }
+  return max;
+}
+
+/** Thread cards ordered by member recency; newest-first unless `order` is "asc". */
+export function orderedThreads(threads: Thread[], order: string): Thread[] {
+  const cmp = byOrder(order);
+  return [...threads].sort((a, b) =>
+    cmp(threadRecencyMs(a), threadRecencyMs(b)),
+  );
 }
 
 // ---------------------------------------------------------------------------

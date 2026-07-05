@@ -325,3 +325,44 @@ describe("renderThreadSvg + wireDagInteractions (the no-trunk competing-heads DA
     `);
   });
 });
+
+describe("newest-first list ordering (#256)", () => {
+  const rev = (id: string, ms: number) => ({
+    revisionId: id,
+    capturedAt: `unix-ms:${ms}`,
+    snapshotId: `snap:${id}`,
+  });
+
+  it("renders the flat revision list newest-first by default", () => {
+    store.commit({
+      revisions: {
+        entries: [rev("a", 100), rev("c", 300), rev("b", 200)],
+      } as unknown as RevisionsDoc,
+    });
+    mountListBody();
+    revisions.renderRevisionList();
+    const ids = [...document.querySelectorAll("#units .unit-card")].map((c) =>
+      c.getAttribute("data-revision-id"),
+    );
+    expect(ids).toEqual(["c", "b", "a"]);
+  });
+
+  it("orders thread cards newest-first by member recency", () => {
+    store.commit({
+      revisions: {
+        entries: [rev("a", 100), rev("b", 500), rev("c", 300)],
+      } as unknown as RevisionsDoc,
+      threads: {
+        threads: [{ revisions: ["a"] }, { revisions: ["b", "c"] }],
+      } as unknown as ThreadsDoc,
+    });
+    mountThreadsBody();
+    revisions.renderRevisions();
+    const cards = document.querySelectorAll("#revisions .thread-card");
+    expect(cards.length).toBe(2);
+    // The 2-revision thread (member "b" at ms 500) sorts before the 1-revision
+    // thread (member "a" at ms 100); its "revisions" count cell (first <b>) is "2".
+    const firstCount = cards[0].querySelector(".kv b")?.textContent;
+    expect(firstCount).toBe("2");
+  });
+});

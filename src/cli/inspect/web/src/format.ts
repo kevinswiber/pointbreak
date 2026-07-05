@@ -21,3 +21,10 @@ export function fmtDateTime(occurredAt: string): string {
   if (ms == null) return occurredAt || "";
   return new Date(ms).toLocaleString([], { hour12: false });
 }
+
+/** Render a compact locale date (no time), or the original string when it has no timestamp. */
+export function fmtDate(occurredAt: string): string {
+  const ms = parseMs(occurredAt);
+  if (ms == null) return occurredAt || "";
+  return new Date(ms).toLocaleDateString();
+}

@@ -44,6 +44,7 @@
     body: "body",
     title: "title",
     time: "time",
+    eventDate: "event-date",
     rail: "rail",
     meta: "meta",
     type: "type",
@@ -304,6 +305,12 @@
     return new Date(ms).toLocaleString([], { hour12: false });
   }
   __name(fmtDateTime, "fmtDateTime");
+  function fmtDate(occurredAt) {
+    const ms = parseMs(occurredAt);
+    if (ms == null) return occurredAt || "";
+    return new Date(ms).toLocaleDateString();
+  }
+  __name(fmtDate, "fmtDate");
 
   // src/refs.ts
   function shortId(id) {
@@ -867,6 +874,37 @@
     return revisionForId(revisionId)?.overview ?? null;
   }
   __name(overviewForRevision, "overviewForRevision");
+  function revisionCapturedMs(r) {
+    return parseMs(r.capturedAt) ?? Number.NEGATIVE_INFINITY;
+  }
+  __name(revisionCapturedMs, "revisionCapturedMs");
+  function byOrder(order) {
+    return order === "asc" ? (a, b) => a - b : (a, b) => b - a;
+  }
+  __name(byOrder, "byOrder");
+  function orderedRevisionEntries(entries, order) {
+    const cmp = byOrder(order);
+    return [...entries].sort(
+      (a, b) => cmp(revisionCapturedMs(a), revisionCapturedMs(b))
+    );
+  }
+  __name(orderedRevisionEntries, "orderedRevisionEntries");
+  function threadRecencyMs(thread) {
+    let max = Number.NEGATIVE_INFINITY;
+    for (const id of thread.revisions ?? []) {
+      const r = revisionForId(id);
+      if (r) max = Math.max(max, revisionCapturedMs(r));
+    }
+    return max;
+  }
+  __name(threadRecencyMs, "threadRecencyMs");
+  function orderedThreads(threads, order) {
+    const cmp = byOrder(order);
+    return [...threads].sort(
+      (a, b) => cmp(threadRecencyMs(a), threadRecencyMs(b))
+    );
+  }
+  __name(orderedThreads, "orderedThreads");
   function isSupersedableFact(e) {
     return SUPERSEDABLE_FACT_TYPES.has(e.eventType);
   }
@@ -1432,6 +1470,8 @@
         );
         return `<div class="${cls}">${renderContentHtml(a.summary, a.summaryContentType)}</div>`;
       }
+      const cue = removedBodyCue(a?.summaryContentState);
+      if (cue) return cue;
     }
     if (ca.status === "ambiguous") {
       return `<div class="${CLASS.verdictSummary}">${(ca.candidates || []).length} unreplaced assessments — see Assessments below.</div>`;
@@ -2818,7 +2858,7 @@
     const supersedesTag = captureSupersedesBadge(e);
     const factTag = factSupersessionBadge(e);
     li.innerHTML = `
-      <span class="${CLASS.time}">${escapeHtml(fmtTime(e.occurredAt ?? ""))}</span>
+      <span class="${CLASS.time}"><span class="${CLASS.eventDate}">${escapeHtml(fmtDate(e.occurredAt ?? ""))}</span><span>${escapeHtml(fmtTime(e.occurredAt ?? ""))}</span></span>
       <span class="${CLASS.rail}" style="background:${typeColor(e.eventType)}"></span>
       <span class="${CLASS.body}">
         <span class="${CLASS.title}">${linkify(entryTitle(e))} ${tags} ${supersedesTag} ${staleTag} ${factTag}</span>
@@ -3546,8 +3586,9 @@
     const el = $("#units");
     if (!el) return;
     const state2 = getState();
-    const entries = (state2.revisions?.entries ?? []).filter(
-      matchesRevisionFilters
+    const entries = orderedRevisionEntries(
+      (state2.revisions?.entries ?? []).filter(matchesRevisionFilters),
+      state2.order
     );
     if (!entries.length) {
       el.innerHTML = `<p class="${CLASS.empty}" style="color:var(--fg-dim)">${state2.filterText || state2.filterSnapshot ? "No revisions match the current filters." : "No captured revisions in this store."}</p>`;
@@ -3585,7 +3626,10 @@ click to open the revision page">
     const el = $("#revisions");
     if (!el) return;
     const state2 = getState();
-    const threads = currentThreads().filter(threadMatchesRevisionFilters);
+    const threads = orderedThreads(
+      currentThreads().filter(threadMatchesRevisionFilters),
+      state2.order
+    );
     if (!threads.length) {
       el.innerHTML = `<p class="${CLASS.empty}" style="color:var(--fg-dim)">${state2.filterText || state2.filterSnapshot ? "No revision threads match the current filters." : "No captured revisions in this store."}</p>`;
       return;

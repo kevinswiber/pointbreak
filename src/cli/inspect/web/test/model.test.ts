@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Revision } from "../src/projection";
 import type { HistoryDoc, RevisionsDoc, ThreadsDoc } from "../src/store";
 import type { HistoryEntry, SearchIndex } from "../src/types";
 import historyJson from "./fixtures/history.json";
@@ -637,5 +638,58 @@ describe("lensEntryIds", () => {
       "evt:2",
       "evt:3",
     ]);
+  });
+});
+
+describe("newest-first ordering", () => {
+  const rev = (id: string, ms: number) =>
+    ({ revisionId: id, capturedAt: `unix-ms:${ms}` }) as unknown as Revision;
+
+  it("orders revision entries newest-first for desc and oldest-first for asc", () => {
+    const entries = [rev("a", 100), rev("c", 300), rev("b", 200)];
+    expect(
+      model.orderedRevisionEntries(entries, "desc").map((r) => r.revisionId),
+    ).toEqual(["c", "b", "a"]);
+    expect(
+      model.orderedRevisionEntries(entries, "asc").map((r) => r.revisionId),
+    ).toEqual(["a", "b", "c"]);
+  });
+
+  it("sorts numerically, not lexicographically, and puts undated entries last (desc)", () => {
+    const entries = [
+      rev("big", 1000000000000),
+      rev("small", 900000000000),
+      { revisionId: "none" } as Revision,
+    ];
+    expect(
+      model.orderedRevisionEntries(entries, "desc").map((r) => r.revisionId),
+    ).toEqual(["big", "small", "none"]);
+  });
+
+  it("derives a thread's recency from its most-recent member revision", () => {
+    store.commit({
+      revisions: {
+        entries: [rev("a", 100), rev("b", 500)],
+      } as unknown as RevisionsDoc,
+    });
+    expect(model.threadRecencyMs({ revisions: ["a", "b"] })).toBe(500);
+    expect(model.threadRecencyMs({ revisions: [] })).toBe(
+      Number.NEGATIVE_INFINITY,
+    );
+  });
+
+  it("orders threads newest-first by member recency", () => {
+    store.commit({
+      revisions: {
+        entries: [rev("a", 100), rev("b", 500), rev("c", 300)],
+      } as unknown as RevisionsDoc,
+    });
+    const older = { revisions: ["a"] };
+    const newer = { revisions: ["b", "c"] };
+    expect(model.orderedThreads([older, newer], "desc")).toEqual([
+      newer,
+      older,
+    ]);
+    expect(model.orderedThreads([older, newer], "asc")).toEqual([older, newer]);
   });
 });

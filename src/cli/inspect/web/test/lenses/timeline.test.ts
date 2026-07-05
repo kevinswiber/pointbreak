@@ -104,6 +104,15 @@ describe("renderTimeline", () => {
     expect(rowIds()).toEqual(["e1", "e2", "e3"]);
   });
 
+  it("renders the event date above the clock in the time cell", () => {
+    seedHistory([entry("e1")]);
+    timeline.renderTimeline();
+    const date = document.querySelector("#timeline li.event .event-date");
+    expect(date?.textContent?.trim()).toBeTruthy();
+    // the date line is distinct from the clock (HH:MM:SS.mmm)
+    expect(date?.textContent).not.toContain(":");
+  });
+
   it("renders an advisory verification chip from the entry status", () => {
     seedHistory([entry("e1", { verificationStatus: "unsigned" })]);
     timeline.renderTimeline();

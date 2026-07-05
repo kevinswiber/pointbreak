@@ -127,7 +127,8 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
    signal, so the wash stays light enough for the colored event-type labels to
    clear AA (a strong fill could not). */
 .event[aria-selected="true"] { background: var(--sel-bg); box-shadow: inset 3px 0 0 var(--accent); }
-.event .time { color: var(--fg-dim); font-size: var(--fs-xs); font-family: var(--mono); }
+.event .time { color: var(--fg-dim); font-size: var(--fs-xs); font-family: var(--mono); display: flex; flex-direction: column; line-height: 1.3; }
+.event-date { color: var(--fg-dim); opacity: 0.8; }
 .event .rail { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; }
 .event .body { min-width: 0; }
 .event .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -591,8 +592,8 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 .markdown-body a:hover { text-decoration: underline; }
 .anno-flash { animation: anno-flash 1.6s ease-out; }
 @keyframes anno-flash {
-  0% { background: color-mix(in srgb, var(--warning) 50%, transparent); }
-  100% { background: rgba(255, 255, 255, 0.03); }
+  0% { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+  100% { background: transparent; }
 }
 
 /* Reference chips (truncated IDs) */

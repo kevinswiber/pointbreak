@@ -112,6 +112,41 @@ describe("currentAssessmentSummary", () => {
   it("renders nothing when there is no resolved summary", () => {
     expect(currentAssessmentSummary({ currentAssessment: {} })).toBe("");
   });
+
+  it("mirrors the removed cue when the resolved summary was removed", () => {
+    const removed: RevisionDetail = {
+      currentAssessment: { status: "resolved", assessmentId: "assess:x" },
+      assessments: [
+        { id: "assess:x", summaryContentState: "physically_removed" },
+      ],
+    };
+    const cue = parse(currentAssessmentSummary(removed)).querySelector(
+      ".fact-body-removed",
+    );
+    expect(cue?.textContent).toBe("content removed");
+  });
+
+  it("also mirrors the cue for a suppressed-present removed summary", () => {
+    const removed: RevisionDetail = {
+      currentAssessment: { status: "resolved", assessmentId: "assess:s" },
+      assessments: [
+        { id: "assess:s", summaryContentState: "suppressed_present" },
+      ],
+    };
+    expect(
+      parse(currentAssessmentSummary(removed)).querySelector(
+        ".fact-body-removed",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("still renders nothing for a resolved assessment with neither summary nor removed state", () => {
+    const plain: RevisionDetail = {
+      currentAssessment: { status: "resolved", assessmentId: "assess:y" },
+      assessments: [{ id: "assess:y" }],
+    };
+    expect(currentAssessmentSummary(plain)).toBe("");
+  });
 });
 
 describe("targetLabel", () => {
