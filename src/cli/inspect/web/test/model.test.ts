@@ -622,6 +622,42 @@ describe("lensEntryIds", () => {
     ]);
   });
 
+  it("orders list-lens cursor entries newest-first, matching the rendered cards", () => {
+    // The cursor order must track the rendered card order (orderedRevisionEntries),
+    // or keyboard stepping selects a different revision than the top card.
+    store.commit({
+      lens: "list",
+      revisions: {
+        entries: [
+          { revisionId: "rev:a", capturedAt: "unix-ms:100" },
+          { revisionId: "rev:c", capturedAt: "unix-ms:300" },
+          { revisionId: "rev:b", capturedAt: "unix-ms:200" },
+        ],
+      } as unknown as RevisionsDoc,
+    });
+    expect(model.lensEntryIds().map((e) => e.id)).toEqual([
+      "rev:c",
+      "rev:b",
+      "rev:a",
+    ]);
+  });
+
+  it("orders threads-lens cursor cards newest-first by member recency", () => {
+    store.commit({
+      lens: "threads",
+      revisions: {
+        entries: [
+          { revisionId: "rev:a", capturedAt: "unix-ms:100" },
+          { revisionId: "rev:b", capturedAt: "unix-ms:500" },
+        ],
+      } as unknown as RevisionsDoc,
+    });
+    seedObjects({
+      threads: [{ revisions: ["rev:a"] }, { revisions: ["rev:b"] }],
+    });
+    expect(model.lensEntryIds().map((e) => e.id)).toEqual(["rev:b", "rev:a"]);
+  });
+
   it("lists the loaded timeline events in server order for the timeline lens", () => {
     // The server pre-filters and pre-orders the page; the lens paints the loaded
     // window as-is, so the order toggle no longer reorders it client-side.

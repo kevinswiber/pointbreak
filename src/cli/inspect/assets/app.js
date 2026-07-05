@@ -1048,11 +1048,17 @@
   function lensEntryIds() {
     const s = getState();
     if (s.lens === "list") {
-      return (s.revisions?.entries ?? []).filter(matchesRevisionFilters).map((r) => ({ kind: "revision", id: r.revisionId ?? "" }));
+      return orderedRevisionEntries(
+        (s.revisions?.entries ?? []).filter(matchesRevisionFilters),
+        s.order
+      ).map((r) => ({ kind: "revision", id: r.revisionId ?? "" }));
     }
     if (s.lens === "threads") {
       const ids = [];
-      for (const t of currentThreads().filter(threadMatchesRevisionFilters)) {
+      for (const t of orderedThreads(
+        currentThreads().filter(threadMatchesRevisionFilters),
+        s.order
+      )) {
         for (const r of filteredThreadRevisionIds(t, threadRevisionOrder(t))) {
           ids.push({ kind: "revision", id: r });
         }

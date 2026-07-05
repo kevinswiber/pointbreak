@@ -452,13 +452,21 @@ export function filteredThreadRevisionIds(
 export function lensEntryIds(): LensEntry[] {
   const s = getState();
   if (s.lens === "list") {
-    return (s.revisions?.entries ?? [])
-      .filter(matchesRevisionFilters)
-      .map((r): LensEntry => ({ kind: "revision", id: r.revisionId ?? "" }));
+    // Match the rendered card order (orderedRevisionEntries) so the cursor steps
+    // the same sequence the reader sees.
+    return orderedRevisionEntries(
+      (s.revisions?.entries ?? []).filter(matchesRevisionFilters),
+      s.order,
+    ).map((r): LensEntry => ({ kind: "revision", id: r.revisionId ?? "" }));
   }
   if (s.lens === "threads") {
     const ids: LensEntry[] = [];
-    for (const t of currentThreads().filter(threadMatchesRevisionFilters)) {
+    // Step thread cards in the same recency order the threads lens renders them;
+    // the within-thread DAG order (threadRevisionOrder) is unchanged.
+    for (const t of orderedThreads(
+      currentThreads().filter(threadMatchesRevisionFilters),
+      s.order,
+    )) {
       for (const r of filteredThreadRevisionIds(t, threadRevisionOrder(t))) {
         ids.push({ kind: "revision", id: r });
       }
