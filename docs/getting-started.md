@@ -108,7 +108,7 @@ Open an input request when another reviewer, agent, or future you needs to answe
 the review can proceed:
 
 ```bash
-shore review input-request open \
+shore input-request open \
   --track human:local \
   --title "Confirm fallback wording" \
   --reason manual-decision-required \

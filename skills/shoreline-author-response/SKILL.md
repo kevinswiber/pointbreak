@@ -1,6 +1,6 @@
 ---
 name: shoreline-author-response
-description: Use when the coding agent that authored a change should pick up a Shoreline reviewer pass on its existing revision. Read the reviewer's observations, validation evidence, assessment, and input requests with bounded commands, classify the verdict, respond to advisory requests with shore review input-request respond, make changes only when the review is actionable, record author response observations, never add an assessment, and never recapture.
+description: Use when the coding agent that authored a change should pick up a Shoreline reviewer pass on its existing revision. Read the reviewer's observations, validation evidence, assessment, and input requests with bounded commands, classify the verdict, respond to advisory requests with shore input-request respond, make changes only when the review is actionable, record author response observations, never add an assessment, and never recapture.
 ---
 
 # Shoreline Author Review Response
@@ -78,7 +78,7 @@ shore assessment show \
   --track "$reviewer_track" \
   --include-summary --pretty
 
-shore review input-request list \
+shore input-request list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --status open \
@@ -103,7 +103,7 @@ unless the user asks you to.
 Use a focused operative-request read when the classification is unclear:
 
 ```bash
-shore review input-request list \
+shore input-request list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --mode operative \
@@ -114,17 +114,17 @@ shore review input-request list \
 ## Respond to advisory requests
 
 Reviewer follow-ups that need your decision should arrive as advisory input requests. Respond to
-them with `shore review input-request respond`; do not answer only in an observation body.
+them with `shore input-request respond`; do not answer only in an observation body.
 
 ```bash
-shore review input-request list \
+shore input-request list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --mode advisory \
   --status open \
   --include-body --pretty
 
-shore review input-request respond <input-request-id> \
+shore input-request respond <input-request-id> \
   --outcome approved \
   --reason "agreed; tracking the parser cleanup as a separate follow-up because changing it here would widen the reviewed change"
 ```
@@ -136,11 +136,11 @@ should state the author decision and why it is appropriate for this revision.
 
 An open operative input request is actionable, but it is not automatically yours to close. If the
 reviewer opened it and your response now answers it, do the required work or make the required
-decision, then respond with `shore review input-request respond` and a reason that names what
+decision, then respond with `shore input-request respond` and a reason that names what
 changed or what decision was made.
 
 ```bash
-shore review input-request respond <input-request-id> \
+shore input-request respond <input-request-id> \
   --outcome approved \
   --reason "answered by the parser cleanup change and verified with the targeted parser test"
 ```
@@ -259,7 +259,7 @@ shore validation list \
   --track "$reviewer_track" \
   --include-body --pretty
 
-shore review input-request list \
+shore input-request list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --status all \
@@ -295,7 +295,7 @@ did not change, and which input requests you responded to. Leave the assessment 
   captured revision, record rerun checks as observations unless you can prove the snapshot matches.
 - **Manufacturing work after an accepted review.** Accepted follow-ups often need triage, not a new
   code change.
-- **Answering advisory requests only in prose.** Use `shore review input-request respond` so the
+- **Answering advisory requests only in prose.** Use `shore input-request respond` so the
   request has a structured response.
 - **Closing operative requests mechanically.** Respond only when the request is genuinely answered;
   otherwise leave it open and record what is still blocked.

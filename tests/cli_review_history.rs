@@ -705,7 +705,6 @@ fn add_observation_with_key(repo: &GitRepo, key: &str) -> Value {
 fn add_input_request_with_body(repo: &GitRepo, body: &str) -> Value {
     parse_json(
         &shore([
-            "review",
             "input-request",
             "open",
             "--repo",
@@ -726,7 +725,6 @@ fn add_input_request_with_body(repo: &GitRepo, body: &str) -> Value {
 fn add_input_request_with_mode(repo: &GitRepo, title: &str, mode: &str) -> Value {
     parse_json(
         &shore([
-            "review",
             "input-request",
             "open",
             "--repo",
@@ -747,7 +745,6 @@ fn add_input_request_with_mode(repo: &GitRepo, title: &str, mode: &str) -> Value
 fn respond_to_input_request(repo: &GitRepo, input_request_id: &str, reason: &str) -> Value {
     parse_json(
         &shore([
-            "review",
             "input-request",
             "respond",
             "--repo",

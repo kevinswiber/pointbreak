@@ -491,7 +491,6 @@ fn record_review_facts(repo: &Path) {
             "captured before the source worktree was deleted",
         ],
         vec![
-            "review",
             "input-request",
             "open",
             "--repo",

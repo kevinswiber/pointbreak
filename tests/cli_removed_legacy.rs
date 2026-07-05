@@ -61,6 +61,15 @@ const REMOVED_PATHS: &[RemovedPath] = &[
         argv: &["review", "validation", "add", "--help"],
         hint_contains: &["shore validation"],
     },
+    RemovedPath {
+        argv: &["review", "input-request", "open", "--help"],
+        hint_contains: &["shore input-request"],
+    },
+    // The old get-one verb `fetch` at the new top level points at `show`.
+    RemovedPath {
+        argv: &["input-request", "fetch", "--help"],
+        hint_contains: &["shore input-request show"],
+    },
 ];
 
 #[test]

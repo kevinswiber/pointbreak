@@ -346,7 +346,6 @@ pub fn representative_store() -> RepresentativeStore {
 
     // Operative input request.
     run_shore(&[
-        "review",
         "input-request",
         "open",
         "--repo",

@@ -17,6 +17,7 @@ mod history;
 mod identity;
 mod idresolve;
 mod input;
+mod input_request;
 mod inspect;
 mod json;
 mod keys;
@@ -62,6 +63,7 @@ enum Command {
     Endorse(endorse::EndorseArgs),
     History(history::HistoryArgs),
     Identity(identity::IdentityArgs),
+    InputRequest(Box<input_request::InputRequestArgs>),
     Inspect(inspect::InspectArgs),
     Keys(keys::KeysArgs),
     #[command(hide = true)]
@@ -170,6 +172,19 @@ const REMOVED_COMMAND_HINTS: &[(HintPredicate, &str)] = &[
         "Use `shore history` instead of `shore review history`.",
     ),
     (
+        HintPredicate::AdjacentWindow(&["review", "input-request", "fetch"]),
+        "Use `shore input-request show <ID>`.",
+    ),
+    (
+        HintPredicate::AdjacentWindow(&["input-request", "fetch"]),
+        "Use `shore input-request show <ID>`.",
+    ),
+    (
+        HintPredicate::AdjacentWindow(&["review", "input-request"]),
+        "The `input-request` family is now top-level; use \
+         `shore input-request open|list|show|respond`.",
+    ),
+    (
         HintPredicate::AdjacentWindow(&["review", "observation"]),
         "Use `shore observation` instead of `shore review observation`.",
     ),
@@ -228,6 +243,7 @@ fn run_cli(
         Command::Endorse(args) => endorse::run(args, stdout, stderr),
         Command::History(args) => history::run(args, stdout),
         Command::Identity(args) => identity::run(args, stdout, stderr),
+        Command::InputRequest(args) => input_request::run(*args, stdout, stderr),
         Command::Inspect(args) => inspect::run(args, stdout),
         Command::Keys(args) => keys::run(args, stdout),
         Command::Notes(args) => notes::run(args, stdout),

@@ -118,7 +118,6 @@ impl LinkedFixture {
         self.observation_add(&self.seed, &self.seed_revision_id, body);
         let seed = self.seed.to_str().unwrap();
         let opened = run_shore_json(&[
-            "review",
             "input-request",
             "open",
             "--repo",
@@ -164,7 +163,6 @@ impl LinkedFixture {
 
     fn respond_input_request(&self, worktree: &Path, input_request_id: &str) -> Value {
         run_shore_json(&[
-            "review",
             "input-request",
             "respond",
             input_request_id,
@@ -286,7 +284,6 @@ fn deleted_worktree_input_request_list_renders_with_response() {
     let (fixture, input_request_id) = populated_fixture_with_deleted_seed("m5");
 
     let json = run_shore_json(&[
-        "review",
         "input-request",
         "list",
         "--repo",
@@ -453,7 +450,6 @@ fn linked_reader_opens_input_request_against_linked_only_unit() {
     // RED today: open_input_request validates against the reader's empty local
     // store and fails with "unknown review unit".
     let result = run_shore_json(&[
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -493,7 +489,6 @@ fn linked_reader_opens_input_request_with_observation_ref_target() {
     // RED today: resolve_input_request_target cannot see the linked-only
     // observation from the reader's local store.
     let result = run_shore_json(&[
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -708,7 +703,6 @@ fn linked_fact_writes_land_in_linked_store_not_worktree_local() {
     let unit = fixture.seed_revision_id.as_str();
     fixture.observation_add(&fixture.reader, unit, "cross-worktree note");
     run_shore_json(&[
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -1119,7 +1113,6 @@ fn linked_input_request_list_resolves_linked_unit() {
     fixture.seed_full_facts("short body");
 
     let json = run_shore_json(&[
-        "review",
         "input-request",
         "list",
         "--repo",
@@ -1142,9 +1135,8 @@ fn linked_input_request_fetch_resolves_linked_request() {
     let input_request_id = fixture.seed_full_facts("short body");
 
     let json = run_shore_json(&[
-        "review",
         "input-request",
-        "fetch",
+        "show",
         &input_request_id,
         "--repo",
         fixture.reader.to_str().unwrap(),

@@ -128,22 +128,22 @@ shore observation list --pretty --include-body
 **Goal.** Confirm the durable pause/decision lifecycle.
 
 ```bash
-REQUEST_OUT=$(shore review input-request open \
+REQUEST_OUT=$(shore input-request open \
   --track human:kevin \
   --title "Need approval before landing" \
   --reason manual-decision-required)
 echo "$REQUEST_OUT" | jq .
 INPUT_REQUEST_ID=$(echo "$REQUEST_OUT" | jq -r .inputRequestId)
 
-shore review input-request list --pretty
-shore review input-request list --pretty --status all
-shore review input-request fetch "$INPUT_REQUEST_ID" --pretty --include-body
+shore input-request list --pretty
+shore input-request list --pretty --status all
+shore input-request show "$INPUT_REQUEST_ID" --pretty --include-body
 
-shore review input-request respond "$INPUT_REQUEST_ID" \
+shore input-request respond "$INPUT_REQUEST_ID" \
   --outcome approved \
   --reason "verified plan with on-call DBA"
 
-shore review input-request list --pretty --status all
+shore input-request list --pretty --status all
 ```
 
 **Expect.**
@@ -151,7 +151,7 @@ shore review input-request list --pretty --status all
 - `input-request open` returns an `inputRequestId` and `reasonCode: "manual_decision_required"`
   (snake_case in the output).
 - `input-request list` defaults to status `open` and includes the new request.
-- `input-request fetch` returns one input request plus an empty `responses` list before respond.
+- `input-request show` returns one input request plus an empty `responses` list before respond.
 - `input-request respond` returns an `inputRequestResponseId` and `outcome: "approved"`.
 - After respond, `input-request list --status all` shows the request with `status: "responded"`
   and one entry under `responses`. `input-request list` with the default `--status open` returns

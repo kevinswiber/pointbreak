@@ -9,12 +9,91 @@ use support::git_repo::GitRepo;
 use support::shore;
 
 #[test]
+fn input_request_open_runs_at_top_level() {
+    let repo = modified_repo();
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let output = shore([
+        "input-request",
+        "open",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "human:kevin",
+        "--title",
+        "Need approval",
+        "--reason",
+        "manual-decision-required",
+        "--body",
+        "approve this path?",
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    // INV-1: the wire schema is frozen — the surface rename does not touch it.
+    assert_eq!(json["schema"], "shore.review-input-request-open");
+}
+
+#[test]
+fn input_request_show_reads_back_with_frozen_fetch_schema() {
+    let repo = modified_repo();
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let requested = request_with_body(&repo, "Need details", "full request body");
+    let id = requested["inputRequestId"].as_str().unwrap();
+    let output = shore([
+        "input-request",
+        "show",
+        id,
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--include-body",
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    // INV-1: the read-one schema stays `…-fetch`; only the argv verb changed.
+    assert_eq!(json["schema"], "shore.review-input-request-fetch");
+    assert_eq!(json["inputRequest"]["id"], id);
+    assert_eq!(json["inputRequest"]["body"], "full request body");
+}
+
+#[test]
+fn input_request_show_accepts_a_prefixed_short_id() {
+    let repo = modified_repo();
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let full = request(&repo, "Need approval")["inputRequestId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // full = "input-request:sha256:<64hex>"; prefixed-short = "input-request:<first 8 hex>".
+    let hex = full.rsplit(':').next().unwrap();
+    let short = format!("input-request:{}", &hex[..8]);
+    let output = shore([
+        "input-request",
+        "show",
+        &short,
+        "--repo",
+        repo.path().to_str().unwrap(),
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(parse_json(&output.stdout)["inputRequest"]["id"], full);
+}
+
+#[test]
 fn input_request_open_defaults_to_operative_mode_and_emits_v1_json() {
     let repo = modified_repo();
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -62,7 +141,6 @@ fn input_request_open_accepts_advisory_and_rejects_blocking() {
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let advisory = shore([
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -85,7 +163,6 @@ fn input_request_open_accepts_advisory_and_rejects_blocking() {
     assert_eq!(json["mode"], "advisory");
 
     let blocking = shore([
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -110,7 +187,6 @@ fn input_request_list_emits_v1_json_and_pretty_prints() {
     request(&repo, "First");
 
     let output = shore([
-        "review",
         "input-request",
         "list",
         "--repo",
@@ -141,7 +217,6 @@ fn input_request_list_accepts_operative_and_advisory_mode_filters() {
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     request(&repo, "Default");
     shore([
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -157,7 +232,6 @@ fn input_request_list_accepts_operative_and_advisory_mode_filters() {
     ]);
 
     let operative = shore([
-        "review",
         "input-request",
         "list",
         "--repo",
@@ -176,7 +250,6 @@ fn input_request_list_accepts_operative_and_advisory_mode_filters() {
     assert_eq!(operative_json["inputRequests"][0]["mode"], "operative");
 
     let advisory = shore([
-        "review",
         "input-request",
         "list",
         "--repo",
@@ -195,7 +268,6 @@ fn input_request_list_accepts_operative_and_advisory_mode_filters() {
     assert_eq!(advisory_json["inputRequests"][0]["mode"], "advisory");
 
     let blocking = shore([
-        "review",
         "input-request",
         "list",
         "--repo",
@@ -214,7 +286,6 @@ fn input_request_list_collapses_duplicate_request_events() {
 
     let first = parse_json(
         &shore([
-            "review",
             "input-request",
             "open",
             "--repo",
@@ -234,7 +305,6 @@ fn input_request_list_collapses_duplicate_request_events() {
     );
     let second = parse_json(
         &shore([
-            "review",
             "input-request",
             "open",
             "--repo",
@@ -254,7 +324,6 @@ fn input_request_list_collapses_duplicate_request_events() {
     );
 
     let list = shore([
-        "review",
         "input-request",
         "list",
         "--repo",
@@ -287,9 +356,8 @@ fn input_request_fetch_include_body_emits_v1_json_and_hydrates_body() {
     let input_request_id = requested["inputRequestId"].as_str().unwrap();
 
     let output = shore([
-        "review",
         "input-request",
-        "fetch",
+        "show",
         input_request_id,
         "--repo",
         repo.path().to_str().unwrap(),
@@ -320,7 +388,6 @@ fn input_request_respond_records_response_and_emits_v1_json() {
     let input_request_id = requested["inputRequestId"].as_str().unwrap();
 
     let output = shore([
-        "review",
         "input-request",
         "respond",
         input_request_id,
@@ -362,7 +429,6 @@ fn input_request_fetch_collapses_duplicate_response_events() {
 
     let first = parse_json(
         &shore([
-            "review",
             "input-request",
             "respond",
             input_request_id,
@@ -379,7 +445,6 @@ fn input_request_fetch_collapses_duplicate_response_events() {
     );
     let second = parse_json(
         &shore([
-            "review",
             "input-request",
             "respond",
             input_request_id,
@@ -396,9 +461,8 @@ fn input_request_fetch_collapses_duplicate_response_events() {
     );
 
     let fetch = shore([
-        "review",
         "input-request",
-        "fetch",
+        "show",
         input_request_id,
         "--repo",
         repo.path().to_str().unwrap(),
@@ -436,7 +500,6 @@ fn input_request_list_filters_responded_requests() {
     let requested = request(&repo, "Need approval");
     let input_request_id = requested["inputRequestId"].as_str().unwrap();
     let response = shore([
-        "review",
         "input-request",
         "respond",
         input_request_id,
@@ -452,7 +515,6 @@ fn input_request_list_filters_responded_requests() {
     );
 
     let output = shore([
-        "review",
         "input-request",
         "list",
         "--repo",
@@ -480,7 +542,6 @@ fn input_request_open_body_stdin_reads_from_stdin() {
 
     let output = shore_with_stdin(
         [
-            "review",
             "input-request",
             "open",
             "--repo",
@@ -503,9 +564,8 @@ fn input_request_open_body_stdin_reads_from_stdin() {
     let requested = parse_json(&output.stdout);
 
     let fetch = shore([
-        "review",
         "input-request",
-        "fetch",
+        "show",
         requested["inputRequestId"].as_str().unwrap(),
         "--repo",
         repo.path().to_str().unwrap(),
@@ -524,7 +584,6 @@ fn input_request_respond_reason_stdin_reads_from_stdin() {
 
     let output = shore_with_stdin(
         [
-            "review",
             "input-request",
             "respond",
             input_request_id,
@@ -556,7 +615,6 @@ fn input_request_open_requires_track() {
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -577,7 +635,6 @@ fn input_request_open_rejects_invalid_reason_and_mode_values() {
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let bad_reason = shore([
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -590,7 +647,6 @@ fn input_request_open_rejects_invalid_reason_and_mode_values() {
         "not-a-reason",
     ]);
     let bad_mode = shore([
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -618,7 +674,6 @@ fn input_request_respond_rejects_invalid_outcome() {
     let requested = request(&repo, "Need approval");
 
     let output = shore([
-        "review",
         "input-request",
         "respond",
         requested["inputRequestId"].as_str().unwrap(),
@@ -649,7 +704,6 @@ fn input_request_open_observation_target_conflicts_with_file_and_lines() {
     let observation_json = parse_json(&observation.stdout);
 
     let output = shore([
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -682,7 +736,6 @@ fn input_request_open_body_inputs_are_mutually_exclusive() {
     std::fs::write(&body_file, "file body").unwrap();
 
     let output = shore([
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -712,7 +765,6 @@ fn input_request_respond_reason_inputs_are_mutually_exclusive() {
     std::fs::write(&reason_file, "file reason").unwrap();
 
     let output = shore([
-        "review",
         "input-request",
         "respond",
         requested["inputRequestId"].as_str().unwrap(),
@@ -739,7 +791,6 @@ fn input_request_open_requires_revision_when_current_is_ambiguous() {
     assert_ne!(first["revision"]["id"], second["revision"]["id"]);
 
     let ambiguous = shore([
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -755,7 +806,6 @@ fn input_request_open_requires_revision_when_current_is_ambiguous() {
     assert!(String::from_utf8_lossy(&ambiguous.stderr).contains("multiple captured revisions"));
 
     let explicit = shore([
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -814,7 +864,6 @@ fn request(repo: &GitRepo, title: &str) -> Value {
 
 fn request_with_body(repo: &GitRepo, title: &str, body: &str) -> Value {
     let mut args = vec![
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -861,7 +910,6 @@ fn text_input_request_list_shows_open_titles() {
     let repo_arg = repo.path().to_str().unwrap();
     shore(["capture", "--repo", repo_arg]);
     shore([
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -876,7 +924,6 @@ fn text_input_request_list_shows_open_titles() {
         "advisory",
     ]);
     shore([
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -892,7 +939,6 @@ fn text_input_request_list_shows_open_titles() {
     ]);
 
     let output = shore([
-        "review",
         "input-request",
         "list",
         "--repo",
@@ -916,7 +962,6 @@ fn text_respond_ack_confirms_outcome() {
     shore(["capture", "--repo", repo_arg]);
     let requested = parse_json(
         &shore([
-            "review",
             "input-request",
             "open",
             "--repo",
@@ -933,7 +978,6 @@ fn text_respond_ack_confirms_outcome() {
     let input_request_id = requested["inputRequestId"].as_str().unwrap();
 
     let output = shore([
-        "review",
         "input-request",
         "respond",
         input_request_id,
@@ -992,7 +1036,6 @@ fn modified_repo() -> GitRepo {
 /// Respond to `input_request_id` with `reason`; returns the respond document.
 fn respond_with_reason(repo: &GitRepo, input_request_id: &str, reason: &str) -> Value {
     let output = shore([
-        "review",
         "input-request",
         "respond",
         input_request_id,
@@ -1039,7 +1082,6 @@ fn externalized_response_reason_hydrates_with_include_body() {
     let arg = repo.path().to_str().unwrap();
 
     let list = shore([
-        "review",
         "input-request",
         "list",
         "--repo",
@@ -1061,9 +1103,8 @@ fn externalized_response_reason_hydrates_with_include_body() {
     );
 
     let fetch = shore([
-        "review",
         "input-request",
-        "fetch",
+        "show",
         input_request_id,
         "--repo",
         arg,
@@ -1104,15 +1145,7 @@ fn response_reason_renders_only_with_include_body() {
     respond_with_reason(&repo, input_request_id, "a short inline reason");
     let arg = repo.path().to_str().unwrap();
 
-    let without = shore([
-        "review",
-        "input-request",
-        "list",
-        "--repo",
-        arg,
-        "--status",
-        "all",
-    ]);
+    let without = shore(["input-request", "list", "--repo", arg, "--status", "all"]);
     assert!(
         without.status.success(),
         "stderr:\n{}",
@@ -1128,7 +1161,6 @@ fn response_reason_renders_only_with_include_body() {
     assert!(response["reasonContentHash"].as_str().is_some());
 
     let with = shore([
-        "review",
         "input-request",
         "list",
         "--repo",
@@ -1160,9 +1192,8 @@ fn missing_reason_artifact_errors_only_when_reading() {
     let arg = repo.path().to_str().unwrap();
 
     let hydrating = shore([
-        "review",
         "input-request",
-        "fetch",
+        "show",
         input_request_id,
         "--repo",
         arg,
@@ -1178,14 +1209,7 @@ fn missing_reason_artifact_errors_only_when_reading() {
         String::from_utf8_lossy(&hydrating.stderr)
     );
 
-    let state_only = shore([
-        "review",
-        "input-request",
-        "fetch",
-        input_request_id,
-        "--repo",
-        arg,
-    ]);
+    let state_only = shore(["input-request", "show", input_request_id, "--repo", arg]);
     assert!(
         state_only.status.success(),
         "without --include-body no read is attempted, so no error: stderr:\n{}",
@@ -1213,7 +1237,6 @@ fn missing_reason_artifact_on_an_unrelated_request_does_not_poison_other_reads()
     // The broken request is responded, so `--status open` excludes it; the
     // list must not resolve a reason it will not return.
     let open_list = shore([
-        "review",
         "input-request",
         "list",
         "--repo",
@@ -1233,9 +1256,8 @@ fn missing_reason_artifact_on_an_unrelated_request_does_not_poison_other_reads()
 
     // Fetching a different request must not resolve the broken one's reason.
     let fetch_healthy = shore([
-        "review",
         "input-request",
-        "fetch",
+        "show",
         healthy_id,
         "--repo",
         arg,

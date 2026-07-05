@@ -271,7 +271,6 @@ fn all_six_write_paths_stay_exit_zero_without_a_key() {
 
     let open = shore_env(
         [
-            "review",
             "input-request",
             "open",
             "--repo",
@@ -297,7 +296,6 @@ fn all_six_write_paths_stay_exit_zero_without_a_key() {
 
     let respond = shore_env(
         [
-            "review",
             "input-request",
             "respond",
             &input_request_id,
@@ -397,7 +395,6 @@ fn all_six_write_paths_accept_sign_key_flag() {
 
     let open = shore_env(
         [
-            "review",
             "input-request",
             "open",
             "--repo",
@@ -425,7 +422,6 @@ fn all_six_write_paths_accept_sign_key_flag() {
 
     let respond = shore_env(
         [
-            "review",
             "input-request",
             "respond",
             &input_request_id,

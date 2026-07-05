@@ -152,7 +152,7 @@ the same predecessor, the resulting **competing heads** are surfaced as competin
 a single winner.
 
 Write commands such as `shore observation add`,
-`shore review input-request open`, and `shore assessment add` accept
+`shore input-request open`, and `shore assessment add` accept
 `--revision <id>`. When more than one captured revision is current, pass
 the ID from capture output or `shore review revisions`; otherwise writes fail
 with an ambiguity error.
@@ -298,16 +298,16 @@ or tool needs an explicit answer before proceeding. `--mode` defaults to
 imply that a cooperative client must pause.
 
 ```bash
-shore review input-request open \
+shore input-request open \
   --track human:kevin \
   --title "Need approval to land schema change" \
   --reason manual-decision-required
 
-shore review input-request list                 # defaults to open
-shore review input-request list --status all
-shore review input-request fetch <input-request-id> --include-body
+shore input-request list                 # defaults to open
+shore input-request list --status all
+shore input-request show <input-request-id> --include-body
 
-shore review input-request respond <input-request-id> \
+shore input-request respond <input-request-id> \
   --outcome approved \
   --reason "discussed in chat, ok to land"
 ```
@@ -348,7 +348,7 @@ shore assessment show --all --include-summary
 from the current set.
 `--related-observation` and `--related-input-request` record evidence links;
 they do not mutate observations or close input requests (use
-`shore review input-request respond` for the input-request lifecycle).
+`shore input-request respond` for the input-request lifecycle).
 
 State-change outcomes such as deferred, split-out, overridden, and superseded
 are recorded as observations tagged with `state-change:*`. Use
@@ -539,15 +539,15 @@ shore observation add \
 shore observation list --pretty
 
 # 4. Open an input request when you need a decision from someone else.
-shore review input-request open \
+shore input-request open \
   --track human:kevin \
   --title "Approve schema migration before landing" \
   --reason manual-decision-required \
   --file db/migrations/0042_users.sql
 
 # Someone reads the open queue and responds to it.
-shore review input-request list --status open
-shore review input-request respond <input-request-id> \
+shore input-request list --status open
+shore input-request respond <input-request-id> \
   --outcome approved \
   --reason "verified backfill plan with on-call DBA"
 

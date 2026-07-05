@@ -30,7 +30,7 @@ pub(super) struct InputRequestArgs {
 enum InputRequestCommand {
     Open(InputRequestOpenArgs),
     List(InputRequestListArgs),
-    Fetch(InputRequestFetchArgs),
+    Show(InputRequestShowArgs),
     Respond(InputRequestRespondArgs),
 }
 
@@ -132,9 +132,9 @@ struct InputRequestListArgs {
     format_args: output::FormatArgs,
 }
 
-/// Fetch a single input request by id.
+/// Show a single input request by id.
 #[derive(Debug, Args)]
-struct InputRequestFetchArgs {
+struct InputRequestShowArgs {
     input_request_id: String,
 
     #[arg(long, default_value = ".")]
@@ -236,27 +236,27 @@ pub(super) fn run(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         InputRequestCommand::Open(args) => {
-            let span = tracing::info_span!("shore.review.input_request.open");
+            let span = tracing::info_span!("shore.input_request.open");
             let _entered = span.enter();
-            tracing::debug!(command = "review.input_request.open", "command_start");
+            tracing::debug!(command = "input_request.open", "command_start");
             review_input_request_open(args, stdout, stderr)
         }
         InputRequestCommand::List(args) => {
-            let span = tracing::info_span!("shore.review.input_request.list");
+            let span = tracing::info_span!("shore.input_request.list");
             let _entered = span.enter();
-            tracing::debug!(command = "review.input_request.list", "command_start");
+            tracing::debug!(command = "input_request.list", "command_start");
             review_input_request_list(args, stdout)
         }
-        InputRequestCommand::Fetch(args) => {
-            let span = tracing::info_span!("shore.review.input_request.fetch");
+        InputRequestCommand::Show(args) => {
+            let span = tracing::info_span!("shore.input_request.show");
             let _entered = span.enter();
-            tracing::debug!(command = "review.input_request.fetch", "command_start");
-            review_input_request_fetch(args, stdout)
+            tracing::debug!(command = "input_request.show", "command_start");
+            input_request_show(args, stdout)
         }
         InputRequestCommand::Respond(args) => {
-            let span = tracing::info_span!("shore.review.input_request.respond");
+            let span = tracing::info_span!("shore.input_request.respond");
             let _entered = span.enter();
-            tracing::debug!(command = "review.input_request.respond", "command_start");
+            tracing::debug!(command = "input_request.respond", "command_start");
             review_input_request_respond(args, stdout, stderr)
         }
     }
@@ -284,7 +284,7 @@ fn review_input_request_list(
     let format_explicit = args.format_args.explicit(pretty);
     let repo = args.repo.clone();
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
-    let result = list_input_requests(input_request_list_options(args))?;
+    let result = list_input_requests(input_request_list_options(args)?)?;
     let delegation_map = crate::cli::common::discover_delegation_map(&repo);
     // `input_request_list_document` consumes the result by value; the text lane
     // reads the same result, so clone it only when that lane will render.
@@ -299,15 +299,17 @@ fn review_input_request_list(
     })
 }
 
-fn review_input_request_fetch(
-    args: InputRequestFetchArgs,
+fn input_request_show(
+    args: InputRequestShowArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pretty = args.pretty && !args.compact;
     let format_explicit = args.format_args.explicit(pretty);
     let delegation_map = crate::cli::common::discover_delegation_map(&args.repo);
+    let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+    let input_request_id = ids.input_request(&args.input_request_id)?;
     let result = fetch_input_request(
-        InputRequestFetchOptions::new(&args.repo, InputRequestId::new(args.input_request_id))
+        InputRequestFetchOptions::new(&args.repo, InputRequestId::new(input_request_id))
             .with_trust_set(crate::cli::common::discover_trust_set(&args.repo))
             .with_include_body(args.include_body),
     );
@@ -391,10 +393,21 @@ fn status_filter_label(filter: InputRequestStatusFilter) -> &'static str {
 }
 
 fn input_request_open_options(
-    args: InputRequestOpenArgs,
+    mut args: InputRequestOpenArgs,
     stderr: &mut dyn Write,
 ) -> Result<(InputRequestOpenOptions, crate::cli::common::SigningSkip), Box<dyn std::error::Error>>
 {
+    let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+    let observation = match &args.observation {
+        Some(raw) => Some(ids.observation(raw)?),
+        None => None,
+    };
+    args.observation = observation;
+    let revision = match &args.revision {
+        Some(raw) => Some(ids.rev(raw)?),
+        None => None,
+    };
+    args.revision = revision;
     let target = input_request_target(&args)?;
     let body = read_body_input(
         args.body.as_deref(),
@@ -430,13 +443,16 @@ fn input_request_open_options(
     Ok((options, skip))
 }
 
-fn input_request_list_options(args: InputRequestListArgs) -> InputRequestListOptions {
+fn input_request_list_options(
+    args: InputRequestListArgs,
+) -> Result<InputRequestListOptions, Box<dyn std::error::Error>> {
     let mut options = InputRequestListOptions::new(&args.repo)
         .with_status(args.status.into())
         .with_include_body(args.include_body)
         .with_trust_set(crate::cli::common::discover_trust_set(&args.repo));
-    if let Some(revision) = args.revision {
-        options = options.with_revision_id(RevisionId::new(revision));
+    if let Some(revision) = &args.revision {
+        let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+        options = options.with_revision_id(RevisionId::new(ids.rev(revision)?));
     }
     if let Some(track) = args.track {
         options = options.with_track(track);
@@ -447,7 +463,7 @@ fn input_request_list_options(args: InputRequestListArgs) -> InputRequestListOpt
     if let Some(file) = args.file {
         options = options.with_file(file);
     }
-    options
+    Ok(options)
 }
 
 fn input_request_respond_options(
@@ -460,8 +476,10 @@ fn input_request_respond_options(
         args.reason_file.as_deref(),
         args.reason_stdin,
     )?;
+    let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+    let input_request_id = ids.input_request(&args.input_request_id)?;
     let mut options =
-        InputRequestRespondOptions::new(&args.repo, InputRequestId::new(args.input_request_id))
+        InputRequestRespondOptions::new(&args.repo, InputRequestId::new(input_request_id))
             .with_outcome(args.outcome.into());
     if let Some(reason) = reason {
         options = options.with_reason(reason);

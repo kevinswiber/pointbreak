@@ -398,14 +398,7 @@ fn shore_review_assessment_add_targets_input_request_and_emits_related_input_req
     assert_eq!(current["relatedInputRequests"][0], request_id);
     assert!(current.get("relatedInterventions").is_none());
 
-    let request = shore([
-        "review",
-        "input-request",
-        "fetch",
-        "--repo",
-        repo_arg,
-        request_id,
-    ]);
+    let request = shore(["input-request", "show", "--repo", repo_arg, request_id]);
     assert!(
         request.status.success(),
         "request fetch failed: {}",
@@ -688,7 +681,6 @@ fn add_observation(repo: &GitRepo, title: &str) -> Value {
 fn open_input_request(repo: &GitRepo, title: &str) -> Value {
     parse_json(
         &shore([
-            "review",
             "input-request",
             "open",
             "--repo",

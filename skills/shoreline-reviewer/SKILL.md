@@ -50,7 +50,7 @@ the authored handoff:
 ```bash
 shore observation list --revision "$revision_id" --pretty
 shore validation list --revision "$revision_id" --include-body --pretty
-shore review input-request list --revision "$revision_id" --status open --pretty
+shore input-request list --revision "$revision_id" --status open --pretty
 ```
 
 ## Read the author's handoff
@@ -68,7 +68,7 @@ shore validation list \
   --track "$author_track" \
   --include-body --pretty
 
-shore review input-request list \
+shore input-request list \
   --revision "$revision_id" \
   --track "$author_track" \
   --status open \
@@ -195,14 +195,14 @@ List the author's open operative requests and respond to each one you can answer
 answer one, leave it open and reflect that in the assessment.
 
 ```bash
-shore review input-request list \
+shore input-request list \
   --revision "$revision_id" \
   --track "$author_track" \
   --mode operative \
   --status open \
   --include-body --pretty
 
-shore review input-request respond <input-request-id> \
+shore input-request respond <input-request-id> \
   --outcome approved \
   --reason "verified the migration plan against the current test database fixture"
 ```
@@ -216,7 +216,7 @@ When a non-blocking follow-up needs the author to decide, open an advisory input
 reviewer track. Do not record decision-seeking follow-ups as plain observations.
 
 ```bash
-shore review input-request open \
+shore input-request open \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --title "Decide whether to split the parser follow-up" \
@@ -262,7 +262,7 @@ shore validation list \
   --track "$reviewer_track" \
   --include-body --pretty
 
-shore review input-request list \
+shore input-request list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --status all \

@@ -269,7 +269,7 @@ pub fn respond_input_request(
 
 /// Error if `input_request_id` names a task-attempt input request. Those belong
 /// to the agent-resumption domain — authored by the agent session / relay, not
-/// by `shore review input-request open` — and are not answerable through this
+/// by `shore input-request open` — and are not answerable through this
 /// review-fact command. A task-attempt request has a work object but no review
 /// unit, so the generic review-shaped lookup would otherwise reject it deep in
 /// the projection on a missing track id.
@@ -287,9 +287,9 @@ fn reject_task_attempt_input_request(
         if &payload.input_request_id == input_request_id && payload.task_target.is_some() {
             return Err(ShoreError::WorkflowInputInvalid {
                 reason: format!(
-                    "input request {} targets a task attempt, not a review unit; \
+                    "input request {} targets a task attempt, not a revision; \
                      task-attempt input requests are answered by the agent session that owns \
-                     them, not by shore review input-request respond",
+                     them, not by shore input-request respond",
                     input_request_id.as_str()
                 ),
             });
@@ -338,7 +338,7 @@ mod tests {
     fn respond_to_task_attempt_request_explains_the_domain_boundary() {
         let repo = TestRepo::new();
         // A task-attempt input request — the agent-resumption domain, authored by
-        // the relay/adapter, not by `shore review input-request open`.
+        // the relay/adapter, not by `shore input-request open`.
         let task_attempt_id = WorkObjectId::new("task-attempt:sha256:ta");
         let session_id = JournalId::new("journal:demo");
         let input_request_id = InputRequestId::new("input-request:sha256:taskreq");
@@ -369,11 +369,11 @@ mod tests {
             "the error names the domain boundary; got: {message}"
         );
         assert!(
-            message.contains("shore review input-request respond"),
+            message.contains("shore input-request respond"),
             "the error points at the command that does not apply; got: {message}"
         );
         assert!(
-            !message.contains("missing review unit"),
+            !message.contains("review unit"),
             "the cryptic message is replaced; got: {message}"
         );
     }

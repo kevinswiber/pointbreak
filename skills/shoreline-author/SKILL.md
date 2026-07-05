@@ -137,7 +137,7 @@ To acknowledge or dispose of a reviewer's observation non-destructively — "not
 [ADR-0026](../../docs/adr/adr-0026-fact-to-fact-response-relationship.md)). This leaves the reviewer's
 observation `Active` and records who responded. Do not use `--supersedes` to acknowledge; that retires
 the target from the current set. Answer a reviewer's *decision* request with
-`shore review input-request respond --outcome {dismissed|superseded|abandoned} --reason …`, not a plain
+`shore input-request respond --outcome {dismissed|superseded|abandoned} --reason …`, not a plain
 observation.
 
 **Body content type — prefer Markdown for review content.** Observation and input-request `--body`,
@@ -190,7 +190,7 @@ the answer should block landing. Use `--mode advisory` for durable context that 
 pause the workflow.
 
 ```bash
-shore review input-request open \
+shore input-request open \
   --revision "$revision_id" \
   --track "$track" \
   --title "Confirm whether the relaxed parser should be documented" \
@@ -198,7 +198,7 @@ shore review input-request open \
   --mode advisory \
   --body "The implementation accepts the new form, but I did not update user-facing docs because the prompt did not say whether this behavior should be advertised yet."
 
-shore review input-request open \
+shore input-request open \
   --revision "$revision_id" \
   --track "$track" \
   --title "Choose the default for conflicting config values" \
@@ -207,7 +207,7 @@ shore review input-request open \
   --body "Both existing call sites are plausible defaults. I left the behavior unchanged and need a reviewer to choose before landing the new option."
 ```
 
-Use the current command name `shore review input-request`. Use `shore assessment` only when you
+Use the current command name `shore input-request`. Use `shore assessment` only when you
 are acting as the reviewer, not while authoring the handoff.
 
 ## Read back and hand off
@@ -217,7 +217,7 @@ Verify that the handoff is visible before you stop:
 ```bash
 shore observation list --revision "$revision_id" --track "$track" --pretty
 shore validation list --revision "$revision_id" --track "$track" --include-body --pretty
-shore review input-request list --revision "$revision_id" --track "$track" --status open --pretty
+shore input-request list --revision "$revision_id" --track "$track" --status open --pretty
 ```
 
 These commands verify the author's writes without replaying the captured snapshot. The
@@ -233,7 +233,7 @@ Created the Shoreline handoff record on `<track>`. Read it with
 and
 `shore validation list --revision <id> --track <track> --include-body --pretty`
 and
-`shore review input-request list --revision <id> --track <track> --status open --include-body --pretty`.
+`shore input-request list --revision <id> --track <track> --status open --include-body --pretty`.
 I did not add an assessment; that is for the reviewer.
 ```
 

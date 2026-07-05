@@ -139,7 +139,7 @@ shore validation add \
   --exit-code 0 \
   --summary "Completed after the final edit. This covered commit checks, build, lint, and tests."
 
-shore review input-request open \
+shore input-request open \
   --revision "$revision_id" \
   --track "$track" \
   --title "Confirm whether the relaxed parser should be documented" \
@@ -149,7 +149,7 @@ shore review input-request open \
 
 shore observation list --revision "$revision_id" --track "$track" --pretty
 shore validation list --revision "$revision_id" --track "$track" --include-body --pretty
-shore review input-request list --revision "$revision_id" --track "$track" --status open --pretty
+shore input-request list --revision "$revision_id" --track "$track" --status open --pretty
 ```
 
 The commands emit compact JSON by default, so piping capture output through `jq` is only for human
@@ -179,7 +179,7 @@ After the author stops, a reviewer can read the handoff with:
 ```bash
 shore observation list --revision <revision-id> --track <track> --include-body --pretty
 shore validation list --revision <revision-id> --track <track> --include-body --pretty
-shore review input-request list --revision <revision-id> --track <track> --status open \
+shore input-request list --revision <revision-id> --track <track> --status open \
   --include-body --pretty
 ```
 
@@ -217,7 +217,7 @@ shore observation list --revision <revision-id> --track <author-track> \
   --include-body --pretty
 shore validation list --revision <revision-id> --track <author-track> \
   --include-body --pretty
-shore review input-request list --revision <revision-id> --track <author-track> \
+shore input-request list --revision <revision-id> --track <author-track> \
   --status open --include-body --pretty
 ```
 
@@ -238,7 +238,7 @@ Reviewer follow-ups that need an author decision should be advisory input reques
 observations:
 
 ```bash
-shore review input-request open \
+shore input-request open \
   --revision <revision-id> \
   --track <reviewer-track> \
   --title "Decide whether to split the parser cleanup" \
@@ -274,7 +274,7 @@ shore validation list --revision <revision-id> --track <reviewer-track> \
   --include-body --pretty
 shore assessment show --revision <revision-id> --track <reviewer-track> \
   --include-summary --pretty
-shore review input-request list --revision <revision-id> --track <reviewer-track> \
+shore input-request list --revision <revision-id> --track <reviewer-track> \
   --status open --include-body --pretty
 ```
 
@@ -293,7 +293,7 @@ non-blocking, the author triages them without manufacturing work. Reviewer follo
 author decision should be answered structurally:
 
 ```bash
-shore review input-request respond <input-request-id> \
+shore input-request respond <input-request-id> \
   --outcome approved \
   --reason "tracking this as a separate follow-up because changing it here would widen the reviewed unit"
 ```

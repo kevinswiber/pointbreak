@@ -281,7 +281,6 @@ fn review_documents_are_byte_stable() {
 
     // 4. review input-request open
     let open_raw = shore([
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -312,9 +311,8 @@ fn review_documents_are_byte_stable() {
     let input_request_fetch = run_command(
         &repo,
         &[
-            "review",
             "input-request",
-            "fetch",
+            "show",
             &input_request_id,
             "--repo",
             &repo_path,
@@ -327,7 +325,6 @@ fn review_documents_are_byte_stable() {
     let input_request_respond = run_command(
         &repo,
         &[
-            "review",
             "input-request",
             "respond",
             &input_request_id,
@@ -345,7 +342,6 @@ fn review_documents_are_byte_stable() {
     let input_request_list = run_command(
         &repo,
         &[
-            "review",
             "input-request",
             "list",
             "--repo",

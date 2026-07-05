@@ -7,8 +7,8 @@ narrow **hard core** is frozen within each document's `version`:
 
 - the envelope discriminators (`schema`, `version`) on every document;
 - the field-paths a non-human consumer actually reads — `shore capture`'s `revision.id`,
-  `shore review input-request list`'s `inputRequests[].{id,title,mode,reasonCode,trackId}`, and
-  `shore review input-request respond`'s `inputRequestResponseId` and `eventId`;
+  `shore input-request list`'s `inputRequests[].{id,title,mode,reasonCode,trackId}`, and
+  `shore input-request respond`'s `inputRequestResponseId` and `eventId`;
 - the wire-value vocabularies — the assessment values, the input-request response outcomes, and the
   input-request `mode` (`operative`/`advisory`) and `reasonCode` value sets that ride the consumed
   `input-request list` field-paths (see the [`assessment`](#shore-review-assessment) and
@@ -95,9 +95,9 @@ exists so a revision's facts can be filtered and grouped by who recorded them.
 - On every write command that records a fact (`shore observation add`,
   `shore assessment add`, `shore validation add`,
   `shore review association associate-commit` / `associate-ref` / `withdraw-commit` /
-  `withdraw-ref`, `shore review input-request open`), `--track <track-id>` is **required** and
+  `withdraw-ref`, `shore input-request open`), `--track <track-id>` is **required** and
   stamps the lane that owns the new fact.
-- On read/list commands (`shore observation list`, `shore review input-request list`,
+- On read/list commands (`shore observation list`, `shore input-request list`,
   `shore validation list`, `shore assessment show`, `shore history`,
   `shore review show`), `--track <track-id>` is **optional** and narrows the results to one
   lane; omitted, all lanes are returned.
@@ -318,7 +318,7 @@ immediately visible to `review revisions`, `review show`, and `history` from any
 `ephemeral` worktree instead captures into its own discardable `.shore/data/` store (see
 [`shore store`](#shore-store)).
 
-The native review write commands — `shore observation add`, `shore review input-request open`
+The native review write commands — `shore observation add`, `shore input-request open`
 and `respond`, `shore assessment add`, and `shore validation add` — behave the same
 way. They resolve the shared common-dir store, so you can record a
 fact against a revision (or related observation, assessment, or request) captured in a sibling
@@ -555,8 +555,8 @@ keys are accepted; `ed25519-sk`/RSA/ECDSA are rejected with a clear error pointi
 `list`/`enroll` take `--repo` (default `.`) to resolve the committed `.shore/allowed-signers.json`;
 every subcommand accepts `--pretty`. Enrollment never commits — the human's commit is the authorization.
 
-Each **write** subcommand (`review capture`, `review observation add`, `review assessment add`,
-`review validation add`, `review input-request open`/`respond`) accepts `--sign-key <name|path>` to
+Each **write** subcommand (`capture`, `observation add`, `assessment add`,
+`validation add`, `input-request open`/`respond`) accepts `--sign-key <name|path>` to
 sign that write with a specific key (highest precedence; overrides `SHORE_SIGNING_KEY`). A key that
 cannot be loaded leaves the write unsigned at exit 0 with an advisory diagnostic — signing never
 blocks. An agent-backed key resolves through an identities-only ssh-agent pre-flight; if the agent is
@@ -606,17 +606,17 @@ Observations are append-only review notes for a captured revision.
 Output is compact `shore.review-observation-add` or `shore.review-observation-list` JSON by
 default. `observation list` also accepts `--pretty` and `--compact`.
 
-## `shore review input-request`
+## `shore input-request`
 
 ```bash
-shore review input-request open --track <track-id> --title <title> --reason <reason> \
+shore input-request open --track <track-id> --title <title> --reason <reason> \
   [--revision <revision-id>] [--mode operative|advisory] \
   [--body-content-type text/plain|text/markdown]
-shore review input-request list [--revision <revision-id>] [--track <track-id>] \
+shore input-request list [--revision <revision-id>] [--track <track-id>] \
   [--mode operative|advisory] [--file <path>] [--status open|responded|ambiguous|all] \
   [--include-body] [--pretty|--compact]
-shore review input-request fetch <input-request-id> [--include-body]
-shore review input-request respond <input-request-id> --outcome <outcome> [reason options] \
+shore input-request show <input-request-id> [--include-body]
+shore input-request respond <input-request-id> --outcome <outcome> [reason options] \
   [--reason-content-type text/plain|text/markdown]
 ```
 
@@ -639,7 +639,7 @@ Input requests are durable pause or decision requests for a captured revision.
   artifact paths private.
 - `input-request list` is the V1 polling read surface and defaults to open requests. It may filter
   by revision, track, mode, file, or status, and hydrates body text only with `--include-body`.
-- `input-request fetch <id> --include-body` returns one request and hydrates the body when
+- `input-request show <id> --include-body` returns one request and hydrates the body when
   requested.
 - `input-request respond <id>` appends an `input_request_responded` event.
 - Response reasons may use `--reason-content-type text/markdown`; the default is `text/plain`.

@@ -671,7 +671,6 @@ fn text_digest_clamps_long_open_request_titles() {
     shore(["capture", "--repo", repo_arg]);
     let long_title = "x".repeat(320);
     shore([
-        "review",
         "input-request",
         "open",
         "--repo",
@@ -805,7 +804,6 @@ fn add_assessment(repo: &GitRepo) -> Value {
 fn add_input_request_with_body(repo: &GitRepo, body: &str) -> Value {
     parse_json(
         &shore([
-            "review",
             "input-request",
             "open",
             "--repo",
@@ -826,7 +824,6 @@ fn add_input_request_with_body(repo: &GitRepo, body: &str) -> Value {
 fn respond_to_input_request(repo: &GitRepo, input_request_id: &str, reason: &str) -> Value {
     parse_json(
         &shore([
-            "review",
             "input-request",
             "respond",
             "--repo",
