@@ -53,7 +53,7 @@ CI can sign without any enrollment by making the writing actor *be* the signing 
 ```bash
 shore keys init --name ci
 export SHORE_ACTOR_ID="$(shore keys show ci --did | jq -r .didKey)"
-shore review capture --sign-key ci   # writer.actorId == signer -> self-certifying
+shore capture --sign-key ci   # writer.actorId == signer -> self-certifying
 ```
 
 Because `writer.actorId` is the signing key's `did:key`, the event omits the top-level `signer` and

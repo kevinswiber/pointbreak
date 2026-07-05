@@ -53,7 +53,7 @@ fn cli_reference_exists_and_covers_current_commands() {
     for command in [
         "shore show",
         "shore dump",
-        "shore review capture",
+        "shore capture",
         "shore store status",
         "shore store migrate",
         "shore review observation add",
@@ -156,7 +156,7 @@ fn getting_started_walks_through_first_review() {
 
     for required in [
         "cargo install shoreline",
-        "shore review capture",
+        "shore capture",
         "shore review show",
         "shore review observation add",
         "shore review input-request open",

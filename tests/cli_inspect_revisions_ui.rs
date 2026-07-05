@@ -17,7 +17,7 @@ fn inspector_serves_markdown_body_content_type() {
     repo.commit_all("base");
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
     let repo_arg = repo.path().to_str().unwrap();
-    let capture = run_shore_json(&["review", "capture", "--repo", repo_arg]);
+    let capture = run_shore_json(&["capture", "--repo", repo_arg]);
     let revision_id = capture["revision"]["id"].as_str().unwrap();
 
     run_shore(&[

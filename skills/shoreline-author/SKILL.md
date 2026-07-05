@@ -1,6 +1,6 @@
 ---
 name: shoreline-author
-description: Use when a coding agent has finished a coherent implementation change, is about to declare work done, is about to commit the current task, or the user says done, hand off, ready for review, or ship it and wants to leave a durable Shoreline review record. Capture with shore review capture, record what changed and why as observations, record validation evidence for checks actually run, open input requests for genuine unresolved questions, and then stand down.
+description: Use when a coding agent has finished a coherent implementation change, is about to declare work done, is about to commit the current task, or the user says done, hand off, ready for review, or ship it and wants to leave a durable Shoreline review record. Capture with shore capture, record what changed and why as observations, record validation evidence for checks actually run, open input requests for genuine unresolved questions, and then stand down.
 ---
 
 # Shoreline Author Handoff
@@ -16,7 +16,7 @@ work, you turn the handoff into self-grading and pollute the review surface the 
 
 ```text
 1. Confirm the full task change you intend to hand off — uncommitted in the worktree, or landed in commits.
-2. Capture the revision: `shore review capture`, or `shore review capture --base <rev>` for a landed range.
+2. Capture the revision: `shore capture`, or `shore capture --base <rev>` for a landed range.
 3. Choose one author track for this handoff.
 4. Add observations on that track for what changed, why, and review risks.
 5. Record validation evidence on that track for checks you actually ran.
@@ -31,12 +31,12 @@ once per coherent change, not once per edit.
 
 ## Capture first
 
-Capture before you commit when you can. Plain `shore review capture` records the Git worktree diff
+Capture before you commit when you can. Plain `shore capture` records the Git worktree diff
 from `HEAD` to the working tree, including untracked files, so an uncommitted change is captured
 whole.
 
 If the task is already committed and the working tree is clean, capture the landed range instead with
-`shore review capture --base <rev>`. That captures the tree diff from `<rev>` to `--target` (default
+`shore capture --base <rev>`. That captures the tree diff from `<rev>` to `--target` (default
 `HEAD`) without reading the working tree or untracked files. `--base` resolves any rev — a branch,
 tag, `HEAD~N`, or commit OID — so point it at the commit the task started from.
 
@@ -45,13 +45,13 @@ git status --short
 
 # Preferred: the task is still uncommitted in the worktree.
 capture_file=$(mktemp)
-shore review capture | tee "$capture_file" | jq .
+shore capture | tee "$capture_file" | jq .
 revision_id=$(jq -r '.revision.id' "$capture_file")
 rm "$capture_file"
 
 # Already committed (clean tree): capture the landed range from the task's starting commit.
 capture_file=$(mktemp)
-shore review capture --base <commit-before-task> | tee "$capture_file" | jq .
+shore capture --base <commit-before-task> | tee "$capture_file" | jq .
 revision_id=$(jq -r '.revision.id' "$capture_file")
 rm "$capture_file"
 ```
@@ -63,7 +63,7 @@ capturable diff: do not `git reset --soft` back to the base just to fake a workt
 
 If `git status --short` is empty and no commits belong to this task, there is nothing to hand off:
 tell the user there is no change for Shoreline to capture. If you committed only part of the task and
-left the rest uncommitted, plain `shore review capture` sees only the uncommitted remainder; capture
+left the rest uncommitted, plain `shore capture` sees only the uncommitted remainder; capture
 the whole change with `--base` from the task's starting commit instead.
 
 Use the captured revision ID for every write. If `jq` is unavailable, copy `revision.id` from the
@@ -249,7 +249,7 @@ capture a separate handoff when that task reaches its own end.
 ## Common errors
 
 - **Faking a worktree diff after a commit.** Committing first is not an error: capture the landed
-  change with `shore review capture --base <commit-before-task>`. The error is rewriting history —
+  change with `shore capture --base <commit-before-task>`. The error is rewriting history —
   for example `git reset --soft` — to manufacture a worktree diff. Never do that; use `--base`.
 - **Claiming verification you did not run.** Record only checks you actually performed, including
   failures or skipped checks when they matter.

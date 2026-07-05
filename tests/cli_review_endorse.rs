@@ -23,10 +23,7 @@ fn endorse_with_signing_off_is_a_hard_error() {
     repo.write("src/lib.rs", "pub fn v() -> u32 { 1 }\n");
     repo.commit_all("base");
     repo.write("src/lib.rs", "pub fn v() -> u32 { 2 }\n");
-    let _ = shore_env(
-        ["review", "capture", "--repo", repo.path().to_str().unwrap()],
-        &[],
-    );
+    let _ = shore_env(["capture", "--repo", repo.path().to_str().unwrap()], &[]);
 
     // SHORE_SIGNING=off → no signer resolves → endorsement has no content → hard error.
     let out = shore_env(
@@ -82,7 +79,7 @@ fn capture_target(home_str: &str) -> (GitRepo, String) {
     repo.commit_all("base");
     repo.write("src/lib.rs", "pub fn v() -> u32 { 2 }\n");
     let cap = shore_env(
-        ["review", "capture", "--repo", repo.path().to_str().unwrap()],
+        ["capture", "--repo", repo.path().to_str().unwrap()],
         &[("SHORE_HOME", home_str)],
     );
     assert!(

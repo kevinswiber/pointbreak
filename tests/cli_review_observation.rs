@@ -11,8 +11,7 @@ use support::shore;
 #[test]
 fn observation_add_records_review_wide_observation_and_emits_v1_json() {
     let repo = modified_repo();
-    let capture =
-        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let capture = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
     let output = shore([
         "review",
@@ -70,7 +69,7 @@ fn observation_add_records_review_wide_observation_and_emits_v1_json() {
 #[test]
 fn observation_add_responds_to_records_link() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let a_out = shore([
         "review",
@@ -119,7 +118,7 @@ fn observation_add_responds_to_records_link() {
 #[test]
 fn observation_markdown_body_content_type_round_trips() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
         "review",
@@ -170,7 +169,7 @@ fn observation_markdown_body_content_type_round_trips() {
 #[test]
 fn observation_add_records_range_observation() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
         "review",
@@ -208,7 +207,7 @@ fn observation_add_records_range_observation() {
 #[test]
 fn observation_add_requires_track() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
         "review",
@@ -227,7 +226,7 @@ fn observation_add_requires_track() {
 #[test]
 fn observation_list_reads_recorded_observations() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     shore([
         "review",
         "observation",
@@ -266,7 +265,7 @@ fn observation_list_reads_recorded_observations() {
 #[test]
 fn observation_list_json_surfaces_responds_to_and_responded_by() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     let a_out = shore([
         "review",
         "observation",
@@ -333,7 +332,7 @@ fn observation_list_json_surfaces_responds_to_and_responded_by() {
 #[test]
 fn observation_without_responses_omits_both_fields() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     shore([
         "review",
         "observation",
@@ -365,7 +364,7 @@ fn observation_without_responses_omits_both_fields() {
 #[test]
 fn observation_list_filters_by_track_and_file() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     shore([
         "review",
         "observation",
@@ -412,7 +411,7 @@ fn observation_list_filters_by_track_and_file() {
 #[test]
 fn observation_list_filters_by_tag() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     shore([
         "review",
         "observation",
@@ -464,7 +463,7 @@ fn observation_list_filters_by_tag() {
 #[test]
 fn observation_list_include_body_hydrates_body() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     shore([
         "review",
         "observation",
@@ -496,7 +495,7 @@ fn observation_list_include_body_hydrates_body() {
 #[test]
 fn observation_list_pretty_prints_when_requested() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
         "review",
@@ -513,7 +512,7 @@ fn observation_list_pretty_prints_when_requested() {
 #[test]
 fn observation_add_body_inputs_are_mutually_exclusive() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     let body_file = repo.path().join("body.txt");
     std::fs::write(&body_file, "file body").unwrap();
 
@@ -540,7 +539,7 @@ fn observation_add_body_inputs_are_mutually_exclusive() {
 #[test]
 fn observation_add_body_stdin_reads_from_stdin() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore_with_stdin(
         [
@@ -579,7 +578,7 @@ fn observation_add_body_stdin_reads_from_stdin() {
 #[test]
 fn observation_add_is_idempotent_on_rerun() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     let args = [
         "review",
         "observation",
@@ -606,7 +605,7 @@ fn observation_add_is_idempotent_on_rerun() {
 #[test]
 fn observation_list_collapses_duplicate_semantic_events() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let first = parse_json(
         &shore([
@@ -692,7 +691,7 @@ fn observation_add_errors_when_no_revision_has_been_captured() {
 #[test]
 fn observation_add_rejects_unknown_file_target() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
         "review",
@@ -715,11 +714,9 @@ fn observation_add_rejects_unknown_file_target() {
 #[test]
 fn observation_add_with_explicit_revision_succeeds_when_current_is_ambiguous() {
     let repo = modified_repo();
-    let first =
-        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     repo.write("another.txt", "new untracked file\n");
-    let second =
-        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let second = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     assert_ne!(first["revision"]["id"], second["revision"]["id"]);
 
     let output = shore([
@@ -748,9 +745,9 @@ fn observation_add_with_explicit_revision_succeeds_when_current_is_ambiguous() {
 #[test]
 fn observation_add_errors_when_current_revision_is_ambiguous_without_explicit_id() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     repo.write("another.txt", "new untracked file\n");
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
         "review",
@@ -800,7 +797,6 @@ fn observation_add_and_list_work_against_range_captured_unit() {
     let repo = support::committed_repo();
     let capture = parse_json(
         &shore([
-            "review",
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),

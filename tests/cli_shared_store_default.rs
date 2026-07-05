@@ -90,7 +90,7 @@ fn main_worktree_capture_round_trips_through_the_common_dir_store() {
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
     let repo_arg = repo.path().to_str().unwrap();
 
-    let capture = run_json(&["review", "capture", "--repo", repo_arg]);
+    let capture = run_json(&["capture", "--repo", repo_arg]);
     let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
 
     // The shared common-dir store holds the events; the worktree-local
@@ -140,7 +140,7 @@ fn capture_is_visible_from_a_sibling_worktree_without_a_link() {
     add_worktree(main.path(), &reader, "reader");
 
     std::fs::write(seed.join("README.md"), "changed in seed\n").unwrap();
-    let capture = run_json(&["review", "capture", "--repo", seed.to_str().unwrap()]);
+    let capture = run_json(&["capture", "--repo", seed.to_str().unwrap()]);
     let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
 
     // The sibling reader sees the seed's unit through the shared store, no link.
@@ -176,7 +176,7 @@ fn ephemeral_worktree_keeps_its_capture_out_of_the_shared_store() {
     let mode = run_json(&["store", "mode", "ephemeral", "--repo", ephemeral_arg]);
     assert_eq!(mode["mode"], "ephemeral");
     std::fs::write(ephemeral.join("README.md"), "changed ephemerally\n").unwrap();
-    let capture = run_json(&["review", "capture", "--repo", ephemeral_arg]);
+    let capture = run_json(&["capture", "--repo", ephemeral_arg]);
     let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
 
     // The capture landed in the worktree-local store, not the shared one.
@@ -236,7 +236,7 @@ fn legacy_worktree_local_store_errors_until_migrated() {
     // write lands in `.shore/data`, then restore the shared default. The
     // populated `.shore/data` is now a legacy store on a non-ephemeral worktree.
     run_json(&["store", "mode", "ephemeral", "--repo", repo_arg]);
-    let capture = run_json(&["review", "capture", "--repo", repo_arg]);
+    let capture = run_json(&["capture", "--repo", repo_arg]);
     let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
     run_json(&["store", "mode", "shared", "--repo", repo_arg]);
     assert!(repo.path().join(".shore/data/events").is_dir());
@@ -294,7 +294,7 @@ fn legacy_worktree_local_store_resolves_after_migrate_retire_source() {
     let repo_arg = repo.path().to_str().unwrap();
 
     run_json(&["store", "mode", "ephemeral", "--repo", repo_arg]);
-    let capture = run_json(&["review", "capture", "--repo", repo_arg]);
+    let capture = run_json(&["capture", "--repo", repo_arg]);
     let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
     run_json(&["store", "mode", "shared", "--repo", repo_arg]);
     assert!(repo.path().join(".shore/data/events").is_dir());
@@ -341,11 +341,11 @@ fn each_worktree_unit_show_resolves_its_own_capture() {
     add_worktree(main.path(), &beta, "beta");
 
     std::fs::write(alpha.join("README.md"), "alpha change\n").unwrap();
-    let alpha_capture = run_json(&["review", "capture", "--repo", alpha.to_str().unwrap()]);
+    let alpha_capture = run_json(&["capture", "--repo", alpha.to_str().unwrap()]);
     let alpha_id = alpha_capture["revision"]["id"].as_str().unwrap().to_owned();
 
     std::fs::write(beta.join("README.md"), "beta change\n").unwrap();
-    let beta_capture = run_json(&["review", "capture", "--repo", beta.to_str().unwrap()]);
+    let beta_capture = run_json(&["capture", "--repo", beta.to_str().unwrap()]);
     let beta_id = beta_capture["revision"]["id"].as_str().unwrap().to_owned();
 
     assert_ne!(
@@ -386,7 +386,6 @@ fn two_worktrees_capturing_the_same_range_group_into_one_unit() {
     add_detached_worktree(main.path(), &wt_b, "HEAD");
 
     let a = run_json(&[
-        "review",
         "capture",
         "--repo",
         wt_a.to_str().unwrap(),
@@ -394,7 +393,6 @@ fn two_worktrees_capturing_the_same_range_group_into_one_unit() {
         "HEAD~1",
     ]);
     let b = run_json(&[
-        "review",
         "capture",
         "--repo",
         wt_b.to_str().unwrap(),

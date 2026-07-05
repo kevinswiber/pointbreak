@@ -81,7 +81,7 @@ fn store_status_includes_inventory_without_artifact_paths() {
     repo.write("README.md", "base\n");
     repo.commit_all("base");
     repo.write("README.md", "changed\n");
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let body_dir = tempfile::tempdir().expect("create body file directory");
     let body_file = body_dir.path().join("body.txt");
@@ -243,7 +243,7 @@ fn text_store_digest_reports_counts_size_and_sensitivity() {
     repo.write("README.md", "base\n");
     repo.commit_all("base");
     repo.write("README.md", "changed\n");
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     // A large observation body spills to a note artifact, so the store holds at
     // least a snapshot and a note (the artifact count is plural).

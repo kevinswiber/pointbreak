@@ -38,7 +38,7 @@ fn store_migrate_folds_worktree_local_into_common_dir() {
         "ephemeral mode: {}",
         String::from_utf8_lossy(&ephemeral.stderr)
     );
-    let capture = shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    let capture = shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         capture.status.success(),
         "capture: {}",
@@ -99,11 +99,7 @@ fn store_migrate_retire_source_completes_in_one_command() {
             .status
             .success()
     );
-    assert!(
-        shore(["review", "capture", "--repo", &repo_arg])
-            .status
-            .success()
-    );
+    assert!(shore(["capture", "--repo", &repo_arg]).status.success());
     assert!(
         shore(["store", "mode", "shared", "--repo", &repo_arg])
             .status
@@ -158,11 +154,7 @@ fn store_migrate_excluded_fixture_paths_unblock_the_gate() {
             .status
             .success()
     );
-    assert!(
-        shore(["review", "capture", "--repo", &repo_arg])
-            .status
-            .success()
-    );
+    assert!(shore(["capture", "--repo", &repo_arg]).status.success());
     assert!(
         shore(["store", "mode", "shared", "--repo", &repo_arg])
             .status
@@ -192,11 +184,7 @@ fn store_migrate_block_refusal_names_the_targeted_exclude_alternative() {
             .status
             .success()
     );
-    assert!(
-        shore(["review", "capture", "--repo", &repo_arg])
-            .status
-            .success()
-    );
+    assert!(shore(["capture", "--repo", &repo_arg]).status.success());
     assert!(
         shore(["store", "mode", "shared", "--repo", &repo_arg])
             .status
@@ -225,11 +213,7 @@ fn store_migrate_include_ephemeral_omits_the_excluded_count() {
             .status
             .success()
     );
-    assert!(
-        shore(["review", "capture", "--repo", &repo_arg])
-            .status
-            .success()
-    );
+    assert!(shore(["capture", "--repo", &repo_arg]).status.success());
 
     // --include-ephemeral skips the gate scan entirely, so no count is
     // reported (absent, not zero — zero would claim a scan ran).
@@ -255,7 +239,7 @@ fn store_migrate_include_ephemeral_omits_the_excluded_count() {
 #[test]
 fn store_migrate_refuses_ephemeral_without_include_ephemeral() {
     let repo = repo_with_pending_change();
-    let capture = shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    let capture = shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         capture.status.success(),
         "capture: {}",

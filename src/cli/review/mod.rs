@@ -2,11 +2,8 @@ use std::io::Write;
 
 use clap::{Args, Subcommand};
 
-use crate::cli_tracing::TracingArgs;
-
 pub(super) mod assessment;
 pub(super) mod association;
-pub(super) mod capture;
 pub(super) mod endorse;
 pub(super) mod history;
 pub(super) mod input_request;
@@ -25,7 +22,6 @@ pub(super) struct ReviewArgs {
 enum ReviewCommand {
     Assessment(assessment::AssessmentArgs),
     Association(association::AssociationArgs),
-    Capture(capture::CaptureArgs),
     Endorse(endorse::EndorseArgs),
     History(history::HistoryArgs),
     InputRequest(input_request::InputRequestArgs),
@@ -37,14 +33,12 @@ enum ReviewCommand {
 
 pub(super) fn run(
     args: ReviewArgs,
-    tracing: &TracingArgs,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         ReviewCommand::Assessment(args) => assessment::run(args, stdout, stderr),
         ReviewCommand::Association(args) => association::run(args, stdout, stderr),
-        ReviewCommand::Capture(args) => capture::run(args, tracing, stdout, stderr),
         ReviewCommand::Endorse(args) => endorse::run(args, stdout, stderr),
         ReviewCommand::History(args) => history::run(args, stdout),
         ReviewCommand::InputRequest(args) => input_request::run(args, stdout, stderr),

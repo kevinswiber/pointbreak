@@ -214,10 +214,8 @@ fn fixture_repo() -> (GitRepo, String) {
     repo.commit_all("base");
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
 
-    let raw = String::from_utf8(
-        shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout,
-    )
-    .expect("capture stdout is utf-8");
+    let raw = String::from_utf8(shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout)
+        .expect("capture stdout is utf-8");
     let value: Value = serde_json::from_str(&raw).expect("valid capture json");
     let revision_id = value["revision"]["id"]
         .as_str()
@@ -236,14 +234,14 @@ fn repo_arg(repo: &GitRepo) -> String {
 /// commands (each new write references the same captured Revision).
 #[test]
 fn review_documents_are_byte_stable() {
-    // 1. review capture (re-run on a fresh repo to snapshot the capture document
+    // 1. shore capture (re-run on a fresh repo to snapshot the capture document
     //    itself; the shared fixture below reuses its own capture).
     {
         let repo = GitRepo::new();
         repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
         repo.commit_all("base");
         repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
-        let out = run_command(&repo, &["review", "capture", "--repo", &repo_arg(&repo)]);
+        let out = run_command(&repo, &["capture", "--repo", &repo_arg(&repo)]);
         assert_snapshot("capture", &out);
     }
 

@@ -108,7 +108,7 @@ fn store_mode_set_ephemeral_makes_capture_resolve_worktree_local() {
     ]);
 
     repo.write("README.md", "changed\n");
-    let capture = shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    let capture = shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         capture.status.success(),
         "stderr:\n{}",

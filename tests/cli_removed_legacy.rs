@@ -36,6 +36,11 @@ const REMOVED_PATHS: &[RemovedPath] = &[
         argv: &["review", "unit", "--help"],
         hint_contains: &["shore revision list", "shore revision show"],
     },
+    // Flattened families: `shore review <verb>` retired, points at `shore <verb>`.
+    RemovedPath {
+        argv: &["review", "capture", "--help"],
+        hint_contains: &["shore capture"],
+    },
 ];
 
 #[test]

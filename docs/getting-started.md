@@ -64,7 +64,7 @@ git diff
 ## 3. Capture The Revision
 
 ```bash
-shore review capture
+shore capture
 ```
 
 The capture freezes the current diff as a local revision. Shoreline writes immutable event files to

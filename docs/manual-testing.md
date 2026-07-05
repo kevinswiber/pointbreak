@@ -28,7 +28,7 @@ caller would see them.
   git config user.name "Manual Test"
   git config commit.gpgsign false
 
-  # Baseline commit — required so `shore review capture` has a HEAD to diff against.
+  # Baseline commit — required so `shore capture` has a HEAD to diff against.
   echo "placeholder" > README
   git add README && git commit -q -m "baseline"
   ```
@@ -36,14 +36,14 @@ caller would see them.
   Each section below then layers real changes on top of that baseline (modify tracked files, add
   new ones, stage them, leave them unstaged, etc.) so the captured diff is non-empty.
 
-- `shore review capture` and the write commands emit **compact JSON only**. Pipe through `jq` or
+- `shore capture` and the write commands emit **compact JSON only**. Pipe through `jq` or
   `python3 -m json.tool` if you want to read them. Most read commands accept `--pretty`.
 - `shore` writes durable state into `.shore/data/` inside the worktree. After a manual test, you can
   remove the temp directory; nothing escapes it.
 
 ## A. Basic capture of tracked changes
 
-**Goal.** Confirm that `shore review capture` records a `work_object_proposed` event, writes a
+**Goal.** Confirm that `shore capture` records a `work_object_proposed` event, writes a
 snapshot artifact, and rebuilds `.shore/data/state.json`.
 
 ```bash
@@ -53,7 +53,7 @@ echo -e "alpha\nbeta\ngamma" > src.txt
 git add src.txt && git commit -q -m "add src"
 echo -e "alpha\nbeta-modified\ngamma\ndelta" > src.txt
 
-shore review capture | jq .
+shore capture | jq .
 ls -la .shore/data/
 ls .shore/data/events/ .shore/data/artifacts/objects/
 ```

@@ -95,7 +95,7 @@ fn dump_with_sidecar_input_still_emits_reload_diagnostics() {
 }
 
 fn capture_review(repo_arg: &str) {
-    let output = shore(["review", "capture", "--repo", repo_arg]);
+    let output = shore(["capture", "--repo", repo_arg]);
     assert!(
         output.status.success(),
         "stderr:\n{}",

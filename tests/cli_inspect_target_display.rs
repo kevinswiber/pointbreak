@@ -104,7 +104,6 @@ fn inspector_units_render_commit_target_display_for_range_capture() {
     repo.commit_all("change");
 
     let output = shore([
-        "review",
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -465,7 +464,7 @@ fn linked_inspector_unit_error_message_stays_path_free_for_unknown_unit() {
 
 /// Capture the repo, returning the full capture document.
 fn capture_json(repo: &Path) -> Value {
-    let output = shore(["review", "capture", "--repo", repo.to_str().unwrap()]);
+    let output = shore(["capture", "--repo", repo.to_str().unwrap()]);
     assert!(
         output.status.success(),
         "capture stderr:\n{}",

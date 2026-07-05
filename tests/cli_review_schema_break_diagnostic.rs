@@ -18,7 +18,7 @@ fn store_with_retired_event() -> GitRepo {
     repo.commit_all("base");
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
 
-    let capture = shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    let capture = shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         capture.status.success(),
         "capture failed:\n{}",

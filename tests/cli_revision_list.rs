@@ -12,8 +12,7 @@ use support::shore;
 #[test]
 fn revision_list_emits_v1_json_with_freshness_metadata() {
     let repo = modified_repo();
-    let capture =
-        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let capture = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
     let output = shore([
         "review",
@@ -59,7 +58,7 @@ fn revision_list_emits_v1_json_with_freshness_metadata() {
 #[test]
 fn revision_list_does_not_expose_storage_paths() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
         "review",
@@ -80,7 +79,7 @@ fn revision_list_does_not_expose_storage_paths() {
 #[test]
 fn revision_list_pretty_prints() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
         "review",
@@ -96,11 +95,9 @@ fn revision_list_pretty_prints() {
 #[test]
 fn revision_list_returns_multiple_entries_in_capture_order() {
     let repo = modified_repo();
-    let first =
-        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let second =
-        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let second = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
     let output = shore([
         "review",
@@ -147,15 +144,7 @@ fn revision_list_succeeds_without_events() {
 fn revision_list_reads_capture_from_the_shared_store_after_seed_worktree_removed() {
     let fixture = CloneWorktreeFixture::new();
     fs::write(fixture.seed.join("README.md"), "changed in seed\n").unwrap();
-    let capture = parse_json(
-        &shore([
-            "review",
-            "capture",
-            "--repo",
-            fixture.seed.to_str().unwrap(),
-        ])
-        .stdout,
-    );
+    let capture = parse_json(&shore(["capture", "--repo", fixture.seed.to_str().unwrap()]).stdout);
 
     // The capture wrote through to the shared common-dir store; removing the seed
     // worktree cannot strand the record. No `store link` step.
@@ -192,25 +181,9 @@ fn revision_list_reads_capture_from_the_shared_store_after_seed_worktree_removed
 fn revision_list_omits_ambient_ambiguous_current_diagnostic_from_shared_store() {
     let fixture = CloneWorktreeFixture::new();
     fs::write(fixture.seed.join("README.md"), "changed once\n").unwrap();
-    let first = parse_json(
-        &shore([
-            "review",
-            "capture",
-            "--repo",
-            fixture.seed.to_str().unwrap(),
-        ])
-        .stdout,
-    );
+    let first = parse_json(&shore(["capture", "--repo", fixture.seed.to_str().unwrap()]).stdout);
     fs::write(fixture.seed.join("README.md"), "changed twice\n").unwrap();
-    let second = parse_json(
-        &shore([
-            "review",
-            "capture",
-            "--repo",
-            fixture.seed.to_str().unwrap(),
-        ])
-        .stdout,
-    );
+    let second = parse_json(&shore(["capture", "--repo", fixture.seed.to_str().unwrap()]).stdout);
 
     // Both captures wrote through to the shared common-dir store; a sibling reader
     // sees them with no `store link` step.
@@ -251,7 +224,6 @@ fn revision_list_omits_ambient_ambiguous_current_diagnostic_from_shared_store() 
 fn unit_list_renders_commit_range_source_without_paths() {
     let repo = support::committed_repo();
     shore([
-        "review",
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -296,7 +268,6 @@ fn unit_list_hides_orphans_by_default_and_surfaces_with_flags() {
     repo.commit_all("feature work");
     let orphan = parse_json(
         &shore([
-            "review",
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -311,8 +282,7 @@ fn unit_list_hides_orphans_by_default_and_surfaces_with_flags() {
 
     // A floating worktree capture on main → never hidden.
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let floating =
-        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let floating = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     let floating_id = floating["revision"]["id"].as_str().unwrap().to_owned();
     assert_ne!(orphan_id, floating_id);
 
@@ -349,14 +319,13 @@ fn unit_list_attaches_merge_status_and_accepts_integration_and_worktree_flags() 
     let repo_arg = repo.path().to_str().unwrap();
 
     // A range capture anchored to HEAD (a live tip) reads "open".
-    let range =
-        parse_json(&shore(["review", "capture", "--repo", repo_arg, "--base", "HEAD~1"]).stdout);
+    let range = parse_json(&shore(["capture", "--repo", repo_arg, "--base", "HEAD~1"]).stdout);
     let range_id = range["revision"]["id"].as_str().unwrap().to_owned();
 
     // A floating worktree capture reads "unknown"; its worktree path lets it
     // survive the worktree-identity scope.
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let worktree = parse_json(&shore(["review", "capture", "--repo", repo_arg]).stdout);
+    let worktree = parse_json(&shore(["capture", "--repo", repo_arg]).stdout);
     let worktree_id = worktree["revision"]["id"].as_str().unwrap().to_owned();
 
     // Default list: each entry carries a structural merge-status.

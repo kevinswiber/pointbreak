@@ -9,7 +9,7 @@ use serde_json::Value;
 use support::git_repo::GitRepo;
 use support::{shore, shore_env};
 
-/// A repo with a committed base and an uncommitted change, so `review capture`
+/// A repo with a committed base and an uncommitted change, so `shore capture`
 /// has a HEAD -> working-tree diff to capture.
 fn modified_repo() -> GitRepo {
     let repo = GitRepo::new();
@@ -24,7 +24,7 @@ fn parse_json(stdout: &[u8]) -> Value {
 }
 
 fn capture(repo: &Path) -> Value {
-    let output = shore(["review", "capture", "--repo", repo.to_str().unwrap()]);
+    let output = shore(["capture", "--repo", repo.to_str().unwrap()]);
     assert!(
         output.status.success(),
         "capture stderr:\n{}",
@@ -352,7 +352,6 @@ fn store_remove_signs_the_event_when_a_sign_key_is_given() {
     let captured = parse_json(
         &shore_env(
             [
-                "review",
                 "capture",
                 "--repo",
                 repo.path().to_str().unwrap(),
@@ -395,7 +394,7 @@ fn store_remove_signs_the_event_when_a_sign_key_is_given() {
 }
 
 fn capture_worktree(repo: &Path) -> Value {
-    let output = shore(["review", "capture", "--repo", repo.to_str().unwrap()]);
+    let output = shore(["capture", "--repo", repo.to_str().unwrap()]);
     assert!(
         output.status.success(),
         "working-tree capture stderr:\n{}",

@@ -358,7 +358,7 @@ fn inspect_history_endpoint_renders_endorsement_readback() {
     // Capture UNSIGNED so the detached endorsement carrier is not deduped, then endorse.
     assert!(
         shore_env(
-            ["review", "capture", "--repo", repo_arg],
+            ["capture", "--repo", repo_arg],
             &[("SHORE_HOME", env_home), ("SHORE_SIGNING", "off")],
         )
         .status

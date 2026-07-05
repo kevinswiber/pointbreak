@@ -12,18 +12,18 @@ per meaningful change, not after every file edit.
 The authoring skill is reactive: it triggers at the end of a work session, so install it in the
 agent environment before that session begins. Capturing before any commit keeps the whole change in
 the working tree, the simplest shape to hand off. If the skill is added only afterward and the change
-is already committed, capture the landed range with `shore review capture --base <rev>` instead of
+is already committed, capture the landed range with `shore capture --base <rev>` instead of
 recreating a worktree diff.
 
 ## The Capture Moment
 
-`shore review capture` freezes the current Git worktree diff from `HEAD` to the working tree,
+`shore capture` freezes the current Git worktree diff from `HEAD` to the working tree,
 including untracked files. That timing matters for the default capture: if the agent commits part of
 the task first, a later worktree capture only sees the remaining uncommitted diff. The preferred
 order is to finish the implementation, run the relevant checks, capture the revision while the full
 change is still in the worktree, record the handoff facts, then stop. If the change is already
 committed and the working tree is clean, capture the committed range instead with
-`shore review capture --base <commit-before-the-change>` (target defaults to `HEAD`) — never rewrite
+`shore capture --base <commit-before-the-change>` (target defaults to `HEAD`) — never rewrite
 history to manufacture a worktree diff.
 
 Humans set up the loop by making the expectation explicit: when the agent reaches the end of a task,
@@ -110,7 +110,7 @@ An agent-authored handoff looks like this:
 ```bash
 git status --short
 capture_file=$(mktemp)
-shore review capture | tee "$capture_file" | jq .
+shore capture | tee "$capture_file" | jq .
 revision_id=$(jq -r '.revision.id' "$capture_file")
 rm "$capture_file"
 agent_name="<agent-name>"
@@ -159,7 +159,7 @@ full composite JSON view of a revision; it includes the complete captured snapsh
 for real changes, and is meant for tooling or cases where the full snapshot is genuinely needed. The
 write commands above pass the captured revision ID explicitly because write commands can infer a
 revision only when exactly one current capture exists. If `jq` is not available, copy
-`revision.id` from `shore review capture` output and use it in place of `$revision_id`.
+`revision.id` from `shore capture` output and use it in place of `$revision_id`.
 
 ## What A Good Handoff Looks Like
 
@@ -263,7 +263,7 @@ The reviewer should not write to the author's track. The author should not recor
 
 The `shoreline-author-response` skill closes the loop when the original author picks up the
 reviewer's pass. It attaches to the existing revision with `--revision`; it does not run
-`shore review capture` again, and it does not add or replace assessments.
+`shore capture` again, and it does not add or replace assessments.
 
 The author reads the reviewer track with bounded commands:
 
@@ -327,11 +327,11 @@ anchored at its captured target, so associate that same commit on a rebase or fa
 when a squash or merge produced a new commit, expect a `divergent_commit_association` diagnostic and
 keep or `withdraw-commit` the edge you do not want. Optionally add a human-readable companion with
 `shore review observation add --tag state-change:landed --title "landed as <sha>"`. Do not run
-`shore review capture` again for the landing, and do not add or change the assessment — the resulting
+`shore capture` again for the landing, and do not add or change the assessment — the resulting
 commit is an author fact, not a review call.
 
 When several captures are still current — re-captures stack, and a stale or superseded one is retired
-with `shore review capture --supersedes <revision>` — pin the landing to the
+with `shore capture --supersedes <revision>` — pin the landing to the
 revision that was actually reviewed and accepted by passing `--revision` explicitly, seeding it on the
 accepted revision when it is the current head of a supersession thread. Sibling captures
 remain, but routine list/history/exact/thread-scoped reads no longer emit an ambient

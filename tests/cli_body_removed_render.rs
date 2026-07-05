@@ -6,7 +6,7 @@ use serde_json::Value;
 use support::git_repo::GitRepo;
 use support::shore;
 
-/// A repo with a committed base and an uncommitted change, so `review capture`
+/// A repo with a committed base and an uncommitted change, so `shore capture`
 /// has a HEAD -> working-tree diff to capture.
 fn modified_repo() -> GitRepo {
     let repo = GitRepo::new();
@@ -32,7 +32,7 @@ fn assert_success(output: &std::process::Output, what: &str) {
 /// revision id and the body's normalized content hash (the removal key).
 fn capture_with_externalized_observation_body(repo: &Path) -> (String, String) {
     let arg = repo.to_str().unwrap();
-    let capture = shore(["review", "capture", "--repo", arg]);
+    let capture = shore(["capture", "--repo", arg]);
     assert_success(&capture, "capture");
     let capture = parse_json(&capture.stdout);
     let revision_id = capture["revision"]["id"].as_str().unwrap().to_owned();

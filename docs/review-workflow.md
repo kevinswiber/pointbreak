@@ -13,7 +13,7 @@ captured diff snapshot taken at a single moment. Capturing a revision is the one
 in the workflow — proposing a captured work object for others to assert facts about — while "review"
 stays the surface verb. V1 captures one of two shapes:
 the local Git worktree from `HEAD` to the working tree, including untracked files
-(the default); or, with `shore review capture --base <rev>`, the committed range
+(the default); or, with `shore capture --base <rev>`, the committed range
 between two resolved commits (`<rev>..--target`, target defaulting to `HEAD`),
 read as a tree diff with no working-tree involvement.
 
@@ -33,7 +33,7 @@ the **competing heads** are surfaced rather than one silently winning.
 ## The workflow at a glance
 
 1. Start from a Git worktree containing the change you want to review.
-2. Capture a revision with `shore review capture`.
+2. Capture a revision with `shore capture`.
 3. Inspect what was captured with `shore review show` and
    `shore review history`.
 4. Record review facts as you read the diff:
@@ -53,7 +53,7 @@ must differ from `HEAD`; the change can come from anywhere — a coding agent, a
 teammate's WIP branch, your own edits — but it must be present in the working
 tree before capture. Shoreline reads the diff from `git`; it does not summarize
 prior commits on its own. If the change is already committed, capture the
-committed range directly with `shore review capture --base <rev>` (see
+committed range directly with `shore capture --base <rev>` (see
 [section 2](#2-capture-a-revision)) instead of recreating it in the working
 tree.
 
@@ -75,10 +75,10 @@ writes the hidden `.git/info/exclude` anymore.
 ## 2. Capture a revision
 
 ```bash
-shore review capture
+shore capture
 ```
 
-`shore review capture` records a `work_object_proposed` event and writes the
+`shore capture` records a `work_object_proposed` event and writes the
 captured snapshot as an immutable Shoreline-owned object artifact. The output document is
 `shore.review-capture` JSON and includes:
 
@@ -92,7 +92,7 @@ current revision pick it automatically. When multiple exist, list them with
 `shore review revisions` and pass either the exact revision ID or seed a
 supersession thread with `--revision <id>`.
 
-The snapshot is now frozen. Re-running `shore review capture` later creates a
+The snapshot is now frozen. Re-running `shore capture` later creates a
 new revision; it does not mutate the previous one.
 
 ### Capturing a committed range
@@ -101,8 +101,8 @@ When the change is already committed and the working tree is clean, capture the
 landed range instead of recreating a working-tree diff:
 
 ```bash
-shore review capture --base <commit-before-the-change>   # target defaults to HEAD
-shore review capture --base <rev> --target <rev>         # explicit range
+shore capture --base <commit-before-the-change>   # target defaults to HEAD
+shore capture --base <rev> --target <rev>         # explicit range
 ```
 
 `--base`/`--target` resolve any rev (a branch, tag, `HEAD~N`, or commit OID) to a
@@ -127,22 +127,22 @@ identity:
 
 ```bash
 # review only what changed under packages/foo, in the current worktree
-shore review capture --path packages/foo
+shore capture --path packages/foo
 
 # same, over an explicit range
-shore review capture --base v1.2.0 --target HEAD --path docs/spec
+shore capture --base v1.2.0 --target HEAD --path docs/spec
 ```
 
 `--path` takes a native git pathspec, is repeatable, and scopes tracked and
 untracked files alike; a scope that matches no changed files is an error. See
-[`shore review capture`](./cli-reference.md#shore-review-capture) for the full
+[`shore capture`](./cli-reference.md#shore-review-capture) for the full
 semantics.
 
 Record a succession round by naming the revisions a new capture supersedes:
 
 ```bash
-shore review capture --supersedes <revision-id>
-shore review capture --supersedes <revision-id> --supersedes <other-revision-id>
+shore capture --supersedes <revision-id>
+shore capture --supersedes <revision-id> --supersedes <other-revision-id>
 ```
 
 The `supersedes` set is order-independent and may name more than one predecessor. There is no
@@ -450,7 +450,7 @@ There are two overlapping read surfaces today:
   working tree at run time and renders the unified diff plus imported notes.
   It is the older surface and is well-suited to import workflows and quick
   read-only viewing.
-- The **revision ledger** (`shore review capture` plus the
+- The **revision ledger** (`shore capture` plus the
   `shore review observation`, `input-request`, `assessment`, `history`, and
   `show` commands) operates on a frozen captured snapshot plus the
   durable event log. It is the surface for recording review facts.
@@ -517,9 +517,9 @@ cd ~/src/myproject
 git status
 
 # 1. Capture a revision. This freezes the current diff as a snapshot.
-#    `shore review capture` emits compact JSON only; pipe through jq if you
+#    `shore capture` emits compact JSON only; pipe through jq if you
 #    want to read it.
-shore review capture | jq .
+shore capture | jq .
 
 # 2. Read the captured revision (composite view, narrative + snapshot).
 shore review show --pretty | less

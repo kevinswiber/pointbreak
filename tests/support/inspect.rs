@@ -274,7 +274,7 @@ fn drained(stderr: &Arc<Mutex<String>>) -> String {
 
 /// Run `shore review capture` against a repo, returning the captured Revision id.
 pub fn capture(repo: &Path) -> String {
-    let output = shore(["review", "capture", "--repo", repo.to_str().unwrap()]);
+    let output = shore(["capture", "--repo", repo.to_str().unwrap()]);
     assert!(
         output.status.success(),
         "capture stderr:\n{}",
@@ -314,7 +314,7 @@ pub fn representative_store() -> RepresentativeStore {
     );
 
     let repo_arg = repo.path().to_str().unwrap().to_owned();
-    let capture = run_shore_json(&["review", "capture", "--repo", &repo_arg]);
+    let capture = run_shore_json(&["capture", "--repo", &repo_arg]);
     let revision_id = capture["revision"]["id"]
         .as_str()
         .expect("capture returns a Revision id")
@@ -465,7 +465,6 @@ fn run_shore_json(args: &[&str]) -> Value {
 /// as superseding the predecessor. Returns the captured revision id.
 pub fn capture_supersession_round(repo: &Path, predecessor: Option<&str>) -> String {
     let mut args = vec![
-        "review".to_owned(),
         "capture".to_owned(),
         "--repo".to_owned(),
         repo.to_str().unwrap().to_owned(),

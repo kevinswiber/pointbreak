@@ -157,7 +157,7 @@ from a parallel discriminator that could disagree with it.
 Everything else names its domain directly: observations, assessments, and notes stay `Review*`; the
 commit/ref association family is `Revision*` (`revision_commit_associated`, `revision_ref_withdrawn`,
 …); input requests and validation evidence name their own concept. The surface verb is unchanged:
-`shore review capture` is still how an author proposes a work object, even though the internal event is
+`shore capture` is still how an author proposes a work object, even though the internal event is
 `work_object_proposed`.
 
 **Generative moves default and stay Advisory.** The highest-stakes rule for the generative move is that

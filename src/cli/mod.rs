@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 
 use crate::cli_tracing::TracingArgs;
 
+mod capture;
 pub(crate) mod common;
 mod diff;
 mod dump;
@@ -48,6 +49,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    Capture(capture::CaptureArgs),
     Diff(diff::DiffArgs),
     #[command(hide = true)]
     Dump(dump::DumpArgs),
@@ -142,6 +144,10 @@ impl HintPredicate {
 /// Family/rename tasks append rows; they never change this mechanism.
 const REMOVED_COMMAND_HINTS: &[(HintPredicate, &str)] = &[
     (
+        HintPredicate::AdjacentWindow(&["review", "capture"]),
+        "Use `shore capture` instead of `shore review capture`.",
+    ),
+    (
         HintPredicate::AdjacentWindow(&["review", "intervention"]),
         "Use `shore input-request` instead of `shore review intervention`.",
     ),
@@ -182,6 +188,7 @@ fn run_cli(
     crate::cli_tracing::init_tracing(&cli.tracing)?;
 
     match cli.command {
+        Command::Capture(args) => capture::run(args, &cli.tracing, stdout, stderr),
         Command::Diff(args) => diff::run(args, stdout),
         Command::Dump(args) => {
             tracing::debug!(command = "dump", "command_start");
@@ -191,7 +198,7 @@ fn run_cli(
         Command::Inspect(args) => inspect::run(args, stdout),
         Command::Keys(args) => keys::run(args, stdout),
         Command::Notes(args) => notes::run(args, stdout),
-        Command::Review(args) => review::run(*args, &cli.tracing, stdout, stderr),
+        Command::Review(args) => review::run(*args, stdout, stderr),
         Command::Show(args) => {
             tracing::debug!(command = "show", "command_start");
             show::run(args, &cli.tracing)

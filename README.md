@@ -43,7 +43,7 @@ The short path is:
 
 ```bash
 cd path/to/git-worktree
-shore review capture
+shore capture
 shore review show --pretty
 ```
 

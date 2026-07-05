@@ -7,7 +7,7 @@ use support::shore;
 #[test]
 fn cli_review_validation_add_emits_validation_add_document() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
         "review",
@@ -38,7 +38,7 @@ fn cli_review_validation_add_emits_validation_add_document() {
 #[test]
 fn cli_review_validation_list_emits_list_document() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     let add = shore([
         "review",
         "validation",

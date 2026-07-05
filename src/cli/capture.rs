@@ -62,7 +62,7 @@ pub(super) fn run(
     if args.target.is_some() && args.base.is_none() {
         return Err("--target requires --base".into());
     }
-    let (options, skip) = capture_options(&args, tracing, stderr);
+    let (options, skip) = capture_options(&args, tracing, stderr)?;
     let capture = capture_review(options)?;
     crate::cli::common::surface_best_effort_skip(&skip, stderr);
     // `capture_document` consumes the result by value; keep a clone for the text lane.
@@ -141,18 +141,18 @@ fn capture_options(
     args: &CaptureArgs,
     tracing: &TracingArgs,
     stderr: &mut dyn Write,
-) -> (CaptureOptions, crate::cli::common::SigningSkip) {
+) -> Result<(CaptureOptions, crate::cli::common::SigningSkip), Box<dyn std::error::Error>> {
     let mut options = CaptureOptions::new(&args.repo);
     if let Some(range) = commit_range_spec(args) {
         options = options.with_commit_range(range);
     }
     if !args.supersedes.is_empty() {
-        options = options.with_supersedes(
-            args.supersedes
-                .iter()
-                .map(|id| RevisionId::new(id.clone()))
-                .collect(),
-        );
+        let ids = crate::cli::idresolve::IdResolver::new(&args.repo);
+        let mut supersedes = Vec::with_capacity(args.supersedes.len());
+        for raw in &args.supersedes {
+            supersedes.push(RevisionId::new(ids.rev(raw)?));
+        }
+        options = options.with_supersedes(supersedes);
     }
     if !args.paths.is_empty() {
         options = options.with_pathspecs(args.paths.clone());
@@ -168,7 +168,7 @@ fn capture_options(
         options = signed;
         skip = signer_skip;
     }
-    (options, skip)
+    Ok((options, skip))
 }
 
 /// Build the commit-range spec from `--base`/`--target`. `None` keeps the

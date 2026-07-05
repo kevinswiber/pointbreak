@@ -1,5 +1,10 @@
-// Unwired precursor seam: the id-taking commands adopt it family-by-family (the
-// first is `capture`). Remove this allow when the resolver is first called.
+// The resolver ships its whole API but the commands adopt it family-by-family,
+// so the not-yet-wired wrappers (and their `IdKind` variants) are dead until
+// their family flattens. `IdKind::Validation` has no wrapper by design — no
+// argument takes a `validation:` id as input — so it stays unconstructed
+// permanently. Kept until the last family wires the last wrapper (revision
+// family); the removal point narrows this to a targeted allow on
+// `IdKind::Validation`.
 #![allow(dead_code)]
 
 use std::cell::OnceCell;

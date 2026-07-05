@@ -6,7 +6,7 @@ Command output JSON is the machine-integration surface, under a **tiered stabili
 narrow **hard core** is frozen within each document's `version`:
 
 - the envelope discriminators (`schema`, `version`) on every document;
-- the field-paths a non-human consumer actually reads — `shore review capture`'s `revision.id`,
+- the field-paths a non-human consumer actually reads — `shore capture`'s `revision.id`,
   `shore review input-request list`'s `inputRequests[].{id,title,mode,reasonCode,trackId}`, and
   `shore review input-request respond`'s `inputRequestResponseId` and `eventId`;
 - the wire-value vocabularies — the assessment values, the input-request response outcomes, and the
@@ -241,14 +241,14 @@ from the snapshot wire (there is nothing to redact). Endpoint/target display liv
 `targetDisplay` block), not from the snapshot artifact. `shore review revisions` JSON still carries
 `target.worktreeRoot`, unchanged.
 
-## `shore review capture`
+## `shore capture`
 
 ```bash
-shore review capture [--repo <path>] [--base <rev> [--target <rev>]] \
+shore capture [--repo <path>] [--base <rev> [--target <rev>]] \
   [--path <pathspec>]... [--supersedes <revision-id>]...
 ```
 
-`shore review capture` records the current V1 revision: the base endpoint, target endpoint, and
+`shore capture` records the current V1 revision: the base endpoint, target endpoint, and
 captured diff snapshot. By default V1 captures the local Git worktree from `HEAD` to the working
 tree, including untracked files (source `git_worktree`).
 
@@ -313,7 +313,7 @@ projection rather than a lock. V1 does not add a daemon, delivery queue, approva
 storage, remote storage, or note mutation.
 
 By default every worktree of a clone resolves the shared common-dir store at `.git/shore`, so
-`shore review capture` lands its capture directly there — no setup step — and the capture is
+`shore capture` lands its capture directly there — no setup step — and the capture is
 immediately visible to `review revisions`, `review show`, and `history` from any sibling worktree. An
 `ephemeral` worktree instead captures into its own discardable `.shore/data/` store (see
 [`shore store`](#shore-store)).
@@ -452,7 +452,7 @@ revisions whose commits are all unreachable) — and records one removal fact pe
 `coReferencingUnits` (other revisions that still name the same shared artifact, reported before the
 removal), plus `eventsCreated` and `eventsExisting`. Removal is content-targeted and idempotent:
 re-removing a hash reports `created: false`. Removal is a write, so a signed store stays signed —
-`--sign-key` selects the signing key exactly as `shore review capture` does. There is deliberately no
+`--sign-key` selects the signing key exactly as `shore capture` does. There is deliberately no
 `--idempotency-key`; the removal key is derived solely from the content hash. Removal records the
 fact; it does not delete bytes — run `shore store gc` / `shore store compact` to reclaim them.
 
@@ -781,7 +781,7 @@ revision is tied to the commits and branches that carry it; recording a landed c
   (`--withdraws <id>`). Withdrawal is terminal: a later re-association of the same target does not
   revive the withdrawn edge.
 - All four writes are signable — `--sign-key <name|path>` selects the signing key exactly as
-  `shore review capture` does, and signing never gates the write.
+  `shore capture` does, and signing never gates the write.
 - `--revision <revision-id>` pins the target revision; without it the command defaults to the single
   captured revision and errors if multiple captured revisions exist.
 - **`list`** reports both axes unless `--axis commit|ref` narrows to one, and `--current` excludes

@@ -65,7 +65,7 @@ fn endorsed_repo(home: &str, enroll: bool, attest: bool) -> (GitRepo, String) {
     // the detached endorsement carrier could be deduped against.
     assert!(
         shore_env(
-            ["review", "capture", "--repo", &repo_arg],
+            ["capture", "--repo", &repo_arg],
             &[("SHORE_HOME", home), ("SHORE_SIGNING", "off")],
         )
         .status

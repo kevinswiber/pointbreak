@@ -50,7 +50,7 @@ fn modified_repo() -> GitRepo {
 
 /// Capture the current worktree and return the `shore.review-capture` document.
 fn capture(path: &Path) -> Value {
-    let output = shore(["review", "capture", "--repo", path.to_str().unwrap()]);
+    let output = shore(["capture", "--repo", path.to_str().unwrap()]);
     assert!(
         output.status.success(),
         "capture failed:\n{}",

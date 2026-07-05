@@ -68,7 +68,7 @@ impl LinkedFixture {
     }
 
     fn capture(&self, worktree: &Path) -> Value {
-        run_shore_json(&["review", "capture", "--repo", worktree.to_str().unwrap()])
+        run_shore_json(&["capture", "--repo", worktree.to_str().unwrap()])
     }
 
     fn observation_add(&self, worktree: &Path, revision_id: &str, body: &str) -> Value {
@@ -1300,7 +1300,7 @@ fn worktree_local_unit_list_is_unchanged() {
     repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
     repo.commit_all("base");
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
-    run_shore_json(&["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    run_shore_json(&["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let json = run_shore_json(&[
         "review",
@@ -1328,7 +1328,7 @@ fn main_worktree_of_a_clone_round_trips_a_capture_in_place() {
     // A tracked change on a branch, captured in the main worktree.
     main.git(["checkout", "-b", "feature"]);
     main.write("README.md", "changed on a branch in the main worktree\n");
-    let capture = run_shore_json(&["review", "capture", "--repo", main.path().to_str().unwrap()]);
+    let capture = run_shore_json(&["capture", "--repo", main.path().to_str().unwrap()]);
     let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
 
     // With NO --revision, the same worktree's reads resolve the capture in
@@ -1372,7 +1372,7 @@ fn fresh_single_worktree_has_clean_own_only_reads() {
     repo.write("README.md", "base\n");
     repo.commit_all("base");
     repo.write("README.md", "changed locally\n");
-    let capture = run_shore_json(&["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    let capture = run_shore_json(&["capture", "--repo", repo.path().to_str().unwrap()]);
     let unit_id = capture["revision"]["id"].as_str().unwrap().to_owned();
 
     let list = run_shore_json(&[

@@ -12,7 +12,7 @@ use support::shore;
 fn shore_review_assessment_add_emits_assessment_id_and_event() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    let capture = shore(["review", "capture", "--repo", repo_arg]);
+    let capture = shore(["capture", "--repo", repo_arg]);
     assert!(
         capture.status.success(),
         "capture failed: {}",
@@ -59,7 +59,7 @@ fn shore_review_assessment_add_emits_assessment_id_and_event() {
 fn shore_review_assessment_show_resolves_to_single_assessment() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", repo_arg]);
+    shore(["capture", "--repo", repo_arg]);
     let assessment = add_assessment(repo_arg, "human:kevin", "accepted", "ship it");
 
     let show = shore(["review", "assessment", "show", "--repo", repo_arg]);
@@ -84,7 +84,7 @@ fn shore_review_assessment_show_resolves_to_single_assessment() {
 fn shore_review_assessment_show_marks_ambiguous_with_two_writers() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", repo_arg]);
+    shore(["capture", "--repo", repo_arg]);
     add_assessment(repo_arg, "human:kevin", "accepted", "ship it");
     add_assessment(repo_arg, "agent:codex", "needs-changes", "fix it");
 
@@ -105,7 +105,7 @@ fn shore_review_assessment_show_marks_ambiguous_with_two_writers() {
 fn text_assessment_show_renders_current_call_not_json() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", repo_arg]);
+    shore(["capture", "--repo", repo_arg]);
     add_assessment(repo_arg, "human:kevin", "accepted", "ship it");
 
     let show = shore([
@@ -138,7 +138,7 @@ fn text_assessment_show_renders_current_call_not_json() {
 fn shore_review_assessment_add_rejects_state_change_value() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", repo_arg]);
+    shore(["capture", "--repo", repo_arg]);
 
     let bad = shore([
         "review",
@@ -178,7 +178,7 @@ fn shore_review_disposition_command_is_removed() {
 fn shore_review_assessment_add_records_file_range_target() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", repo_arg]);
+    shore(["capture", "--repo", repo_arg]);
 
     let output = shore([
         "review",
@@ -219,7 +219,7 @@ fn shore_review_assessment_add_records_file_range_target() {
 fn shore_review_assessment_add_records_related_facts_and_replacement() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", repo_arg]);
+    shore(["capture", "--repo", repo_arg]);
     let observation = add_observation(&repo, "Related observation");
     let input_request = open_input_request(&repo, "Related input request");
     let first = add_assessment(repo_arg, "human:kevin", "needs-changes", "Fix this");
@@ -279,7 +279,7 @@ fn shore_review_assessment_add_records_related_facts_and_replacement() {
 fn shore_review_assessment_add_targets_input_request_and_emits_related_input_requests() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", repo_arg]);
+    shore(["capture", "--repo", repo_arg]);
     let request = open_input_request(&repo, "Needs clarification");
     let request_id = request["inputRequestId"].as_str().unwrap();
 
@@ -348,7 +348,7 @@ fn shore_review_assessment_add_targets_input_request_and_emits_related_input_req
 fn shore_review_assessment_add_rejects_old_intervention_flags() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", repo_arg]);
+    shore(["capture", "--repo", repo_arg]);
     let request = open_input_request(&repo, "Legacy flag target");
     let request_id = request["inputRequestId"].as_str().unwrap();
 
@@ -397,7 +397,7 @@ fn shore_review_assessment_add_rejects_old_intervention_flags() {
 fn shore_review_assessment_add_reports_unknown_input_request_target() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", repo_arg]);
+    shore(["capture", "--repo", repo_arg]);
 
     let output = shore([
         "review",
@@ -425,7 +425,7 @@ fn shore_review_assessment_add_reports_unknown_input_request_target() {
 fn shore_review_assessment_add_summary_stdin_reads_from_stdin() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", repo_arg]);
+    shore(["capture", "--repo", repo_arg]);
 
     let output = shore_with_stdin(
         [
@@ -456,7 +456,7 @@ fn shore_review_assessment_add_summary_stdin_reads_from_stdin() {
 fn shore_review_assessment_add_targets_prior_assessment() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", repo_arg]);
+    shore(["capture", "--repo", repo_arg]);
     let first = add_assessment(repo_arg, "human:kevin", "needs-changes", "Fix this");
 
     let output = shore([
@@ -489,7 +489,7 @@ fn shore_review_assessment_add_targets_prior_assessment() {
 fn shore_review_assessment_add_rejects_invalid_input() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", repo_arg]);
+    shore(["capture", "--repo", repo_arg]);
     let observation = add_observation(&repo, "Target conflict");
 
     let missing_track = shore([

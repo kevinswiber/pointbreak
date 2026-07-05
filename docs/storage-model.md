@@ -125,7 +125,7 @@ Revision capture follows the same authority split:
 - bounded `state.json` may summarize revision count and current unambiguous revision ID, but it
   is not the source of revision identity or snapshot content
 
-`shore review capture` returns `shore.review-capture` JSON as the command-output contract. The
+`shore capture` returns `shore.review-capture` JSON as the command-output contract. The
 command reports the revision and object IDs plus the object artifact content hash, without making
 object artifact paths a user-facing API.
 

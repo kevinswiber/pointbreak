@@ -10,7 +10,7 @@ use shoreline::session::{EventVerificationPolicy, ReviewHistoryOptions, TrustSet
 use support::git_repo::GitRepo;
 use support::shore_env;
 
-/// A repo with a committed base and an uncommitted change, so `review capture`
+/// A repo with a committed base and an uncommitted change, so `shore capture`
 /// has a HEAD -> working-tree diff to capture.
 fn modified_repo() -> GitRepo {
     let repo = GitRepo::new();
@@ -48,7 +48,7 @@ fn write_with_no_key_is_unsigned_and_exit_zero() {
     let home = tempfile::tempdir().unwrap();
     let repo = modified_repo();
     let out = shore_env(
-        ["review", "capture", "--repo", repo.path().to_str().unwrap()],
+        ["capture", "--repo", repo.path().to_str().unwrap()],
         &[("SHORE_HOME", home.path().to_str().unwrap())],
     );
     assert_eq!(
@@ -77,7 +77,7 @@ fn write_with_signing_off_is_unsigned_and_exit_zero_even_with_a_default_key() {
 
     let repo = modified_repo();
     let out = shore_env(
-        ["review", "capture", "--repo", repo.path().to_str().unwrap()],
+        ["capture", "--repo", repo.path().to_str().unwrap()],
         &[("SHORE_HOME", env_home), ("SHORE_SIGNING", "off")],
     );
     assert_eq!(out.status.code(), Some(0));
@@ -95,7 +95,7 @@ fn write_is_unsigned_and_exit_zero_when_keygen_is_forced_to_fail() {
     let file_home = tempfile::NamedTempFile::new().unwrap();
     let repo = modified_repo();
     let out = shore_env(
-        ["review", "capture", "--repo", repo.path().to_str().unwrap()],
+        ["capture", "--repo", repo.path().to_str().unwrap()],
         &[
             ("SHORE_HOME", file_home.path().to_str().unwrap()),
             ("SHORE_ACTOR_ID", "actor:agent:claude-code"),
@@ -124,7 +124,7 @@ fn present_but_unenrolled_key_signs_and_verifies_untrusted_key() {
 
     let repo = modified_repo();
     let out = shore_env(
-        ["review", "capture", "--repo", repo.path().to_str().unwrap()],
+        ["capture", "--repo", repo.path().to_str().unwrap()],
         &[("SHORE_HOME", env_home)],
     );
     assert_eq!(out.status.code(), Some(0));
@@ -150,7 +150,6 @@ fn ci_ephemeral_did_key_self_certifies_valid_under_empty_trust_set() {
     // The writing actor IS the signing key's did:key -> self-certifying.
     let out = shore_env(
         [
-            "review",
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -188,7 +187,6 @@ fn sign_key_flag_signs_the_write() {
     let repo = modified_repo();
     let out = shore_env(
         [
-            "review",
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -212,7 +210,7 @@ fn all_six_write_paths_stay_exit_zero_without_a_key() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap().to_owned();
 
-    let capture = shore_env(["review", "capture", "--repo", &repo_arg], &env);
+    let capture = shore_env(["capture", "--repo", &repo_arg], &env);
     assert_eq!(
         capture.status.code(),
         Some(0),
@@ -338,14 +336,7 @@ fn all_six_write_paths_accept_sign_key_flag() {
     let repo_arg = repo.path().to_str().unwrap().to_owned();
 
     let capture = shore_env(
-        [
-            "review",
-            "capture",
-            "--repo",
-            &repo_arg,
-            "--sign-key",
-            "default",
-        ],
+        ["capture", "--repo", &repo_arg, "--sign-key", "default"],
         &env,
     );
     assert_eq!(capture.status.code(), Some(0));
@@ -487,7 +478,7 @@ fn agent_unavailable_write_is_unsigned_and_exit_zero() {
     // portably — a bogus path fails to open on every OS), so the write degrades to
     // unsigned without gating.
     let out = shore_env(
-        ["review", "capture", "--repo", repo.path().to_str().unwrap()],
+        ["capture", "--repo", repo.path().to_str().unwrap()],
         &[
             ("SHORE_HOME", env_home),
             ("SSH_AUTH_SOCK", "/nonexistent/shore-no-agent.sock"),

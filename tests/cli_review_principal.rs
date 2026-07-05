@@ -21,7 +21,7 @@ fn modified_repo() -> GitRepo {
 fn repo_with_agent_observation() -> GitRepo {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap().to_owned();
-    let capture = parse_json(&shore(["review", "capture", "--repo", &path]).stdout);
+    let capture = parse_json(&shore(["capture", "--repo", &path]).stdout);
     let revision_id = capture["revision"]["id"].as_str().unwrap().to_owned();
     let out = shore_env(
         [

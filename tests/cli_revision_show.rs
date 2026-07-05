@@ -15,7 +15,7 @@ fn review_help_lists_show() {
 #[test]
 fn revision_show_emits_v1_json() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore(["review", "show", "--repo", repo.path().to_str().unwrap()]);
 
@@ -45,7 +45,7 @@ fn revision_show_emits_v1_json() {
 #[test]
 fn revision_show_rejects_invalid_track_before_json_output() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
         "review",
@@ -64,7 +64,7 @@ fn revision_show_rejects_invalid_track_before_json_output() {
 #[test]
 fn revision_show_pretty_prints() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
         "review",
@@ -80,7 +80,7 @@ fn revision_show_pretty_prints() {
 #[test]
 fn revision_show_rejects_pretty_and_compact_together() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
         "review",
@@ -99,11 +99,9 @@ fn revision_show_rejects_pretty_and_compact_together() {
 #[test]
 fn revision_show_supports_explicit_revision_when_ambiguous() {
     let repo = modified_repo();
-    let first =
-        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let second =
-        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let second = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
     let ambiguous = shore(["review", "show", "--repo", repo.path().to_str().unwrap()]);
     assert!(!ambiguous.status.success());
@@ -126,7 +124,7 @@ fn revision_show_supports_explicit_revision_when_ambiguous() {
 #[test]
 fn revision_show_include_body_hydrates_without_internal_paths() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     add_observation_with_body(&repo, "agent:codex", "Body", "visible body");
 
     let output = shore([
@@ -151,7 +149,7 @@ fn revision_show_include_body_hydrates_without_internal_paths() {
 #[test]
 fn revision_show_includes_input_requests_and_omits_legacy_fields() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = add_input_request_with_body(&repo, "visible request body");
     respond_to_input_request(
         &repo,
@@ -200,7 +198,7 @@ fn revision_show_includes_input_requests_and_omits_legacy_fields() {
 #[test]
 fn revision_show_rows_are_narrative_first_and_snapshot_complete() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     add_observation(&repo, "agent:codex", "Narrative");
 
     let json =
@@ -234,7 +232,7 @@ fn revision_show_rows_are_narrative_first_and_snapshot_complete() {
 #[test]
 fn revision_show_track_filter_echoes_and_narrows_narrative_only() {
     let repo = multi_file_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     add_observation(&repo, "agent:codex", "Codex");
     add_observation(&repo, "agent:claude", "Claude");
 
@@ -268,7 +266,7 @@ fn revision_show_track_filter_echoes_and_narrows_narrative_only() {
 #[test]
 fn revision_show_includes_current_assessment_status() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     add_assessment(&repo);
 
     let json =
@@ -282,7 +280,7 @@ fn revision_show_includes_current_assessment_status() {
 #[test]
 fn revision_show_includes_adapter_notes_without_storage_paths() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     let review_notes = repo.write_fixture("review-notes.json", native_review_notes_json());
     shore([
         "notes",
@@ -316,7 +314,6 @@ fn unit_show_projects_range_capture_with_bound_snapshot() {
     let repo = support::committed_repo();
     let capture = parse_json(
         &shore([
-            "review",
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -360,10 +357,9 @@ fn unit_show_disambiguates_worktree_and_range_units() {
     let repo = support::committed_repo();
     // A dirty worktree yields a worktree unit; --base yields a range unit.
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     let range = parse_json(
         &shore([
-            "review",
             "capture",
             "--repo",
             repo.path().to_str().unwrap(),
@@ -411,7 +407,7 @@ fn unit_show_renders_verification_status_on_members_and_capture() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap();
     assert!(
-        shore_env(["review", "capture", "--repo", repo_arg], &env)
+        shore_env(["capture", "--repo", repo_arg], &env)
             .status
             .success()
     );
@@ -502,7 +498,7 @@ fn unit_show_renders_endorsement_on_capture_identity() {
     // Capture UNSIGNED so the detached endorsement carrier is not deduped.
     assert!(
         shore_env(
-            ["review", "capture", "--repo", repo_arg],
+            ["capture", "--repo", repo_arg],
             &[("SHORE_HOME", env_home), ("SHORE_SIGNING", "off")],
         )
         .status
@@ -536,7 +532,7 @@ fn unit_show_renders_endorsement_on_capture_identity() {
 fn text_digest_is_bounded_and_never_renders_rows() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", repo_arg]);
+    shore(["capture", "--repo", repo_arg]);
     add_observation(&repo, "agent:codex", "Narrative");
     add_input_request_with_body(&repo, "please decide");
     add_assessment(&repo);
@@ -593,7 +589,7 @@ fn text_digest_reports_signed_by_enrolled_key() {
         .success()
     );
     assert!(
-        shore_env(["review", "capture", "--repo", yes_repo_arg], &yes_env)
+        shore_env(["capture", "--repo", yes_repo_arg], &yes_env)
             .status
             .success()
     );
@@ -634,7 +630,7 @@ fn text_digest_reports_signed_by_enrolled_key() {
     let no_repo_arg = no_repo.path().to_str().unwrap();
     assert!(
         shore_env(
-            ["review", "capture", "--repo", no_repo_arg],
+            ["capture", "--repo", no_repo_arg],
             &[("SHORE_HOME", no_home_s), ("SHORE_SIGNING", "off")],
         )
         .status
@@ -675,7 +671,7 @@ fn text_digest_reports_signed_by_enrolled_key() {
 fn text_digest_clamps_long_open_request_titles() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", repo_arg]);
+    shore(["capture", "--repo", repo_arg]);
     let long_title = "x".repeat(320);
     shore([
         "review",
@@ -715,7 +711,7 @@ fn text_digest_clamps_long_open_request_titles() {
 fn text_digest_groups_fact_counts_by_track() {
     let repo = multi_file_repo();
     let repo_arg = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", repo_arg]);
+    shore(["capture", "--repo", repo_arg]);
     add_observation(&repo, "agent:codex", "Codex finding");
     add_observation(&repo, "agent:claude", "Claude finding");
 

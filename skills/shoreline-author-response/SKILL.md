@@ -11,7 +11,7 @@ respond through structured input-request channels, make required changes when th
 them, and record your response on your author track.
 
 Do not run `shore review assessment add`. The reviewer owns the assessment. Do not run
-`shore review capture`; this response attaches to the existing revision with `--revision`.
+`shore capture`; this response attaches to the existing revision with `--revision`.
 
 Do not run `shore review show --pretty` as a readback surface. Use bounded list commands for the
 reviewer's observations, input requests, and assessment.
@@ -211,7 +211,7 @@ Unlike a prose note, this association is git-resolved and machine-readable: the 
 `anchored` with merged/live reachability in `shore review show`, and `shore review revisions
 --ref <branch>` / `shore review history --ref <branch>` can find the landed work by branch. It is an
 author fact — it never goes on the reviewer track, never becomes an assessment, and is never a
-recapture (`shore review capture` is not re-run for the landing).
+recapture (`shore capture` is not re-run for the landing).
 
 Pick the landed commit deliberately:
 
@@ -241,7 +241,7 @@ exactly, while passing a superseded revision resolves its thread's current head 
 competing heads errors, listing them). Sibling captures stay current, but routine
 list/history/exact reads no longer emit an ambient `ambiguous_current_revision` diagnostic just
 because multiple captures exist. A stale or nested capture is retired by a later capture that
-supersedes it (`shore review capture --supersedes <revision>`); competing heads stay visible, so there
+supersedes it (`shore capture --supersedes <revision>`); competing heads stay visible, so there
 is no single "canonical" scalar to set.
 
 ## Read back and stand down
@@ -286,7 +286,7 @@ did not change, and which input requests you responded to. Leave the assessment 
   `export SHORE_ACTOR_ID="actor:agent:<agent-name>"` (the same canonical, run-free id the author run
   used); if the run id arrives as a skill arg, take it as the track only.
 - **Recapturing the revision.** Attach to the existing revision with `--revision`; do not run
-  `shore review capture` for the response leg.
+  `shore capture` for the response leg.
 - **Using full revision show for readback.** Use bounded observation, input-request, and
   assessment read commands. Do not use `shore review show --pretty` for this response loop.
 - **Ignoring reviewer validation evidence.** Read `shore review validation list` on the reviewer

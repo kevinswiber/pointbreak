@@ -9,8 +9,7 @@ use support::{shore, shore_env};
 #[test]
 fn review_history_emits_v1_json_with_freshness_metadata() {
     let repo = modified_repo();
-    let capture =
-        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let capture = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
     let output = shore(["review", "history", "--repo", repo.path().to_str().unwrap()]);
 
@@ -42,7 +41,7 @@ fn review_history_emits_v1_json_with_freshness_metadata() {
 #[test]
 fn history_entries_serialize_writer_without_role() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore(["review", "history", "--repo", repo.path().to_str().unwrap()]);
     let json = parse_json(&output.stdout);
@@ -63,7 +62,7 @@ fn history_entries_serialize_writer_without_role() {
 #[test]
 fn review_history_pretty_prints() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([
         "review",
@@ -79,7 +78,7 @@ fn review_history_pretty_prints() {
 #[test]
 fn review_history_filters_by_track_and_event_type() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     add_observation(&repo, "agent:codex", "Keep");
     add_observation(&repo, "agent:claude", "Drop");
 
@@ -107,7 +106,7 @@ fn review_history_filters_by_track_and_event_type() {
 #[test]
 fn review_history_summary_surfaces_responds_to() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     let base = add_observation(&repo, "agent:codex", "Base");
     let base_id = base["observationId"].as_str().unwrap().to_owned();
     shore([
@@ -160,7 +159,7 @@ fn review_history_summary_surfaces_responds_to() {
 #[test]
 fn review_history_include_body_hydrates_text_without_artifact_paths() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     add_observation_with_body(&repo, "agent:codex", "Body", "history details");
 
     let output = shore([
@@ -180,7 +179,7 @@ fn review_history_include_body_hydrates_text_without_artifact_paths() {
 #[test]
 fn review_history_filters_input_request_events_and_hydrates_text() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     let requested = add_input_request_with_body(&repo, "request details");
     respond_to_input_request(
         &repo,
@@ -226,7 +225,7 @@ fn review_history_filters_input_request_events_and_hydrates_text() {
 #[test]
 fn cli_review_history_filters_validation_check_recorded() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     add_validation_check(&repo);
     add_observation(&repo, "agent:codex", "Other event");
 
@@ -262,7 +261,7 @@ fn cli_review_history_filters_validation_check_recorded() {
 #[test]
 fn review_history_input_request_opened_uses_envelope_mode_values() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     let operative = add_input_request_with_body(&repo, "operative details");
     let advisory = add_input_request_with_mode(&repo, "FYI", "advisory");
 
@@ -292,7 +291,7 @@ fn review_history_input_request_opened_uses_envelope_mode_values() {
 #[test]
 fn review_history_rejects_legacy_input_request_event_filter_names() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     for event_type in ["intervention-requested", "intervention-resolved"] {
         let output = shore([
@@ -316,11 +315,9 @@ fn review_history_rejects_legacy_input_request_event_filter_names() {
 #[test]
 fn review_history_filters_by_revision() {
     let repo = modified_repo();
-    let first =
-        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
-    let second =
-        parse_json(&shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let second = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
     let output = shore([
         "review",
@@ -346,7 +343,7 @@ fn review_history_filters_by_revision() {
 #[test]
 fn review_history_reports_duplicate_semantic_diagnostics_without_collapsing_entries() {
     let repo = modified_repo();
-    shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     add_observation_with_key(&repo, "retry-a");
     add_observation_with_key(&repo, "retry-b");
 
@@ -431,12 +428,9 @@ fn history_renders_verification_status_for_a_signed_capture() {
     let repo = modified_repo();
     let repo_arg = repo.path().to_str().unwrap();
     assert!(
-        shore_env(
-            ["review", "capture", "--repo", repo_arg],
-            &[("SHORE_HOME", env_home)],
-        )
-        .status
-        .success()
+        shore_env(["capture", "--repo", repo_arg], &[("SHORE_HOME", env_home)],)
+            .status
+            .success()
     );
 
     let out = shore_env(
@@ -477,7 +471,7 @@ fn history_renders_endorsement_for_an_endorsed_capture() {
     // inline member; endorse by a DISTINCT actor (kevin) with the minted key.
     assert!(
         shore_env(
-            ["review", "capture", "--repo", repo_arg],
+            ["capture", "--repo", repo_arg],
             &[("SHORE_HOME", env_home), ("SHORE_SIGNING", "off")],
         )
         .status
@@ -530,7 +524,7 @@ fn captured_event_id(repo_path: &std::path::Path) -> String {
 fn review_history_limit_windows_and_emits_next_cursor() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", path]);
+    shore(["capture", "--repo", path]);
     add_observation(&repo, "agent:codex", "first");
     add_observation(&repo, "agent:codex", "second");
 
@@ -560,7 +554,7 @@ fn review_history_limit_windows_and_emits_next_cursor() {
 fn review_history_cursor_continues_without_overlap() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", path]);
+    shore(["capture", "--repo", path]);
     add_observation(&repo, "agent:codex", "first");
     add_observation(&repo, "agent:codex", "second");
 
@@ -603,7 +597,7 @@ fn review_history_cursor_continues_without_overlap() {
 fn review_history_unparamd_carries_null_next_cursor() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", path]);
+    shore(["capture", "--repo", path]);
 
     let doc = parse_json(&shore(["review", "history", "--repo", path, "--compact"]).stdout);
     // Additive and backward-compatible: the field is always present, null when
@@ -620,7 +614,7 @@ fn review_history_unparamd_carries_null_next_cursor() {
 fn review_history_rejects_malformed_cursor() {
     let repo = modified_repo();
     let path = repo.path().to_str().unwrap();
-    shore(["review", "capture", "--repo", path]);
+    shore(["capture", "--repo", path]);
 
     let output = shore([
         "review",

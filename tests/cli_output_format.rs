@@ -39,7 +39,6 @@ fn write_acks_accept_format_json() {
     // and behaves as the flag-less invocation does.
     let repo = support::dump_repo();
     let with_flag = support::shore([
-        "review",
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
@@ -47,11 +46,6 @@ fn write_acks_accept_format_json() {
         "json",
     ]);
     let repo2 = support::dump_repo();
-    let without = support::shore([
-        "review",
-        "capture",
-        "--repo",
-        repo2.path().to_str().unwrap(),
-    ]);
+    let without = support::shore(["capture", "--repo", repo2.path().to_str().unwrap()]);
     assert_eq!(with_flag.status.success(), without.status.success());
 }

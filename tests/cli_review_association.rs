@@ -60,7 +60,7 @@ fn associate_commit(repo: &GitRepo, commit: &str) {
 }
 
 fn capture(repo: &GitRepo) {
-    let output = shore(["review", "capture", "--repo", repo.path().to_str().unwrap()]);
+    let output = shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     assert!(
         output.status.success(),
         "capture failed: {}",
@@ -391,7 +391,7 @@ fn unit_list_ref_liveness_filter_matches_reachable_commit() {
     let repo_path = repo.path().to_str().unwrap();
 
     // A commit-range capture anchors the target (HEAD) commit.
-    let capture = shore(["review", "capture", "--repo", repo_path, "--base", "HEAD~1"]);
+    let capture = shore(["capture", "--repo", repo_path, "--base", "HEAD~1"]);
     assert!(capture.status.success());
 
     let json = parse_json(
@@ -544,7 +544,7 @@ fn text_association_digest_reports_landing_when_liveness_resolves() {
     let repo = committed_repo();
     let repo_path = repo.path().to_str().unwrap();
     // A commit-range capture anchors the target (HEAD) commit, reachable from main.
-    let capture = shore(["review", "capture", "--repo", repo_path, "--base", "HEAD~1"]);
+    let capture = shore(["capture", "--repo", repo_path, "--base", "HEAD~1"]);
     assert!(
         capture.status.success(),
         "capture failed: {}",
@@ -586,7 +586,7 @@ fn text_association_digest_reads_orphaned_anchor_as_orphaned() {
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
     repo.commit_all("feature work");
     let repo_path = repo.path().to_str().unwrap();
-    let capture = shore(["review", "capture", "--repo", repo_path, "--base", "main"]);
+    let capture = shore(["capture", "--repo", repo_path, "--base", "main"]);
     assert!(capture.status.success());
     let revision_id = parse_json(&capture.stdout)["revision"]["id"]
         .as_str()
