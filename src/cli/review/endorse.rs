@@ -13,6 +13,7 @@ use super::common::resolve_signer;
 use crate::cli::json::DiagnosticDocument;
 use crate::cli::output;
 
+/// Record a detached co-signature (an endorsement) over an existing event.
 #[derive(Debug, Args)]
 pub(super) struct EndorseArgs {
     /// The event id to endorse (any recorded event's `evt:sha256:…` id).

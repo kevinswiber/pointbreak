@@ -7,6 +7,7 @@ use crate::cli::input::{self, ReviewInputArgs};
 use crate::cli::output;
 use crate::cli_tracing::TracingArgs;
 
+/// Emit the JSON review-stream document over the live working-tree diff and imported notes.
 #[derive(Debug, Args)]
 pub(super) struct DumpArgs {
     #[command(flatten)]

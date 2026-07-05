@@ -44,6 +44,20 @@ pub(super) struct FormatArgs {
     pub(super) format: Option<FormatArg>,
 }
 
+/// [`FormatArgs`]'s own doc comment, single-sourced so the about-bleed guard
+/// can name-check a leaf's `--help` about against this literal instead of
+/// duplicating the bled string inline. Must NOT end in a period: clap strips
+/// a doc comment's trailing period when deriving `about`, so this constant
+/// has to match `Command::get_about()`'s rendered value verbatim (confirmed
+/// against `shore dump --help`'s current, bugged, first line).
+// Referenced only from the `#[cfg(test)]` about-bleed guard today; kept
+// `pub(crate)` so later work can name-check against it without re-deriving the
+// literal. Allow the non-test build to see it as unused rather than gating it
+// behind `cfg(test)`, which would hide it from any future non-test consumer.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) const FORMAT_ARGS_ABOUT: &str =
+    "Shared `--format` argument, flattened into every document-emitting command";
+
 impl FormatArgs {
     /// `--format` wins; otherwise fold the command's legacy `--pretty` selection.
     pub(super) fn explicit(&self, legacy_pretty: bool) -> Option<OutputFormat> {

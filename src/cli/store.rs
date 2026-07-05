@@ -35,6 +35,7 @@ enum StoreCommand {
     Compact(StoreCompactArgs),
 }
 
+/// Show the store's status: mode, size, and sensitivity findings.
 #[derive(Debug, Args)]
 struct StoreStatusArgs {
     #[arg(long, default_value = ".")]
@@ -47,6 +48,7 @@ struct StoreStatusArgs {
     format_args: output::FormatArgs,
 }
 
+/// Get or set the store's mode (shared or ephemeral).
 #[derive(Debug, Args)]
 struct StoreModeArgs {
     /// `shared`, `ephemeral`, or `show` (report the resolved mode without
@@ -63,6 +65,7 @@ struct StoreModeArgs {
     format_args: output::FormatArgs,
 }
 
+/// Fold a legacy per-worktree store into the shared common-dir store.
 #[derive(Debug, Args)]
 struct StoreMigrateArgs {
     #[arg(long, default_value = ".")]
@@ -131,6 +134,7 @@ struct StoreRemoveArgs {
     format_args: output::FormatArgs,
 }
 
+/// Physically delete artifacts already claimed for removal.
 #[derive(Debug, Args)]
 struct StoreCompactArgs {
     #[arg(long, default_value = ".")]

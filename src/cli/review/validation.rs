@@ -23,6 +23,7 @@ enum ValidationCommand {
     List(ValidationListArgs),
 }
 
+/// Record a validation check for a revision.
 #[derive(Debug, Args)]
 struct ValidationAddArgs {
     #[arg(long, default_value = ".")]
@@ -87,6 +88,7 @@ struct ValidationAddArgs {
     format_args: output::FormatArgs,
 }
 
+/// List validation checks for a revision.
 #[derive(Debug, Args)]
 struct ValidationListArgs {
     #[arg(long, default_value = ".")]

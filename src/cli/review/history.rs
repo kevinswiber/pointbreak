@@ -13,6 +13,7 @@ use shoreline::session::{
 
 use crate::cli::output;
 
+/// List the durable review event history, optionally filtered.
 #[derive(Debug, Args)]
 pub(super) struct HistoryArgs {
     /// Repository root or a path inside the repository.

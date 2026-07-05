@@ -32,6 +32,7 @@ enum AssociationCommand {
     List(ListArgs),
 }
 
+/// Associate a revision with a commit.
 #[derive(Debug, Args)]
 struct AssociateCommitArgs {
     #[arg(long, default_value = ".")]
@@ -58,6 +59,7 @@ struct AssociateCommitArgs {
     format_args: output::FormatArgs,
 }
 
+/// Withdraw a commit association.
 #[derive(Debug, Args)]
 struct WithdrawCommitArgs {
     #[arg(long, default_value = ".")]
@@ -80,6 +82,7 @@ struct WithdrawCommitArgs {
     format_args: output::FormatArgs,
 }
 
+/// Associate a revision with a ref.
 #[derive(Debug, Args)]
 struct AssociateRefArgs {
     #[arg(long, default_value = ".")]
@@ -106,6 +109,7 @@ struct AssociateRefArgs {
     format_args: output::FormatArgs,
 }
 
+/// Withdraw a ref association.
 #[derive(Debug, Args)]
 struct WithdrawRefArgs {
     #[arg(long, default_value = ".")]
@@ -128,6 +132,7 @@ struct WithdrawRefArgs {
     format_args: output::FormatArgs,
 }
 
+/// List commit and ref associations.
 #[derive(Debug, Args)]
 struct ListArgs {
     #[arg(long, default_value = ".")]

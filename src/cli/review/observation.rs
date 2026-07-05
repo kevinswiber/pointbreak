@@ -24,6 +24,7 @@ enum ObservationCommand {
     List(ObservationListArgs),
 }
 
+/// Record an observation for a revision.
 #[derive(Debug, Args)]
 struct ObservationAddArgs {
     #[arg(long, default_value = ".")]
@@ -88,6 +89,7 @@ struct ObservationAddArgs {
     format_args: output::FormatArgs,
 }
 
+/// List observations for a revision.
 #[derive(Debug, Args)]
 struct ObservationListArgs {
     #[arg(long, default_value = ".")]

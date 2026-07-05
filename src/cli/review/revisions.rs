@@ -7,6 +7,7 @@ use shoreline::session::{OrphanVisibility, RefFilterMode, RevisionListOptions, l
 
 use crate::cli::output;
 
+/// List captured revisions.
 #[derive(Debug, Args)]
 pub(super) struct RevisionsArgs {
     /// Repository root or a path inside the repository.

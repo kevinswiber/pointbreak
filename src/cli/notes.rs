@@ -19,6 +19,7 @@ enum NotesCommand {
     Apply(NotesApplyArgs),
 }
 
+/// Import review notes into durable Shoreline state without publishing a revision.
 #[derive(Debug, Args)]
 struct NotesApplyArgs {
     #[command(flatten)]

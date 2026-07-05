@@ -9,6 +9,7 @@ use shoreline::session::{CaptureOptions, CaptureResult, CommitRangeSpec, capture
 use crate::cli::output;
 use crate::cli_tracing::TracingArgs;
 
+/// Capture a revision from the working tree or a committed commit range.
 #[derive(Debug, Args)]
 pub(super) struct CaptureArgs {
     #[arg(long, default_value = ".")]

@@ -14,6 +14,7 @@ use shoreline::session::{
 
 use crate::cli::output;
 
+/// Show the composite view of a captured revision.
 #[derive(Debug, Args)]
 pub(super) struct ShowArgs {
     /// Repository root or a path inside the repository.

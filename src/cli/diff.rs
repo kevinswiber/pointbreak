@@ -20,6 +20,7 @@ use shoreline::session::{
     show_revision,
 };
 
+/// Print a captured revision's diff (base to target) as a text unified diff.
 #[derive(Debug, clap::Args)]
 pub(super) struct DiffArgs {
     /// Repository path (defaults to the current directory).

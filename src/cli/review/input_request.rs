@@ -34,6 +34,7 @@ enum InputRequestCommand {
     Respond(InputRequestRespondArgs),
 }
 
+/// Open an input request for a revision.
 #[derive(Debug, Args)]
 struct InputRequestOpenArgs {
     #[arg(long, default_value = ".")]
@@ -95,6 +96,7 @@ struct InputRequestOpenArgs {
     format_args: output::FormatArgs,
 }
 
+/// List input requests.
 #[derive(Debug, Args)]
 struct InputRequestListArgs {
     #[arg(long, default_value = ".")]
@@ -128,6 +130,7 @@ struct InputRequestListArgs {
     format_args: output::FormatArgs,
 }
 
+/// Fetch a single input request by id.
 #[derive(Debug, Args)]
 struct InputRequestFetchArgs {
     input_request_id: String,
@@ -148,6 +151,7 @@ struct InputRequestFetchArgs {
     format_args: output::FormatArgs,
 }
 
+/// Respond to an open input request.
 #[derive(Debug, Args)]
 struct InputRequestRespondArgs {
     input_request_id: String,

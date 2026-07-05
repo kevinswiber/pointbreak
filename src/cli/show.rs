@@ -5,6 +5,7 @@ use shoreline::stream::ViewportSpec;
 use crate::cli::input::{self, ReviewInputArgs};
 use crate::cli_tracing::TracingArgs;
 
+/// Open the interactive terminal UI over the working-tree review stream.
 #[derive(Debug, Args)]
 pub(super) struct ShowArgs {
     #[command(flatten)]

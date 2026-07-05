@@ -25,6 +25,7 @@ enum AssessmentCommand {
     Show(AssessmentShowArgs),
 }
 
+/// Record an assessment for a revision.
 #[derive(Debug, Args)]
 pub(super) struct AssessmentAddArgs {
     /// Repository path to read/write Shoreline review state for.
@@ -113,6 +114,7 @@ pub(super) struct AssessmentAddArgs {
     format_args: output::FormatArgs,
 }
 
+/// Show the current assessments for a revision.
 #[derive(Debug, Args)]
 pub(super) struct AssessmentShowArgs {
     /// Repository path to read Shoreline review state from.
