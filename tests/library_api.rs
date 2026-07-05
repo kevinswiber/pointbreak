@@ -680,7 +680,7 @@ fn reload_outcome_is_publicly_nameable() {
 }
 
 /// The exclusion helper must be reachable from outside the crate so the
-/// possession-based `identity enroll`/`attest` CLIs can keep their `.local.json`
+/// possession-based `identity delegate`/`attest` CLIs can keep their `.local.json`
 /// overrides out of git status (INV-A/INV-E).
 #[test]
 fn shore_gitignore_helper_is_public() {

@@ -106,6 +106,11 @@ const REMOVED_PATHS: &[RemovedPath] = &[
         argv: &["review", "show", "--help"],
         hint_contains: &["shore revision show"],
     },
+    // `identity enroll` renamed to `delegate` (the verb collided with `keys enroll`).
+    RemovedPath {
+        argv: &["identity", "enroll", "--help"],
+        hint_contains: &["shore identity delegate <AGENT> --principal <P>"],
+    },
 ];
 
 #[test]

@@ -61,7 +61,7 @@ the read proceeds with no resolution (advisory, never blocking). The file format
 [storage-model.md](./storage-model.md).
 
 The **write** side of this config — creating a delegation record or describing an actor's kind/roles —
-is the `shore identity` command group (`shore identity enroll` / `shore identity attest`, below).
+is the `shore identity` command group (`shore identity delegate` / `shore identity attest`, below).
 
 ### Signing
 
@@ -482,7 +482,7 @@ remain internal storage details.
 
 ```bash
 # Stage a delegation record binding an agent to its responsible principal (shore.identity-enroll).
-shore identity enroll <agent-actor-id> --principal <principal-actor-id> \
+shore identity delegate <agent-actor-id> --principal <principal-actor-id> \
   [--from <RFC3339>] [--until <RFC3339>] [--comment <text>] [--local] [--repo .] [--pretty]
 
 # Stage an actor-attributes entry — kind + roles — for any actor (shore.identity-attest).
@@ -494,7 +494,7 @@ shore identity attest <actor-id> --kind <kind> [--role <role>]... \
 possession-style: they stage the working-tree edit only and never invoke git — review and commit the
 file to apply it (`git log -p` is the audit trail), exactly like `shore keys enroll`.
 
-- **`enroll`** stages a delegation record into `.shore/delegates.json` binding `<agent-actor-id>` (an
+- **`delegate`** stages a delegation record into `.shore/delegates.json` binding `<agent-actor-id>` (an
   `actor:agent:<name>` id) to a responsible **non-agent** `--principal` (the human/actor that answers
   for the agent; the depth-0 rule rejects an agent principal). `--from` defaults to now in RFC 3339 UTC;
   `--until` defaults to an open window; `--comment` is free text for diff readers. Emits a

@@ -13,7 +13,7 @@ use crate::cli::json::DiagnosticDocument;
 use crate::cli::output;
 
 #[derive(Debug, Args)]
-pub(super) struct EnrollArgs {
+pub(super) struct DelegateArgs {
     /// Agent actor id to enroll (`actor:agent:<name>`).
     agent: String,
     /// Responsible principal — the human/non-agent actor that answers for the agent.
@@ -46,7 +46,7 @@ pub(super) struct EnrollArgs {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct EnrollBody {
+struct DelegateBody {
     agent: String,
     principal: String,
     valid_from: String,
@@ -62,7 +62,7 @@ struct EnrollBody {
 }
 
 pub(super) fn run(
-    args: EnrollArgs,
+    args: DelegateArgs,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -114,7 +114,7 @@ pub(super) fn run(
         path.display()
     );
 
-    let body = EnrollBody {
+    let body = DelegateBody {
         agent: agent.as_str().to_owned(),
         principal: principal.as_str().to_owned(),
         valid_from,

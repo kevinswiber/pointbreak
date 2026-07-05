@@ -871,7 +871,7 @@ poisons the committed default. The committed file stays the shared, portable aud
 the local override is a private, non-portable convenience. Shoreline keeps
 `.shore/delegates.local.json` out of Git via the committed `.shore/.gitignore`'s `*.local.json`
 line (the committed `.shore/delegates.json` and `.shore/allowed-signers.json` are deliberately
-tracked). `shore identity enroll --local` generates that file automatically before staging the
+tracked). `shore identity delegate --local` generates that file automatically before staging the
 override; if you hand-create the override instead, commit a two-line `.shore/.gitignore` (`data/`
 + `*.local.json`) yourself — or run the enroll command once — so it does not show up in
 `git status`.

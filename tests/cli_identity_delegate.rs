@@ -13,8 +13,8 @@ fn identity_help_lists_the_group() {
     );
     let help = String::from_utf8_lossy(&out.stdout);
     assert!(
-        help.contains("enroll"),
-        "identity help lists enroll: {help}"
+        help.contains("delegate"),
+        "identity help lists delegate: {help}"
     );
     assert!(
         help.contains("attest"),
@@ -23,12 +23,12 @@ fn identity_help_lists_the_group() {
 }
 
 #[test]
-fn enroll_stages_delegates_file_and_reader_resolves_principal() {
+fn delegate_stages_delegates_file_and_reader_resolves_principal() {
     let repo = GitRepo::new();
     let out = shore_env(
         [
             "identity",
-            "enroll",
+            "delegate",
             "actor:agent:claude-code",
             "--principal",
             "actor:git-email:kevin@swiber.dev",
@@ -65,12 +65,12 @@ fn enroll_stages_delegates_file_and_reader_resolves_principal() {
 }
 
 #[test]
-fn enroll_defaults_from_to_now_rfc3339() {
+fn delegate_defaults_from_to_now_rfc3339() {
     let repo = GitRepo::new();
     let out = shore_env(
         [
             "identity",
-            "enroll",
+            "delegate",
             "actor:agent:claude-code",
             "--principal",
             "actor:git-email:kevin@swiber.dev",
@@ -96,12 +96,12 @@ fn enroll_defaults_from_to_now_rfc3339() {
 }
 
 #[test]
-fn enroll_rejects_agent_principal_depth0() {
+fn delegate_rejects_agent_principal_depth0() {
     let repo = GitRepo::new();
     let out = shore_env(
         [
             "identity",
-            "enroll",
+            "delegate",
             "actor:agent:claude-code",
             "--principal",
             "actor:agent:subagent",
@@ -119,13 +119,13 @@ fn enroll_rejects_agent_principal_depth0() {
 }
 
 #[test]
-fn enroll_local_writes_override_excludes_it_and_surfaces_full_replace_caveat() {
+fn delegate_local_writes_override_excludes_it_and_surfaces_full_replace_caveat() {
     let repo = GitRepo::new();
     // A committed record first.
     let _ = shore_env(
         [
             "identity",
-            "enroll",
+            "delegate",
             "actor:agent:claude-code",
             "--principal",
             "actor:git-email:kevin@swiber.dev",
@@ -138,7 +138,7 @@ fn enroll_local_writes_override_excludes_it_and_surfaces_full_replace_caveat() {
     let out = shore_env(
         [
             "identity",
-            "enroll",
+            "delegate",
             "actor:agent:claude-code",
             "--principal",
             "actor:git-email:alice@example.com",
@@ -172,12 +172,12 @@ fn enroll_local_writes_override_excludes_it_and_surfaces_full_replace_caveat() {
 }
 
 #[test]
-fn enroll_never_commits() {
+fn delegate_never_commits() {
     let repo = GitRepo::new();
     let _ = shore_env(
         [
             "identity",
-            "enroll",
+            "delegate",
             "actor:agent:claude-code",
             "--principal",
             "actor:git-email:kevin@swiber.dev",
@@ -194,6 +194,17 @@ fn enroll_never_commits() {
     assert_eq!(
         String::from_utf8_lossy(&log.stdout).trim(),
         "0",
-        "enroll never commits"
+        "delegate never commits"
+    );
+}
+
+#[test]
+fn identity_enroll_is_unregistered() {
+    let out = shore(["identity", "enroll", "--help"]);
+    assert!(!out.status.success(), "identity enroll should be retired");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("unrecognized subcommand"),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
     );
 }

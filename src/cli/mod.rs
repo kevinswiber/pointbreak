@@ -152,6 +152,10 @@ impl HintPredicate {
 /// Family/rename tasks append rows; they never change this mechanism.
 const REMOVED_COMMAND_HINTS: &[(HintPredicate, &str)] = &[
     (
+        HintPredicate::AdjacentWindow(&["identity", "enroll"]),
+        "Use `shore identity delegate <AGENT> --principal <P>`.",
+    ),
+    (
         HintPredicate::AdjacentWindow(&["review", "assessment"]),
         "Use `shore assessment` instead of `shore review assessment`.",
     ),
