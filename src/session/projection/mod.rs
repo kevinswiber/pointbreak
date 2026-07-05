@@ -5,6 +5,7 @@ pub(crate) mod commit_range;
 pub(crate) mod cosignature;
 pub(crate) mod engagement;
 pub(crate) mod freshness;
+pub mod id_index;
 pub(crate) mod liveness;
 mod read;
 pub(crate) mod revisions_by_base;
@@ -23,6 +24,7 @@ pub use commit_range::{
     WithdrawnRefAssociation,
 };
 pub use engagement::{EngagementGrouping, EngagementLifecycle, EngagementView};
+pub use id_index::{StoreIdIndex, store_id_index};
 pub use liveness::{LivenessScope, LivenessToken};
 pub(crate) use read::skipped_to_diagnostics;
 pub use read::{load_durable_notes_for_repo, read_events, read_events_for_display, rebuild_state};

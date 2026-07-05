@@ -31,9 +31,9 @@ pub use projection::{
     CurrentCommitAssociation, CurrentRefAssociation, EngagementGrouping, EngagementLifecycle,
     EngagementView, LivenessScope, LivenessToken, ProjectionDiagnostic, RemovalClaim,
     RemovalOperativeStatus, RevisionCommitRangeProjection, RevisionCommitRangeView,
-    RevisionsByBase, SessionState, SupersessionView, WithdrawnCommitAssociation,
+    RevisionsByBase, SessionState, StoreIdIndex, SupersessionView, WithdrawnCommitAssociation,
     WithdrawnRefAssociation, load_durable_notes_for_repo, read_events, read_events_for_display,
-    rebuild_state,
+    rebuild_state, store_id_index,
 };
 pub use sensitivity_vocabulary::{SensitivityKind, SensitivityPolicyOutcome, SensitivitySeverity};
 pub use signing::{
