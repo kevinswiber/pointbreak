@@ -8,6 +8,9 @@
 //! `SHORE_BENCH_FIXTURE` points at an existing store directory; it is skipped
 //! otherwise, so the harness has no baked-in paths. No alternative backend is
 //! built here; this only establishes the file backend's numbers.
+//!
+//! See `docs/benchmarking.md` for `SHORE_BENCH_FIXTURE`, the expected store-dir
+//! layout, and the schema-currency requirement.
 
 use std::hint::black_box;
 use std::path::{Path, PathBuf};
