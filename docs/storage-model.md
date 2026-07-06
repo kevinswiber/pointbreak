@@ -371,10 +371,11 @@ clone's Git common directory. It is the default for **every** worktree of a clon
 worktree and every linked worktree alike — automatically, with no setup step. Because all linked
 worktrees of a clone share one Git common directory, they all resolve the same `.git/shore` store,
 so a capture in any worktree is immediately visible from its siblings. The store stays flat —
-store-only, with no committed-config sibling to separate from. This is a per-clone store, not a
-user-level multi-repository store or remote sync service; whether a shared store should later move
-to a user-level location is tracked separately in
-[issue #153](https://github.com/kevinswiber/shoreline/issues/153) and is out of scope here.
+store-only, with no committed-config sibling to separate from. This default store is per-clone, not a
+user-level multi-repository store or remote sync service; a clone may opt into a separate,
+machine-wide **user-level family store tier** (see
+[User-Level Family Store Tier](#user-level-family-store-tier) below), which resolves the
+multi-repository case [issue #153](https://github.com/kevinswiber/shoreline/issues/153) named.
 
 Public commands expose the resolved store as command JSON using opaque refs. Callers must not depend
 on raw store paths, event filenames, artifact paths, `.git` paths, `.shore/data` paths, or
@@ -442,6 +443,78 @@ the resolved store.
 
 A future delivery queue is a separate subsystem. Queue concepts such as `pending/`, `failed/`,
 retry counts, backoff, and circuit breakers do not belong in the store's `events/`.
+
+## User-Level Family Store Tier
+
+A clone may opt into a **user-level family store**: one store per repository family per machine, at
+`<shore-home-root>/stores/<slug>/`. It exists so review facts survive removing any single clone
+(`rm -rf` of a checkout) and are shared across independent clones of the same family — offline, with
+no daemon and no sync service. The tier is opt-in per clone and additive: a clone that never links
+keeps resolving its clone-local `.git/shore` store exactly as before.
+
+**Placement and shared root.** The shore-home root is resolved by the same precedence the key home
+already uses — `SHORE_HOME`, then `$XDG_DATA_HOME/shore`, then `$HOME/.shore` on Unix or
+`%APPDATA%\shore` on Windows (see [Signature Allow-List and Key
+Home](#signature-allow-list-and-key-home)); both the key home and the family stores now derive that
+root from one shared resolver rather than two copies. The `stores/` path segment keeps
+`<root>/{keys,stores}` disjoint from the key home by construction, so a family named `keys` still
+lands at `<root>/stores/keys` and can never collide with the keystore. A family directory reuses the
+existing store layout verbatim — `events/`, `artifacts/notes/`, `artifacts/objects/`, and the
+regenerable `state.json` — plus two new files, `family.json` and a generated `.gitignore`.
+
+**Resolution precedence.** `resolve_store` grows one branch, giving the order **ephemeral opt-in >
+user-level opt-in > clone-local default** (the legacy flat-layout hard-cutover guard still fires
+before any of these, unconditionally). The opt-in is a `familyRef`/`cloneRef` pair read **only** from
+the git-excluded `.shore/store.local.json`, never from the committed `.shore/store.json`, so a pulled
+commit can never activate the tier for anyone else. A binding in the committed document is a hard
+error, and one of the pair without the other is a hard error too — "opted in with no family" is
+unrepresentable.
+
+**The link/unlink/forget/list surface.** `shore store link <slug>` promotes the current clone: it
+refuses an Ephemeral-mode worktree and a sensitivity-`block` worktree unless explicitly overridden,
+refuses a slug already stamped for a different family, warns (without blocking) on a sync-managed
+filesystem path, and warns — advisory only — when the clone shares no git history with the family it
+is joining. It then folds the clone-local history forward by default, optionally retiring the source
+after a verified fold, and flips the local binding last. `shore store unlink` detaches the clone back
+to clone-local, moving no data. `shore store forget <slug>` is the whole-store destructive verb,
+dry-run by default and `--yes` to execute (refused while any clone is still live, unless `--force`);
+it sits deliberately outside the content-targeted removal model in [Content Removal and
+Compaction](#content-removal-and-compaction) — no store survives a forget to hold a removal event in.
+`shore store list` is the first store surface with no `--repo` input: it walks every family on the
+machine and reports each one's inventory, live-clone count, and orphan status.
+
+**`family.json` / `registry.json` / `.gitignore`.** `family.json` is the schema-versioned manifest
+(`"shore.family-manifest"`, version 1), written eagerly at link time; a bound family whose directory
+lacks it is a *forgotten* family — a hard, actionable error, never a silent re-create and never a
+silent clone-local fallback. `registry.json` (`"shore.family-registry"`, version 1) is machine-local
+membership bookkeeping outside the event log: it records each member clone's path, re-validated
+bidirectionally (the path is a git repo *and* that clone's local config still names the family back),
+so `list`/`forget`/`status` derive liveness on demand rather than trusting stale entries. The family
+directory's generated `.gitignore` covers exactly `state.json` and `registry.json` — both
+machine-local, neither meant to be shared even if the family directory were ever placed under version
+control.
+
+**Non-guarantees.**
+
+- The family store must live on a **local POSIX filesystem**. Network filesystems (NFS) and
+  sync-managed directories (Dropbox, iCloud / Mobile Documents, OneDrive, Google Drive) are
+  unsupported: `~/.shore` looks syncable, which is exactly the footgun a best-effort path warning
+  calls out at link time.
+- `compact` / `gc` should run against a **quiescent** family store. The compaction-versus-writer race
+  is inherited unchanged from the existing multi-worktree case — corruption-free, but benign
+  staleness is possible mid-race — and is not re-engineered for this tier.
+- Linking **folds** a clone-local history forward through the same verified-import machinery `store
+  migrate` uses. That fold stamps every folded event as bundle-applied, which strips the possession
+  arm of content-targeted removal (see [Content Removal and
+  Compaction](#content-removal-and-compaction)): prior **unsigned** removals in the folded source lose
+  operative suppression in the family store. This is accepted and documented, not fixed — the
+  recommended recovery is to re-issue `shore store remove` natively in the family store, surfaced as a
+  diagnostic whenever a fold transports removal events. Steady-state direct writes to an
+  already-linked family store are unaffected.
+- `registry.json` writes are an atomic whole-set read-modify-write with **no lock**. Two clones
+  linking the same family at the same instant can lose one entry to the race; that is accepted
+  (liveness is always re-derived on demand from the bidirectional check, so a lost entry is a missed
+  listing, never corruption) rather than solved with a new lockfile.
 
 ## Content Removal and Compaction
 

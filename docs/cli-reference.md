@@ -298,13 +298,18 @@ shore store compact [--repo <path>] [--pretty]
 resolves. By default every worktree of a clone — the main worktree and every linked worktree alike —
 resolves the same **shared common-dir store** at `.git/shore` (the path under the repo's Git common
 directory), automatically and with no setup step. Because linked worktrees share one Git common
-directory, a capture in any worktree is immediately visible from its siblings. This is a per-clone
-store, not a user-level multi-repository store or remote sync service.
+directory, a capture in any worktree is immediately visible from its siblings. By default this is a
+per-clone store, not a user-level multi-repository store or remote sync service; a clone can opt into
+the machine-wide **user-level family store tier** with `shore store link` (see below).
 
 `shore store status` resolves the store and emits `shore.store-status` JSON.
 
-- `mode` is `local` and `storeRef` is `local`. (Both report the resolved local store; there is no
-  registration step and no separate "linked" mode.)
+- `mode` is `local` (the clone-local common-dir store), `ephemeral` (a worktree pinned to its
+  discardable `.shore/data`), or `user-level` (a clone linked to a family store). `storeRef` is
+  `local` for the first two and the family slug for `user-level`. A `user-level` status additionally
+  carries `repositoryFamilyRef`, `cloneRef`, `liveCloneCount`, `orphaned`, and `lastWrite`; the other
+  two tiers omit them. These family fields sit outside the frozen hard core under this document's
+  tiered stability promise.
 - `inventory` reports `eventCount`, `eventBytes`, `artifactCount`, `artifactBytes`, `totalBytes`,
   optional `untrackedBytes`, `largestArtifacts`, and `revisionObjects`. Artifact entries use
   opaque artifact refs rather than filesystem paths. Each `revisionObjects` entry carries a
