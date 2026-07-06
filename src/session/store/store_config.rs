@@ -284,22 +284,27 @@ pub fn set_store_mode_for_repo(repo: &Path, mode: StoreMode) -> Result<()> {
 
 /// Promote `repo`'s clone into the user-level family tier by writing the
 /// `familyRef`/`cloneRef` binding into the git-excluded `.shore/store.local.json`.
-/// The slug is validated first; any existing local `mode` is preserved; and the
-/// committed `.shore/.gitignore` is ensured so the local file (covered by the
-/// `*.local.json` spec) is excluded before its first write — mirroring
-/// `set_store_mode_for_repo`'s gitignore step. The committed `.shore/store.json`
-/// is never touched. Called by the `link` workflow.
+/// The slug is validated first; the local `mode` is written as the shared default
+/// (see below); and the committed `.shore/.gitignore` is ensured so the local file
+/// (covered by the `*.local.json` spec) is excluded before its first write —
+/// mirroring `set_store_mode_for_repo`'s gitignore step. The committed
+/// `.shore/store.json` is never touched. Called by the `link` workflow.
+///
+/// The binding is written with the shared default mode rather than preserving a
+/// local `mode: ephemeral` pin. A family binding and an ephemeral pin are
+/// contradictory resolution outcomes: `resolve_store` gives Ephemeral precedence
+/// over the user-level arm, so a preserved pin would leave the binding inert and
+/// `store status` still reporting ephemeral after a successful link. The ephemeral
+/// gate already forced an explicit `--include-ephemeral` override to reach this
+/// write, so linking clears the local mode and the binding takes effect.
 pub(crate) fn set_family_binding_for_repo(repo: &Path, slug: &str, clone_ref: &str) -> Result<()> {
     crate::session::store::user_level::validate_family_slug(slug)?;
     let worktree_root = git_worktree_root(repo)?;
     crate::session::store::store_init::ensure_shore_gitignore(&worktree_root)?;
     let local_path = worktree_root.join(STORE_CONFIG_LOCAL_REL_PATH);
-    let mode = load_store_config(&local_path)?
-        .map(|config| config.mode)
-        .unwrap_or_default();
     write_store_config_document(
         &local_path,
-        &StoreConfig::with_binding(mode, slug.to_owned(), clone_ref.to_owned()),
+        &StoreConfig::with_binding(StoreMode::default(), slug.to_owned(), clone_ref.to_owned()),
     )
 }
 
@@ -524,9 +529,12 @@ mod tests {
     }
 
     #[test]
-    fn set_family_binding_writes_the_local_file_and_preserves_mode() {
+    fn set_family_binding_clears_a_local_ephemeral_pin_so_the_binding_resolves() {
         let repo = git_repo();
-        // Seed a local ephemeral mode to prove the binding write preserves it.
+        // A local ephemeral pin must NOT survive the binding write: an ephemeral pin
+        // and a family binding are contradictory (resolve_store gives ephemeral
+        // precedence over the user-level arm), so a preserved pin would leave the
+        // link inert.
         write(repo.path(), ".shore/store.local.json", EPHEMERAL_DOC);
         set_family_binding_for_repo(repo.path(), "acme-web", "0123abcd4567ef89").unwrap();
 
@@ -535,10 +543,9 @@ mod tests {
             .expect("binding written");
         assert_eq!(binding.family_ref, "acme-web");
         assert_eq!(binding.clone_ref, "0123abcd4567ef89");
-        assert_eq!(
-            resolve_store_mode(repo.path()).unwrap(),
-            StoreMode::Ephemeral
-        );
+        // The ephemeral pin is cleared to the shared default so the binding takes
+        // effect (the clone will resolve the family store, not `.shore/data`).
+        assert_eq!(resolve_store_mode(repo.path()).unwrap(), StoreMode::Shared);
     }
 
     #[test]
@@ -555,8 +562,14 @@ mod tests {
     #[test]
     fn clear_family_binding_removes_the_binding_and_preserves_a_non_default_mode() {
         let repo = git_repo();
-        write(repo.path(), ".shore/store.local.json", EPHEMERAL_DOC);
-        set_family_binding_for_repo(repo.path(), "acme-web", "0123abcd4567ef89").unwrap();
+        // Seed a local file carrying BOTH an ephemeral pin and a binding directly
+        // (not via `set`, which now clears the pin), to prove `clear` drops only the
+        // binding and preserves a non-default mode.
+        write(
+            repo.path(),
+            ".shore/store.local.json",
+            r#"{"schema":"shore.store-config","version":1,"mode":"ephemeral","familyRef":"acme-web","cloneRef":"0123abcd4567ef89"}"#,
+        );
         clear_family_binding_for_repo(repo.path()).unwrap();
 
         assert!(resolve_family_binding(repo.path()).unwrap().is_none());

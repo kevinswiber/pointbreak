@@ -464,14 +464,57 @@ mod tests {
         .expect_err("an ephemeral worktree refuses without the override");
         assert!(refused.to_string().contains("ephemeral"));
 
-        let linked = with_shore_home(&home, || {
+        let (linked, resolved, family_dir) = with_shore_home(&home, || {
+            let linked = link_store_to_family(
+                StoreLinkOptions::new(repo.path(), Some("fam".to_owned()))
+                    .with_include_ephemeral(true),
+            )
+            .unwrap();
+            let resolved = crate::session::store::resolution::resolve_store(repo.path())
+                .unwrap()
+                .store_dir()
+                .to_path_buf();
+            (linked, resolved, user_level_store_dir("fam").unwrap())
+        });
+        assert!(linked.created_family);
+        // The override promotes: the clone now resolves the family store, not the
+        // discardable `.shore/data` (committed ephemeral is overridden by the local
+        // binding write).
+        assert_eq!(resolved, family_dir);
+    }
+
+    #[test]
+    fn linking_a_local_ephemeral_override_promotes_to_the_family_store() {
+        // Regression: a LOCAL ephemeral pin (the documented private override in
+        // `.shore/store.local.json`, not the committed one). `link --include-ephemeral`
+        // must clear the pin so the binding takes effect — otherwise the link reports
+        // success while the clone keeps resolving `.shore/data`.
+        let repo = git_repo();
+        std::fs::create_dir_all(repo.path().join(".shore")).unwrap();
+        std::fs::write(
+            repo.path().join(".shore/store.local.json"),
+            r#"{"schema":"shore.store-config","version":1,"mode":"ephemeral"}"#,
+        )
+        .unwrap();
+        let home = repo.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+
+        let (resolved, family_dir) = with_shore_home(&home, || {
             link_store_to_family(
                 StoreLinkOptions::new(repo.path(), Some("fam".to_owned()))
                     .with_include_ephemeral(true),
             )
-        })
-        .unwrap();
-        assert!(linked.created_family);
+            .expect("link succeeds against a local ephemeral override");
+            let resolved = crate::session::store::resolution::resolve_store(repo.path())
+                .unwrap()
+                .store_dir()
+                .to_path_buf();
+            (resolved, user_level_store_dir("fam").unwrap())
+        });
+        assert_eq!(
+            resolved, family_dir,
+            "the clone resolves the family store, not .shore/data"
+        );
     }
 
     #[test]
