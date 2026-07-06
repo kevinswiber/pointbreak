@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -343,16 +343,28 @@ pub(crate) struct SourceSubsetVerification {
 }
 
 /// Independently re-verify, from disk, that everything durable in
-/// `source_store_dir` is present in `target_store_dir`: every physical file
-/// under `events/` and `artifacts/` (recursively) must exist at the same
-/// store-relative path in the target with identical content — byte-identical
-/// for artifacts, canonically identical **modulo the `ingest` provenance
-/// stamp** for events (the import deliberately stamps `ingest` onto committed
-/// target events, so raw byte identity cannot hold there; everything else,
-/// including the envelope and any signature, must match). Enumerates the
-/// source's physical directories — never a manifest or projection, which
-/// cannot see orphan/unreferenced files — because this gate fronts an
-/// irreversible delete. Only in-flight `*.tmp` files are excluded; the
+/// `source_store_dir` is present in `target_store_dir`. Every physical file
+/// under the source's `events/` and `artifacts/` (recursively) must be covered:
+///
+/// - **Events** are matched by store-relative path: the target must hold a file
+///   at the same path, canonically identical **modulo the `ingest` provenance
+///   stamp** (the import deliberately stamps `ingest` onto committed target
+///   events, so raw byte identity cannot hold there; everything else, including
+///   the envelope and any signature, must match). Event filenames are stable.
+/// - **Artifacts** are matched by **content**, not path: the target must hold
+///   some file under `artifacts/` with byte-identical content, regardless of
+///   filename. The fold re-canonicalizes object artifacts to content-hash
+///   filenames, so a source file the opaque-identity migration left under a
+///   legacy name (`filename != sha256(bytes)`) has no counterpart at its own
+///   relative path in the target — but its bytes are safe there under a
+///   different name. Content is the artifact's real identity; comparing by
+///   filename false-negatives whenever a name drifts.
+///
+/// Enumerates the source's physical directories — never a manifest or
+/// projection, which cannot see orphan/unreferenced files — because this gate
+/// fronts an irreversible delete: a source artifact whose bytes are in NO
+/// target file (an orphan the fold never carried, or a corrupt file) is a real
+/// divergence and still blocks. Only in-flight `*.tmp` files are excluded; the
 /// regenerable store-root `state.json` sits outside the walked trees and a
 /// nested file merely named `state.json` is verified like any other. Never
 /// consults import counters; re-reads both stores.
@@ -369,6 +381,12 @@ pub(crate) fn verify_source_subset_of_target(
         )?;
     }
 
+    // The fold renames object artifacts to content-hash filenames, so a source
+    // artifact will not sit at the same relative path in the target. Index the
+    // target's artifact bytes by content hash once and verify artifacts by
+    // content; events keep stable filenames and are verified path-by-path.
+    let target_artifact_hashes = collect_target_artifact_hashes(target_store_dir)?;
+
     let mut verified_events = 0usize;
     let mut verified_artifacts = 0usize;
     let mut divergences: Vec<String> = Vec::new();
@@ -379,36 +397,35 @@ pub(crate) fn verify_source_subset_of_target(
                 relative.display()
             ))
         })?;
-        match std::fs::read(target_store_dir.join(relative)) {
-            Ok(target_bytes) => {
-                let is_event = relative.starts_with("events");
-                let matches = if is_event {
-                    events_match_modulo_ingest_stamp(&source_bytes, &target_bytes)?
-                } else {
-                    sha256_bytes_hex(&source_bytes) == sha256_bytes_hex(&target_bytes)
-                };
-                if matches {
-                    if is_event {
+        if relative.starts_with("events") {
+            match std::fs::read(target_store_dir.join(relative)) {
+                Ok(target_bytes) => {
+                    if events_match_modulo_ingest_stamp(&source_bytes, &target_bytes)? {
                         verified_events += 1;
                     } else {
-                        verified_artifacts += 1;
+                        divergences.push(format!("{} diverges", store_relative_display(relative)));
                     }
-                } else {
-                    divergences.push(format!("{} diverges", store_relative_display(relative)));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    divergences.push(format!(
+                        "{} is missing in the target",
+                        store_relative_display(relative)
+                    ));
+                }
+                Err(error) => {
+                    return Err(ShoreError::Message(format!(
+                        "read target store file {} for subset verification: {error}",
+                        relative.display()
+                    )));
                 }
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                divergences.push(format!(
-                    "{} is missing in the target",
-                    store_relative_display(relative)
-                ));
-            }
-            Err(error) => {
-                return Err(ShoreError::Message(format!(
-                    "read target store file {} for subset verification: {error}",
-                    relative.display()
-                )));
-            }
+        } else if target_artifact_hashes.contains(&sha256_bytes_hex(&source_bytes)) {
+            verified_artifacts += 1;
+        } else {
+            divergences.push(format!(
+                "{} is missing in the target",
+                store_relative_display(relative)
+            ));
         }
     }
 
@@ -426,6 +443,34 @@ pub(crate) fn verify_source_subset_of_target(
         relative_paths.len(),
         shown.join("; ")
     )))
+}
+
+/// Index every durable file under the target's `artifacts/` tree by the hex
+/// SHA-256 of its bytes. Verifying artifacts by content rather than filename
+/// tolerates the fold's re-canonicalization of object files to content-hash
+/// names (a source file the opaque-identity migration left under a legacy name
+/// is still covered when its bytes live in the target under a different name).
+/// A physical walk — never a manifest — so orphan/unreferenced target bytes are
+/// counted too; a missing `artifacts/` directory yields an empty index (then
+/// every source artifact diverges, as it must).
+fn collect_target_artifact_hashes(target_store_dir: &Path) -> Result<HashSet<String>> {
+    let mut relative_paths = Vec::new();
+    collect_durable_files(
+        &target_store_dir.join("artifacts"),
+        &PathBuf::from("artifacts"),
+        &mut relative_paths,
+    )?;
+    let mut hashes = HashSet::with_capacity(relative_paths.len());
+    for relative in &relative_paths {
+        let bytes = std::fs::read(target_store_dir.join(relative)).map_err(|error| {
+            ShoreError::Message(format!(
+                "read target artifact {} for subset verification: {error}",
+                relative.display()
+            ))
+        })?;
+        hashes.insert(sha256_bytes_hex(&bytes));
+    }
+    Ok(hashes)
 }
 
 /// Render a store-relative path with `/` separators on every platform: these
@@ -1861,6 +1906,60 @@ mod tests {
             .expect_err("an unreferenced source artifact absent from the target must fail");
         assert!(
             error.to_string().contains("orphan.json"),
+            "names the file: {error}"
+        );
+    }
+
+    #[test]
+    fn verify_source_subset_passes_when_a_source_object_is_legacy_named() {
+        let (_repo, source, _target_root, target) = imported_pair();
+        // A pre-content-hash-naming migration (plan 0078) leaves some source
+        // object files named by a legacy stem (filename != sha256(bytes)); the
+        // fold re-canonicalizes them to content-hash filenames in the target.
+        // Their bytes are present in the target under a *different* name, so a
+        // filename-based check reports them missing and wrongly blocks
+        // --retire-source. Content-based verification must pass.
+        let objects = source.join("artifacts/objects");
+        let entry = fs::read_dir(&objects)
+            .unwrap()
+            .next()
+            .expect("imported source has an object artifact")
+            .unwrap();
+        let legacy = objects.join("dead00000000000000000000legacyname.json");
+        fs::rename(entry.path(), &legacy).unwrap();
+        // The target has no file at the source's legacy relative path: only its
+        // content, under the content-hash name, matches.
+        assert!(
+            !target
+                .join("artifacts/objects/dead00000000000000000000legacyname.json")
+                .exists()
+        );
+
+        let verification = verify_source_subset_of_target(&source, &target).unwrap();
+        assert!(verification.verified_artifacts >= 1);
+    }
+
+    #[test]
+    fn verify_source_subset_still_blocks_a_legacy_named_source_object_absent_by_content() {
+        let (_repo, source, _target_root, target) = imported_pair();
+        // Content-based verification must not become a rename-blind pass: a
+        // legacy-named source object whose *bytes* are in no target file is a
+        // real data-loss risk and must still block the retire.
+        let objects = source.join("artifacts/objects");
+        let entry = fs::read_dir(&objects)
+            .unwrap()
+            .next()
+            .expect("imported source has an object artifact")
+            .unwrap();
+        let legacy = objects.join("dead00000000000000000000legacyname.json");
+        fs::rename(entry.path(), &legacy).unwrap();
+        // Perturb the bytes so no target file shares this content.
+        fs::write(&legacy, b"{\"tampered\":true}").unwrap();
+
+        let error = verify_source_subset_of_target(&source, &target)
+            .expect_err("a legacy-named source object absent by content must still block");
+        assert!(
+            error.to_string().contains("artifacts/"),
             "names the file: {error}"
         );
     }
