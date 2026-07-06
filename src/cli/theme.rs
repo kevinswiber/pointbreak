@@ -46,6 +46,7 @@ pub(super) fn parse_theme_value(value: &str) -> ThemePreference {
 /// The truecolor lane's palette: one foreground SGR per token kind plus the
 /// two intraline-emphasis background tints. Built-ins are `'static`; a palette
 /// derived from an embedded theme owns its strings — hence `Cow`.
+#[derive(Debug)]
 pub(super) struct DiffPalette {
     pub(super) keyword: Cow<'static, str>,
     pub(super) string: Cow<'static, str>,
@@ -244,6 +245,74 @@ pub(super) fn classify_theme_mode(theme: &syntect::highlighting::Theme) -> Optio
     })
 }
 
+/// A resolved truecolor palette plus at most one warning line for stderr
+/// (e.g. an unknown inherited BAT_THEME that was ignored).
+#[derive(Debug)]
+pub(super) struct PaletteChoice {
+    pub(super) palette: DiffPalette,
+    pub(super) warning: Option<String>,
+}
+
+/// Query the terminal background via `terminal-colorsaurus` (the same crate
+/// bat and delta use; OSC 10+11 with the crate's default bounded timeout,
+/// kept for bat/delta parity). The ONLY crate call site. Callers must apply
+/// [`detection_allowed`] first — this function unconditionally queries.
+pub(super) fn detect_mode() -> Option<DiffMode> {
+    use terminal_colorsaurus::{QueryOptions, ThemeMode, theme_mode};
+    match theme_mode(QueryOptions::default()).ok()? {
+        ThemeMode::Dark => Some(DiffMode::Dark),
+        ThemeMode::Light => Some(DiffMode::Light),
+    }
+}
+
+/// Turn a selection into the truecolor palette. The detector is injected so
+/// the gate (and tests) control querying; it is invoked at most once, and
+/// only where the Auto behavior applies — never for an explicit mode or a
+/// known theme name. Unknown names are judged by provenance: explicit
+/// sources fail hard with the valid vocabulary, the inherited BAT_THEME
+/// warns and falls back to the Auto behavior.
+pub(super) fn resolve_truecolor_palette(
+    selection: &ThemeSelection,
+    detect: impl FnOnce() -> Option<DiffMode>,
+) -> Result<PaletteChoice, Box<dyn std::error::Error>> {
+    fn auto_choice(detected: Option<DiffMode>) -> PaletteChoice {
+        PaletteChoice {
+            palette: DiffPalette::builtin_for(detected.unwrap_or(DiffMode::Dark)),
+            warning: None,
+        }
+    }
+    match &selection.preference {
+        ThemePreference::Auto => Ok(auto_choice(detect())),
+        ThemePreference::Mode(mode) => Ok(PaletteChoice {
+            palette: DiffPalette::builtin_for(*mode),
+            warning: None,
+        }),
+        ThemePreference::Named(name) => match theme_by_name(name) {
+            Some(theme) => {
+                // A theme with no classifiable background gets the dark pair
+                // without an extra terminal query.
+                let mode = classify_theme_mode(&theme).unwrap_or(DiffMode::Dark);
+                Ok(PaletteChoice {
+                    palette: DiffPalette::from_theme(&theme, mode),
+                    warning: None,
+                })
+            }
+            None if selection.source == ThemeSource::Inherited => {
+                let mut choice = auto_choice(detect());
+                choice.warning = Some(format!(
+                    "ignoring unknown BAT_THEME value {name:?}; using the built-in palette"
+                ));
+                Ok(choice)
+            }
+            None => Err(format!(
+                "unknown theme {name:?}: expected auto, light, dark, default, or one of: {}",
+                available_theme_names().join(", ")
+            )
+            .into()),
+        },
+    }
+}
+
 /// Where a theme selection came from — governs the unknown-name posture:
 /// explicit sources fail hard, the inherited source warns and falls back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -372,6 +441,101 @@ mod tests {
         let mut theme = syntect::highlighting::Theme::default();
         theme.settings.background = bg;
         theme
+    }
+
+    fn selection(preference: ThemePreference, source: ThemeSource) -> ThemeSelection {
+        ThemeSelection { preference, source }
+    }
+
+    #[test]
+    fn auto_uses_the_detector_and_falls_back_dark() {
+        let sel = selection(ThemePreference::Auto, ThemeSource::Default);
+        let light = resolve_truecolor_palette(&sel, || Some(DiffMode::Light)).unwrap();
+        assert_eq!(
+            light.palette.sgr_for(TokenKind::Keyword),
+            "\x1b[38;2;122;68;212m"
+        );
+        assert!(light.warning.is_none());
+        // No verdict (unsupported terminal, timeout, gate closed) → Dark.
+        let dark = resolve_truecolor_palette(&sel, || None).unwrap();
+        assert_eq!(
+            dark.palette.sgr_for(TokenKind::Keyword),
+            "\x1b[38;2;179;136;255m"
+        );
+    }
+
+    #[test]
+    fn explicit_auto_detects_like_the_default() {
+        // Provenance does not gate Auto: `--theme auto` / `SHORE_THEME=auto`
+        // is an explicit request to detect, bat semantics.
+        let sel = selection(ThemePreference::Auto, ThemeSource::Explicit);
+        let light = resolve_truecolor_palette(&sel, || Some(DiffMode::Light)).unwrap();
+        assert_eq!(
+            light.palette.sgr_for(TokenKind::Keyword),
+            "\x1b[38;2;122;68;212m"
+        );
+    }
+
+    #[test]
+    fn explicit_mode_never_calls_the_detector() {
+        let sel = selection(
+            ThemePreference::Mode(DiffMode::Light),
+            ThemeSource::Explicit,
+        );
+        let choice = resolve_truecolor_palette(&sel, || panic!("must not detect")).unwrap();
+        assert_eq!(
+            choice.palette.sgr_for(TokenKind::Keyword),
+            "\x1b[38;2;122;68;212m"
+        );
+    }
+
+    #[test]
+    fn named_theme_derives_and_never_calls_the_detector() {
+        let sel = selection(
+            ThemePreference::Named("Monokai Extended".to_string()),
+            ThemeSource::Explicit,
+        );
+        let choice = resolve_truecolor_palette(&sel, || panic!("must not detect")).unwrap();
+        // Derived palette: theme fg, dark emph pair (Monokai classifies Dark).
+        assert!(
+            choice
+                .palette
+                .sgr_for(TokenKind::Keyword)
+                .starts_with("\x1b[38;2;")
+        );
+        assert_eq!(choice.palette.emph_add_bg, "\x1b[48;2;0;96;0m");
+    }
+
+    #[test]
+    fn unknown_name_errors_hard_when_explicit() {
+        let sel = selection(
+            ThemePreference::Named("no-such-theme".to_string()),
+            ThemeSource::Explicit,
+        );
+        let err = resolve_truecolor_palette(&sel, || None)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("no-such-theme"));
+        assert!(err.contains("auto, light, dark, default"));
+        assert!(err.contains("Monokai Extended")); // lists the embedded names
+    }
+
+    #[test]
+    fn unknown_name_warns_and_falls_back_when_inherited() {
+        // BAT_THEME may name a user-cached bat theme shore does not embed —
+        // warn once and behave as Auto.
+        let sel = selection(
+            ThemePreference::Named("no-such-theme".to_string()),
+            ThemeSource::Inherited,
+        );
+        let choice = resolve_truecolor_palette(&sel, || Some(DiffMode::Light)).unwrap();
+        assert_eq!(
+            choice.palette.sgr_for(TokenKind::Keyword),
+            "\x1b[38;2;122;68;212m"
+        );
+        let warning = choice.warning.expect("carries a warning");
+        assert!(warning.contains("BAT_THEME"));
+        assert!(warning.contains("no-such-theme"));
     }
 
     #[test]
