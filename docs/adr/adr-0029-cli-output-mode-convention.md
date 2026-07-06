@@ -10,7 +10,9 @@ record.**
 **Date:** 2026-07-02
 **See also:** **ADR-0028** (id-prefix convention — the ids-are-opaque contract and the
 display-truncation precedent this ADR extends to CLI text output), **ADR-0030** (named command
-surface — the human-named commands that ride this convention), the "Command output JSON" and "IDs
+surface — the human-named commands that ride this convention), **ADR-0031** (review-surface
+grammar — flattens the review family and supersedes Decision 9's input-side clause with
+short-id input), the "Command output JSON" and "IDs
 are opaque" sections of `docs/review-workflow.md` (the stability promise this ADR re-grades), and
 `docs/cli-reference.md` (the per-command reference this convention governs). Grounding issue:
 **#96** (human-readable readback). Held open, compatible either way: **shoreline-relay#11**

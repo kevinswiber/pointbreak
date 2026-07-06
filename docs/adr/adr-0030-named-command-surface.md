@@ -3,7 +3,9 @@
 **Status:** Accepted (owner-approved 2026-07-02); landed 2026-07-02 (grounding issue #96).
 **Date:** 2026-07-02
 **See also:** **ADR-0029** (CLI output-mode convention — the `--format` output-lane split this
-surface rides: JSON default, opt-in text, per its 2026-07-03 amendment), **ADR-0018**
+surface rides: JSON default, opt-in text, per its 2026-07-03 amendment), **ADR-0031**
+(review-surface grammar — completes Decision 1's subject rule by flattening the review family),
+**ADR-0018**
 (event-borne supersession — the reshape that made the captured revision the product's subject),
 the "Old dump/show stream vs. revision ledger" section of `docs/review-workflow.md` (the two-surface
 seam this ADR resolves), and `docs/cli-reference.md` §`shore show`/`shore dump`. Grounding issue:

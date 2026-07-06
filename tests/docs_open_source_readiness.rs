@@ -663,3 +663,15 @@ fn narrative_docs_carry_no_stale_review_surface_spellings() {
         }
     }
 }
+
+#[test]
+fn adr_0031_is_landed_with_an_accepted_status() {
+    let adr = std::fs::read_to_string("docs/adr/adr-0031-review-surface-grammar.md")
+        .expect("ADR-0031 is landed in docs/adr/");
+    assert!(adr.contains("**Status:** Accepted"));
+    assert!(
+        !adr.contains("pending in-repo landing"),
+        "a landed ADR carries no pending-landing status text"
+    );
+    assert!(!adr.contains("DRAFT"));
+}
