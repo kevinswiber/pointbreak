@@ -285,6 +285,10 @@ worktree, and the fact lands directly in that shared store, visible to every wor
 shore store status [--repo <path>] [--pretty]
 shore store mode (shared | ephemeral | show) [--repo <path>] [--pretty]
 shore store migrate [--repo <path>] [--include-ephemeral] [--retire-source] [--pretty]
+shore store link [<slug>] [--repo <path>] [--include-ephemeral] [--include-sensitive] [--retire-source] [--pretty]
+shore store unlink [--repo <path>] [--pretty]
+shore store forget <slug> [--yes] [--force] [--pretty]
+shore store list [--pretty]
 shore store remove [--repo <path>] (--snapshot <id> | --revision <id> | --ref <name> | --range <a>..<b> | --orphans) [--sign-key <key>] [--pretty]
 shore store gc [--repo <path>] [--pretty]
 shore store compact [--repo <path>] [--pretty]
@@ -396,6 +400,33 @@ It emits `shore.store-migrate` JSON with `eventsCreated`, `eventsExisting`, `art
 (This is distinct from the legacy flat `.shore/` layout, a retired pre-1.0 format that is detected
 and refused rather than migrated; see
 [storage-model.md](./storage-model.md#migrations-and-doctor).)
+
+`shore store link [<slug>]` promotes this clone into the opt-in **user-level family store** at
+`<shore-home-root>/stores/<slug>/`, a per-machine store shared across independent clones of the same
+repository family so review facts survive removing any one clone. The binding is recorded only in the
+git-excluded `.shore/store.local.json`, so it never travels in a commit. Before any family write,
+`link` runs its gates in order: it refuses an ephemeral worktree (override `--include-ephemeral`) and
+a sensitivity-flagged worktree (override `--include-sensitive`), refuses a slug already stamped for a
+different family, and warns (without blocking) on a sync-managed filesystem path or when the clone
+shares no git history with an existing family. It then folds the clone-local `.git/shore` history
+forward with independent verification and flips the binding last, so an interrupted link leaves the
+clone still resolving its clone-local store. Omitting `<slug>` fails with a suggestion rather than
+picking one silently. `--retire-source` deletes the clone-local store only after the fold is
+verified. When the fold carries prior unsigned `shore store remove` events, a diagnostic discloses
+that they lost possession-based suppression and should be re-issued in the family store. It emits
+`shore.store-link` JSON (`familyRef`, `cloneRef`, `createdFamily`, the `folded*` counts,
+`sourceRetired`, and any warnings). `shore store unlink` detaches this clone (clearing the binding
+and deregistering it) without moving any data, and survives a family store that was already forgotten.
+
+`shore store forget <slug>` is the whole-store destructive verb for a family store, deliberately
+outside `shore store remove`'s content-targeted removal (no store survives a forget to hold a removal
+event). It is dry-run by default: it previews the inventory and live-clone count that would be lost
+and deletes nothing. `--yes` performs the deletion, but only for a family with zero live clones (an
+**orphaned** family store — a different notion from `shore store remove --orphans`, which targets
+unreachable-commit content); a family with live clones additionally requires `--force`. `shore store
+list` is the one repo-less surface: it takes no `--repo` flag, never resolves a git repo, and walks
+`<shore-home-root>/stores/` reporting each family's `familyRef`, inventory, `liveCloneCount`,
+`orphaned` flag, and `lastWrite`. Against an empty home it returns an empty `families` array.
 
 `shore store remove` retires content-addressed artifacts from the store. It resolves exactly one
 selector to a set of content hashes — `--snapshot <id>` (a snapshot's bound artifact), `--revision

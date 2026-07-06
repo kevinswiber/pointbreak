@@ -6,10 +6,13 @@ use shoreline::model::{ObjectId, RevisionId};
 use shoreline::session::{
     CompactOptions, CompactResult, MigrateToCommonDirOptions, MigrateToCommonDirResult,
     ProjectionDiagnostic, RemovalOperativeStatus, RemoveOptions, RemoveResult, RemoveSelector,
-    RemovedContent, SkippedRemoval, StoreMode, StoreModeSource, StoreStatusInventory,
-    StoreStatusOptions, StoreStatusResult, StoreStatusSensitivity, SweepOutcome, SweptBlob,
-    compact_store, migrate_store_to_common_dir, remove_content, resolve_store_mode_for_repo,
-    set_store_mode_for_repo, store_status,
+    RemovedContent, SkippedRemoval, StoreForgetOptions, StoreForgetResult, StoreLinkOptions,
+    StoreLinkResult, StoreListEntry, StoreListResult, StoreMode, StoreModeSource,
+    StoreStatusInventory, StoreStatusOptions, StoreStatusResult, StoreStatusSensitivity,
+    StoreUnlinkOptions, StoreUnlinkResult, SweepOutcome, SweptBlob, compact_store,
+    forget_family_store, link_store_to_family, list_family_stores, migrate_store_to_common_dir,
+    remove_content, resolve_store_mode_for_repo, set_store_mode_for_repo, store_status,
+    unlink_store_from_family,
 };
 
 use crate::cli::common::{
@@ -29,6 +32,10 @@ enum StoreCommand {
     Status(StoreStatusArgs),
     Mode(StoreModeArgs),
     Migrate(StoreMigrateArgs),
+    Link(StoreLinkArgs),
+    Unlink(StoreUnlinkArgs),
+    Forget(StoreForgetArgs),
+    List(StoreListArgs),
     Remove(StoreRemoveArgs),
     /// Alias of `compact`.
     Gc(StoreCompactArgs),
@@ -83,6 +90,80 @@ struct StoreMigrateArgs {
     #[arg(long)]
     retire_source: bool,
 
+    #[arg(long)]
+    pretty: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
+}
+
+/// Promote this clone to the opt-in user-level family store tier.
+#[derive(Debug, Args)]
+struct StoreLinkArgs {
+    /// Family slug placing this clone's store at `<shore-home-root>/stores/<slug>/`.
+    /// Omit to have the workflow suggest one from the repo; it never picks silently.
+    slug: Option<String>,
+
+    /// Link an Ephemeral-mode worktree anyway (refused by default).
+    #[arg(long)]
+    include_ephemeral: bool,
+
+    /// Link a worktree the sensitivity gate flagged `block` anyway.
+    #[arg(long)]
+    include_sensitive: bool,
+
+    /// After the fold is independently verified, delete the clone-local `.git/shore` history.
+    #[arg(long)]
+    retire_source: bool,
+
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
+
+    #[arg(long)]
+    pretty: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
+}
+
+/// Detach this clone from its linked family store.
+#[derive(Debug, Args)]
+struct StoreUnlinkArgs {
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
+
+    #[arg(long)]
+    pretty: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
+}
+
+/// The whole-store destructive verb: dry-run by default, `--yes` to execute.
+#[derive(Debug, Args)]
+struct StoreForgetArgs {
+    /// Family slug to forget.
+    slug: String,
+
+    /// Perform the deletion. Without it (the default), forget previews and deletes nothing.
+    #[arg(long)]
+    yes: bool,
+
+    /// Forget even when live clones are still registered.
+    #[arg(long)]
+    force: bool,
+
+    #[arg(long)]
+    pretty: bool,
+
+    #[command(flatten)]
+    format_args: output::FormatArgs,
+}
+
+/// List every user-level family store on this machine. Deliberately repo-less: no
+/// `--repo` flag, and it never resolves a git repo or a per-clone store.
+#[derive(Debug, Args)]
+struct StoreListArgs {
     #[arg(long)]
     pretty: bool,
 
@@ -176,6 +257,59 @@ struct StoreMigrateBody {
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+struct StoreLinkBody {
+    family_ref: String,
+    clone_ref: String,
+    created_family: bool,
+    folded_events_created: usize,
+    folded_events_existing: usize,
+    folded_artifacts_created: usize,
+    folded_removal_event_count: usize,
+    source_retired: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    filesystem_warning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    history_overlap_warning: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoreUnlinkBody {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    previous_family_ref: Option<String>,
+    deregistered: bool,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoreForgetBody {
+    family_ref: String,
+    dry_run: bool,
+    deleted: bool,
+    live_clone_count: usize,
+    orphaned: bool,
+    inventory: StoreStatusInventory,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoreListBody {
+    families: Vec<StoreListEntryBody>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoreListEntryBody {
+    family_ref: String,
+    live_clone_count: usize,
+    orphaned: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_write: Option<String>,
+    inventory: StoreStatusInventory,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct StoreStatusBody {
     mode: String,
     store_ref: String,
@@ -259,6 +393,22 @@ pub(super) fn run(
         StoreCommand::Migrate(args) => {
             tracing::debug!(command = "store.migrate", "command_start");
             migrate(args, stdout)
+        }
+        StoreCommand::Link(args) => {
+            tracing::debug!(command = "store.link", "command_start");
+            link(args, stdout)
+        }
+        StoreCommand::Unlink(args) => {
+            tracing::debug!(command = "store.unlink", "command_start");
+            unlink(args, stdout)
+        }
+        StoreCommand::Forget(args) => {
+            tracing::debug!(command = "store.forget", "command_start");
+            forget(args, stdout)
+        }
+        StoreCommand::List(args) => {
+            tracing::debug!(command = "store.list", "command_start");
+            list(args, stdout)
         }
         StoreCommand::Remove(args) => {
             tracing::debug!(command = "store.remove", "command_start");
@@ -396,6 +546,133 @@ fn migrate(
         StoreMigrateBody::from(result),
         vec![],
     );
+    let format = output::resolve_format(
+        args.format_args.explicit(args.pretty),
+        output::OutputFormat::Json,
+    )?;
+    output::write_document_json_fallback(stdout, format, &document)
+}
+
+fn link(args: StoreLinkArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
+    let span = tracing::info_span!("shore.store.link");
+    let _entered = span.enter();
+    let trust = discover_trust_set(&args.repo);
+    let options = StoreLinkOptions::new(args.repo.clone(), args.slug)
+        .with_include_ephemeral(args.include_ephemeral)
+        .with_include_sensitive(args.include_sensitive)
+        .with_retire_source(args.retire_source)
+        .with_trust_set(trust);
+    let result = link_store_to_family(options)?;
+    let body = StoreLinkBody::from(result);
+
+    let mut diagnostics = Vec::new();
+    if body.folded_removal_event_count > 0 {
+        diagnostics.push(ProjectionDiagnostic {
+            code: "family_fold_removal_possession_lost".to_owned(),
+            message: format!(
+                "{} unsigned removal event(s) were folded and lost possession-based suppression; \
+                 re-issue `shore store remove` in the family store to restore it",
+                body.folded_removal_event_count
+            ),
+        });
+    }
+    if let Some(warning) = &body.filesystem_warning {
+        diagnostics.push(ProjectionDiagnostic {
+            code: "family_store_filesystem_warning".to_owned(),
+            message: warning.clone(),
+        });
+    }
+    if let Some(warning) = &body.history_overlap_warning {
+        diagnostics.push(ProjectionDiagnostic {
+            code: "family_history_overlap_warning".to_owned(),
+            message: warning.clone(),
+        });
+    }
+
+    let format = output::resolve_format(
+        args.format_args.explicit(args.pretty),
+        output::OutputFormat::Json,
+    )?;
+    let digest =
+        matches!(format.format, output::OutputFormat::Text).then(|| render_store_link_text(&body));
+    let document = json::DiagnosticDocument::new("shore.store-link", body, diagnostics);
+    output::write_document(stdout, format, &document, || {
+        digest.expect("text lane resolves the digest")
+    })
+}
+
+/// The text digest for `store link`: a bounded, path-free summary naming the
+/// family, whether it was created, the fold counts, and any advisory warning.
+fn render_store_link_text(body: &StoreLinkBody) -> String {
+    let mut lines = vec![format!("linked to family: {}", body.family_ref)];
+    if body.created_family {
+        lines.push("family store created".to_owned());
+    }
+    lines.push(format!(
+        "folded {} event(s), {} already present",
+        body.folded_events_created, body.folded_events_existing
+    ));
+    if let Some(warning) = &body.history_overlap_warning {
+        lines.push(format!("warning: {warning}"));
+    }
+    lines.join("\n")
+}
+
+fn unlink(args: StoreUnlinkArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
+    let span = tracing::info_span!("shore.store.unlink");
+    let _entered = span.enter();
+    let result = unlink_store_from_family(StoreUnlinkOptions::new(args.repo))?;
+    let document =
+        json::DiagnosticDocument::new("shore.store-unlink", StoreUnlinkBody::from(result), vec![]);
+    let format = output::resolve_format(
+        args.format_args.explicit(args.pretty),
+        output::OutputFormat::Json,
+    )?;
+    output::write_document_json_fallback(stdout, format, &document)
+}
+
+fn forget(args: StoreForgetArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
+    let span = tracing::info_span!("shore.store.forget");
+    let _entered = span.enter();
+    let result = forget_family_store(
+        StoreForgetOptions::new(args.slug)
+            .with_yes(args.yes)
+            .with_force(args.force),
+    )?;
+    let body = StoreForgetBody::from(result);
+    let format = output::resolve_format(
+        args.format_args.explicit(args.pretty),
+        output::OutputFormat::Json,
+    )?;
+    let digest = matches!(format.format, output::OutputFormat::Text)
+        .then(|| render_store_forget_text(&body));
+    let document = json::DiagnosticDocument::new("shore.store-forget", body, vec![]);
+    output::write_document(stdout, format, &document, || {
+        digest.expect("text lane resolves the digest")
+    })
+}
+
+/// The text digest for `store forget`: names the family and its live-clone count,
+/// and states plainly whether anything was deleted.
+fn render_store_forget_text(body: &StoreForgetBody) -> String {
+    let mut lines = vec![format!(
+        "family: {} · {} live clone(s)",
+        body.family_ref, body.live_clone_count
+    )];
+    if body.dry_run {
+        lines.push("dry run: nothing deleted (re-run with --yes to delete)".to_owned());
+    } else if body.deleted {
+        lines.push("deleted".to_owned());
+    }
+    lines.join("\n")
+}
+
+fn list(args: StoreListArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
+    let span = tracing::info_span!("shore.store.list");
+    let _entered = span.enter();
+    let result = list_family_stores()?;
+    let body = StoreListBody::from(result);
+    let document = json::DiagnosticDocument::new("shore.store-list", body, vec![]);
     let format = output::resolve_format(
         args.format_args.explicit(args.pretty),
         output::OutputFormat::Json,
@@ -570,6 +847,69 @@ impl From<StoreStatusResult> for StoreStatusBody {
             last_write: result.last_write,
             inventory: result.inventory,
             sensitivity: result.sensitivity,
+        }
+    }
+}
+
+impl From<StoreLinkResult> for StoreLinkBody {
+    fn from(result: StoreLinkResult) -> Self {
+        Self {
+            family_ref: result.family_ref,
+            clone_ref: result.clone_ref,
+            created_family: result.created_family,
+            folded_events_created: result.folded_events_created,
+            folded_events_existing: result.folded_events_existing,
+            folded_artifacts_created: result.folded_artifacts_created,
+            folded_removal_event_count: result.folded_removal_event_count,
+            source_retired: result.source_retired,
+            filesystem_warning: result.filesystem_warning,
+            history_overlap_warning: result.history_overlap_warning,
+        }
+    }
+}
+
+impl From<StoreUnlinkResult> for StoreUnlinkBody {
+    fn from(result: StoreUnlinkResult) -> Self {
+        Self {
+            previous_family_ref: result.previous_family_ref,
+            deregistered: result.deregistered,
+        }
+    }
+}
+
+impl From<StoreForgetResult> for StoreForgetBody {
+    fn from(result: StoreForgetResult) -> Self {
+        Self {
+            family_ref: result.family_ref,
+            dry_run: result.dry_run,
+            deleted: result.deleted,
+            live_clone_count: result.live_clone_count,
+            orphaned: result.orphaned,
+            inventory: result.inventory,
+        }
+    }
+}
+
+impl From<StoreListResult> for StoreListBody {
+    fn from(result: StoreListResult) -> Self {
+        Self {
+            families: result
+                .families
+                .into_iter()
+                .map(StoreListEntryBody::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<StoreListEntry> for StoreListEntryBody {
+    fn from(entry: StoreListEntry) -> Self {
+        Self {
+            family_ref: entry.family_ref,
+            live_clone_count: entry.live_clone_count,
+            orphaned: entry.orphaned,
+            last_write: entry.last_write,
+            inventory: entry.inventory,
         }
     }
 }
