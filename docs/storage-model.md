@@ -464,19 +464,26 @@ regenerable `state.json` — plus two new files, `family.json` and a generated `
 
 **Resolution precedence.** `resolve_store` grows one branch, giving the order **ephemeral opt-in >
 user-level opt-in > clone-local default** (the legacy flat-layout hard-cutover guard still fires
-before any of these, unconditionally). The opt-in is a `familyRef`/`cloneRef` pair read **only** from
-the git-excluded `.shore/store.local.json`, never from the committed `.shore/store.json`, so a pulled
-commit can never activate the tier for anyone else. A binding in the committed document is a hard
-error, and one of the pair without the other is a hard error too — "opted in with no family" is
-unrepresentable.
+before any of these, unconditionally). The opt-in is a `familyRef`/`cloneRef` pair read from the git
+common dir's `shore.link.json` (inside `.git/`, shared by every worktree of one physical clone), with
+the legacy per-worktree `.shore/store.local.json` honored as a back-compat fallback — never from the
+committed `.shore/store.json`, so a pulled commit can never activate the tier for anyone else. Because
+the binding lives in the common dir, a single `shore store link` binds the main checkout and every
+`git worktree` of the clone, and `cloneRef` keys on the common dir so one physical clone is one
+registry member. A binding in the committed document is a hard error, and one of the pair without the
+other is a hard error too — "opted in with no family" is unrepresentable. The ephemeral opt-out stays
+per-worktree, so an ephemeral worktree still escapes to `.shore/data` even when the binding is
+present. (This per-physical-clone relocation is the issue #402 amendment to ADR-0033.)
 
 **The link/unlink/forget/list surface.** `shore store link <slug>` promotes the current clone: it
 refuses an Ephemeral-mode worktree and a sensitivity-`block` worktree unless explicitly overridden,
 refuses a slug already stamped for a different family, warns (without blocking) on a sync-managed
 filesystem path, and warns — advisory only — when the clone shares no git history with the family it
 is joining. It then folds the clone-local history forward by default, optionally retiring the source
-after a verified fold, and flips the local binding last. `shore store unlink` detaches the clone back
-to clone-local, moving no data. `shore store forget <slug>` is the whole-store destructive verb,
+after a verified fold, and flips the local binding last. When a worktree writes to its clone-local
+store while a sibling worktree of the same clone is linked, `shore store status` and `shore capture`
+surface a one-line advisory pointing at `shore store link <slug>` — the split is signalled, never
+silent. `shore store unlink` detaches the clone back to clone-local, moving no data. `shore store forget <slug>` is the whole-store destructive verb,
 dry-run by default and `--yes` to execute (refused while any clone is still live, unless `--force`);
 it sits deliberately outside the content-targeted removal model in [Content Removal and
 Compaction](#content-removal-and-compaction) — no store survives a forget to hold a removal event in.

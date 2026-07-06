@@ -13,15 +13,23 @@
 //!
 //! [`with_local_override`]: crate::session::identity::DelegationMap::with_local_override
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, ShoreError};
-use crate::git::git_worktree_root;
+use crate::git::{git_common_dir, git_worktree_root};
 
 const STORE_CONFIG_SCHEMA: &str = "shore.store-config";
 const STORE_CONFIG_VERSION: u32 = 1;
+
+/// The common-dir family-binding document schema/version and filename. This binding
+/// lives in the git common dir (`<git-common-dir>/shore.link.json`), which is shared
+/// by every worktree of one physical clone and sits inside `.git/`, so it is never
+/// tracked and never pushed — the opt-in can never arrive via a pulled commit.
+const STORE_LINK_SCHEMA: &str = "shore.store-link";
+const STORE_LINK_VERSION: u32 = 1;
+const STORE_LINK_FILE: &str = "shore.link.json";
 
 /// Repo-relative paths to the store-config files. Mirrors `DELEGATES_REL_PATH` /
 /// `DELEGATES_LOCAL_REL_PATH`: the committed default and the git-excluded private
@@ -77,18 +85,6 @@ impl StoreConfig {
         }
     }
 
-    /// A local-only binding document: `mode` plus the family binding. Written only
-    /// to `.shore/store.local.json` by `set_family_binding_for_repo`.
-    fn with_binding(mode: StoreMode, family_ref: String, clone_ref: String) -> Self {
-        Self {
-            schema: STORE_CONFIG_SCHEMA.to_owned(),
-            version: STORE_CONFIG_VERSION,
-            mode,
-            family_ref: Some(family_ref),
-            clone_ref: Some(clone_ref),
-        }
-    }
-
     fn validate_schema_version(&self, path: &Path) -> Result<()> {
         if self.schema == STORE_CONFIG_SCHEMA && self.version == STORE_CONFIG_VERSION {
             return Ok(());
@@ -128,22 +124,126 @@ pub(crate) fn resolve_store_mode(worktree_root: &Path) -> Result<StoreMode> {
 }
 
 /// A resolved local-only family binding: this clone is promoted to the user-level
-/// family tier. Read ONLY from the git-excluded `.shore/store.local.json`.
+/// family tier. Read from the common-dir `shore.link.json` (shared by every worktree
+/// of one physical clone) or, as a back-compat fallback, the git-excluded
+/// per-worktree `.shore/store.local.json`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FamilyBinding {
     pub family_ref: String,
     pub clone_ref: String,
 }
 
-/// Resolve the local-only family binding under `<worktree-root>/.shore/`.
-/// `Ok(None)` when no binding is present. Two hard errors guard the local-only
-/// opt-in: a binding in the committed `.shore/store.json` (a pulled commit must
-/// never activate the tier), and a half-binding (one of `familyRef`/`cloneRef`
-/// without the other) in the local file. Both messages name the offending file
-/// and the fix.
+/// The persisted common-dir family binding. Distinct from `StoreConfig`: it carries
+/// no `mode` — the mode stays per-worktree in `.shore/store.local.json`, the binding
+/// is per-physical-clone here. `familyRef`/`cloneRef` are `Option` so a half-written
+/// document is caught explicitly (serde has no `deny_unknown_fields`).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CommonDirBinding {
+    schema: String,
+    version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    family_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    clone_ref: Option<String>,
+}
+
+/// The common-dir binding file path: `<common-dir>/shore.link.json`. The single site
+/// that composes this path.
+pub(crate) fn common_dir_binding_path(common_dir: &Path) -> PathBuf {
+    common_dir.join(STORE_LINK_FILE)
+}
+
+/// Read `<common-dir>/shore.link.json`. Absent → `None`; malformed, an unsupported
+/// schema/version, or a half-binding (one of `familyRef`/`cloneRef` without the
+/// other) → a hard, actionable error naming the file.
+pub(crate) fn read_common_dir_binding(common_dir: &Path) -> Result<Option<FamilyBinding>> {
+    let path = common_dir_binding_path(common_dir);
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(ShoreError::Message(format!(
+                "read common-dir store binding {}: {error}",
+                path.display()
+            )));
+        }
+    };
+    let doc: CommonDirBinding = serde_json::from_slice(&bytes).map_err(|error| {
+        ShoreError::Message(format!(
+            "common-dir store binding {} is malformed: {error}",
+            path.display()
+        ))
+    })?;
+    if doc.schema != STORE_LINK_SCHEMA || doc.version != STORE_LINK_VERSION {
+        return Err(ShoreError::Message(format!(
+            "common-dir store binding {} has unsupported schema/version {} v{} (expected {} v{}); \
+             re-run `shore store link <slug>` to rewrite it, or `shore store unlink` to clear it",
+            path.display(),
+            doc.schema,
+            doc.version,
+            STORE_LINK_SCHEMA,
+            STORE_LINK_VERSION
+        )));
+    }
+    match (doc.family_ref, doc.clone_ref) {
+        (Some(family_ref), Some(clone_ref)) => Ok(Some(FamilyBinding {
+            family_ref,
+            clone_ref,
+        })),
+        (None, None) => Ok(None),
+        _ => Err(ShoreError::Message(format!(
+            "common-dir store binding {} carries only one of familyRef/cloneRef; a family binding \
+             needs both. Re-run `shore store link <slug>`, or `shore store unlink` to clear it",
+            path.display(),
+        ))),
+    }
+}
+
+/// Write `<common-dir>/shore.link.json`, pretty-printed with a trailing newline. The
+/// common dir is always `.git`, which always exists, so no `create_dir_all` is needed.
+pub(crate) fn write_common_dir_binding(
+    common_dir: &Path,
+    family_ref: &str,
+    clone_ref: &str,
+) -> Result<()> {
+    let doc = CommonDirBinding {
+        schema: STORE_LINK_SCHEMA.to_owned(),
+        version: STORE_LINK_VERSION,
+        family_ref: Some(family_ref.to_owned()),
+        clone_ref: Some(clone_ref.to_owned()),
+    };
+    let mut bytes = serde_json::to_vec_pretty(&doc)?;
+    bytes.push(b'\n');
+    let path = common_dir_binding_path(common_dir);
+    std::fs::write(&path, &bytes)
+        .map_err(|error| ShoreError::Message(format!("write {}: {error}", path.display())))
+}
+
+/// Remove `<common-dir>/shore.link.json`. Absent → a clean no-op.
+pub(crate) fn remove_common_dir_binding(common_dir: &Path) -> Result<()> {
+    let path = common_dir_binding_path(common_dir);
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(ShoreError::Message(format!(
+            "remove {}: {error}",
+            path.display()
+        ))),
+    }
+}
+
+/// Resolve the family binding for `worktree_root`. `Ok(None)` when no binding is
+/// present. Precedence: the common-dir `shore.link.json` (shared by every worktree of
+/// one physical clone) wins, then the legacy per-worktree `.shore/store.local.json`
+/// family fields are read as a back-compat fallback. Hard errors guard the opt-in: a
+/// binding in the committed `.shore/store.json` (a pulled commit must never activate
+/// the tier — this fires first), and a half-binding (one of `familyRef`/`cloneRef`
+/// without the other) in either document.
 pub(crate) fn resolve_family_binding(worktree_root: &Path) -> Result<Option<FamilyBinding>> {
     // The committed document may never carry a binding. serde cannot reject it
-    // (no deny_unknown_fields), so check the loaded config explicitly.
+    // (no deny_unknown_fields), so check the loaded config explicitly. This guard
+    // fires before any git access, so it also holds on a non-git path.
     let committed_path = worktree_root.join(STORE_CONFIG_REL_PATH);
     if let Some(committed) = load_store_config(&committed_path)?
         && (committed.family_ref.is_some() || committed.clone_ref.is_some())
@@ -156,6 +256,15 @@ pub(crate) fn resolve_family_binding(worktree_root: &Path) -> Result<Option<Fami
         )));
     }
 
+    // The common-dir binding is shared by every worktree of one physical clone.
+    // `git_common_dir` is `cached_repo_fact`-cached and `resolve_store` calls it again
+    // in its clone-local arm, so this is effectively free on the resolve path.
+    let common_dir = git_common_dir(worktree_root)?;
+    if let Some(binding) = read_common_dir_binding(&common_dir)? {
+        return Ok(Some(binding));
+    }
+
+    // Back-compat fallback: an already-linked clone whose binding predates the heal.
     let local_path = worktree_root.join(STORE_CONFIG_LOCAL_REL_PATH);
     let Some(local) = load_store_config(&local_path)? else {
         return Ok(None);
@@ -283,37 +392,46 @@ pub fn set_store_mode_for_repo(repo: &Path, mode: StoreMode) -> Result<()> {
 }
 
 /// Promote `repo`'s clone into the user-level family tier by writing the
-/// `familyRef`/`cloneRef` binding into the git-excluded `.shore/store.local.json`.
-/// The slug is validated first; the local `mode` is written as the shared default
-/// (see below); and the committed `.shore/.gitignore` is ensured so the local file
-/// (covered by the `*.local.json` spec) is excluded before its first write —
-/// mirroring `set_store_mode_for_repo`'s gitignore step. The committed
+/// `familyRef`/`cloneRef` binding into the git common dir (`<common-dir>/shore.link.json`)
+/// — shared by every worktree of this physical clone, and inside `.git/` so it is
+/// never tracked or pulled. The slug is validated first. The committed
 /// `.shore/store.json` is never touched. Called by the `link` workflow.
 ///
-/// The binding is written with the shared default mode rather than preserving a
-/// local `mode: ephemeral` pin. A family binding and an ephemeral pin are
-/// contradictory resolution outcomes: `resolve_store` gives Ephemeral precedence
-/// over the user-level arm, so a preserved pin would leave the binding inert and
-/// `store status` still reporting ephemeral after a successful link. The ephemeral
-/// gate already forced an explicit `--include-ephemeral` override to reach this
-/// write, so linking clears the local mode and the binding takes effect.
+/// A local `mode: ephemeral` pin is neutralized to the shared default so it does not
+/// shadow the binding. A family binding and an ephemeral pin are contradictory
+/// resolution outcomes: `resolve_store` gives Ephemeral precedence over the user-level
+/// arm, so a preserved pin would leave the binding inert and `store status` still
+/// reporting ephemeral after a successful link. The ephemeral gate already forced an
+/// explicit `--include-ephemeral` override to reach this write. When the effective
+/// mode is already shared, no local file is written.
 pub(crate) fn set_family_binding_for_repo(repo: &Path, slug: &str, clone_ref: &str) -> Result<()> {
     crate::session::store::user_level::validate_family_slug(slug)?;
+    let common_dir = git_common_dir(repo)?;
+    write_common_dir_binding(&common_dir, slug, clone_ref)?;
+
     let worktree_root = git_worktree_root(repo)?;
-    crate::session::store::store_init::ensure_shore_gitignore(&worktree_root)?;
-    let local_path = worktree_root.join(STORE_CONFIG_LOCAL_REL_PATH);
-    write_store_config_document(
-        &local_path,
-        &StoreConfig::with_binding(StoreMode::default(), slug.to_owned(), clone_ref.to_owned()),
-    )
+    if resolve_store_mode(&worktree_root)? == StoreMode::Ephemeral {
+        // The local file (covered by the `*.local.json` gitignore spec) needs the
+        // committed `.shore/.gitignore` before its first write — mirroring
+        // `set_store_mode_for_repo`'s gitignore step.
+        crate::session::store::store_init::ensure_shore_gitignore(&worktree_root)?;
+        write_store_config_document(
+            &worktree_root.join(STORE_CONFIG_LOCAL_REL_PATH),
+            &StoreConfig::new(StoreMode::default()),
+        )?;
+    }
+    Ok(())
 }
 
-/// Detach `repo`'s clone from the family tier by clearing the binding from
-/// `.shore/store.local.json`. A non-default `mode` is preserved (the file stays,
-/// binding-free); when only a default-mode document would remain, the local file
-/// is removed rather than left inert. A no-op when no local file exists. Called by
-/// the `unlink` workflow.
+/// Detach `repo`'s clone from the family tier. Removes the common-dir binding (the
+/// current write target) and also clears a legacy per-worktree binding if one predates
+/// the heal: a default-mode local file carrying only the binding is removed; a
+/// non-default `mode` is preserved (the file stays, binding-free). A no-op when nothing
+/// is bound. Called by the `unlink` workflow.
 pub(crate) fn clear_family_binding_for_repo(repo: &Path) -> Result<()> {
+    let common_dir = git_common_dir(repo)?;
+    remove_common_dir_binding(&common_dir)?;
+
     let worktree_root = git_worktree_root(repo)?;
     let local_path = worktree_root.join(STORE_CONFIG_LOCAL_REL_PATH);
     let Some(existing) = load_store_config(&local_path)? else {
@@ -457,7 +575,9 @@ mod tests {
 
     #[test]
     fn a_full_local_binding_resolves() {
-        let root = tempfile::tempdir().unwrap();
+        // `git_repo()` (not a bare tempdir): `resolve_family_binding` reads the common
+        // dir first, which requires a real git repo.
+        let root = git_repo();
         write(root.path(), ".shore/store.local.json", LOCAL_BINDING_DOC);
         let binding = resolve_family_binding(root.path())
             .unwrap()
@@ -487,7 +607,7 @@ mod tests {
 
     #[test]
     fn a_half_binding_in_the_local_file_is_a_hard_error() {
-        let root = tempfile::tempdir().unwrap();
+        let root = git_repo();
         write(
             root.path(),
             ".shore/store.local.json",
@@ -509,7 +629,7 @@ mod tests {
     #[test]
     fn no_binding_resolves_to_none() {
         // Absent local file, or a mode-only local file, is not a binding.
-        let root = tempfile::tempdir().unwrap();
+        let root = git_repo();
         assert!(resolve_family_binding(root.path()).unwrap().is_none());
         write(root.path(), ".shore/store.local.json", EPHEMERAL_DOC);
         assert!(resolve_family_binding(root.path()).unwrap().is_none());
@@ -519,13 +639,124 @@ mod tests {
     fn a_mode_only_local_file_still_resolves_its_mode_with_a_binding_present_field_absent() {
         // Regression: adding the optional binding fields must not change how a
         // mode-only local file resolves its mode.
-        let root = tempfile::tempdir().unwrap();
+        let root = git_repo();
         write(root.path(), ".shore/store.local.json", EPHEMERAL_DOC);
         assert_eq!(
             resolve_store_mode(root.path()).unwrap(),
             StoreMode::Ephemeral
         );
         assert!(resolve_family_binding(root.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn common_dir_binding_round_trips() {
+        let common = tempfile::tempdir().unwrap();
+        assert!(read_common_dir_binding(common.path()).unwrap().is_none());
+
+        write_common_dir_binding(common.path(), "fam", "abcdef0123456789").unwrap();
+        assert!(common.path().join("shore.link.json").is_file());
+
+        let binding = read_common_dir_binding(common.path())
+            .unwrap()
+            .expect("bound");
+        assert_eq!(binding.family_ref, "fam");
+        assert_eq!(binding.clone_ref, "abcdef0123456789");
+    }
+
+    #[test]
+    fn common_dir_binding_document_is_camel_case_store_link_schema() {
+        let common = tempfile::tempdir().unwrap();
+        write_common_dir_binding(common.path(), "fam", "abcdef0123456789").unwrap();
+        let raw = std::fs::read_to_string(common.path().join("shore.link.json")).unwrap();
+        assert!(
+            raw.contains("\"schema\": \"shore.store-link\""),
+            "got: {raw}"
+        );
+        assert!(raw.contains("\"familyRef\": \"fam\""), "got: {raw}");
+        assert!(
+            raw.contains("\"cloneRef\": \"abcdef0123456789\""),
+            "got: {raw}"
+        );
+        assert!(
+            raw.ends_with('\n'),
+            "trailing newline like the other writers"
+        );
+    }
+
+    #[test]
+    fn common_dir_binding_half_document_is_a_hard_error() {
+        let common = tempfile::tempdir().unwrap();
+        std::fs::write(
+            common.path().join("shore.link.json"),
+            r#"{"schema":"shore.store-link","version":1,"familyRef":"fam"}"#,
+        )
+        .unwrap();
+        let error =
+            read_common_dir_binding(common.path()).expect_err("a half binding is a hard error");
+        assert!(
+            error.to_string().contains("shore.link.json"),
+            "names the file"
+        );
+    }
+
+    #[test]
+    fn common_dir_binding_wrong_schema_version_is_a_hard_error() {
+        let common = tempfile::tempdir().unwrap();
+        std::fs::write(
+            common.path().join("shore.link.json"),
+            r#"{"schema":"shore.store-link","version":999,"familyRef":"f","cloneRef":"c"}"#,
+        )
+        .unwrap();
+        assert!(read_common_dir_binding(common.path()).is_err());
+    }
+
+    #[test]
+    fn remove_common_dir_binding_is_a_clean_no_op_when_absent() {
+        let common = tempfile::tempdir().unwrap();
+        remove_common_dir_binding(common.path()).unwrap();
+        write_common_dir_binding(common.path(), "fam", "abcdef0123456789").unwrap();
+        remove_common_dir_binding(common.path()).unwrap();
+        assert!(read_common_dir_binding(common.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_common_dir_binding_resolves() {
+        let repo = git_repo();
+        let common = crate::git::git_common_dir(repo.path()).unwrap();
+        write_common_dir_binding(&common, "fam", "abcdef0123456789").unwrap();
+
+        let binding = resolve_family_binding(repo.path()).unwrap().expect("bound");
+        assert_eq!(binding.family_ref, "fam");
+        assert_eq!(binding.clone_ref, "abcdef0123456789");
+    }
+
+    #[test]
+    fn a_legacy_per_worktree_binding_still_resolves_as_a_fallback() {
+        // Back-compat: an already-linked clone whose binding predates the heal keeps
+        // resolving from the per-worktree file.
+        let repo = git_repo();
+        write(repo.path(), ".shore/store.local.json", LOCAL_BINDING_DOC);
+
+        let binding = resolve_family_binding(repo.path())
+            .unwrap()
+            .expect("bound via fallback");
+        assert_eq!(binding.family_ref, "acme-web");
+    }
+
+    #[test]
+    fn the_common_dir_binding_wins_over_a_legacy_per_worktree_binding() {
+        let repo = git_repo();
+        let common = crate::git::git_common_dir(repo.path()).unwrap();
+        write_common_dir_binding(&common, "new", "1111111111111111").unwrap();
+        write(repo.path(), ".shore/store.local.json", LOCAL_BINDING_DOC);
+
+        assert_eq!(
+            resolve_family_binding(repo.path())
+                .unwrap()
+                .unwrap()
+                .family_ref,
+            "new"
+        );
     }
 
     #[test]
@@ -582,14 +813,55 @@ mod tests {
     }
 
     #[test]
-    fn clear_family_binding_removes_an_inert_local_file() {
+    fn set_family_binding_writes_the_common_dir_doc_not_the_local_file() {
         let repo = git_repo();
-        // No seeded mode: `set` writes a default-mode local file carrying only the
-        // binding. Clearing it leaves nothing meaningful, so the file is removed.
-        set_family_binding_for_repo(repo.path(), "acme-web", "0123abcd4567ef89").unwrap();
-        assert!(repo.path().join(".shore/store.local.json").is_file());
+        set_family_binding_for_repo(repo.path(), "fam", "abcdef0123456789").unwrap();
+
+        // The binding lives in the common dir, shared by every worktree.
+        let common = crate::git::git_common_dir(repo.path()).unwrap();
+        assert!(
+            common.join("shore.link.json").is_file(),
+            "binding in the common dir"
+        );
+        // A fresh (non-ephemeral) link writes NO per-worktree local file.
+        assert!(
+            !repo.path().join(".shore/store.local.json").exists(),
+            "no spurious per-worktree binding file"
+        );
+        assert_eq!(
+            resolve_family_binding(repo.path())
+                .unwrap()
+                .unwrap()
+                .family_ref,
+            "fam"
+        );
+    }
+
+    #[test]
+    fn clear_family_binding_removes_the_common_dir_doc() {
+        let repo = git_repo();
+        set_family_binding_for_repo(repo.path(), "fam", "abcdef0123456789").unwrap();
+        let common = crate::git::git_common_dir(repo.path()).unwrap();
+        assert!(common.join("shore.link.json").is_file());
+
         clear_family_binding_for_repo(repo.path()).unwrap();
-        assert!(!repo.path().join(".shore/store.local.json").exists());
+
+        assert!(
+            !common.join("shore.link.json").exists(),
+            "common-dir binding removed"
+        );
+        assert!(resolve_family_binding(repo.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn clear_family_binding_also_clears_a_legacy_per_worktree_binding() {
+        // A binding that predates the heal lives in the local file; unlink must clear it
+        // (this exercises the default-mode-local-file removal branch of `clear`).
+        let repo = git_repo();
+        write(repo.path(), ".shore/store.local.json", LOCAL_BINDING_DOC);
+
+        clear_family_binding_for_repo(repo.path()).unwrap();
+
         assert!(resolve_family_binding(repo.path()).unwrap().is_none());
     }
 

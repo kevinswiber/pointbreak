@@ -54,8 +54,8 @@ pub(crate) use store::{
 pub use store::{
     EventWriteOutcome, ObjectArtifact, StoreMode, StoreModeOutcome, StoreModeSource,
     capture_worktree_fingerprint, ensure_shore_gitignore, event_log_head_marker,
-    read_bound_object_artifact, read_object_artifact, resolve_store_mode_for_repo,
-    set_store_mode_for_repo, store_dir_for_repo,
+    family_link_advisory, read_bound_object_artifact, read_object_artifact,
+    resolve_store_mode_for_repo, set_store_mode_for_repo, store_dir_for_repo,
 };
 pub(in crate::session) use store::{body_artifact, fingerprint, object_artifact, store_init};
 pub use workflow::{

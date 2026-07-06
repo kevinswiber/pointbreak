@@ -40,6 +40,11 @@ pub struct StoreStatusResult {
     pub orphaned: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_write: Option<String>,
+    /// A discoverability advisory when this worktree writes to the clone-local store
+    /// while a sibling worktree of the clone is linked to a family store. `None` when
+    /// there is nothing to advise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub family_link_advisory: Option<String>,
     pub inventory: StoreStatusInventory,
     pub sensitivity: StoreStatusSensitivity,
 }
@@ -123,6 +128,9 @@ pub fn store_status(options: StoreStatusOptions) -> Result<StoreStatusResult> {
         live_clone_count: lifecycle.as_ref().map(|fields| fields.live_clone_count),
         orphaned: lifecycle.as_ref().map(|fields| fields.orphaned),
         last_write: lifecycle.and_then(|fields| fields.last_write),
+        family_link_advisory: crate::session::store::resolution::family_link_advisory(
+            &options.repo,
+        )?,
         inventory: StoreStatusInventory::from(inventory),
         sensitivity: StoreStatusSensitivity::from(sensitivity),
     })
@@ -378,5 +386,51 @@ mod tests {
         assert!(result.orphaned.is_some());
         // last_write may be None immediately after link if nothing has written to the
         // family store yet; assert presence only via the Option type.
+    }
+
+    #[test]
+    fn status_surfaces_the_family_link_advisory_for_an_unbound_sibling() {
+        let repo = TestRepo::new();
+        repo.write("README.md", "base\n");
+        repo.commit_all("base");
+        // Main carries a legacy binding; add an unbound sibling worktree of the clone.
+        repo.write(
+            ".shore/store.local.json",
+            r#"{"schema":"shore.store-config","version":1,"mode":"shared","familyRef":"acme","cloneRef":"deadbeefdeadbeef"}"#,
+        );
+        let wt_parent = TempDir::new().unwrap();
+        let wt = wt_parent.path().join("sib");
+        repo.git(["branch", "sib"]);
+        repo.git([
+            OsStr::new("worktree"),
+            OsStr::new("add"),
+            wt.as_os_str(),
+            OsStr::new("sib"),
+        ]);
+
+        let result = store_status(StoreStatusOptions::new(&wt)).unwrap();
+        assert!(
+            result
+                .family_link_advisory
+                .as_deref()
+                .is_some_and(|m| m.contains("acme") && m.contains("shore store link")),
+            "the unbound sibling is advised to link: {:?}",
+            result.family_link_advisory
+        );
+    }
+
+    #[test]
+    fn status_has_no_family_link_advisory_for_a_fresh_clone() {
+        let repo = TestRepo::new();
+        repo.write("README.md", "base\n");
+        repo.commit_all("base");
+
+        let result = store_status(StoreStatusOptions::new(repo.path())).unwrap();
+        assert!(result.family_link_advisory.is_none());
+        let json = serde_json::to_value(&result).unwrap();
+        assert!(
+            json.get("familyLinkAdvisory").is_none(),
+            "skipped when None: {json}"
+        );
     }
 }

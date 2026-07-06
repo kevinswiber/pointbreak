@@ -65,6 +65,11 @@ pub(super) fn run(
     let (options, skip) = capture_options(&args, tracing, stderr)?;
     let capture = capture_review(options)?;
     crate::cli::common::surface_best_effort_skip(&skip, stderr);
+    // Best-effort: if this worktree is splitting off from a family store a sibling
+    // worktree is linked to, say so on stderr. Never fails the capture.
+    if let Ok(Some(advisory)) = shoreline::session::family_link_advisory(&args.repo) {
+        let _ = writeln!(stderr, "{advisory}");
+    }
     // `capture_document` consumes the result by value; keep a clone for the text lane.
     let text_source = capture.clone();
     let document = capture_document(capture);

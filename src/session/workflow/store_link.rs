@@ -213,7 +213,7 @@ fn plan_link(options: &StoreLinkOptions) -> Result<LinkPlan> {
     let root_oids = root_commit_oids(&worktree_root)?;
     let history_overlap_warning = history_overlap_warning_for(&family_dir, &slug, &root_oids)?;
 
-    let clone_ref = mint_clone_ref(&worktree_root);
+    let clone_ref = mint_clone_ref(&crate::git::git_common_dir(&worktree_root)?);
 
     Ok(LinkPlan {
         would_create_family: existing_manifest.is_none(),
@@ -396,11 +396,11 @@ fn history_overlap_warning_for(
     }))
 }
 
-/// Opaque, deterministic clone id. The normalized worktree root is the git toplevel
-/// absolute path (`ShoreStorePaths::resolve`); raw paths never reach the wire, but
-/// this 16-hex digest of one does.
-fn mint_clone_ref(worktree_root: &Path) -> String {
-    let digest = sha256_bytes_hex(worktree_root.to_string_lossy().as_bytes());
+/// Opaque, deterministic clone id — keyed on the git COMMON DIR, so every worktree of
+/// one physical clone shares it (one physical clone = one registry member). Raw paths
+/// never reach the wire, but this 16-hex digest of one does.
+fn mint_clone_ref(common_dir: &Path) -> String {
+    let digest = sha256_bytes_hex(common_dir.to_string_lossy().as_bytes());
     digest[..16].to_owned()
 }
 
@@ -622,6 +622,58 @@ mod tests {
         let binding = resolve_family_binding(repo.path()).unwrap().expect("bound");
         assert_eq!(binding.family_ref, "fam");
         assert_eq!(binding.clone_ref, result.clone_ref);
+    }
+
+    #[test]
+    fn clone_ref_keys_on_the_common_dir() {
+        // The digest input is the common dir, so all worktrees of one physical clone
+        // share it, and a different clone's common dir yields a different ref.
+        let a = Path::new("/repo/.git");
+        let b = Path::new("/other/.git");
+        assert_eq!(mint_clone_ref(a), mint_clone_ref(a));
+        assert_ne!(mint_clone_ref(a), mint_clone_ref(b));
+        assert_eq!(mint_clone_ref(a).len(), 16);
+    }
+
+    #[test]
+    fn re_linking_a_sibling_worktree_dedups_to_one_registry_member() {
+        // Link the main checkout, then `git worktree add` a sibling and link IT.
+        // Because the clone_ref keys on the shared common dir, the registry holds ONE
+        // member, not two.
+        let main = git_repo();
+        let wt_parent = tempfile::tempdir().unwrap();
+        let wt = wt_parent.path().join("sibling");
+        run_git(main.path(), ["branch", "sib"]);
+        run_git(
+            main.path(),
+            [
+                OsStr::new("worktree"),
+                OsStr::new("add"),
+                wt.as_os_str(),
+                OsStr::new("sib"),
+            ],
+        );
+        let home = main.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+
+        let (main_ref, sib_ref, entries) = with_shore_home(&home, || {
+            let main_ref =
+                link_store_to_family(StoreLinkOptions::new(main.path(), Some("fam".to_owned())))
+                    .unwrap()
+                    .clone_ref;
+            let sib_ref = link_store_to_family(StoreLinkOptions::new(&wt, Some("fam".to_owned())))
+                .unwrap()
+                .clone_ref;
+            let family_dir = user_level_store_dir("fam").unwrap();
+            let entries = crate::session::store::user_level::read_family_registry(&family_dir)
+                .unwrap()
+                .entries
+                .len();
+            (main_ref, sib_ref, entries)
+        });
+
+        assert_eq!(main_ref, sib_ref, "one physical clone → one clone_ref");
+        assert_eq!(entries, 1, "the sibling re-link dedups, not duplicates");
     }
 
     #[test]

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::error::{Result, ShoreError};
-use crate::git::git_common_dir;
+use crate::git::{git_common_dir, git_worktree_list};
 use crate::session::event::ShoreEvent;
 use crate::session::store::backend::StoreBackend;
 use crate::session::store::event_store::EventStore;
@@ -141,6 +141,40 @@ pub(crate) fn resolve_read_store(repo: impl AsRef<Path>) -> Result<ReadStore> {
 /// `/api/revisions`).
 pub fn event_log_head_marker(repo: impl AsRef<Path>) -> Result<u64> {
     resolve_read_store(repo)?.backend().journal().head_marker()
+}
+
+/// A discoverability advisory: when this worktree resolves the clone-local store but a
+/// sibling worktree of the same physical clone carries a family binding, tell the user
+/// their writes are splitting off from the family store. Best-effort — any
+/// worktree-enumeration failure returns `None` (the sibling scan must never turn a
+/// resolve into an error). Reads only; never writes.
+pub fn family_link_advisory(repo: impl AsRef<Path>) -> Result<Option<String>> {
+    let repo = repo.as_ref();
+    // Only the unbound clone-local tier can split. A family-resolved worktree is already
+    // joined; an ephemeral worktree opted out on purpose.
+    if !matches!(resolve_store(repo)?.resolved_tier, ResolvedTier::CloneLocal) {
+        return Ok(None);
+    }
+    // This worktree has no binding (else it would not be clone-local), so scanning every
+    // worktree — including self, which contributes `None` — needs no self-skip.
+    let Ok(worktrees) = git_worktree_list(repo) else {
+        return Ok(None);
+    };
+    for worktree in worktrees {
+        if let Ok(Some(binding)) = resolve_family_binding(&worktree.path) {
+            return Ok(Some(family_split_advisory_message(&binding.family_ref)));
+        }
+    }
+    Ok(None)
+}
+
+fn family_split_advisory_message(slug: &str) -> String {
+    format!(
+        "a family store `{slug}` is linked for another worktree of this clone, but this \
+         worktree is unlinked and writing to the clone-local store (.git/shore). Run \
+         `shore store link {slug}` to join it, or re-link the other worktree once to bind \
+         every worktree of this clone."
+    )
 }
 
 /// The write-validation seam: write surfaces resolve their validation/derivation
@@ -653,6 +687,136 @@ mod tests {
 
         assert_eq!(write.store_dir(), read.store_dir());
         assert_existing_paths_eq(write.store_dir(), &family_dir);
+    }
+
+    #[test]
+    fn a_worktree_of_a_linked_clone_resolves_the_family_store() {
+        use crate::session::store::store_config::write_common_dir_binding;
+        use crate::session::store::user_level::{
+            ensure_family_store_scaffold, user_level_store_dir,
+        };
+
+        let fixture = LinkedWorktreeFixture::new();
+        let home = TempDir::new().unwrap();
+        // SAFETY: single-threaded test; nextest isolates each test in its own process.
+        unsafe {
+            std::env::set_var("SHORE_HOME", home.path());
+        }
+
+        let slug = "fam";
+        let family_dir = user_level_store_dir(slug).unwrap();
+        ensure_family_store_scaffold(&family_dir, slug, &[]).unwrap();
+        // The binding lives in the shared common dir — write it once (this is what
+        // `store link` on the main checkout does).
+        let common = git_common_dir(fixture.main.path()).unwrap();
+        write_common_dir_binding(&common, slug, "0123abcd4567ef89").unwrap();
+
+        // Main AND the added worktree both resolve the family store (heal).
+        let main_read = resolve_read_store(fixture.main.path()).unwrap();
+        let wt_read = resolve_read_store(&fixture.linked_path).unwrap();
+        let wt_write = resolve_write_store(&fixture.linked_path).unwrap();
+        let wt_validation = resolve_write_validation_store(&fixture.linked_path).unwrap();
+        let _ = wt_validation.validation_events().unwrap();
+        unsafe {
+            std::env::remove_var("SHORE_HOME");
+        }
+
+        assert_existing_paths_eq(main_read.store_dir(), &family_dir);
+        assert_existing_paths_eq(wt_read.store_dir(), &family_dir);
+        assert_existing_paths_eq(wt_write.store_dir(), &family_dir);
+        // Regression guard: the worktree must NOT resolve the clone-local .git/shore.
+        assert_ne!(
+            wt_read.store_dir(),
+            git_common_dir(fixture.main.path()).unwrap().join("shore")
+        );
+    }
+
+    #[test]
+    fn an_ephemeral_worktree_still_escapes_even_with_a_common_dir_binding() {
+        use crate::session::store::store_config::write_common_dir_binding;
+
+        // A common-dir binding is present, but this worktree opted out (ephemeral,
+        // per-worktree): arm 1 still wins, so the discardable .shore/data is used.
+        let repo = GitRepo::new();
+        write_store_config(repo.path(), StoreMode::Ephemeral).unwrap();
+        let common = git_common_dir(repo.path()).unwrap();
+        write_common_dir_binding(&common, "fam", "0123abcd4567ef89").unwrap();
+
+        let resolution = resolve_store(repo.path()).unwrap();
+        assert_eq!(path_file_name(resolution.store_dir()), "data");
+    }
+
+    #[test]
+    fn advisory_fires_for_an_unbound_worktree_of_a_legacy_linked_clone() {
+        let fixture = LinkedWorktreeFixture::new();
+        // Main carries a LEGACY per-worktree binding; the linked worktree is unbound.
+        fs::create_dir_all(fixture.main.path().join(".shore")).unwrap();
+        fs::write(
+            fixture.main.path().join(".shore/store.local.json"),
+            r#"{"schema":"shore.store-config","version":1,"mode":"shared","familyRef":"shoreline","cloneRef":"deadbeefdeadbeef"}"#,
+        )
+        .unwrap();
+
+        let advisory = family_link_advisory(&fixture.linked_path)
+            .unwrap()
+            .expect("advisory fires");
+        assert!(
+            advisory.contains("shoreline"),
+            "names the family: {advisory}"
+        );
+        assert!(
+            advisory.contains("shore store link"),
+            "actionable: {advisory}"
+        );
+    }
+
+    #[test]
+    fn advisory_is_silent_for_a_fresh_unlinked_clone() {
+        let fixture = LinkedWorktreeFixture::new();
+        assert!(
+            family_link_advisory(&fixture.linked_path)
+                .unwrap()
+                .is_none()
+        );
+        assert!(family_link_advisory(fixture.main.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn advisory_is_silent_for_an_ephemeral_worktree() {
+        let repo = GitRepo::new();
+        write_store_config(repo.path(), StoreMode::Ephemeral).unwrap();
+        assert!(family_link_advisory(repo.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn advisory_is_silent_when_this_worktree_already_resolves_the_family() {
+        use crate::session::store::store_config::write_common_dir_binding;
+        use crate::session::store::user_level::{
+            ensure_family_store_scaffold, user_level_store_dir,
+        };
+
+        let repo = GitRepo::new();
+        let home = TempDir::new().unwrap();
+        unsafe {
+            std::env::set_var("SHORE_HOME", home.path());
+        }
+        let slug = "fam";
+        ensure_family_store_scaffold(&user_level_store_dir(slug).unwrap(), slug, &[]).unwrap();
+        write_common_dir_binding(
+            &git_common_dir(repo.path()).unwrap(),
+            slug,
+            "0123abcd4567ef89",
+        )
+        .unwrap();
+
+        let advisory = family_link_advisory(repo.path()).unwrap();
+        unsafe {
+            std::env::remove_var("SHORE_HOME");
+        }
+        assert!(
+            advisory.is_none(),
+            "a family-resolved worktree is not advised"
+        );
     }
 
     #[test]

@@ -359,6 +359,8 @@ struct StoreStatusBody {
     orphaned: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_write: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    family_link_advisory: Option<String>,
     inventory: StoreStatusInventory,
     sensitivity: StoreStatusSensitivity,
 }
@@ -602,6 +604,10 @@ fn render_store_status_text(body: &StoreStatusBody) -> String {
         }
     }
     lines.push(line);
+
+    if let Some(advisory) = &body.family_link_advisory {
+        lines.push(format!("advisory: {advisory}"));
+    }
 
     lines.join("\n")
 }
@@ -1015,6 +1021,7 @@ impl From<StoreStatusResult> for StoreStatusBody {
             live_clone_count: result.live_clone_count,
             orphaned: result.orphaned,
             last_write: result.last_write,
+            family_link_advisory: result.family_link_advisory,
             inventory: result.inventory,
             sensitivity: result.sensitivity,
         }

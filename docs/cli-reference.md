@@ -429,8 +429,14 @@ and refused rather than migrated; see
 
 `shore store link [<slug>]` promotes this clone into the opt-in **user-level family store** at
 `<shore-home-root>/stores/<slug>/`, a per-machine store shared across independent clones of the same
-repository family so review facts survive removing any one clone. The binding is recorded only in the
-git-excluded `.shore/store.local.json`, so it never travels in a commit. Before any family write,
+repository family so review facts survive removing any one clone. The binding is recorded **per
+physical clone** in the git common dir (`shore.link.json` under `.git/`), so it never travels in a
+commit and a single `shore store link` binds the main checkout and every current and future
+`git worktree` of that clone. (A legacy per-worktree `.shore/store.local.json` binding from before
+this is still honored as a fallback; a worktree can still opt out locally with `shore store mode
+ephemeral`.) When a worktree writes to its clone-local store while a sibling worktree of the same
+clone is linked, `shore store status` and `shore capture` surface a one-line advisory pointing at
+`shore store link <slug>` — the split is signalled, never silent. Before any family write,
 `link` runs its gates in order: it refuses an ephemeral worktree (override `--include-ephemeral`) and
 a sensitivity-flagged worktree (override `--include-sensitive`), refuses a slug already stamped for a
 different family, and warns (without blocking) on a sync-managed filesystem path or when the clone

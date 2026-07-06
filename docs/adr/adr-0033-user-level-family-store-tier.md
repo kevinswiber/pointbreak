@@ -221,3 +221,58 @@ Owner approval (2026-07-06) adopts the recommended disposition for each point be
   ADR; V1's posture is local-only, never synced, never pushed.
 - Relay S1 durability-export lands on "export to a local durable home" → that home is this tier;
   re-check the `link`-less (store-only) creation path it would need.
+
+## Amendment — per-physical-clone binding (2026-07-06, issue #402)
+
+**Status:** Accepted (owner-approved 2026-07-06); landed via plan 0120 (family-store silent split),
+branch `fix/issue-402-family-store-silent-split`.
+
+### Context
+
+Decision 2 placed the opt-in `family_ref` binding in the git-excluded, **per-worktree**
+`.shore/store.local.json`. Because that file is per-worktree, any *other* worktree of the same
+physical clone — most commonly a `git worktree` of a linked checkout — started unbound and silently
+resolved to the clone-local `.git/shore` (the resolver's last arm), splitting the review record away
+from the family store the main checkout reads. The split was silent: unlike the legacy-store guard,
+nothing warned. (Issue #402; encountered live when the #399 fix-worktree record split into
+`.git/shore` and had to be re-captured.)
+
+### Amended decisions
+
+- **Binding granularity is per-physical-clone.** The binding relocates to a new document in the git
+  **common dir**, `<git-common-dir>/shore.link.json` (schema `shore.store-link` v1, carrying
+  `familyRef`/`cloneRef`, camelCase). The common dir is already shared by every worktree of one
+  physical clone (exactly like `.git/shore`), so `shore store link` **once** binds every worktree of
+  that clone. The document lives inside `.git/`, so Decision 2's invariant holds unchanged — a pulled
+  commit can never activate the tier, and "opted in with no family" stays unrepresentable.
+- **Resolve order.** `resolve_family_binding` reads the common-dir document first, then the legacy
+  per-worktree `.shore/store.local.json` family fields as a back-compat fallback (existing linked
+  clones keep resolving until re-linked). The committed-`store.json`-carries-a-binding hard error is
+  unchanged and fires first.
+- **`clone_ref` keys on the common dir** (was the worktree root). One physical clone now mints one
+  `clone_ref`, so the Decision 6 registry dedups a clone's worktrees to a single member and
+  `live_clone_count` counts physical clones. The digest input is not folded into any id or signed
+  bytes, so this is an internal change; legacy `clone_ref`s keep resolving because liveness keys on
+  `family_ref`, not `clone_ref`. Accepted staleness: the registry still records the linking worktree's
+  path, so if that specific worktree is removed while the clone lives on via other worktrees, liveness
+  under-counts until a re-link refreshes the path — the same benign path-staleness the registry model
+  already carries.
+- **The ephemeral opt-out stays per-worktree.** `StoreMode` remains in the per-worktree
+  `store.json`/`store.local.json`; only the family binding relocates. Precedence is unchanged
+  (ephemeral > user-level > clone-local), so an ephemeral worktree still escapes to `.shore/data`
+  even when the common-dir binding is present. `shore store link` neutralizes a local ephemeral pin
+  so it does not shadow the binding.
+
+### The discoverability signal
+
+For the residual migration window — an unbound worktree whose *sibling* still carries a legacy
+per-worktree binding — a best-effort advisory (`family_link_advisory`) names the family and the
+`shore store link <slug>` fix, surfaced in `shore store status` and on the `shore capture` write path.
+The genuinely-separate-clone case stays undiscoverable **by design** (Decision 3 forbids identity
+keying) and is not signalled. The signal only reads and advises; it never writes a binding.
+
+### Unchanged
+
+No source-identity, trust, or format-floor change (Decisions 3, 8 hold). The hard constraint stands:
+**no auto-binding by repo identity** — every binding is still written only by an explicit
+`shore store link`. The relocation is a placement change, not an identity change.
