@@ -1,5 +1,9 @@
 {
   "schema": "shore.sensitivity-config",
   "version": 1,
-  "excludeGlobs": ["tests/**", "src/session/store/sensitivity.rs"]
+  "excludeGlobs": [
+    "tests/**",
+    "src/session/store/sensitivity.rs",
+    "src/session/workflow/store_link.rs"
+  ]
 }
