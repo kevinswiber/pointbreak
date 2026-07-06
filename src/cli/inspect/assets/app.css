@@ -24,21 +24,47 @@ body { display: flex; flex-direction: column; }
 .brand { font-weight: 700; letter-spacing: 0.3px; }
 .brand span { color: var(--accent); margin-left: 4px; font-weight: 500; }
 
-/* The served repository / store identity (issue #391): a compact chip row in the
-   top bar. Empty until the one-shot identity fetch lands. */
-.store-identity { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
-.store-identity-repo { font-weight: 600; color: var(--fg); }
-.store-identity-repo:empty { display: none; }
-.store-identity-placement,
-.store-identity-family,
-.store-identity-worktree {
-  color: var(--fg-dim);
-  font-size: var(--fs-sm);
+/* The served repository / store identity (issue #391): a compact chip showing the
+   repository name only, with the full placement/family/worktree detail in a
+   hover/focus popover so the top bar stays uncluttered. Empty until the one-shot
+   identity fetch lands. */
+.store-identity { position: relative; display: flex; align-items: center; }
+.store-identity-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  padding: 1px 8px;
+  padding: 2px 8px;
+  cursor: default;
 }
-.store-identity-family { color: var(--accent); }
+.store-identity-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.store-identity-repo { font-weight: 600; }
+.store-identity-caret { color: var(--fg-dim); font-size: var(--fs-sm); }
+.store-identity-detail {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  display: none;
+  min-width: 180px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  padding: 8px 10px;
+}
+.store-identity:hover .store-identity-detail,
+.store-identity:focus-within .store-identity-detail { display: block; }
+.store-identity-detail dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 14px;
+  margin: 0;
+}
+.store-identity-detail dt { color: var(--fg-dim); font-size: var(--fs-sm); }
+.store-identity-detail dd { margin: 0; color: var(--fg); font-size: var(--fs-sm); }
 
 #lens-switcher { display: flex; flex-wrap: wrap; gap: 4px; }
 .lens-tab {

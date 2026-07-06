@@ -54,11 +54,12 @@
     kv: "kv",
     ghost: "ghost",
     actions: "actions",
-    // App-shell store identity chips (issue #391).
+    // App-shell store identity: a compact repo chip with a hover/focus detail popover
+    // (issue #391). The detail rows are a <dl>, styled via element selectors.
+    storeIdentityChip: "store-identity-chip",
     storeIdentityRepo: "store-identity-repo",
-    storeIdentityPlacement: "store-identity-placement",
-    storeIdentityFamily: "store-identity-family",
-    storeIdentityWorktree: "store-identity-worktree",
+    storeIdentityCaret: "store-identity-caret",
+    storeIdentityDetail: "store-identity-detail",
     // Fact cards (observation / input-request / assessment / validation / note).
     annoGroup: "anno-group",
     annoHead: "anno-head",
@@ -3738,21 +3739,15 @@ click to open the revision page">
       document.title = "shore inspector";
       return;
     }
-    const parts = [
-      `<span class="${CLASS.storeIdentityRepo}">${escapeHtml(id.repository)}</span>`,
-      `<span class="${CLASS.storeIdentityPlacement}">${escapeHtml(id.placement.label)}</span>`
+    const rows = [
+      ["repository", id.repository],
+      ["store", id.placement.label]
     ];
-    if (id.family) {
-      parts.push(
-        `<span class="${CLASS.storeIdentityFamily}">${escapeHtml(id.family.id)}</span>`
-      );
-    }
-    if (id.worktree) {
-      parts.push(
-        `<span class="${CLASS.storeIdentityWorktree}">${escapeHtml(id.worktree)}</span>`
-      );
-    }
-    el.innerHTML = parts.join("");
+    if (id.family) rows.push(["family", id.family.id]);
+    if (id.worktree) rows.push(["worktree", id.worktree]);
+    const detailRows = rows.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("");
+    const ariaLabel = rows.map(([k, v]) => `${k} ${v}`).join(", ");
+    el.innerHTML = `<span class="${CLASS.storeIdentityChip}" tabindex="0" aria-label="${escapeHtml(ariaLabel)}"><span class="${CLASS.storeIdentityRepo}">${escapeHtml(id.repository)}</span><span class="${CLASS.storeIdentityCaret}" aria-hidden="true">▾</span></span><div class="${CLASS.storeIdentityDetail}" aria-hidden="true"><dl>${detailRows}</dl></div>`;
     document.title = `${id.repository} · shore inspector`;
   }
   __name(renderIdentity, "renderIdentity");

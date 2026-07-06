@@ -38,11 +38,12 @@ export const CLASS = {
   ghost: "ghost",
   actions: "actions",
 
-  // App-shell store identity chips (issue #391).
+  // App-shell store identity: a compact repo chip with a hover/focus detail popover
+  // (issue #391). The detail rows are a <dl>, styled via element selectors.
+  storeIdentityChip: "store-identity-chip",
   storeIdentityRepo: "store-identity-repo",
-  storeIdentityPlacement: "store-identity-placement",
-  storeIdentityFamily: "store-identity-family",
-  storeIdentityWorktree: "store-identity-worktree",
+  storeIdentityCaret: "store-identity-caret",
+  storeIdentityDetail: "store-identity-detail",
 
   // Fact cards (observation / input-request / assessment / validation / note).
   annoGroup: "anno-group",

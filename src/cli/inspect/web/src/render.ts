@@ -59,21 +59,29 @@ function renderIdentity(): void {
     document.title = "shore inspector";
     return;
   }
-  const parts = [
-    `<span class="${CLASS.storeIdentityRepo}">${escapeHtml(id.repository)}</span>`,
-    `<span class="${CLASS.storeIdentityPlacement}">${escapeHtml(id.placement.label)}</span>`,
+  // The always-visible chip is the repository name only; the store placement,
+  // family, and worktree live in a hover/focus detail popover so the top bar stays
+  // uncluttered. Repository + store are always shown; family/worktree only when set.
+  const rows: Array<[string, string]> = [
+    ["repository", id.repository],
+    ["store", id.placement.label],
   ];
-  if (id.family) {
-    parts.push(
-      `<span class="${CLASS.storeIdentityFamily}">${escapeHtml(id.family.id)}</span>`,
-    );
-  }
-  if (id.worktree) {
-    parts.push(
-      `<span class="${CLASS.storeIdentityWorktree}">${escapeHtml(id.worktree)}</span>`,
-    );
-  }
-  el.innerHTML = parts.join("");
+  if (id.family) rows.push(["family", id.family.id]);
+  if (id.worktree) rows.push(["worktree", id.worktree]);
+
+  const detailRows = rows
+    .map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`)
+    .join("");
+  // The full identity as one phrase, so a screen reader gets everything from the
+  // chip without depending on the visual (aria-hidden) popover.
+  const ariaLabel = rows.map(([k, v]) => `${k} ${v}`).join(", ");
+
+  el.innerHTML =
+    `<span class="${CLASS.storeIdentityChip}" tabindex="0" aria-label="${escapeHtml(ariaLabel)}">` +
+    `<span class="${CLASS.storeIdentityRepo}">${escapeHtml(id.repository)}</span>` +
+    `<span class="${CLASS.storeIdentityCaret}" aria-hidden="true">▾</span>` +
+    `</span>` +
+    `<div class="${CLASS.storeIdentityDetail}" aria-hidden="true"><dl>${detailRows}</dl></div>`;
   // Plain-text title (no HTML escaping needed for document.title).
   document.title = `${id.repository} · shore inspector`;
 }
