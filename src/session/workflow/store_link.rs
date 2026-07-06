@@ -869,7 +869,7 @@ mod tests {
         // Plant an unsigned ArtifactRemoved directly in the clone-local store.
         let source = crate::session::store::resolution::clone_local_store_dir(repo.path()).unwrap();
         crate::session::EventStore::open(&source)
-            .record_event_once(&unsigned_removal_event())
+            .record_event_once(&removal_event_for("sha256:deadbeef"))
             .unwrap();
         let home = repo.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
@@ -1167,8 +1167,10 @@ mod tests {
 
     #[test]
     fn dry_run_surfaces_incomplete_fidelity_as_the_blocking_reason() {
-        // The motivating scenario from issue #393: the fold preflight refuses a
-        // source whose object artifact is gone, without a real fold attempt.
+        // An UNACCOUNTED missing artifact (bytes gone, no `ArtifactRemoved` claim to
+        // explain it) is a genuine defect: the fold preflight refuses it, without a
+        // real fold attempt. A claim-covered absence is linkable instead — see
+        // `dry_run_previews_a_store_with_a_removed_artifact_as_linkable`.
         let repo = modified_git_repo();
         crate::session::capture_worktree_review(crate::session::CaptureOptions::new(repo.path()))
             .unwrap();
@@ -1185,6 +1187,34 @@ mod tests {
 
         assert!(error.to_string().contains("full-fidelity"), "{error}");
         assert_eq!(tree_fingerprint(&home), before);
+    }
+
+    #[test]
+    fn dry_run_previews_a_store_with_a_removed_artifact_as_linkable() {
+        // The owner-confirmed correction: a store whose artifact was legitimately
+        // removed (claim recorded) then compacted (bytes erased) is NOT a fidelity
+        // defect. It previews as linkable — the fold carries the referencing event and
+        // the removal claim, and discloses the possession-stripping population.
+        let repo = modified_git_repo();
+        let capture = crate::session::capture_worktree_review(crate::session::CaptureOptions::new(
+            repo.path(),
+        ))
+        .unwrap();
+        let source = crate::session::store::resolution::clone_local_store_dir(repo.path()).unwrap();
+        crate::session::EventStore::open(&source)
+            .record_event_once(&removal_event_for(&capture.object_artifact_content_hash))
+            .unwrap();
+        std::fs::remove_dir_all(source.join("artifacts/objects")).unwrap();
+        let home = repo.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+
+        let preview = with_shore_home(&home, || {
+            preview_link_to_family(StoreLinkOptions::new(repo.path(), Some("fam".to_owned())))
+        })
+        .unwrap();
+
+        assert_eq!(preview.export_fidelity, "full");
+        assert!(preview.folded_removal_event_count >= 1);
     }
 
     #[test]
@@ -1254,18 +1284,18 @@ mod tests {
         repo
     }
 
-    fn unsigned_removal_event() -> crate::session::event::ShoreEvent {
+    fn removal_event_for(content_hash: &str) -> crate::session::event::ShoreEvent {
         use crate::model::JournalId;
         use crate::session::event::{
             ArtifactRemovedPayload, EventTarget, EventType, ShoreEvent, Writer,
         };
         ShoreEvent::new(
             EventType::ArtifactRemoved,
-            ArtifactRemovedPayload::idempotency_key("sha256:deadbeef"),
+            ArtifactRemovedPayload::idempotency_key(content_hash),
             EventTarget::for_journal(JournalId::new("journal:test")),
             Writer::shore_local("0.1.0"),
             ArtifactRemovedPayload {
-                content_hash: "sha256:deadbeef".to_owned(),
+                content_hash: content_hash.to_owned(),
             },
             "2026-06-19T00:00:00Z",
         )

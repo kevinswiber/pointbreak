@@ -8,6 +8,7 @@ use crate::error::{Result, ShoreError};
 use crate::model::id_prefix;
 use crate::session::event::{EventType, IngestVia, ShoreEvent, stamp_ingest_provenance};
 use crate::session::object_artifact::decode_and_validate_object_artifact;
+use crate::session::projection::ArtifactRemovalProjection;
 use crate::session::store::body_artifact::{NoteBodyEnvelope, body_artifact_field};
 use crate::session::store::{EventStore, ObjectArtifact};
 use crate::session::{
@@ -97,6 +98,7 @@ pub(crate) fn build_export_manifest(store_dir: impl AsRef<Path>) -> Result<Expor
     let store_dir = store_dir.as_ref();
     let event_store = EventStore::open(store_dir);
     let mut event_entries = Vec::new();
+    let mut all_events = Vec::new();
     let mut artifact_requirements = BTreeMap::<String, ArtifactRequirement>::new();
     let mut diagnostics = Vec::new();
 
@@ -105,6 +107,7 @@ pub(crate) fn build_export_manifest(store_dir: impl AsRef<Path>) -> Result<Expor
             ShoreError::Message(format!("failed to read event for export manifest: {error}"))
         })?;
         let event = event_store.read_event(&path)?;
+        all_events.push(event.clone());
         let event_id = event.event_id.as_str().to_owned();
         let event_envelope_hash = sha256_json_prefixed(&serde_json::to_value(&event)?)?;
         let event_requirements = event_artifact_requirements(&event, &event_id)?;
@@ -131,19 +134,35 @@ pub(crate) fn build_export_manifest(store_dir: impl AsRef<Path>) -> Result<Expor
         });
     }
 
+    // A referenced artifact whose bytes are absent is only a fidelity defect when the
+    // absence is unaccountable. An artifact carrying a recorded `ArtifactRemoved` claim
+    // is legitimately gone — compact only ever erases claim-covered blobs
+    // (`artifact_removal`'s sweep floor), so claim-presence exactly characterizes a
+    // deliberate removal. Such an artifact has no bytes to transfer: omit it, don't
+    // diagnose it. The referencing event and the `ArtifactRemoved` claim still export,
+    // and the reader-relative operative-status layer renders it as removed downstream.
+    let removal = ArtifactRemovalProjection::from_events(&all_events)?;
     let mut artifacts = Vec::new();
     for requirement in artifact_requirements.into_values() {
         match read_required_artifact(store_dir, &requirement)? {
             Some(artifact) => artifacts.push(artifact),
-            None => diagnostics.push(ExportManifestDiagnostic {
-                code: "missing_referenced_artifact".to_owned(),
-                artifact_ref: requirement.artifact_ref,
-                event_id: requirement
-                    .required_by_event_ids
-                    .first()
-                    .expect("requirement has at least one event id")
-                    .clone(),
-            }),
+            None => {
+                let removed = requirement
+                    .content_hash
+                    .as_deref()
+                    .is_some_and(|content_hash| removal.is_removed(content_hash));
+                if !removed {
+                    diagnostics.push(ExportManifestDiagnostic {
+                        code: "missing_referenced_artifact".to_owned(),
+                        artifact_ref: requirement.artifact_ref,
+                        event_id: requirement
+                            .required_by_event_ids
+                            .first()
+                            .expect("requirement has at least one event id")
+                            .clone(),
+                    });
+                }
+            }
         }
     }
 
@@ -975,8 +994,8 @@ mod tests {
     };
     use crate::session::body_artifact::BODY_INLINE_LIMIT;
     use crate::session::event::{
-        AssertionMode, EventSignature, EventTarget, EventType, IngestProvenance, IngestVia,
-        ShoreEvent, ValidationCheckRecordedPayload, Writer,
+        ArtifactRemovedPayload, AssertionMode, EventSignature, EventTarget, EventType,
+        IngestProvenance, IngestVia, ShoreEvent, ValidationCheckRecordedPayload, Writer,
     };
     use crate::session::{
         CaptureOptions, EventStore, EventVerificationPolicy, ObservationAddOptions, TrustSet,
@@ -1577,6 +1596,87 @@ mod tests {
         .expect_err("a divergent payload under the same key must conflict");
 
         assert!(error.to_string().contains("event conflict"), "{error}");
+    }
+
+    #[test]
+    fn export_manifest_treats_a_removed_referenced_artifact_as_full_fidelity() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let content_hash = capture.object_artifact_content_hash;
+        // Record a removal claim for the object, then erase its bytes (what compact does).
+        write_event_to_store(
+            &resolved_store_dir(repo.path()),
+            artifact_removed_event(&content_hash),
+        );
+        remove_object_artifacts(repo.path());
+
+        let manifest = build_export_manifest(resolved_store_dir(repo.path())).unwrap();
+
+        assert_eq!(manifest.fidelity_status, ExportFidelityStatus::Full);
+        assert!(
+            manifest.diagnostics.is_empty(),
+            "{:?}",
+            manifest.diagnostics
+        );
+        // The removed object carries no bytes, so it is omitted from the transfer set...
+        assert!(
+            !manifest
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.content_hash == content_hash)
+        );
+        // ...but the event that references it is still exported.
+        assert!(
+            manifest.events.iter().any(|event| event
+                .artifact_refs
+                .iter()
+                .any(|artifact_ref| artifact_ref.ends_with(&content_hash))),
+            "the referencing event is still exported"
+        );
+    }
+
+    #[test]
+    fn strict_import_folds_a_store_with_a_removed_referenced_artifact() {
+        let repo = modified_repo();
+        let capture = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let content_hash = capture.object_artifact_content_hash;
+        write_event_to_store(
+            &resolved_store_dir(repo.path()),
+            artifact_removed_event(&content_hash),
+        );
+        remove_object_artifacts(repo.path());
+        let target = tempfile::tempdir().unwrap();
+        let target_store_dir = target.path().join(".shore/data");
+
+        let result =
+            import_store_bundle(resolved_store_dir(repo.path()), &target_store_dir).unwrap();
+
+        // The referencing event + the removal claim fold; the erased artifact does not.
+        assert!(result.events_created >= 1);
+        assert_eq!(result.artifacts_created, 0);
+        assert!(
+            EventStore::open(&target_store_dir)
+                .list_events()
+                .unwrap()
+                .iter()
+                .any(|event| event.event_type == EventType::ArtifactRemoved)
+        );
+    }
+
+    /// An unsigned `ArtifactRemoved` claim over `content_hash` — the record that
+    /// explains a legitimately compacted-away artifact.
+    fn artifact_removed_event(content_hash: &str) -> ShoreEvent {
+        ShoreEvent::new(
+            EventType::ArtifactRemoved,
+            ArtifactRemovedPayload::idempotency_key(content_hash),
+            EventTarget::for_journal(JournalId::new("journal:default")),
+            Writer::shore_local("test"),
+            ArtifactRemovedPayload {
+                content_hash: content_hash.to_owned(),
+            },
+            "2026-05-30T00:00:00Z",
+        )
+        .expect("removal event builds")
     }
 
     fn modified_repo() -> TestRepo {
