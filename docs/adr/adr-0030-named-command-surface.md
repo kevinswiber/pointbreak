@@ -238,3 +238,88 @@ standalone value) — its outcome executes, renames, or retires each hidden surf
 **Status:** Accepted (owner-approved 2026-07-05); lands with the review-surface reshape
 implementation work (issue #379). The original ADR-0030 text above and its top-level
 **Status: Accepted** are unchanged.
+
+## Amendment: The Legacy Surfaces Retire — TUI, `dump`, and the Notes Pipeline End-to-End (2026-07-05)
+
+The first Amendment (2026-07-05) hid `shore show`, `shore dump`, and the `shore notes` family
+pending a design pass. That pass ran with the deferral's named inputs finally answerable, and
+every input resolved against keeping anything:
+
+- **No terminal job remains for an interactive surface.** Re-scored against the shipped
+  surface, `shore diff` closed the captured-diff readback slice and the `--format text`
+  digests closed the loop-inline confirmations; every residual gap is a missing text-lane
+  renderer on an existing command, not an interactive-session case.
+- **The notes-import pipeline is dead by prior decision, not dormancy.** No first-party
+  producer or consumer of the `shore.review-notes` sidecar exists anywhere; the one bridge
+  that ever fed it was deliberately removed (2026-05-13) as superseded by the review ledger,
+  and current paired-review workflows use a live, file-free mechanism.
+- **The re-plumb option was costed honestly and declined.** The revision projection exposes
+  thin index rows while the TUI's render/nav stack requires payload-complete rows — a
+  medium-sized build creating a permanent second renderer over the projection, for the narrow
+  value of fusing two already-shipped readbacks into one pane, bounded by Decision 7 forever.
+
+**Decided (owner, 2026-07-05):**
+
+1. **`shore show` is retired.** Decision 3's `show` → `notes show` rename is **cancelled** —
+   it never shipped and is now moot. Bare top-level `show` remains unassigned, exactly per
+   Decision 3's posture; nothing occupies the name in any form.
+2. **`shore dump`'s retirement (Decision 6) finally executes in code.**
+3. **The `shore notes` family is retired end-to-end — the read side included.** This goes
+   beyond the design pass's write-path-only recommendation, by owner decision: no meaningful
+   imports exist in any first-party store (test-only at most, and deletable), the import path
+   is unexercised and possibly non-functional, and git history is the resurrection path. The
+   pipeline traces to the project's earliest scope (ADR-0001 era), which the review ledger
+   long since superseded.
+4. **The stack deletes in one motion:** `src/tui/` (including `TerminalGuard`), `src/dump.rs`,
+   `src/stream/`, the reload workflow, the sidecar ingestion and anchor-resolution engine, the
+   `adapter_notes` projection, and the three CLI leaves. `crossterm` and `ratatui` leave the
+   dependency tree (53 transitive packages). Retired paths get the standard removed-command
+   hints — pointing at `shore diff`, the digests, and `shore inspect`, the successors this ADR
+   originally named — plus `cli_removed_legacy.rs` guards.
+5. **Retired-event-kind handling is the bare parse-level minimum (owner refinement,
+   2026-07-05).** All dedicated handling of `ReviewNoteImported` deletes — the
+   `adapter_notes` projection, the anchor-resolution engine, the history `--event-type`
+   filter value, and any other special-casing. What remains is a single **tombstone**: the
+   event-envelope deserializer keeps a minimal variant so stores containing recorded events
+   still load (append-only, content-addressed, signed — the log is never rewritten); with no
+   projection consuming the kind, "ignored" falls out structurally — no ignore or diagnostic
+   machinery is built. The tombstone is bounded by the event type-code registry's append-only
+   invariant (`src/session/event/type_code.rs`): retired kinds keep their codes reserved
+   forever so old signed events stay decodable — so the reserved code plus the minimal decode
+   variant is the **permanent, deliberately tiny remnant**, carrying a doc comment naming it
+   legacy functionality retained solely for old-store decodability (first-party stores are
+   believed to carry zero such events; test-only remnants are deleted or recaptured, not
+   supported). The
+   `adapterNotes`/`adapterNoteCount` fields leave the review-show document — a soft-shell
+   field removal, so that document's `version` bumps per ADR-0029 Decision 7.
+6. **Retired identifiers:** the `shore.dump` and `shore.notes-apply` document tags retire
+   with their commands; the `shore.review-notes` input schema retires as an accepted input.
+   None is byte-pinned by the contract suite or named in ADR-0029's hard core (verified).
+
+Ripples recorded, not re-decided: with `TerminalGuard` gone, nothing in the binary requires
+`panic = "unwind"` any longer — release-profile tuning becomes a future option, decided
+separately; the two-crate no-workspace layout rationale stands on Cargo's
+profile-placement mechanics regardless. The `tui` feature-gating work item queued by
+earlier product-surface planning closes as moot; the `highlight` gating item is unaffected
+(syntect is shared with `shore diff` and the inspector).
+
+**Consequences.** Accepted: ~4,100 stack-only lines and two heavyweight terminal dependencies
+leave the tree; the advertised surface carries zero hidden commands; the `notes` noun exits
+the command tree entirely; the review-show document sheds two dead fields at the cost of one
+version bump. Rejected: the revision-era re-plumb (narrow fusion value, permanent second
+renderer, Decision-7-capped); keeping the surfaces hidden indefinitely (a zombie namespace
+with a standing dependency and maintenance tax); rewriting stores to scrub
+`ReviewNoteImported` (append-only, signed identity — a parse-only tombstone is the honest
+form of forgetting); building ignore/diagnostic machinery for the retired kind (new code in
+service of a dead kind; with its only consumer deleted, nothing needs telling to ignore it).
+
+**Revisit triggers.** (1) A future need to import external review artifacts targets the live
+surface — capture, observations, assessments on a captured revision — through a new decision;
+the sidecar pipeline is not resurrected. (2) **Deleting the tombstone outright** requires
+first superseding the type-code registry's append-only invariant
+(`src/session/event/type_code.rs`) for this kind — a deliberate registry break decided on its
+own, not a cleanup ride-along; until then the reserved code + minimal decode is the accepted
+permanent remnant.
+
+**Status:** Accepted (owner-approved 2026-07-05); landed with the retirement change. The
+original ADR-0030 text, the first Amendment, and their Status lines are unchanged.

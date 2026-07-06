@@ -32,8 +32,7 @@ Most commands accept optional tracing flags:
 ```
 
 Tracing writes to stderr by default. When stdout is piped into JSON tools, prefer
-`--log-file <path>` so trace lines do not corrupt the JSON stream. `shore show` requires
-`--log-file` when tracing is enabled because it runs a raw-mode TUI.
+`--log-file <path>` so trace lines do not corrupt the JSON stream.
 
 When `--log-file <path>` points inside the repository, Shoreline treats that path as command-helper
 plumbing for the current command and excludes it from the reviewed snapshot and fingerprint.
@@ -145,62 +144,6 @@ revision recorded; its subject is always the captured snapshot, never the live w
   parse it.
 - When a revision's captured content has been removed from the store, `shore diff` prints a short
   "content is unavailable" line (with the removed content's short id) instead of a diff body.
-
-## `shore show`
-
-**Legacy — hidden pending redesign.** Unadvertised in `--help`
-(`#[command(hide = true)]`) but fully functional; see the
-[ADR-0030 Amendment](./adr/adr-0030-named-command-surface.md#amendment-legacy-working-tree-surfaces-hidden-pending-redesign-2026-07-05).
-
-```bash
-shore show [--repo <path>] [--review-notes <path>]
-```
-
-`shore show` opens a read-only terminal review view over the same headless review stream used by
-`shore dump`.
-
-- `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
-- `--review-notes <path>` loads Shoreline-native `review-notes.json`.
-- Without an explicit sidecar, repo-only `shore show` auto-loads durable imported notes from the
-  worktree's resolved store when one exists.
-- Press `r` to reload the working-tree projection without losing cursor position when possible.
-- Stale and orphan review notes appear as dedicated rows.
-- Explicit sidecar inputs and `--log-file` are command helpers and are excluded from the reviewed
-  snapshot for that command.
-- The view is read-only; it does not mutate notes or write session state.
-
-Keybindings: `q`/Esc/Ctrl+C quits, `j`/`k` or Up/Down moves by row, `[` and `]` move through diff
-sections, and `{` and `}` move through noted sections.
-
-## `shore dump`
-
-**Legacy — hidden pending redesign.** Unadvertised in `--help`
-(`#[command(hide = true)]`) but fully functional; see the
-[ADR-0030 Amendment](./adr/adr-0030-named-command-surface.md#amendment-legacy-working-tree-surfaces-hidden-pending-redesign-2026-07-05).
-
-```bash
-shore dump [--repo <path>] [--review-notes <path>] [--pretty | --compact]
-```
-
-`shore dump` emits the JSON contract over the headless review stream.
-
-- `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
-- `--review-notes <path>` loads Shoreline-native `review-notes.json`.
-- Without an explicit sidecar, repo-only `shore dump` auto-loads durable imported notes from the
-  worktree's resolved store when one exists.
-- Output is compact by default; use `--pretty` for human-readable formatting.
-- Recoverable review-note diagnostics stay in the JSON document and the command exits
-  successfully.
-- Fatal errors, such as unreadable files or malformed JSON, are written to stderr and exit
-  non-zero.
-
-Each `stream.rows[*].kind` value is the externally tagged JSON representation of the row-kind enum:
-a single-key object such as `file_header`, `hunk_header`, `diff`, `metadata`, `note`,
-`stale_note`, or `empty_state`.
-
-Row IDs are opaque strings. They are stable and unique within one built review stream and safe as
-keys, but callers must not parse them, derive ordering from them, or rely on their prefix/width. Use
-the sibling `ordinal` field for numeric position.
 
 ## `shore inspect`
 
@@ -922,7 +865,7 @@ shore revision show [REVISION] [--repo <path>] [--track <track-id>] \
 ```
 
 `shore revision show` is the composite view for one revision. It emits compact
-`shore.review-revision` v1 JSON by default.
+`shore.review-revision` v2 JSON by default.
 
 - When exactly one revision has been captured, Shoreline selects it automatically.
 - If multiple revisions exist, pass the `[REVISION]` positional. It is a **head seed**: a current
@@ -930,7 +873,7 @@ shore revision show [REVISION] [--repo <path>] [--track <track-id>] \
   competing heads is reported as competing rather than auto-picked.
 - The output includes revision identity, event-set freshness metadata, filters, summary counts,
   current assessment status, native observations, input requests, assessments, validation checks,
-  imported adapter notes, projection rows, and diagnostics.
+  projection rows, and diagnostics.
 - Rows are narrative-first, then snapshot-complete.
 - `--track <track-id>` filters narrative facts without changing the selected revision,
   event-set freshness metadata, or captured snapshot completeness.
@@ -957,26 +900,3 @@ the Dead Simple Signing Envelope (DSSE) and pre-authentication encoding rules.
 `shore revision show` is distinct from `shore history`: history is the chronological raw
 event listing, while `shore revision show` is the composite revision view for agents and future
 frontends.
-
-## `shore notes apply`
-
-**Legacy — hidden pending redesign.** Unadvertised in `--help`
-(`#[command(hide = true)]`) but fully functional; see the
-[ADR-0030 Amendment](./adr/adr-0030-named-command-surface.md#amendment-legacy-working-tree-surfaces-hidden-pending-redesign-2026-07-05).
-
-```bash
-shore notes apply --repo <path> --review-notes <path>
-```
-
-`shore notes apply` imports review notes into Shoreline-owned durable state without publishing a
-revision.
-
-- `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
-- `--review-notes <path>` is required.
-- The command initializes the worktree's resolved store when needed, records one immutable durable
-  event per imported note, and rebuilds the store's `state.json`.
-- Native `review-notes.json` is an import/transport input, not the authoritative persisted
-  Shoreline store.
-- Large note bodies may be stored as content-addressed note-body artifacts under the store's
-  `artifacts/notes/`; small note bodies remain inline in the imported-note event payload.
-- Output is compact `shore.notes-apply` JSON with note counts, diagnostics, and `statePath`.

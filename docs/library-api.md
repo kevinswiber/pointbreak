@@ -48,7 +48,7 @@ Shoreline does not introduce async traits or a runtime of its own.
 | `list_observations` / `show_assessments` / `list_validation_checks` / `review_history` (+ their options/results) | Observations, current assessment, validation evidence, and the review history projection. |
 | `store_status` + `StoreStatusOptions` / `StoreStatusResult` | Store inventory and sensitivity diagnostics. |
 | `InputRequestView`, `InputRequestResponseView`, `ObservationView`, `AssessmentView`, `ValidationCheckView`, `RevisionProjection*` | Public-field result types. |
-| `InputRequestStatus`, `InputRequestStatusFilter`, `ObservationStatus`, `ValidationStatus`, `ValidationTrigger`, `CurrentAssessmentStatus`, `ReloadOutcome` | Status/value enums consumers branch on. |
+| `InputRequestStatus`, `InputRequestStatusFilter`, `ObservationStatus`, `ValidationStatus`, `ValidationTrigger`, `CurrentAssessmentStatus` | Status/value enums consumers branch on. |
 
 ### Writes — `shoreline::session`
 

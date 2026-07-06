@@ -31,7 +31,7 @@ notes name `.shore/data` literally.
 - `events/` — append-only, immutable per-fact event files. Events are independently written
   and never moved, retried in place, or rewritten on read.
 - `artifacts/` — immutable or content-addressed support records, including captured
-  revision snapshots and large bodies for imported notes, native observations, input requests, and
+  revision snapshots and large note-shaped bodies for native observations, input requests, and
   assessments.
 
 These are the only authoritative durable storage in V1. Everything else is a cache or projection.
@@ -181,17 +181,12 @@ outright, and a one-shot migrator re-hashed every artifact into the content-only
 in-store legacy body remains to read. Any future elision plan must again bump the object artifact
 version; see [ADR-0002](./adr/adr-0002-large-snapshot-artifact-policy.md).
 
-Imported review notes should follow the same split:
-
-- immutable `review_note_imported` events in `events/` carry durable imported-note facts
-- bounded `state.json` may summarize imported-note state, such as `noteCount`
-- bodies under or equal to `BODY_INLINE_LIMIT` (4096 bytes today) stay inline in the event payload;
-  bodies above the threshold are externalized to `artifacts/notes/<sha256(body)>.json` with the
-  `shore.note-body` envelope (schema `shore.note-body`, version `1`)
-
-On the read path, Shoreline reconstructs imported notes by replaying `review_note_imported` events and
-loading any optional note-body artifacts under `artifacts/notes/`. `state.json` remains a bounded
-projection and is not the durable source of note content.
+The retired imported-notes pipeline left one storage remnant: old stores may carry immutable
+`review_note_imported` events in `events/` (and, for large imported bodies, note-body artifacts
+under `artifacts/notes/`). The event kind keeps its reserved type code forever — the type-code
+registry is append-only — so those stores still load, but no surface projects the kind anymore
+(ADR-0030, second Amendment). `state.json` keeps its `noteCount` field for wire-shape stability;
+it is structurally zero.
 
 Native observations follow the revision ledger model:
 
@@ -210,7 +205,7 @@ Observation read projections use `observationId` as the logical identity. If mul
 events carry the same observation ID, Shoreline preserves those events but returns one observation row
 and emits a duplicate semantic diagnostic.
 
-Observation bodies use the same inline-or-artifact mechanics as imported notes. Bodies under or
+Observation bodies use inline-or-artifact mechanics. Bodies under or
 equal to `BODY_INLINE_LIMIT` (4096 bytes today) stay inline in the event payload; bodies above the
 threshold are externalized to `artifacts/notes/<sha256(body)>.json` with the `shore.note-body`
 envelope (schema `shore.note-body`, version `1`), keeping `state.json` bounded and avoiding
@@ -219,7 +214,7 @@ unbounded event payload growth.
 The direct read surface is `shore observation list`, which replays events and can optionally
 hydrate bodies. Body artifact paths, event filenames, and `state.json` paths are internal storage
 details, not command-output API. Native observations also appear in the composite
-`shore revision show` projection, but they are not projected into `shore dump` or `shore show`.
+`shore revision show` projection.
 
 Native input requests follow the same revision ledger model:
 
@@ -253,8 +248,7 @@ unbounded event payload growth.
 The direct read surfaces are `shore input-request list` and `shore input-request show`,
 which replay events and can optionally hydrate bodies. Body artifact paths, reason artifact paths,
 event filenames, and `state.json` paths are internal storage details, not command-output API. Native
-input requests also appear in the composite `shore revision show` projection. They are not
-projected into `shore dump` or `shore show`.
+input requests also appear in the composite `shore revision show` projection.
 
 Native assessments follow the same revision ledger model:
 
@@ -290,7 +284,7 @@ unbounded event payload growth.
 The direct read surface is `shore assessment show`, which replays events and can optionally
 hydrate summaries. Summary artifact paths, event filenames, and `state.json` paths are internal
 storage details, not command-output API. Native assessments also appear in the composite
-`shore revision show` projection, but they are not projected into `shore dump` or `shore show`.
+`shore revision show` projection.
 
 State-change outcomes such as deferred, split-out, overridden, and superseded are represented as
 native observations tagged with `state-change:*`, not as assessment values.
@@ -353,7 +347,7 @@ are storage details, not history output API.
 - `eventSetHash` and `eventCount` describe the full event set read for the command, not only the
   selected revision's returned narrative facts
 - the output includes revision identity, filters, summary counts, current assessment, native
-  observations, input requests, assessments, imported adapter notes, projection rows, and
+  observations, input requests, assessments, projection rows, and
   diagnostics
 - rows are narrative-first plus snapshot-complete: reviewed ledger material appears first, and the
   snapshot remainder still includes every captured file, metadata row, hunk header, and diff row
@@ -465,15 +459,14 @@ corrupt. See [ADR-0016](./adr/adr-0016-content-targeted-artifact-removal-and-com
 decision.
 
 The explained render covers snapshot content and note-shaped bodies alike (observation and
-input-request bodies, response reasons, assessment and validation summaries, imported note bodies):
+input-request bodies, response reasons, assessment and validation summaries):
 an operative removal renders as `suppressed_present` (removal recorded, bytes still stored until a
 compact) or `physically_removed` (bytes swept), never as an error — while bytes that are missing
 *without* an operative removal keep the hard `import referenced artifacts` error, so a removed
 artifact is never confused with a genuinely missing one. On the JSON read surfaces the body twin
 appears as a `bodyContentState` / `summaryContentState` / `reasonContentState` field beside the
 content hash (omitted entirely while present, so unaffected documents are byte-identical), plus
-`body_content_suppressed_present` / `body_content_physically_removed` diagnostics; imported notes,
-whose events carry no body content hash, expose the removal key as `removedBodyContentHash`. One
+`body_content_suppressed_present` / `body_content_physically_removed` diagnostics. One
 deliberate boundary: inline bodies (at or below the externalization threshold) live in the immutable
 event log itself, and content-targeted removal does not cover event-payload bytes (the deferred
 Tier-2 in ADR-0016) — an operative removal over a matching hash never suppresses an inline render.

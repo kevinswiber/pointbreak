@@ -75,13 +75,14 @@ ls .shore/data/events/ .shore/data/artifacts/objects/
 
 ```bash
 echo "fresh content" > new-file.txt
-shore dump | jq '.stream.rows[] | select(.kind.file_header) | .kind.file_header'
+shore capture | jq .diffstat
+shore revision show --pretty | jq '[.rows[] | select(.kind == "file_header") | .filePath]'
 ```
 
 **Expect.**
 
 - One `file_header` row per modified, added, or deleted path.
-- The untracked `new-file.txt` appears with `status: "added"`.
+- The untracked `new-file.txt` appears among the captured files.
 - No root `.gitignore` row appears: the shared store lives inside `.git/`, and an ephemeral store
   is covered by the generated `.shore/.gitignore` — Shoreline never edits the root `.gitignore`.
 - No `.shore/data/` rows appear, because the generated ignore keeps Shoreline's own storage out of
@@ -247,11 +248,11 @@ shore revision list --pretty | jq '.entries[] | {revisionId, capturedAt, objectA
 
 `shore revision show` puts each revision fact in two places:
 
-- top-level `observations[]`, `inputRequests[]`, `assessments[]`, and `adapterNotes[]` carry the
+- top-level `observations[]`, `inputRequests[]`, and `assessments[]` carry the
   hydrated facts (including `body` / `summary` / `reason` when `--include-body` is passed).
 - `rows[]` carries the projection rendering. Each row has `kind` as a **string**
   (`"observation"`, `"input_request"`, `"assessment"`, `"file_header"`, `"hunk_header"`,
-  `"diff"`, `"metadata"`, `"adapter_note"`, etc.) and a `projectionPhase` of either `"narrative"`
+  `"diff"`, `"metadata"`, etc.) and a `projectionPhase` of either `"narrative"`
   or `"snapshot_remainder"`. Body text is **not** carried on rows.
 
 ```bash
@@ -288,78 +289,7 @@ shore revision show --pretty --track agent:codex \
   the rows for the kept facts remain). `snapshot_remainder_count` is the same as without the
   filter, and the snapshot remainder still includes every captured file.
 
-## H. Notes apply + dump/show compatibility path
-
-**Goal.** Confirm sidecar import lands a durable `review_note_imported` event, and that
-`shore dump` / `shore show` render imported notes alongside the working-tree diff.
-
-```bash
-cat > review-notes.json <<'EOF'
-{
-  "schema": "shore.review-notes",
-  "version": 1,
-  "summary": "Manual test sidecar",
-  "files": [
-    {
-      "path": "src.txt",
-      "notes": [
-        { "id": "note:manual",
-          "title": "Imported sidecar note",
-          "body": "Anchored to line 2 of src.txt.",
-          "target": { "side": "new", "startLine": 2, "endLine": 2 }
-        }
-      ]
-    }
-  ]
-}
-EOF
-
-shore notes apply --review-notes review-notes.json | jq .
-shore dump --pretty | jq '.stream.rows[] | select(.kind.note) | .kind.note'
-shore history --pretty --event-type review-note-imported \
-  | jq '.entries | length'
-```
-
-**Expect.**
-
-- `notes apply` returns `noteCount: 1`, `notesCreated: 1`, `notesExisting: 0`, and a `statePath`.
-- `shore dump` includes one `note` row attached to the right `target_row_id`.
-- A second run with the same sidecar increments `notesExisting` and leaves `notesCreated` at 0:
-  imported-note events are idempotent on their semantic ID.
-- `shore history --event-type review-note-imported` returns one entry.
-- `shore revision show --pretty | jq '.adapterNotes'` returns the imported note as one entry in
-  the revision's adapter-notes list.
-
-To exercise the TUI by eye, run `shore show` and confirm `j`/`k`, `[`/`]`, and `{`/`}` work, and
-that `q` exits cleanly.
-
-## I. Stale and orphan note reload
-
-**Goal.** Confirm that when the working tree drifts away from an imported note's anchor,
-`shore dump` surfaces it as a `stale_note` row with a `reload_diagnostics` entry, without losing
-durable state.
-
-```bash
-# Start from step H (one imported note anchored at src.txt:2).
-echo "just one line" > src.txt           # makes line 2 absent
-
-shore dump --pretty | jq '.stream.rows[] | select(.kind.stale_note) | .kind.stale_note'
-shore dump --pretty | jq '.reload_diagnostics // {}'
-```
-
-**Expect.**
-
-- One `stale_note` row with `resolution_status: "stale"`, plus the original `target_path` and
-  `target_line_range`.
-- `reload_diagnostics.entries[]` contains a `note_stale` entry naming the note.
-- `.shore/data/events/` is unchanged: durable facts are not rewritten by reload.
-
-For the orphan case, do the same in a repo where the sidecar references a path that does not
-appear in the captured snapshot at all (for example, a file the working tree has never seen). The
-review stream should emit a synthetic `<orphaned notes>` file header followed by one `stale_note`
-row per orphan note. The synthetic header is omitted when there are no orphans.
-
-## J. Storage soundness — events, artifacts, and projection rebuildability
+## H. Storage soundness — events, artifacts, and projection rebuildability
 
 **Goal.** Confirm that `.shore/data/events/` and `.shore/data/artifacts/` together are the authoritative
 durable store, and that `.shore/data/state.json` is a pure projection that can be deleted and
@@ -406,7 +336,7 @@ If you want to confirm idempotency directly, re-run the same `observation add` w
 `--idempotency-key <same-key>`: the response should show `eventsCreated: 0`, `eventsExisting: 1`,
 and the same `observationId` and `eventId` as the first call.
 
-## K. Things to glance at after big changes
+## I. Things to glance at after big changes
 
 When refactoring storage, projections, or CLI surfaces, also look at:
 
@@ -420,16 +350,14 @@ When refactoring storage, projections, or CLI surfaces, also look at:
   an artifact at all, so use a body well over that threshold to exercise this path —
   `python3 -c "print('x'*5000)" > big-body.txt` and pass `--body-file big-body.txt` to two
   separate `observation add` calls.
-- **Exit codes**: piping `shore dump`, `shore revision show`, or `shore history` through
+- **Exit codes**: piping `shore revision show` or `shore history` through
   `jq -e 'has("schema")'` should always exit 0 for successful runs.
 - **Tracing**: passing `--log info --log-file /tmp/shore.log` to any command should write to that
-  file and not corrupt the JSON on stdout. `shore show` requires `--log-file` when tracing is
-  enabled.
+  file and not corrupt the JSON on stdout.
 
 ## What this playbook does not cover
 
 - Performance benchmarking or stress tests.
-- The TUI `shore show` interaction beyond a quick keybinding smoke test.
 - Multi-writer coordination — V1 is intentionally single-writer per `.shore/data/`.
 - Daemon, notification, or delivery-queue behavior — none of those exist in V1.
 

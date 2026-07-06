@@ -41,8 +41,6 @@ the **competing heads** are surfaced rather than one silently winning.
    - **Input requests** are durable pause/decision requests for someone else.
    - **Assessments** are the current review call for the revision (or for a
      file, range, or specific fact within it).
-5. Optionally use `shore notes apply`, `shore dump`, and `shore show` for
-   import and read-only inspection of the older review-stream surface.
 
 The rest of this document walks through each step.
 
@@ -211,11 +209,10 @@ pre-authentication encoding.
 - revision identity and event-set freshness metadata
 - summary counts and current assessment status
 - native observations, input requests, and assessments
-- imported adapter notes
 - projection rows (narrative-first, then snapshot-complete)
 - diagnostics
 
-Narrative rows (native facts and imported notes) appear before the snapshot
+Narrative rows (native facts) appear before the snapshot
 remainder, but the snapshot remainder still includes every captured file,
 metadata row, hunk header, and diff row. Track filters narrow narrative facts
 without changing snapshot completeness.
@@ -356,59 +353,7 @@ are recorded as observations tagged with `state-change:*`. Use
 with a concrete tag such as `--tag state-change:deferred` for state-change
 evidence.
 
-## 5. Compatibility and import surfaces (optional)
-
-The older review-stream surface is still useful for working with sidecar
-review notes from other tools, or for a quick read-only look at the diff.
-
-### `shore notes apply`
-
-`shore notes apply` imports a native `review-notes.json` sidecar into durable
-storage without publishing a revision.
-
-```bash
-shore notes apply --repo . --review-notes review-notes.json
-```
-
-It writes one immutable `review_note_imported` event per imported note.
-Imported notes appear in `shore revision show` as adapter notes, and in
-`shore dump` and `shore show` as note rows in the review stream.
-
-### `shore dump`
-
-`shore dump` emits the headless review-stream JSON for the current working
-tree. It is a useful integration surface for non-Shoreline frontends and tests.
-
-```bash
-shore dump --pretty
-shore dump --review-notes review-notes.json
-```
-
-`shore dump` operates on the **working tree at run time**, not on a captured
-revision. It does not include native observations, input requests, or
-assessments — use `shore revision show` for those.
-
-### `shore show`
-
-`shore show` is the read-only terminal review view over the same review
-stream. It opens a split pane and supports a small set of keybindings:
-
-```bash
-shore show
-shore show --review-notes review-notes.json
-```
-
-- `q` / Esc / Ctrl+C — quit
-- `j` / `k` or Up / Down — move by row
-- `[` / `]` — move through diff sections
-- `{` / `}` — move through noted sections
-- `r` — re-ingest the working tree and reload
-
-Like `shore dump`, `shore show` does not yet project native observations,
-input requests, or assessments; it renders the diff, imported notes, and any
-stale/orphan note rows.
-
-## 6. Concepts you need to know
+## 5. Concepts you need to know
 
 ### Durable event facts vs. rebuildable projections
 
@@ -436,29 +381,11 @@ The stable surface for automation is **command-output JSON documents**:
 `shore.review-capture`, `shore.review-history`, `shore.review-revision`,
 `shore.review-observation-add` / `-list`,
 `shore.review-input-request-open` / `-list` / `-fetch` / `-respond`,
-`shore.review-assessment-add` / `-show`, and `shore.notes-apply`.
+and `shore.review-assessment-add` / `-show`.
 
 These documents expose semantic IDs, content hashes, and freshness metadata.
 Raw event files, event filenames, artifact paths, and `state.json` are
 Shoreline-owned storage details. They can change without a deprecation cycle.
-
-### Old dump/show stream vs. revision ledger
-
-There are two overlapping read surfaces today:
-
-- The **review-stream surface** (`shore dump`, `shore show`) operates on the
-  working tree at run time and renders the unified diff plus imported notes.
-  It is the older surface and is well-suited to import workflows and quick
-  read-only viewing.
-- The **revision ledger** (`shore capture` plus the
-  `shore observation`, `input-request`, `assessment`, `history`, and
-  `show` commands) operates on a frozen captured snapshot plus the
-  durable event log. It is the surface for recording review facts.
-
-Native observations, input requests, and assessments appear in
-`shore revision show` but are not yet projected into `shore dump` or
-`shore show`. If you need a single view that combines a captured snapshot
-with all ledger facts, use `shore revision show`.
 
 ### Tracks
 
@@ -505,7 +432,7 @@ In particular:
 - Do not depend on artifact paths or the internal shape of
   `state.json`.
 
-## 7. A small realistic walkthrough
+## 6. A small realistic walkthrough
 
 The block below captures the typical sequence: confirm the change, capture
 the revision, inspect it, record a couple of observations, open an

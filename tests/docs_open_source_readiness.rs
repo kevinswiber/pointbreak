@@ -51,8 +51,6 @@ fn cli_reference_exists_and_covers_current_commands() {
     let cli = std::fs::read_to_string("docs/cli-reference.md").expect("read CLI reference");
 
     for command in [
-        "shore show",
-        "shore dump",
         "shore capture",
         "shore store status",
         "shore store migrate",
@@ -61,7 +59,6 @@ fn cli_reference_exists_and_covers_current_commands() {
         "shore assessment add",
         "shore history",
         "shore revision show",
-        "shore notes apply",
     ] {
         assert!(
             cli.contains(command),
