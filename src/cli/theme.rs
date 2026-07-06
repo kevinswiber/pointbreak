@@ -127,6 +127,74 @@ impl DiffPalette {
     }
 }
 
+/// One representative scope per token kind. These query the THEME's rules and
+/// are independent of the tokenizer's scopes — the classify step
+/// (`src/highlight/tokenize.rs`) stays the single mapping from source text to
+/// kinds; themes only recolor kinds.
+const REPRESENTATIVE_SCOPES: [(TokenKind, &str); 10] = [
+    (TokenKind::Keyword, "keyword"),
+    (TokenKind::String, "string"),
+    (TokenKind::Comment, "comment"),
+    (TokenKind::Number, "constant.numeric"),
+    (TokenKind::Type, "storage.type"),
+    (TokenKind::Function, "entity.name.function"),
+    (TokenKind::Constant, "constant"),
+    (TokenKind::Operator, "keyword.operator"),
+    (TokenKind::Punctuation, "punctuation"),
+    (TokenKind::Variable, "variable"),
+];
+
+/// syntect `Color` → foreground SGR, honoring bat's alpha sentinels (used by
+/// the embedded `ansi`/`base16` themes): `a==0` → ANSI palette index in `r`
+/// (basic 30–37 below 8, else 256-color), `a==1` → terminal default (no
+/// escape), otherwise 24-bit truecolor.
+fn sgr_fg_for_color(color: syntect::highlighting::Color) -> String {
+    match color.a {
+        0 if color.r < 8 => format!("\x1b[3{}m", color.r),
+        0 => format!("\x1b[38;5;{}m", color.r),
+        1 => String::new(),
+        _ => format!("\x1b[38;2;{};{};{}m", color.r, color.g, color.b),
+    }
+}
+
+impl DiffPalette {
+    /// Derive a palette from an embedded theme: per-kind foreground from the
+    /// theme's style for a representative scope; emph tints from `mode`
+    /// (delta's constants, not theme-derived — matching delta itself). A
+    /// scope with no theme rule inherits the theme's default foreground — an
+    /// explicit fg SGR that approximates plain text; acceptable.
+    pub(super) fn from_theme(theme: &syntect::highlighting::Theme, mode: DiffMode) -> DiffPalette {
+        use syntect::highlighting::Highlighter;
+        use syntect::parsing::Scope;
+        let highlighter = Highlighter::new(theme);
+        let sgr_for_kind = |kind: TokenKind| -> Cow<'static, str> {
+            let (_, scope) = REPRESENTATIVE_SCOPES
+                .iter()
+                .find(|(k, _)| *k == kind)
+                .expect("every non-Plain kind has a representative scope");
+            // Literal scopes in REPRESENTATIVE_SCOPES always parse.
+            let scope = Scope::new(scope).expect("representative scope parses");
+            let style = highlighter.style_for_stack(&[scope]);
+            Cow::Owned(sgr_fg_for_color(style.foreground))
+        };
+        let base = DiffPalette::builtin_for(mode); // supplies the emph pair
+        DiffPalette {
+            keyword: sgr_for_kind(TokenKind::Keyword),
+            string: sgr_for_kind(TokenKind::String),
+            comment: sgr_for_kind(TokenKind::Comment),
+            number: sgr_for_kind(TokenKind::Number),
+            r#type: sgr_for_kind(TokenKind::Type),
+            function: sgr_for_kind(TokenKind::Function),
+            constant: sgr_for_kind(TokenKind::Constant),
+            operator: sgr_for_kind(TokenKind::Operator),
+            punctuation: sgr_for_kind(TokenKind::Punctuation),
+            variable: sgr_for_kind(TokenKind::Variable),
+            emph_add_bg: base.emph_add_bg,
+            emph_del_bg: base.emph_del_bg,
+        }
+    }
+}
+
 /// Where a theme selection came from — governs the unknown-name posture:
 /// explicit sources fail hard, the inherited source warns and falls back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -242,6 +310,48 @@ mod tests {
         assert_eq!(
             DiffPalette::builtin_for(DiffMode::Dark).sgr_for(TokenKind::Keyword),
             DiffPalette::builtin_dark().sgr_for(TokenKind::Keyword)
+        );
+    }
+
+    fn color(r: u8, g: u8, b: u8, a: u8) -> syntect::highlighting::Color {
+        syntect::highlighting::Color { r, g, b, a }
+    }
+
+    /// Unwrapping lookup for tests only; the production lookup (with its
+    /// provenance-aware posture) lands with the theme-lookup work.
+    /// `EmbeddedLazyThemeSet::get` takes the enum, so by-name lookup converts
+    /// to the inner `LazyThemeSet` first.
+    fn theme_by_name_for_tests(name: &str) -> syntect::highlighting::Theme {
+        let set: two_face::theme::LazyThemeSet = two_face::theme::extra().into();
+        set.get(name).expect("embedded theme").clone()
+    }
+
+    #[test]
+    fn derives_a_palette_from_an_embedded_theme() {
+        // "Monokai Extended" is embedded via two-face; loading is pure (no I/O).
+        let theme = theme_by_name_for_tests("Monokai Extended");
+        let p = DiffPalette::from_theme(&theme, DiffMode::Dark);
+        // Monokai keywords are colored: a truecolor fg SGR, not empty.
+        assert!(p.sgr_for(TokenKind::Keyword).starts_with("\x1b[38;2;"));
+        // Keyword and string styles differ in any real theme.
+        assert_ne!(p.sgr_for(TokenKind::Keyword), p.sgr_for(TokenKind::String));
+        // Plain always stays uncolored.
+        assert_eq!(p.sgr_for(TokenKind::Plain), "");
+        // The emph pair comes from the passed mode (delta's dark constants).
+        assert_eq!(p.emph_add_bg, "\x1b[48;2;0;96;0m");
+        assert_eq!(p.emph_del_bg, "\x1b[48;2;144;16;17m");
+    }
+
+    #[test]
+    fn alpha_sentinels_map_to_ansi_indices_and_terminal_default() {
+        // bat's convention (bat src/terminal.rs::to_ansi_color): a==0 encodes
+        // an ANSI palette index in r; a==1 means "terminal default" (no escape).
+        assert_eq!(sgr_fg_for_color(color(5, 0, 0, 0)), "\x1b[35m"); // basic magenta
+        assert_eq!(sgr_fg_for_color(color(42, 0, 0, 0)), "\x1b[38;5;42m"); // 256-index
+        assert_eq!(sgr_fg_for_color(color(1, 2, 3, 1)), ""); // terminal default
+        assert_eq!(
+            sgr_fg_for_color(color(10, 20, 30, 255)),
+            "\x1b[38;2;10;20;30m"
         );
     }
 
