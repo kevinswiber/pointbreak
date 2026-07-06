@@ -649,7 +649,6 @@ fn positive_advisory_states_use_text_not_checkmark_glyphs() {
             ".fact-status.passed::before",
             ".fact-status.responded::before",
             ".fact-status.current::before",
-            ".verify-valid::before",
             ".verdict-accepted .verdict-value::before",
             ".verdict-accepted_with_follow_up .verdict-value::before",
             ".s-added::before",
@@ -657,6 +656,17 @@ fn positive_advisory_states_use_text_not_checkmark_glyphs() {
             assert!(
                 !css.contains(selector),
                 "{label} CSS should leave positive state labels text-only: {selector}"
+            );
+        }
+        // The signature readback is the one positive state that leads with a
+        // marker: a neutral middot (never a checkmark, guarded above) so a valid
+        // timeline row still carries a status mark alongside the non-positive
+        // glyphs. Shipped in the served inspector; the gallery mirror is
+        // unconstrained here (text-only today, may gain the dot on a later sync).
+        if label == "app" {
+            assert!(
+                css.contains(".verify-valid::before") && css.contains("content: \"·\""),
+                "app signature readback leads valid rows with a neutral middot, not a checkmark"
             );
         }
         for glyph in [
