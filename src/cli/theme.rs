@@ -204,14 +204,26 @@ pub(super) fn detection_allowed(colored: bool, stdout_is_tty: bool, truecolor: b
     colored && stdout_is_tty && truecolor
 }
 
-/// Look up an embedded theme by its bat-compatible name (case-sensitive).
-/// The single two-face read site. `EmbeddedLazyThemeSet::get` takes the
-/// `EmbeddedThemeName` enum, so by-name lookup goes through the inner
-/// `LazyThemeSet` (via the provided `From` impl), whose `get(&str)` is the
-/// name-keyed accessor.
+/// Look up an embedded theme by its bat-compatible name, case-insensitively
+/// (exact match first). bat and delta never fail a miscased name — they warn
+/// and silently fall back to the default theme, masking the miss; resolving
+/// the requested theme instead is strictly friendlier while unknown names
+/// keep their provenance-aware posture. The single two-face read site.
+/// `EmbeddedLazyThemeSet::get` takes the `EmbeddedThemeName` enum, so by-name
+/// lookup goes through the inner `LazyThemeSet` (via the provided `From`
+/// impl), whose `get(&str)` is the name-keyed accessor.
 pub(super) fn theme_by_name(name: &str) -> Option<syntect::highlighting::Theme> {
     let set: two_face::theme::LazyThemeSet = two_face::theme::extra().into();
-    set.get(name).cloned()
+    if let Some(theme) = set.get(name) {
+        return Some(theme.clone());
+    }
+    // Case-insensitive fallback; sound because the embedded names are unique
+    // when case-folded (pinned by a test).
+    let canonical = two_face::theme::EmbeddedLazyThemeSet::theme_names()
+        .iter()
+        .map(|embedded| embedded.as_name())
+        .find(|candidate| candidate.eq_ignore_ascii_case(name))?;
+    set.get(canonical).cloned()
 }
 
 /// Every embedded theme name, for unknown-name error messages. Sorted for
@@ -556,8 +568,32 @@ mod tests {
         assert!(theme_by_name("OneHalfLight").is_some());
         assert!(theme_by_name("Solarized (dark)").is_some());
         assert!(theme_by_name("no-such-theme").is_none());
-        // Names are case-sensitive (bat semantics).
-        assert!(theme_by_name("monokai extended").is_none());
+    }
+
+    #[test]
+    fn theme_lookup_is_case_insensitive() {
+        // bat/delta never fail on a miscased name (they warn and fall back to
+        // the default, masking the miss); shore goes one better and resolves
+        // the requested theme case-insensitively.
+        let canonical = theme_by_name("Monokai Extended").unwrap();
+        let lower = theme_by_name("monokai extended").unwrap();
+        assert_eq!(canonical.settings.background, lower.settings.background);
+        assert!(theme_by_name("NORD").is_some());
+        assert!(theme_by_name("onehalflight").is_some());
+        // Still None when nothing matches under any casing.
+        assert!(theme_by_name("no-such-theme").is_none());
+    }
+
+    #[test]
+    fn embedded_theme_names_are_unique_case_insensitively() {
+        // The case-insensitive lookup is only sound while no two embedded
+        // names collide when lowercased; pin that so a two-face bump cannot
+        // silently make lookup ambiguous.
+        let names = available_theme_names();
+        let mut folded: Vec<String> = names.iter().map(|n| n.to_ascii_lowercase()).collect();
+        folded.sort();
+        folded.dedup();
+        assert_eq!(folded.len(), names.len());
     }
 
     #[test]

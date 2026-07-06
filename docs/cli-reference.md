@@ -124,8 +124,8 @@ revision recorded; its subject is always the captured snapshot, never the live w
   presentation — stripping the ANSI reproduces the plain diff exactly.
 - `--theme <theme>` picks the truecolor palette: `auto` (the default) detects the terminal
   background — light or dark — and selects the matching built-in palette; `light` / `dark` force a
-  built-in; any other value names a bundled syntax theme (bat's vocabulary, e.g.
-  `"Monokai Extended"`, `"OneHalfLight"`, `"Nord"`). Environment fallbacks: `SHORE_THEME`, then
+  built-in; any other value names a bundled syntax theme, matched case-insensitively (bat's
+  vocabulary, e.g. `"Monokai Extended"`, `"onehalflight"`, `"nord"`). Environment fallbacks: `SHORE_THEME`, then
   bat's `BAT_THEME` (precedence: `--theme` > `SHORE_THEME` > `BAT_THEME` > detection > dark). An
   unknown name from `--theme`/`SHORE_THEME` is an error listing the valid vocabulary; an unknown
   inherited `BAT_THEME` warns on stderr and falls back. The terminal is queried only when colors

@@ -388,6 +388,33 @@ fn shore_diff_named_theme_recolors_tokens() {
 }
 
 #[test]
+fn shore_diff_theme_names_are_case_insensitive() {
+    // bat/delta never fail a miscased name (they warn and fall back to the
+    // default, masking the miss); shore resolves the requested theme.
+    let repo = modified_repo();
+    capture(repo.path());
+    let canonical = diff_env(
+        repo.path(),
+        &["--theme", "Monokai Extended"],
+        &[("COLORTERM", "truecolor")],
+    );
+    let lower = diff_env(
+        repo.path(),
+        &["--theme", "monokai extended"],
+        &[("COLORTERM", "truecolor")],
+    );
+    assert!(canonical.status.success() && lower.status.success());
+    assert_eq!(out_text(&lower), out_text(&canonical));
+    // Env-carried names get the same treatment.
+    let env = diff_env(
+        repo.path(),
+        &[],
+        &[("COLORTERM", "truecolor"), ("SHORE_THEME", "nord")],
+    );
+    assert!(env.status.success(), "{}", err_text(&env));
+}
+
+#[test]
 fn shore_diff_unknown_explicit_theme_fails_with_the_valid_list() {
     let repo = modified_repo();
     capture(repo.path());

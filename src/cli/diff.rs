@@ -41,8 +41,8 @@ pub(super) struct DiffArgs {
     color: ColorChoice,
     /// Color theme for the diff body: auto (detect the terminal background
     /// and pick the light or dark palette), light, dark, or the name of a
-    /// bundled syntax theme (for example "Monokai Extended" or
-    /// "OneHalfLight"). Themes apply on truecolor terminals; the 16-color
+    /// bundled syntax theme, case-insensitively (for example "Monokai
+    /// Extended" or "onehalflight"). Themes apply on truecolor terminals; the 16-color
     /// palette follows the terminal's own theme. Overrides SHORE_THEME and
     /// BAT_THEME.
     #[arg(long)]
