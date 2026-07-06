@@ -625,3 +625,41 @@ fn assert_markdown_section_contains(markdown: &str, heading: &str, required: &[&
         );
     }
 }
+
+#[test]
+fn narrative_docs_carry_no_stale_review_surface_spellings() {
+    // Historical records (ADR bodies, CHANGELOG.md) are exempt: they describe
+    // the surface as it was. The `~/.shore/keys/` keystore path never matches
+    // (`.shore/keys/` has no space), so it needs no carve-out.
+    let retired_patterns = [
+        "shore review capture",
+        "shore review show",
+        "shore review revisions",
+        "shore review observation",
+        "shore review assessment",
+        "shore review validation",
+        "shore review input-request",
+        "shore review association",
+        "shore review history",
+        "shore review endorse",
+        "shore keys ",
+        "shore identity enroll",
+    ];
+    for path in [
+        "docs/review-workflow.md",
+        "docs/manual-testing.md",
+        "docs/agent-authoring.md",
+        "docs/storage-model.md",
+        "docs/getting-started.md",
+        "README.md",
+        "docs/cli-reference.md",
+    ] {
+        let text = std::fs::read_to_string(path).expect("read doc");
+        for pattern in retired_patterns {
+            assert!(
+                !text.contains(pattern),
+                "{path} still contains a stale spelling: {pattern:?}"
+            );
+        }
+    }
+}

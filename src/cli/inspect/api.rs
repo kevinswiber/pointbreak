@@ -2,7 +2,7 @@
 //!
 //! Each builder reuses a public `shoreline::session` projection so the
 //! inspector reads the store through the same validated path as the
-//! corresponding `shore review` command, rather than parsing raw `.shore/data/`
+//! corresponding `shore` review read command, rather than parsing raw `.shore/data/`
 //! files. Errors are stringified so the server can surface them to the UI as
 //! a JSON `error` body instead of crashing a connection thread.
 

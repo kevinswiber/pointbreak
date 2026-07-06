@@ -56,9 +56,10 @@ architecture vocabulary and never surface in commands or JSON; the other two —
 | **Revision** | The captured **work object** — the addressed, fact-carrying unit that observations, input requests, assessments, and validation evidence attach to, and the thing supersession operates over. The pre-reshape `ReviewUnit` folds into this layer. | `revision` is a permitted domain term. |
 | **Object** | A **content-only identity** that is a sub-layer of `Revision`: a hash of the captured content alone, git-optional. Many revisions can share one object (two clones capturing identical content converge on the same object id), so it is a dedup/grouping key, **not** a peer work-object kind. | `object` is a permitted domain term (listing/grouping only). |
 
-The verb **`shore review`** stays the surface name for the activity; "review" is the engagement type,
-distinct from the captured unit, which is a **revision**. So "review" surfaces as exactly one thing,
-and `revision` / `object` name the unit and its content identity.
+On the surface, the review commands are flat top-level verbs (`shore capture`, `shore revision …`,
+`shore observation …`); "review" is the engagement type, distinct from the captured unit, which is
+a **revision**. So "review" names exactly one thing — the activity — and `revision` / `object` name
+the unit and its content identity.
 
 **Single-domain-axis guard.** The domain appears structurally in two places — the `Engagement` type
 (`Review` | `Task`) and the subject's `TargetRef` outer variant (`Review` | `Task`). These must never

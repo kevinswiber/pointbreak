@@ -250,7 +250,7 @@ the threshold is externalized to `artifacts/notes/<sha256(body)>.json` with the 
 envelope (schema `shore.note-body`, version `1`), keeping `state.json` bounded and avoiding
 unbounded event payload growth.
 
-The direct read surfaces are `shore review input-request list` and `shore review input-request fetch`,
+The direct read surfaces are `shore input-request list` and `shore input-request show`,
 which replay events and can optionally hydrate bodies. Body artifact paths, reason artifact paths,
 event filenames, and `state.json` paths are internal storage details, not command-output API. Native
 input requests also appear in the composite `shore revision show` projection. They are not

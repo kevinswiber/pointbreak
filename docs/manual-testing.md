@@ -15,8 +15,8 @@ caller would see them.
   `./target/release/shore`. A debug build works for behavior checks if you prefer.
 - All commands below assume `shore` resolves to that binary. Set `SHORE=$(pwd)/target/release/shore`
   in your shell and substitute `"$SHORE"` if you do not want to install it on `PATH`.
-- Use a fresh temp directory per test so storage state does not bleed across cases. `shore review
-  capture` shells out to `git diff … HEAD`, so the repo needs **at least one commit** before
+- Use a fresh temp directory per test so storage state does not bleed across cases. `shore capture`
+  shells out to `git diff … HEAD`, so the repo needs **at least one commit** before
   capture runs; otherwise the underlying git call fails with `fatal: bad revision 'HEAD'`. Include a
   baseline commit in the setup:
 

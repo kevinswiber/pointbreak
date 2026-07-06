@@ -4,7 +4,7 @@
 
 V1 has a local durable input-request ledger. Shoreline can record `input_request_opened` events,
 append `input_request_responded` events, and expose polling read surfaces through
-`shore review input-request list` and `shore review input-request fetch`.
+`shore input-request list` and `shore input-request show`.
 
 This document describes the model around that V1 surface. Prompt delivery, watch mode, daemon
 behavior, notification transport, UI prompts, and automatic cancellation are deferred.
@@ -75,11 +75,11 @@ advisory expiry, but it should not silently unblock a client.
 The command surface is:
 
 ```bash
-shore review input-request open --track human:kevin --title "Need approval" \
+shore input-request open --track human:kevin --title "Need approval" \
   --reason manual-decision-required [--mode operative|advisory]
-shore review input-request list [--status open|responded|ambiguous|all]
-shore review input-request fetch <input-request-id> [--include-body]
-shore review input-request respond <input-request-id> --outcome approved [--reason "approved"]
+shore input-request list [--status open|responded|ambiguous|all]
+shore input-request show <input-request-id> [--include-body]
+shore input-request respond <input-request-id> --outcome approved [--reason "approved"]
 ```
 
 The V1 read surface is polling-oriented. `list` and `fetch` replay `.shore/data/events/`; they do not
@@ -123,7 +123,7 @@ but the core model should keep them separate.
 
 Native assessments may relate to input requests through `--related-input-request`, but that
 relationship is evidence, not lifecycle. An assessment does not close an input request. Use
-`shore review input-request respond` to append the explicit closure event.
+`shore input-request respond` to append the explicit closure event.
 
 A review follow-up that expects a *decision or disposition* ("fix now or track separately?") is an
 **advisory input request**, not a plain observation: it can target the observation or range and carries
@@ -138,5 +138,5 @@ acknowledge.
 
 Earlier development versions of Shoreline wrote intervention events and exposed a
 `shore review intervention` command family. Current Shoreline uses input request events and
-`shore review input-request` instead. Because Shoreline has not released this storage contract, the
+`shore input-request` instead. Because Shoreline has not released this storage contract, the
 supported migration is to discard the old local `.shore/data/` directory and recapture the review.
