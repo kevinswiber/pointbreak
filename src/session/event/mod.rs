@@ -52,9 +52,7 @@ pub use payload::{BodyContentType, EventPayload};
 pub(crate) use provenance::stamp_ingest_provenance;
 pub use provenance::{IngestProvenance, IngestVia};
 pub use record_hash::EventRecordView;
-pub use review::{
-    ImportedNoteTarget, ReviewInitializedPayload, ReviewNoteImportedPayload, SidecarSource,
-};
+pub use review::ReviewInitializedPayload;
 pub use signature::{EffectiveSignerError, EventSignature, resolve_effective_signer};
 pub use source::SourceRef;
 pub(crate) use subject_id::{review_subject_id, subject_id};
@@ -767,83 +765,6 @@ mod tests {
             FixedClock::at("2026-05-12T00:00:00Z"),
         )
         .unwrap()
-    }
-
-    #[test]
-    fn review_note_imported_event_serializes_with_payload_hash() {
-        let event = ShoreEvent::new(
-            EventType::ReviewNoteImported,
-            "review_note_imported:review_notes:work:default:note:abc",
-            EventTarget::for_journal(JournalId::new("journal:default")),
-            Writer::shore_local("0.1.0"),
-            ReviewNoteImportedPayload {
-                sidecar_source: SidecarSource::ReviewNotes,
-                note_id: "note:abc".to_owned(),
-                file_path: "src/lib.rs".to_owned(),
-                file_old_path: None,
-                target: Some(ImportedNoteTarget {
-                    side: Side::New,
-                    start_line: 1,
-                    end_line: 1,
-                }),
-                title: "Changed return value".to_owned(),
-                body: Some("Body".to_owned()),
-                body_artifact_path: None,
-                body_byte_size: None,
-                tags: vec!["parser".to_owned()],
-                confidence: Some("high".to_owned()),
-                external_source: Some("external".to_owned()),
-                author: Some("reviewer".to_owned()),
-                created_at: Some("2026-05-10T00:00:00Z".to_owned()),
-                sidecar_content_hash: "sha256:sidecar".to_owned(),
-            },
-            FixedClock::at("2026-05-10T00:00:00Z"),
-        )
-        .expect("event builds");
-
-        let json = serde_json::to_value(&event).expect("event serializes");
-
-        assert_eq!(json["eventType"], "t:07");
-        assert_eq!(json["payload"]["noteId"], "note:abc");
-        assert!(json["payloadHash"].as_str().unwrap().starts_with("sha256:"));
-    }
-
-    #[test]
-    fn review_note_imported_event_round_trips_through_serde() {
-        let event = ShoreEvent::new(
-            EventType::ReviewNoteImported,
-            "review_note_imported:review_notes:work:default:note:abc",
-            EventTarget::for_journal(JournalId::new("journal:default")),
-            Writer::shore_local("0.1.0"),
-            ReviewNoteImportedPayload {
-                sidecar_source: SidecarSource::ReviewNotes,
-                note_id: "note:abc".to_owned(),
-                file_path: "src/lib.rs".to_owned(),
-                file_old_path: None,
-                target: Some(ImportedNoteTarget {
-                    side: Side::New,
-                    start_line: 1,
-                    end_line: 3,
-                }),
-                title: "Changed return value".to_owned(),
-                body: Some("Body".to_owned()),
-                body_artifact_path: None,
-                body_byte_size: None,
-                tags: vec!["parser".to_owned()],
-                confidence: Some("high".to_owned()),
-                external_source: Some("external".to_owned()),
-                author: Some("reviewer".to_owned()),
-                created_at: Some("2026-05-10T00:00:00Z".to_owned()),
-                sidecar_content_hash: "sha256:sidecar".to_owned(),
-            },
-            FixedClock::at("2026-05-10T00:00:00Z"),
-        )
-        .expect("event builds");
-
-        let json = serde_json::to_string(&event).expect("event serializes");
-        let decoded: ShoreEvent = serde_json::from_str(&json).expect("event deserializes");
-
-        assert_eq!(decoded, event);
     }
 
     #[test]

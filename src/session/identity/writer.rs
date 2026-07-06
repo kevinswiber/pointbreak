@@ -13,10 +13,6 @@ use crate::session::event::{Writer, WriterProducer};
 /// durable write to the host running the command.
 pub(crate) const SHORE_ACTOR_ID_ENV: &str = "SHORE_ACTOR_ID";
 
-pub(crate) fn writer_from_git_config(repo: &Path) -> Writer {
-    writer_from_options(repo, None)
-}
-
 /// Build the local `Writer`, honoring an optional per-call actor override.
 ///
 /// Precedence: an explicit override wins, then the `SHORE_ACTOR_ID` env var,
@@ -132,7 +128,7 @@ mod tests {
     use std::process::Command;
 
     #[test]
-    fn writer_from_git_config_uses_git_identity_and_shore_producer() {
+    fn writer_from_options_uses_git_identity_and_shore_producer() {
         let repo = tempfile::tempdir().unwrap();
         Command::new("git")
             .args(["init"])
@@ -145,7 +141,7 @@ mod tests {
             .output()
             .unwrap();
 
-        let writer = super::writer_from_git_config(repo.path());
+        let writer = super::writer_from_options(repo.path(), None);
 
         assert_eq!(
             writer.actor_id.as_str(),

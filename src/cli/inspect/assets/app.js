@@ -217,7 +217,6 @@
     "assess",
     "rev",
     "evt",
-    "note",
     "validation",
     "obj",
     "engagement",

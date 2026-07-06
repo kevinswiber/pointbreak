@@ -38,6 +38,9 @@ pub struct SessionState {
     pub event_count: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event_set_hash: Option<String>,
+    /// Legacy: always 0 since the review-note import pipeline retired
+    /// (ADR-0030 second amendment). Kept so the state document's wire shape
+    /// is unchanged; dropping the field is a separate wire decision.
     pub note_count: usize,
     #[serde(default)]
     pub observation_count: usize,
@@ -96,7 +99,6 @@ pub struct ProjectionDiagnostic {
 struct StateReducer {
     journal_id: JournalId,
     captured_revisions: BTreeMap<RevisionId, ObjectId>,
-    note_count: usize,
     observation_events: BTreeMap<ObservationId, BTreeSet<EventId>>,
     assessment_events: BTreeMap<AssessmentId, BTreeSet<EventId>>,
     validation_check_events: BTreeMap<ValidationCheckId, BTreeSet<EventId>>,
@@ -111,7 +113,6 @@ impl Default for StateReducer {
         Self {
             journal_id: JournalId::new(format!("{}:default", id_prefix::JOURNAL)),
             captured_revisions: BTreeMap::new(),
-            note_count: 0,
             observation_events: BTreeMap::new(),
             assessment_events: BTreeMap::new(),
             validation_check_events: BTreeMap::new(),
@@ -142,7 +143,8 @@ impl StateReducer {
             EventType::InputRequestOpened => self.apply_input_request_opened(event)?,
             EventType::InputRequestResponded => self.apply_input_request_responded(event)?,
             EventType::ReviewNoteImported => {
-                self.note_count += 1;
+                // Retired kind (ADR-0030 second amendment): nothing consumes
+                // it; a loaded event is a parse-level tombstone only.
             }
             EventType::RevisionRefAssociated
             | EventType::RevisionRefWithdrawn
@@ -311,7 +313,7 @@ impl StateReducer {
             revision_count: self.captured_revisions.len(),
             event_count,
             event_set_hash: Some(event_set_hash),
-            note_count: self.note_count,
+            note_count: 0,
             observation_count: self.observation_events.len(),
             assessment_count: self.assessment_events.len(),
             validation_check_count: self.validation_check_events.len(),

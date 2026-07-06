@@ -23,7 +23,6 @@ id_type!(JournalId);
 id_type!(EngagementId);
 id_type!(EventId);
 id_type!(FileId);
-id_type!(ReviewNoteId);
 id_type!(RevisionId);
 id_type!(ObjectId);
 id_type!(HunkId);

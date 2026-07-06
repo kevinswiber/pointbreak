@@ -21,7 +21,7 @@ pub use identity::{
     now_rfc3339_utc, principal_display_label, principal_resolution_for_writer, principal_view_for,
     resolve_writer_actor_id, stage_actor_attributes, stage_delegation,
 };
-pub(crate) use identity::{current_timestamp, writer_from_git_config, writer_from_options};
+pub(crate) use identity::{current_timestamp, writer_from_options};
 pub use projection::cosignature::{
     EndorsementClassification, EndorsementReadback, EndorserAttributesView,
 };
@@ -32,8 +32,7 @@ pub use projection::{
     EngagementView, LivenessScope, LivenessToken, ProjectionDiagnostic, RemovalClaim,
     RemovalOperativeStatus, RevisionCommitRangeProjection, RevisionCommitRangeView,
     RevisionsByBase, SessionState, StoreIdIndex, SupersessionView, WithdrawnCommitAssociation,
-    WithdrawnRefAssociation, load_durable_notes_for_repo, read_events, read_events_for_display,
-    rebuild_state, store_id_index,
+    WithdrawnRefAssociation, read_events, read_events_for_display, rebuild_state, store_id_index,
 };
 pub use sensitivity_vocabulary::{SensitivityKind, SensitivityPolicyOutcome, SensitivitySeverity};
 pub use signing::{
@@ -68,19 +67,19 @@ pub use workflow::{
     CommitRangeSpec, CompactOptions, CompactResult, CurrentAssessmentStatus, CurrentAssessmentView,
     EventSignatureRecordOptions, EventSignatureRecordResult, HistoryCursor, HistoryOrder,
     HistoryPage, HistoryQuery, HistoryWindow, ImportArtifactOptions, ImportArtifactOutcome,
-    ImportArtifactResult, ImportEventOptions, ImportNotesOptions, ImportNotesResult,
-    IngestEventsOptions, IngestEventsResult, InputRequestFetchOptions, InputRequestFetchResult,
-    InputRequestListOptions, InputRequestListResult, InputRequestOpenOptions,
-    InputRequestOpenResult, InputRequestRespondOptions, InputRequestRespondResult,
-    InputRequestResponseView, InputRequestStatus, InputRequestStatusFilter,
-    InputRequestTargetSelector, InputRequestView, ListAssociationsOptions, ListAssociationsResult,
-    LivenessEnrichment, MemberReadback, MigrateToCommonDirOptions, MigrateToCommonDirResult,
-    ObservationAddOptions, ObservationAddResult, ObservationListOptions, ObservationListResult,
-    ObservationStatus, ObservationTargetSelector, ObservationView, OrphanReason, OrphanVisibility,
-    QueriedHistory, QueryClause, RefFilterMode, RemoveOptions, RemoveResult, RemoveSelector,
-    RemovedContent, ReviewHistoryEntry, ReviewHistoryFilters, ReviewHistoryOptions,
-    ReviewHistoryResult, RevisionListEntry, RevisionListOptions, RevisionListResult,
-    RevisionOverview, RevisionOverviewsOptions, RevisionProjectionIdentity, RevisionProjectionRow,
+    ImportArtifactResult, ImportEventOptions, IngestEventsOptions, IngestEventsResult,
+    InputRequestFetchOptions, InputRequestFetchResult, InputRequestListOptions,
+    InputRequestListResult, InputRequestOpenOptions, InputRequestOpenResult,
+    InputRequestRespondOptions, InputRequestRespondResult, InputRequestResponseView,
+    InputRequestStatus, InputRequestStatusFilter, InputRequestTargetSelector, InputRequestView,
+    ListAssociationsOptions, ListAssociationsResult, LivenessEnrichment, MemberReadback,
+    MigrateToCommonDirOptions, MigrateToCommonDirResult, ObservationAddOptions,
+    ObservationAddResult, ObservationListOptions, ObservationListResult, ObservationStatus,
+    ObservationTargetSelector, ObservationView, OrphanReason, OrphanVisibility, QueriedHistory,
+    QueryClause, RefFilterMode, RemoveOptions, RemoveResult, RemoveSelector, RemovedContent,
+    ReviewHistoryEntry, ReviewHistoryFilters, ReviewHistoryOptions, ReviewHistoryResult,
+    RevisionListEntry, RevisionListOptions, RevisionListResult, RevisionOverview,
+    RevisionOverviewsOptions, RevisionProjectionIdentity, RevisionProjectionRow,
     RevisionProjectionSummary, RevisionShowFilters, RevisionShowOptions, RevisionShowResult,
     SearchRecord, SkippedRemoval, SnapshotContentState, SnapshotOrder,
     StoreStatusArtifactInventory, StoreStatusInventory, StoreStatusOptions, StoreStatusResult,
@@ -91,11 +90,11 @@ pub use workflow::{
     WithdrawRefResult, apply_history_query, associate_commit, associate_ref, build_haystack,
     capture_review, capture_worktree_review, compact_store, diffstat_from_files, enrich_liveness,
     export_artifact, fetch_input_request, history_base_projection, import_artifact, import_event,
-    import_notes, ingest_events, list_associations, list_input_requests, list_observations,
-    list_revisions, list_units_for_ref, list_validation_checks, matches_query,
-    migrate_store_to_common_dir, open_input_request, parse_search_query, record_assessment,
-    record_event_signature, record_observation, record_validation_check, referenced_artifacts,
-    remove_content, respond_input_request, review_history, show_assessments, show_revision,
+    ingest_events, list_associations, list_input_requests, list_observations, list_revisions,
+    list_units_for_ref, list_validation_checks, matches_query, migrate_store_to_common_dir,
+    open_input_request, parse_search_query, record_assessment, record_event_signature,
+    record_observation, record_validation_check, referenced_artifacts, remove_content,
+    respond_input_request, review_history, show_assessments, show_revision,
     show_revision_overviews, store_status, withdraw_commit, withdraw_ref,
 };
 pub(in crate::session) use workflow::{assessment, input_request, observation};

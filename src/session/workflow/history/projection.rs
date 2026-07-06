@@ -10,10 +10,10 @@ use crate::model::{ReviewEndpoint, ReviewTargetRef, RevisionId, TargetRef};
 use crate::session::body_artifact::load_body_artifact;
 use crate::session::event::{
     EventType, InputRequestRespondedPayload, ReviewAssessmentRecordedPayload,
-    ReviewInitializedPayload, ReviewNoteImportedPayload, ReviewObservationRecordedPayload,
-    RevisionCommitAssociatedPayload, RevisionCommitWithdrawnPayload, RevisionRefAssociatedPayload,
-    RevisionRefWithdrawnPayload, ShoreEvent, ValidationCheckRecordedPayload, WorkObjectProposal,
-    WorkObjectProposedPayload, decode_input_request_opened_payload,
+    ReviewInitializedPayload, ReviewObservationRecordedPayload, RevisionCommitAssociatedPayload,
+    RevisionCommitWithdrawnPayload, RevisionRefAssociatedPayload, RevisionRefWithdrawnPayload,
+    ShoreEvent, ValidationCheckRecordedPayload, WorkObjectProposal, WorkObjectProposedPayload,
+    decode_input_request_opened_payload,
 };
 use crate::session::projection::body_content::{
     BodyRemovalLens, body_content_diagnostics, resolve_body_content,
@@ -139,11 +139,6 @@ fn entry_body_states(entry: &ReviewHistoryEntry) -> Vec<(BodyContentState, Optio
             reason_content_hash,
             ..
         } => vec![(*reason_content_state, reason_content_hash.as_deref())],
-        ReviewHistorySummary::ReviewNoteImported {
-            body_content_state,
-            removed_body_content_hash,
-            ..
-        } => vec![(*body_content_state, removed_body_content_hash.as_deref())],
         ReviewHistorySummary::ValidationCheckRecorded {
             summary_content_state,
             summary_content_hash,
@@ -445,34 +440,9 @@ pub(super) fn history_entry_from_event(
                 reason_content_state,
             }
         }
-        EventType::ReviewNoteImported => {
-            let payload: ReviewNoteImportedPayload = serde_json::from_value(event.payload.clone())?;
-            let (body, body_content_state, removed_body_content_hash) = resolved_text(
-                backend,
-                removal_lens,
-                filters.include_body,
-                payload.body,
-                payload.body_artifact_path.as_deref(),
-            )?;
-            ReviewHistorySummary::ReviewNoteImported {
-                sidecar_source: payload.sidecar_source,
-                note_id: payload.note_id,
-                file_path: payload.file_path,
-                file_old_path: payload.file_old_path,
-                target: payload.target,
-                title: payload.title,
-                body,
-                body_byte_size: payload.body_byte_size.map(|size| size as u64),
-                body_content_state,
-                removed_body_content_hash,
-                tags: payload.tags,
-                confidence: payload.confidence,
-                external_source: payload.external_source,
-                author: payload.author,
-                created_at: payload.created_at,
-                sidecar_content_hash: payload.sidecar_content_hash,
-            }
-        }
+        // Retired kind (ADR-0030 second amendment): render at envelope level
+        // only — the payload is never decoded.
+        EventType::ReviewNoteImported => ReviewHistorySummary::ReviewNoteImported {},
         EventType::ValidationCheckRecorded => {
             let payload: ValidationCheckRecordedPayload =
                 serde_json::from_value(event.payload.clone())?;

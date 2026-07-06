@@ -9,6 +9,9 @@ pub enum EventType {
     ReviewAssessmentRecorded,
     InputRequestOpened,
     InputRequestResponded,
+    /// Legacy (retired write path, ADR-0030 second amendment): retained solely
+    /// so old stores that recorded this kind still decode; no projection
+    /// consumes it.
     ReviewNoteImported,
     RevisionRefAssociated,
     RevisionRefWithdrawn,

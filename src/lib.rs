@@ -7,7 +7,6 @@ pub mod keys;
 pub mod model;
 pub mod perf;
 pub mod session;
-pub mod sidecar;
 
 mod canonical_hash;
 mod storage;

@@ -50,10 +50,6 @@ pub(crate) const CHECKPOINT: &str = "checkpoint";
 /// signed envelope binds in place of the structural subject. Reconstructed for
 /// display from the payload, not referenced by users.
 pub(crate) const SUBJECT: &str = "subject";
-/// Review note ids, in three shapes: `note:sha256:<hex>` (imported content),
-/// `note:<explicit_id>` (sidecar-supplied), `note:<file_index>:<note_index>`
-/// (positional fallback).
-pub(crate) const NOTE: &str = "note";
 /// Journal ids: `journal:claude:<session_uuid>` and the `journal:default`
 /// sentinel. Generic `JournalId::new(session)` callers pass strings through
 /// as-is; this prefix covers the hardcoded mints.
@@ -210,12 +206,6 @@ pub(crate) const ID_PREFIXES: &[IdPrefix] = &[
         linkified: false,
     },
     IdPrefix {
-        prefix: NOTE,
-        kind: PrefixKind::ContentId,
-        minted: true,
-        linkified: true,
-    },
-    IdPrefix {
         prefix: JOURNAL,
         kind: PrefixKind::StructuralId,
         minted: true,
@@ -296,7 +286,6 @@ mod tests {
         assert_eq!(REF_WITHDRAWAL, "withdraw-ref");
         assert_eq!(TASK_ATTEMPT, "task-attempt");
         assert_eq!(CHECKPOINT, "checkpoint");
-        assert_eq!(NOTE, "note");
         assert_eq!(JOURNAL, "journal");
         assert_eq!(REVIEW, "review");
         assert_eq!(ACTOR, "actor");
@@ -362,7 +351,6 @@ mod tests {
             TASK_ATTEMPT,
             CHECKPOINT,
             SUBJECT,
-            NOTE,
             JOURNAL,
             REVIEW,
             ACTOR,
@@ -393,8 +381,11 @@ mod tests {
     #[test]
     fn registry_kind_partition_is_stable() {
         let count = |kind: PrefixKind| ID_PREFIXES.iter().filter(|e| e.kind == kind).count();
-        // 17 minted content-id prefixes (the 2 legacy display entries were retired in #344).
-        assert_eq!(count(PrefixKind::ContentId), 17);
+        // 16 minted content-id prefixes: the 2 legacy display entries were retired
+        // in #344, and `note:` retired with the imported-notes pipeline (nothing
+        // mints or links it; recorded ids inside old t:07 payloads are opaque
+        // strings that no surface projects).
+        assert_eq!(count(PrefixKind::ContentId), 16);
         assert_eq!(count(PrefixKind::StructuralId), 4);
         assert_eq!(count(PrefixKind::ArtifactRef), 4);
         assert_eq!(count(PrefixKind::Token), 1);

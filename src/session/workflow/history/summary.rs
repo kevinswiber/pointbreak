@@ -7,8 +7,8 @@ use crate::model::{
     ValidationStatus, ValidationTarget, ValidationTrigger,
 };
 use crate::session::event::{
-    AssertionMode, BodyContentType, EventType, ImportedNoteTarget, InputRequestReasonCode,
-    InputRequestResponseOutcome, ReviewAssessment, SidecarSource, Writer,
+    AssertionMode, BodyContentType, EventType, InputRequestReasonCode, InputRequestResponseOutcome,
+    ReviewAssessment, Writer,
 };
 use crate::session::{
     BodyContentState, EndorsementReadback, EventVerificationStatus, PrincipalView,
@@ -137,38 +137,10 @@ pub enum ReviewHistorySummary {
         #[serde(skip_serializing_if = "Vec::is_empty")]
         related_input_requests: Vec<InputRequestId>,
     },
-    ReviewNoteImported {
-        sidecar_source: SidecarSource,
-        note_id: String,
-        file_path: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        file_old_path: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        target: Option<ImportedNoteTarget>,
-        title: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        body: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        body_byte_size: Option<u64>,
-        #[serde(skip_serializing_if = "BodyContentState::is_present")]
-        body_content_state: BodyContentState,
-        /// The removal key when the body is removed: the imported-note payload
-        /// carries no body content hash, so this is the surface's twin of the
-        /// snapshot result's removed-content-hash field; absent while present.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        removed_body_content_hash: Option<String>,
-        #[serde(skip_serializing_if = "Vec::is_empty")]
-        tags: Vec<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        confidence: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        external_source: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        author: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        created_at: Option<String>,
-        sidecar_content_hash: String,
-    },
+    /// Tombstone for the retired review-note import kind (ADR-0030 second
+    /// amendment): a loaded t:07 event lists at envelope level only, with no
+    /// payload-derived fields.
+    ReviewNoteImported {},
     ValidationCheckRecorded {
         validation_check_id: ValidationCheckId,
         target: ValidationTarget,

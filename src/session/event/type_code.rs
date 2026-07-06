@@ -30,6 +30,10 @@ const REGISTRY: [(EventType, &str); 16] = [
     (EventType::ReviewAssessmentRecorded, "t:04"),
     (EventType::InputRequestOpened, "t:05"),
     (EventType::InputRequestResponded, "t:06"),
+    // Legacy: the review-note import pipeline is retired (ADR-0030, second
+    // amendment). The code stays reserved forever — this registry is
+    // append-only — so old signed stores carrying recorded t:07 events still
+    // decode; no projection consumes the kind.
     (EventType::ReviewNoteImported, "t:07"),
     (EventType::RevisionRefAssociated, "t:08"),
     (EventType::RevisionRefWithdrawn, "t:09"),

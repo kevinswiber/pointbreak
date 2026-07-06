@@ -157,7 +157,6 @@ const TYPE_LABELS: &[(&str, &str)] = &[
     ("assessment", "review_assessment_recorded"),
     ("request", "input_request_opened"),
     ("response", "input_request_responded"),
-    ("note", "review_note_imported"),
     ("validation", "validation_check_recorded"),
 ];
 
@@ -305,8 +304,7 @@ fn summary_status(entry: &ReviewHistoryEntry) -> String {
 /// type-specific capture/validation title → type label).
 fn entry_title(entry: &ReviewHistoryEntry) -> String {
     match &entry.summary {
-        ReviewHistorySummary::ReviewObservationRecorded { title, .. }
-        | ReviewHistorySummary::ReviewNoteImported { title, .. } => {
+        ReviewHistorySummary::ReviewObservationRecorded { title, .. } => {
             if !title.is_empty() {
                 return title.clone();
             }
@@ -486,12 +484,6 @@ fn push_summary_searchables(parts: &mut Vec<String>, entry: &ReviewHistoryEntry)
             parts.push(enum_wire(outcome));
             parts.push(input_request_id.as_str().to_owned());
         }
-        ReviewHistorySummary::ReviewNoteImported { body, tags, .. } => {
-            if let Some(body) = body {
-                parts.push(body.clone());
-            }
-            parts.extend(tags.iter().cloned());
-        }
         ReviewHistorySummary::ValidationCheckRecorded {
             validation_check_id,
             summary,
@@ -509,6 +501,7 @@ fn push_summary_searchables(parts: &mut Vec<String>, entry: &ReviewHistoryEntry)
             }
         }
         ReviewHistorySummary::ReviewInitialized {}
+        | ReviewHistorySummary::ReviewNoteImported {}
         | ReviewHistorySummary::RevisionCaptured { .. }
         | ReviewHistorySummary::RevisionRefAssociated { .. }
         | ReviewHistorySummary::RevisionRefWithdrawn { .. }

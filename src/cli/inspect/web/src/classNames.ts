@@ -247,7 +247,6 @@ export const REF_ID_PREFIXES = [
   "assess",
   "rev",
   "evt",
-  "note",
   "validation",
   "obj",
   "engagement",

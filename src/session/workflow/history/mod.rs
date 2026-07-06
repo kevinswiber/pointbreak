@@ -101,16 +101,15 @@ mod tests {
     use crate::model::{
         ActorId, AssessmentId, EngagementId, EventId, InputRequestId, InputRequestResponseId,
         JournalId, ObjectId, ObservationId, ReviewEndpoint, ReviewTargetRef, RevisionId,
-        RevisionSource, Side, TargetRef, TrackId, ValidationCheckId, ValidationStatus,
-        ValidationTarget, ValidationTrigger, WorktreeCaptureMode,
+        RevisionSource, TargetRef, TrackId, ValidationCheckId, ValidationStatus, ValidationTarget,
+        ValidationTrigger, WorktreeCaptureMode,
     };
     use crate::session::event::{
-        AssertionMode, EventTarget, EventType, GitProvenance, ImportedNoteTarget,
-        InputRequestOpenedPayload, InputRequestReasonCode, InputRequestRespondedPayload,
-        InputRequestResponseOutcome, ReviewAssessment, ReviewAssessmentRecordedPayload,
-        ReviewInitializedPayload, ReviewNoteImportedPayload, ReviewObservationRecordedPayload,
-        Revision, ShoreEvent, SidecarSource, ValidationCheckRecordedPayload, WorkObjectProposal,
-        WorkObjectProposedPayload, Writer,
+        AssertionMode, EventTarget, EventType, GitProvenance, InputRequestOpenedPayload,
+        InputRequestReasonCode, InputRequestRespondedPayload, InputRequestResponseOutcome,
+        ReviewAssessment, ReviewAssessmentRecordedPayload, ReviewInitializedPayload,
+        ReviewObservationRecordedPayload, Revision, ShoreEvent, ValidationCheckRecordedPayload,
+        WorkObjectProposal, WorkObjectProposedPayload, Writer,
     };
     use crate::session::state::DUPLICATE_SEMANTIC_OBSERVATION_EVENT_CODE;
     use crate::session::store::backend::StoreBackend;
@@ -1007,7 +1006,10 @@ mod tests {
                 && entry["summary"]["reason"] == "approved"
         }));
         assert!(entries.iter().any(|entry| {
-            entry["summary"]["kind"] == "review_note_imported" && entry["summary"]["body"] == "body"
+            entry["summary"]
+                == serde_json::json!({
+                    "kind": "review_note_imported"
+                })
         }));
     }
 
@@ -1586,33 +1588,25 @@ mod tests {
     }
 
     fn review_note_imported_event() -> ShoreEvent {
-        let payload = ReviewNoteImportedPayload {
-            sidecar_source: SidecarSource::ReviewNotes,
-            note_id: "note-1".to_owned(),
-            file_path: "src/lib.rs".to_owned(),
-            file_old_path: None,
-            target: Some(ImportedNoteTarget {
-                side: Side::New,
-                start_line: 1,
-                end_line: 1,
-            }),
-            title: "Imported note".to_owned(),
-            body: Some("body".to_owned()),
-            body_artifact_path: None,
-            body_byte_size: Some(4),
-            tags: vec!["imported".to_owned()],
-            confidence: Some("medium".to_owned()),
-            external_source: Some("review-notes.json".to_owned()),
-            author: Some("reviewer".to_owned()),
-            created_at: Some("2026-05-13T09:00:00Z".to_owned()),
-            sidecar_content_hash: "sha256:sidecar".to_owned(),
-        };
+        // The typed payload is retired (parse-level tombstone); an old store's
+        // event carries a raw payload the projection never decodes, so a
+        // minimal local stand-in payload is all the tombstone path needs.
+        #[derive(serde::Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct LegacyNotePayload {
+            note_id: &'static str,
+        }
+        impl crate::session::event::EventPayload for LegacyNotePayload {
+            fn event_type(&self) -> EventType {
+                EventType::ReviewNoteImported
+            }
+        }
         ShoreEvent::new(
             EventType::ReviewNoteImported,
             "review-note:one",
             EventTarget::for_journal(JournalId::new("journal:default")),
             Writer::shore_local("test"),
-            payload,
+            LegacyNotePayload { note_id: "note-1" },
             "2026-05-13T10:00:05Z",
         )
         .unwrap()

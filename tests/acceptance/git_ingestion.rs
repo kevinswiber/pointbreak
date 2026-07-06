@@ -353,14 +353,14 @@ fn explicit_helper_path_is_not_reviewed_or_hashed() {
     repo.commit_all("initial tracked file");
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
     repo.write("src/untracked.rs", "pub fn untracked() {}\n");
-    let sidecar = repo.write_fixture("review-notes.json", review_notes_json("first"));
+    let sidecar = repo.write_fixture("review-helper.json", review_helper_json("first"));
 
     let before = ingest_tracked_diff_with_options(
         repo.path(),
         IngestOptions::new().exclude_helper_path(&sidecar),
     )
     .expect("filtered diff ingests");
-    repo.write("review-notes.json", review_notes_json("changed"));
+    repo.write("review-helper.json", review_helper_json("changed"));
     let after = ingest_tracked_diff_with_options(
         repo.path(),
         IngestOptions::new().exclude_helper_path(&sidecar),
@@ -377,8 +377,11 @@ fn helper_filter_is_exact_and_no_exclusion_ingest_keeps_sidecar_file() {
     repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
     repo.commit_all("initial tracked file");
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
-    let sidecar = repo.write_fixture("review-notes.json", review_notes_json("helper"));
-    repo.write("nested/review-notes.json", review_notes_json("not helper"));
+    let sidecar = repo.write_fixture("review-helper.json", review_helper_json("helper"));
+    repo.write(
+        "nested/review-helper.json",
+        review_helper_json("not helper"),
+    );
 
     let unfiltered = ingest_tracked_diff(repo.path()).expect("unfiltered diff ingests");
     let filtered = ingest_tracked_diff_with_options(
@@ -391,13 +394,13 @@ fn helper_filter_is_exact_and_no_exclusion_ingest_keeps_sidecar_file() {
         paths(&unfiltered.files),
         vec![
             "src/lib.rs",
-            "nested/review-notes.json",
-            "review-notes.json"
+            "nested/review-helper.json",
+            "review-helper.json"
         ]
     );
     assert_eq!(
         paths(&filtered.files),
-        vec!["src/lib.rs", "nested/review-notes.json"]
+        vec!["src/lib.rs", "nested/review-helper.json"]
     );
 }
 
@@ -422,10 +425,10 @@ fn paths(files: &[DiffFile]) -> Vec<&str> {
         .collect()
 }
 
-fn review_notes_json(title: &str) -> String {
+fn review_helper_json(title: &str) -> String {
     format!(
         r#"{{
-  "schema": "shore.review-notes",
+  "schema": "example.review-helper",
   "version": 1,
   "files": [
     {{

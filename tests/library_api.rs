@@ -18,14 +18,14 @@ use shoreline::session::event::{
 use shoreline::session::{
     ArtifactKind, ArtifactRef, AssessmentAddOptions, CaptureOptions, EventVerificationPolicy,
     EventVerificationStatus, EventWriteOutcome, ImportArtifactOptions, ImportArtifactOutcome,
-    ImportNotesOptions, IngestEventsOptions, InputRequestFetchOptions, InputRequestListOptions,
+    IngestEventsOptions, InputRequestFetchOptions, InputRequestListOptions,
     InputRequestOpenOptions, InputRequestRespondOptions, InputRequestStatus,
     InputRequestStatusFilter, ObservationAddOptions, ReviewHistoryOptions, RevisionShowOptions,
     SensitivityKind, SensitivityPolicyOutcome, SensitivitySeverity, TrustSet,
     capture_worktree_review, event_signature_trust_set, export_artifact, fetch_input_request,
-    import_artifact, import_notes, ingest_events, list_input_requests, open_input_request,
-    read_events, record_observation, referenced_artifacts, respond_input_request, review_history,
-    show_revision, verify_event_signature,
+    import_artifact, ingest_events, list_input_requests, open_input_request, read_events,
+    record_observation, referenced_artifacts, respond_input_request, review_history, show_revision,
+    verify_event_signature,
 };
 use support::git_repo::GitRepo;
 
@@ -504,58 +504,6 @@ fn artifact_import_is_idempotent() {
 
     assert_eq!(first.outcome, ImportArtifactOutcome::Created);
     assert_eq!(second.outcome, ImportArtifactOutcome::Existing);
-}
-
-#[test]
-fn referenced_artifacts_derives_imported_note_body_hash_from_path() {
-    let repo = modified_repo();
-    let body = large_body();
-    let sidecar = serde_json::json!({
-        "schema": "shore.review-notes",
-        "version": 1,
-        "files": [
-            {
-                "path": "src/lib.rs",
-                "notes": [
-                    {
-                        "id": "note-1",
-                        "title": "Imported note",
-                        "body": body,
-                        "target": { "side": "new", "startLine": 1, "endLine": 1 }
-                    }
-                ]
-            }
-        ]
-    });
-    let sidecar_path =
-        repo.write_fixture("review-notes.json", serde_json::to_vec(&sidecar).unwrap());
-    import_notes(ImportNotesOptions::new(repo.path()).with_review_notes(sidecar_path)).unwrap();
-    let events = read_events(repo.path()).unwrap();
-    let note_event = events
-        .iter()
-        .find(|event| event.event_type.as_str() == "review_note_imported")
-        .expect("imported note event");
-    let path = note_event.payload["bodyArtifactPath"]
-        .as_str()
-        .expect("body artifact path");
-    let expected_hash = format!(
-        "sha256:{}",
-        path.strip_prefix("artifacts/notes/")
-            .and_then(|path| path.strip_suffix(".json"))
-            .expect("note body artifact path stem")
-    );
-    let sidecar_hash = note_event.payload["sidecarContentHash"]
-        .as_str()
-        .expect("sidecar hash");
-
-    let refs = referenced_artifacts(&events).unwrap();
-    let body_ref = refs
-        .iter()
-        .find(|artifact| artifact.kind() == ArtifactKind::Body)
-        .expect("imported note body artifact ref");
-
-    assert_eq!(body_ref.content_hash(), expected_hash);
-    assert_ne!(body_ref.content_hash(), sidecar_hash);
 }
 
 #[test]

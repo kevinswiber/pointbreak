@@ -188,7 +188,6 @@ describe("dynamic-family vocabulary arrays (derived from their producers)", () =
       "assess",
       "rev",
       "evt",
-      "note",
       "validation",
       "obj",
       "engagement",

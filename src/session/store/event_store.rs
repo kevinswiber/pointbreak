@@ -456,8 +456,8 @@ mod tests {
     use crate::model::{AssessmentId, JournalId, ReviewTargetRef, RevisionId, TargetRef, TrackId};
     use crate::session::event::{
         AssertionMode, EventSignature, EventTarget, EventType, IngestProvenance, IngestVia,
-        ReviewAssessment, ReviewAssessmentRecordedPayload, ReviewInitializedPayload,
-        ReviewNoteImportedPayload, ShoreEvent, Writer,
+        ReviewAssessment, ReviewAssessmentRecordedPayload, ReviewInitializedPayload, ShoreEvent,
+        Writer,
     };
     use crate::session::state::SessionState;
 
@@ -1244,26 +1244,24 @@ mod tests {
 
     fn conflicting_event_with_same_idempotency_key(event: &ShoreEvent) -> ShoreEvent {
         ShoreEvent::new(
-            EventType::ReviewNoteImported,
+            EventType::ReviewAssessmentRecorded,
             event.idempotency_key.clone(),
             event.target.clone(),
             event.writer.clone(),
-            ReviewNoteImportedPayload {
-                sidecar_source: crate::session::event::SidecarSource::ReviewNotes,
-                note_id: "note:conflict".to_owned(),
-                file_path: "src/lib.rs".to_owned(),
-                file_old_path: None,
-                target: None,
-                title: "Conflicting payload".to_owned(),
-                body: None,
-                body_artifact_path: None,
-                body_byte_size: None,
-                tags: Vec::new(),
-                confidence: None,
-                external_source: None,
-                author: None,
-                created_at: None,
-                sidecar_content_hash: "sha256:sidecar".to_owned(),
+            ReviewAssessmentRecordedPayload {
+                assessment_id: AssessmentId::new("assess:sha256:conflict"),
+                target: ReviewTargetRef::Revision {
+                    revision_id: RevisionId::new("review-unit:sha256:one"),
+                },
+                assessment: ReviewAssessment::NeedsChanges,
+                summary: Some("Conflicting payload".to_owned()),
+                summary_content_type: Default::default(),
+                summary_artifact_path: None,
+                summary_byte_size: Some(19),
+                summary_content_hash: Some("sha256:conflict".to_owned()),
+                replaces_assessment_ids: Vec::new(),
+                related_observation_ids: Vec::new(),
+                related_input_request_ids: Vec::new(),
             },
             event.occurred_at.clone(),
         )

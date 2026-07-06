@@ -116,7 +116,7 @@ describe("REF_RE derivation", () => {
     // The alternation lock: change REF_ID_PREFIXES and this expected literal
     // together, deliberately — that is the display-membership decision.
     expect(REF_RE.source).toBe(
-      "\\b(?:input-request-response|input-request|obs|assess|rev|evt|note|validation|obj|engagement|checkpoint|task-attempt|assoc-commit|assoc-ref|withdraw-commit|withdraw-ref):(?:git:|worktree:)?sha256:[0-9a-f]{6,}\\b|(?<!:)\\bsha256:[0-9a-f]{16,}\\b|\\b[0-9a-f]{40}\\b|\\b(?:agent|human):[a-z0-9][a-z0-9_-]*\\b",
+      "\\b(?:input-request-response|input-request|obs|assess|rev|evt|validation|obj|engagement|checkpoint|task-attempt|assoc-commit|assoc-ref|withdraw-commit|withdraw-ref):(?:git:|worktree:)?sha256:[0-9a-f]{6,}\\b|(?<!:)\\bsha256:[0-9a-f]{16,}\\b|\\b[0-9a-f]{40}\\b|\\b(?:agent|human):[a-z0-9][a-z0-9_-]*\\b",
     );
     expect(REF_RE.flags).toBe("gi");
   });

@@ -6,7 +6,6 @@ mod capture;
 mod commit_range_liveness;
 mod event_signature;
 mod history;
-mod import;
 mod ingest;
 mod revision_list;
 mod revision_projection;
@@ -54,7 +53,6 @@ pub use history::{
     apply_history_query, build_haystack, history_base_projection, matches_query,
     parse_search_query, review_history,
 };
-pub use import::{ImportNotesOptions, ImportNotesResult, import_notes};
 pub use ingest::{
     ImportEventOptions, IngestEventsOptions, IngestEventsResult, import_event, ingest_events,
 };

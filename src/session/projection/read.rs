@@ -1,135 +1,13 @@
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::error::Result;
-use crate::session::event::{EventType, ReviewNoteImportedPayload, ShoreEvent};
-use crate::session::projection::body_content::{BodyRemovalLens, resolve_body_content};
-use crate::session::projection::cosignature::CosignatureIndex;
-use crate::session::signing::{RemovalPolicy, TrustSet};
+use crate::session::event::ShoreEvent;
 use crate::session::state::{ProjectionDiagnostic, SessionState};
+#[cfg(test)]
 use crate::session::store::backend::StoreBackend;
 use crate::session::store::resolution::{resolve_read_store, resolve_write_store};
 use crate::session::{EventStore, SkippedEvent, sweep_stale_temp_files};
-use crate::sidecar::{
-    ParsedReviewNotes, ReviewNoteEntry, ReviewNoteTarget, ReviewNotesFile, ReviewNotesSidecar,
-};
 use crate::storage::{Durability, LocalStorage};
-
-fn replay_note_entry(
-    payload: &ReviewNoteImportedPayload,
-    backend: &StoreBackend,
-    removal_lens: &BodyRemovalLens<'_>,
-) -> Result<ReviewNoteEntry> {
-    let target = payload
-        .target
-        .as_ref()
-        .map(|imported_target| ReviewNoteTarget {
-            side: imported_target.side,
-            start_line: imported_target.start_line,
-            end_line: imported_target.end_line,
-        });
-
-    // Removed bodies replay as absent: `shore.review-notes` is a foreign
-    // adapter schema, so the replay never fabricates text and carries no
-    // removed-state field (the explained render lives on the review surfaces).
-    let body = resolve_body_content(
-        backend,
-        removal_lens,
-        true,
-        payload.body.clone(),
-        payload.body_artifact_path.as_deref(),
-    )?
-    .into_text();
-
-    Ok(ReviewNoteEntry {
-        id: Some(payload.note_id.clone()),
-        title: Some(payload.title.clone()),
-        body,
-        target,
-        tags: payload.tags.clone(),
-        confidence: payload.confidence.clone(),
-        source: payload.external_source.clone(),
-        author: payload.author.clone(),
-        created_at: payload.created_at.clone(),
-    })
-}
-
-fn parsed_review_notes_from_imports(
-    payloads: &[ReviewNoteImportedPayload],
-    backend: &StoreBackend,
-    removal_lens: &BodyRemovalLens<'_>,
-) -> Result<ParsedReviewNotes> {
-    let mut file_map: BTreeMap<String, (Option<String>, Vec<ReviewNoteEntry>)> = BTreeMap::new();
-
-    for payload in payloads {
-        let entry = replay_note_entry(payload, backend, removal_lens)?;
-
-        file_map
-            .entry(payload.file_path.clone())
-            .or_insert((payload.file_old_path.clone(), Vec::new()))
-            .1
-            .push(entry);
-    }
-
-    let files = file_map
-        .into_iter()
-        .map(|(path, (old_path, mut notes))| {
-            notes.sort_by_key(|note| {
-                (
-                    note.target.map(|target| target.start_line).unwrap_or(0),
-                    note.id.clone().unwrap_or_default(),
-                )
-            });
-            ReviewNotesFile {
-                path,
-                old_path,
-                summary: None,
-                notes,
-            }
-        })
-        .collect();
-
-    Ok(ParsedReviewNotes {
-        sidecar: ReviewNotesSidecar {
-            schema: Some("shore.review-notes".to_owned()),
-            version: 1,
-            summary: None,
-            files,
-        },
-        diagnostics: Vec::new(),
-    })
-}
-
-pub fn load_durable_notes_for_repo(repo: impl AsRef<Path>) -> Result<Option<ParsedReviewNotes>> {
-    let Some((backend, events)) = list_events_if_store_exists(repo)? else {
-        return Ok(None);
-    };
-
-    let mut imported_payloads = Vec::new();
-    for event in &events {
-        if event.event_type != EventType::ReviewNoteImported {
-            continue;
-        }
-
-        let payload: ReviewNoteImportedPayload = serde_json::from_value(event.payload.clone())?;
-        imported_payloads.push(payload);
-    }
-
-    if imported_payloads.is_empty() {
-        return Ok(None);
-    }
-
-    let removal = crate::session::ArtifactRemovalProjection::from_events(&events)?;
-    let cosig_index = CosignatureIndex::build(&events)?;
-    let trust_set = TrustSet::default();
-    let removal_lens =
-        BodyRemovalLens::new(&removal, &trust_set, RemovalPolicy::default(), &cosig_index);
-    Ok(Some(parsed_review_notes_from_imports(
-        &imported_payloads,
-        &backend,
-        &removal_lens,
-    )?))
-}
 
 #[cfg(test)]
 fn load_or_rebuild_session_state(repo: impl AsRef<Path>) -> Result<Option<SessionState>> {
@@ -193,6 +71,7 @@ pub fn read_events_for_display(
     Ok((events, skipped_to_diagnostics(skipped)))
 }
 
+#[cfg(test)]
 fn list_events_if_store_exists(
     repo: impl AsRef<Path>,
 ) -> Result<Option<(StoreBackend, Vec<ShoreEvent>)>> {
@@ -209,48 +88,12 @@ fn list_events_if_store_exists(
 
 #[cfg(test)]
 mod tests {
-    macro_rules! empty_lens {
-        ($lens:ident) => {
-            let removal = crate::session::ArtifactRemovalProjection::from_events(&[]).unwrap();
-            let cosig = CosignatureIndex::build(&[]).unwrap();
-            let trust_set = TrustSet::default();
-            let $lens =
-                BodyRemovalLens::new(&removal, &trust_set, RemovalPolicy::default(), &cosig);
-        };
-    }
     use std::process::Command;
 
     use super::*;
     use crate::error::SchemaBreakRecord;
-    use crate::model::{JournalId, Side};
-    use crate::session::event::{
-        EventTarget, ImportedNoteTarget, ReviewInitializedPayload, ShoreEvent, SidecarSource,
-        Writer,
-    };
-
-    fn test_payload_for(file_path: &str, note_id: &str) -> ReviewNoteImportedPayload {
-        ReviewNoteImportedPayload {
-            sidecar_source: SidecarSource::ReviewNotes,
-            note_id: note_id.to_owned(),
-            file_path: file_path.to_owned(),
-            file_old_path: None,
-            target: Some(ImportedNoteTarget {
-                side: Side::New,
-                start_line: 2,
-                end_line: 3,
-            }),
-            title: format!("Title for {}", note_id),
-            body: Some(format!("Body for {}", note_id)),
-            body_artifact_path: None,
-            body_byte_size: None,
-            tags: vec!["tag".to_owned()],
-            confidence: Some("high".to_owned()),
-            external_source: Some("tool".to_owned()),
-            author: Some("reviewer".to_owned()),
-            created_at: Some("2026-05-10T00:00:00Z".to_owned()),
-            sidecar_content_hash: "sha256:abc".to_owned(),
-        }
-    }
+    use crate::model::JournalId;
+    use crate::session::event::{EventTarget, EventType, ReviewInitializedPayload, Writer};
 
     #[test]
     fn skipped_to_diagnostics_maps_code_and_message() {
@@ -269,126 +112,6 @@ mod tests {
         assert_eq!(diags[0].code, "unsupported_event_type");
         assert!(diags[0].message.contains("review_disposition_recorded"));
         assert!(diags[0].message.contains("#legacy-disposition-events"));
-    }
-
-    #[test]
-    fn imported_note_payload_converts_to_review_note_entry() {
-        empty_lens!(lens);
-        let payload = ReviewNoteImportedPayload {
-            sidecar_source: SidecarSource::ReviewNotes,
-            note_id: "note:123".to_owned(),
-            file_path: "src/lib.rs".to_owned(),
-            file_old_path: None,
-            target: Some(ImportedNoteTarget {
-                side: Side::New,
-                start_line: 2,
-                end_line: 3,
-            }),
-            title: "Durable title".to_owned(),
-            body: Some("Durable body".to_owned()),
-            body_artifact_path: None,
-            body_byte_size: None,
-            tags: vec!["tag".to_owned()],
-            confidence: Some("high".to_owned()),
-            external_source: Some("tool".to_owned()),
-            author: Some("reviewer".to_owned()),
-            created_at: Some("2026-05-10T00:00:00Z".to_owned()),
-            sidecar_content_hash: "sha256:abc".to_owned(),
-        };
-
-        let entry =
-            replay_note_entry(&payload, &StoreBackend::memory(), &lens).expect("entry builds");
-
-        assert_eq!(entry.id.as_deref(), Some("note:123"));
-        assert_eq!(entry.title.as_deref(), Some("Durable title"));
-        assert_eq!(entry.body.as_deref(), Some("Durable body"));
-        assert_eq!(entry.target.unwrap().start_line, 2);
-    }
-
-    #[test]
-    fn imported_notes_group_by_file_without_using_event_order_as_file_order() {
-        empty_lens!(lens);
-        let events = vec![
-            test_payload_for("b.rs", "note:b"),
-            test_payload_for("a.rs", "note:a"),
-        ];
-
-        let parsed = parsed_review_notes_from_imports(&events, &StoreBackend::memory(), &lens)
-            .expect("parses");
-
-        assert_eq!(parsed.sidecar.files.len(), 2);
-        assert_eq!(
-            parsed
-                .sidecar
-                .files
-                .iter()
-                .map(|f| f.notes.len())
-                .sum::<usize>(),
-            2
-        );
-        assert_eq!(parsed.sidecar.files[0].path, "a.rs");
-        assert_eq!(parsed.sidecar.files[1].path, "b.rs");
-    }
-
-    #[test]
-    fn artifact_backed_note_body_is_loaded_from_artifact() {
-        empty_lens!(lens);
-        let store_dir = tempfile::tempdir().expect("create shore dir");
-        let artifact_path = "artifacts/notes/note-abc.json";
-        let artifact_file = store_dir.path().join(artifact_path);
-        std::fs::create_dir_all(artifact_file.parent().expect("artifact parent"))
-            .expect("create artifact dir");
-        std::fs::write(
-            &artifact_file,
-            r#"{"schema":"shore.note-body","version":1,"body":"Artifact body"}"#,
-        )
-        .expect("write artifact");
-
-        let mut payload = test_payload_for("src/lib.rs", "note:with-artifact");
-        payload.body = None;
-        payload.body_artifact_path = Some(artifact_path.to_owned());
-        payload.body_byte_size = Some(256);
-
-        let backend = StoreBackend::Local(store_dir.path().to_path_buf());
-        let entry = replay_note_entry(&payload, &backend, &lens).expect("entry builds");
-
-        assert_eq!(entry.body.as_deref(), Some("Artifact body"));
-    }
-
-    #[test]
-    fn artifact_body_path_must_stay_under_artifacts_notes() {
-        empty_lens!(lens);
-        let mut payload = test_payload_for("src/lib.rs", "note:escape");
-        payload.body = None;
-        payload.body_artifact_path = Some("../outside.json".to_owned());
-
-        let error = replay_note_entry(&payload, &StoreBackend::memory(), &lens)
-            .expect_err("path should be rejected");
-        assert!(error.to_string().contains("Invalid artifact path"));
-    }
-
-    #[test]
-    fn artifact_body_schema_must_match() {
-        empty_lens!(lens);
-        let store_dir = tempfile::tempdir().expect("create shore dir");
-        let artifact_path = "artifacts/notes/note-abc.json";
-        let artifact_file = store_dir.path().join(artifact_path);
-        std::fs::create_dir_all(artifact_file.parent().expect("artifact parent"))
-            .expect("create artifact dir");
-        std::fs::write(
-            &artifact_file,
-            r#"{"schema":"wrong.schema","version":2,"body":"Artifact body"}"#,
-        )
-        .expect("write artifact");
-
-        let mut payload = test_payload_for("src/lib.rs", "note:wrong-schema");
-        payload.body = None;
-        payload.body_artifact_path = Some(artifact_path.to_owned());
-
-        let backend = StoreBackend::Local(store_dir.path().to_path_buf());
-        let error =
-            replay_note_entry(&payload, &backend, &lens).expect_err("schema should be rejected");
-        assert!(error.to_string().contains("Unsupported note body artifact"));
     }
 
     #[test]
