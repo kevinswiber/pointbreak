@@ -106,9 +106,10 @@ pub struct StoreLinkResult {
 }
 
 /// The dry-run report for `shore store link --dry-run`: what the link WOULD do,
-/// with zero writes. Blocking gates and the fold preflight (fidelity / event
-/// conflict) surface as `Err` before this is built, so a `StoreLinkPreview` always
-/// describes a link that would succeed.
+/// with zero writes. A blocking gate (1–3) or a fold-preflight event conflict
+/// surfaces as `Err` before this is built, so a `StoreLinkPreview` always describes
+/// a link that would succeed. An incomplete source (absent artifacts) does NOT
+/// block — it is tolerated and reported via `export_fidelity` / `folded_absent_artifact_count`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoreLinkPreview {
@@ -118,8 +119,9 @@ pub struct StoreLinkPreview {
     pub would_create_family: bool,
     /// The clone-local source store has events to fold.
     pub source_present: bool,
-    /// `"full"` on this (successful) preview path; a non-`Full` source blocks with
-    /// the strict-import refusal instead of reaching here.
+    /// `"full"` when every referenced artifact is present or covered by an
+    /// `ArtifactRemoved` claim; `"incomplete"` when some are absent with no claim —
+    /// the fold tolerates those and discloses `folded_absent_artifact_count`.
     pub export_fidelity: String,
     pub folded_events_to_create: usize,
     pub folded_events_existing: usize,
