@@ -9,13 +9,39 @@
         <button class="lens-tab" type="button" data-lens="threads" aria-pressed="false">Threads</button>
       </nav>
       <div class="stats">
-        <span class="stat">858 events</span>
-        <span class="stat">33 units</span>
-        <span class="stat">38 threads</span>
-        <span class="stat mono">cd9181a6</span>
+        <span class="store-identity" style="position:static">
+          <span class="store-identity-chip" tabindex="0">
+            <span class="store-identity-repo">shoreline</span>
+            <span class="store-identity-caret" aria-hidden="true">▾</span>
+          </span>
+        </span>
         <span class="stat refresh live">updated</span>
       </div>
     </header>
+  </div>
+
+  <div class="ds-group">
+    <p class="ds-label">Store identity — chip &amp; detail popover</p>
+    <div class="store-identity" style="position:static">
+      <span class="store-identity-chip" tabindex="0">
+        <span class="store-identity-repo">shoreline</span>
+        <span class="store-identity-caret" aria-hidden="true">▾</span>
+      </span>
+      <div class="store-identity-detail" style="display:block; position:static; right:auto; margin-top:8px">
+        <dl>
+          <dt>repository</dt><dd>shoreline</dd>
+          <dt>store</dt><dd>family store</dd>
+          <dt>family</dt><dd>shoreline</dd>
+        </dl>
+        <div class="store-identity-stats">
+          <span class="stat">858 events</span>
+          <span class="stat">33 units</span>
+          <span class="stat">38 threads</span>
+          <span class="stat mono">cd9181a6</span>
+        </div>
+        <p class="store-identity-note">Recorded state only — never gates writes; signature checks are reader-relative to your committed allow-list.</p>
+      </div>
+    </div>
   </div>
 
   <div class="ds-group">
@@ -28,12 +54,8 @@
   </div>
 
   <div class="ds-group">
-    <p class="ds-label">Stat chips &amp; freshness (idle / live)</p>
+    <p class="ds-label">Connectivity status (idle / live)</p>
     <div class="stats" style="margin-left:0">
-      <span class="stat">858 events</span>
-      <span class="stat">33 units</span>
-      <span class="stat">38 threads</span>
-      <span class="stat mono">cd9181a6</span>
       <span class="stat">idle</span>
       <span class="stat refresh live">updated</span>
     </div>
