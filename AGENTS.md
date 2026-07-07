@@ -4,7 +4,7 @@ This file provides guidance to AI code assistants when working with code in this
 
 ## Project Overview
 
-Shoreline is an experimental Rust-native review record for understanding what a coding agent changed
+Pointbreak is an experimental Rust-native review record for understanding what a coding agent changed
 and why. It should stay focused on a small, agent-review core with a data model that is
 easy to reason about, test, and eventually expose to other tools.
 
@@ -76,7 +76,7 @@ The headless model should own file identity, file order, hunk identity, row geom
 navigation cursors, and serializable review/session state. The TUI should be a projection of that
 model, not the authoritative owner of review semantics.
 
-Shoreline's internal architecture language treats revisions, task attempts, and similar subjects as
+Pointbreak's internal architecture language treats revisions, task attempts, and similar subjects as
 software work objects coordinated through an append-only event log and purpose-built projections.
 A revision is the captured review work object (observations, assessments, and validation evidence
 attach to it); succession between revisions is a fork-tolerant supersession DAG, not a scalar lineage,

@@ -2,12 +2,12 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::Args;
-use serde::Serialize;
-use shoreline::model::{ActorId, EventId};
-use shoreline::session::{
+use pointbreak::model::{ActorId, EventId};
+use pointbreak::session::{
     EventSignatureRecordOptions, EventSignatureRecordResult, record_event_signature,
     resolve_writer_actor_id,
 };
+use serde::Serialize;
 
 use crate::cli::common::resolve_signer;
 use crate::cli::json::DiagnosticDocument;

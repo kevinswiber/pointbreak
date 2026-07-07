@@ -1,11 +1,11 @@
 ---
 name: shoreline-reviewer
-description: Use when a coding agent should review a Shoreline handoff or captured revision that another agent left. Read the author's observations, validation evidence, and input requests with bounded list commands, review the live change independently, respond to open operative input requests, record reviewer findings and validation evidence on your own track, open advisory input requests for author decisions, record exactly one assessment, then stand down.
+description: Use when a coding agent should review a Pointbreak handoff or captured revision that another agent left. Read the author's observations, validation evidence, and input requests with bounded list commands, review the live change independently, respond to open operative input requests, record reviewer findings and validation evidence on your own track, open advisory input requests for author decisions, record exactly one assessment, then stand down.
 ---
 
-# Shoreline Reviewer Handoff Review
+# Pointbreak Reviewer Handoff Review
 
-You are the reviewing agent for a Shoreline revision another agent captured. Your job is to review
+You are the reviewing agent for a Pointbreak revision another agent captured. Your job is to review
 the change independently, record durable review findings, answer any open operative requests you can
 answer, and make the review call.
 
@@ -103,7 +103,7 @@ canonical spelling** for your agent name and always the same one (`claude-code`,
 `claude`): two spellings split one agent's history across two identities. Keep it lowercase and
 hyphenated, like the track rule; `/` inside the agent segment is reserved.
 
-**Signing is automatic.** On your first write under this `actor:agent:*` id, Shoreline generates a
+**Signing is automatic.** On your first write under this `actor:agent:*` id, Pointbreak generates a
 passphrase-less per-machine key and signs the event; it prints a one-line notice with your `did:key`
 and `shore key enroll` so a human can add you to the committed allow-list. Your signed response is
 the event that closes the binding loop — once enrolled, it verifies and binds. Signing never blocks

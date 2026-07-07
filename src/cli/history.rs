@@ -3,10 +3,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::{Args, ValueEnum};
-use shoreline::documents::history_document;
-use shoreline::model::RevisionId;
-use shoreline::session::event::EventType;
-use shoreline::session::{
+use pointbreak::documents::history_document;
+use pointbreak::model::RevisionId;
+use pointbreak::session::event::EventType;
+use pointbreak::session::{
     EventVerificationPolicy, HistoryCursor, LivenessToken, RefFilterMode, ReviewHistoryOptions,
     read_events_for_display, review_history,
 };
@@ -241,7 +241,7 @@ mod tests {
 
         // Drop a raw retired-type event into the resolved store; no valid-event
         // change, so only the skip-diagnostic count moves.
-        let events_dir = shoreline::session::store_dir_for_repo(repo.path())
+        let events_dir = pointbreak::session::store_dir_for_repo(repo.path())
             .unwrap()
             .join("events");
         std::fs::create_dir_all(&events_dir).unwrap();

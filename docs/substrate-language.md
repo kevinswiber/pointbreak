@@ -2,7 +2,7 @@
 
 ## Status
 
-Stable internal language. Shoreline's substrate framing is supported by the code-review domain and one
+Stable internal language. Pointbreak's substrate framing is supported by the code-review domain and one
 agent task-supervision prototype. That is enough to use this vocabulary in source docs, architecture
 discussion, and code review; it is not a claim that the substrate generalizes to every possible
 software-work domain. See [Substrate Thesis Summary](substrate-thesis-summary.md) for the open
@@ -14,7 +14,7 @@ should stay domain-named.
 
 ## Purpose
 
-Shoreline is built around durable software work objects. Different actors can read, write, and interpret
+Pointbreak is built around durable software work objects. Different actors can read, write, and interpret
 facts about those objects without requiring one central controller to decide the workflow.
 
 The substrate language keeps that architecture legible. It separates:
@@ -29,7 +29,7 @@ its own design and review.
 
 ## Core Model
 
-Shoreline coordinates through these pieces:
+Pointbreak coordinates through these pieces:
 
 - **Append-only event log.** Recorded facts are immutable. Corrections, supersession, retraction,
   and resolution are new facts, not edits to old facts.

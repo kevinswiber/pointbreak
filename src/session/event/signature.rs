@@ -7,7 +7,7 @@ use crate::error::Result as ShoreResult;
 pub const ED25519_SIGNATURE_ALG: &str = "ed25519";
 pub const EVENT_SIGNATURE_VERSION_V1: u32 = 1;
 
-/// Single Ed25519 producer signature attached to a Shoreline event.
+/// Single Ed25519 producer signature attached to a Pointbreak event.
 ///
 /// Version 1 signatures sign Dead Simple Signing Envelope (DSSE)
 /// pre-authentication encoding bytes for the event's canonical

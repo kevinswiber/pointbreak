@@ -1,14 +1,14 @@
 [package]
-name = "shoreline"
-version = "0.1.0"
+name = "pointbreak"
+version = "0.5.0"
 edition = "2024"
 description = "Durable terminal code review for changes humans and coding agents collaborate on together"
 rust-version = "1.95"
 license = "Apache-2.0"
 authors = ["Kevin Swiber <kevin@swiber.dev>"]
-homepage = "https://github.com/kevinswiber/shoreline"
-repository = "https://github.com/kevinswiber/shoreline"
-documentation = "https://docs.rs/shoreline"
+homepage = "https://github.com/kevinswiber/pointbreak"
+repository = "https://github.com/kevinswiber/pointbreak"
+documentation = "https://docs.rs/pointbreak"
 readme = "README.md"
 keywords = ["code-review", "review", "terminal", "cli"]
 categories = ["command-line-utilities", "development-tools"]
@@ -25,7 +25,7 @@ exclude = [
 ]
 
 [lib]
-name = "shoreline"
+name = "pointbreak"
 path = "src/lib.rs"
 
 [[bin]]

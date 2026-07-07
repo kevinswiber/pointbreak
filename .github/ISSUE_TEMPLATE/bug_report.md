@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a reproducible Shoreline problem
+about: Report a reproducible Pointbreak problem
 title: ""
 labels: bug
 assignees: ""
@@ -20,7 +20,7 @@ assignees: ""
 
 ## Environment
 
-- Shoreline version or commit:
+- Pointbreak version or commit:
 - Operating system:
 - Rust version, if built from source:
 - Git version:

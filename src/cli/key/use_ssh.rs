@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use clap::Args;
 // Public keystore surface (the `store`/`ssh` submodules are private; the CLI is in
 // the binary crate and reaches only the re-exported `pub` items at
-// `shoreline::keys::*`).
-use shoreline::keys::{KeyName, parse_ssh_ed25519_public_key, write_agent_reference};
+// `pointbreak::keys::*`).
+use pointbreak::keys::{KeyName, parse_ssh_ed25519_public_key, write_agent_reference};
 
 use crate::cli::{json, output};
 

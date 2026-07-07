@@ -1,12 +1,12 @@
 ---
 name: shoreline-author
-description: Use when a coding agent has finished a coherent implementation change, is about to declare work done, is about to commit the current task, or the user says done, hand off, ready for review, or ship it and wants to leave a durable Shoreline review record. Capture with shore capture, record what changed and why as observations, record validation evidence for checks actually run, open input requests for genuine unresolved questions, and then stand down.
+description: Use when a coding agent has finished a coherent implementation change, is about to declare work done, is about to commit the current task, or the user says done, hand off, ready for review, or ship it and wants to leave a durable Pointbreak review record. Capture with shore capture, record what changed and why as observations, record validation evidence for checks actually run, open input requests for genuine unresolved questions, and then stand down.
 ---
 
-# Shoreline Author Handoff
+# Pointbreak Author Handoff
 
 You are the coding agent that just authored the change. At the end of a coherent unit of work, leave a
-durable Shoreline handoff record before you tell the user the task is done. Your job is to make your
+durable Pointbreak handoff record before you tell the user the task is done. Your job is to make your
 change legible for review, not to review your own work.
 
 Do not run `shore assessment add`. Assessments are the reviewer's call. If you assess your own
@@ -22,7 +22,7 @@ work, you turn the handoff into self-grading and pollute the review surface the 
 5. Record validation evidence on that track for checks you actually ran.
 6. Open input requests on that track only for genuine unanswered decisions.
 7. Read back the authored observations, validation evidence, and open input requests.
-8. Stop and tell the user the Shoreline handoff record exists.
+8. Stop and tell the user the Pointbreak handoff record exists.
 ```
 
 Run this loop when you are about to say the task is complete, before committing any part of the
@@ -62,7 +62,7 @@ capturable diff: do not `git reset --soft` back to the base just to fake a workt
 `--base` instead.
 
 If `git status --short` is empty and no commits belong to this task, there is nothing to hand off:
-tell the user there is no change for Shoreline to capture. If you committed only part of the task and
+tell the user there is no change for Pointbreak to capture. If you committed only part of the task and
 left the rest uncommitted, plain `shore capture` sees only the uncommitted remainder; capture
 the whole change with `--base` from the task's starting commit instead.
 
@@ -79,7 +79,7 @@ issue or PR number, use the branch's distinctive segment as a fallback, and use 
 neither exists. Keep the part after `agent:` lowercase, hyphenated, and around 15 characters or fewer.
 
 Tracks are review lanes, not actor identity. The unique tag keeps lanes legible when more than one
-agent run writes to the same `.shore/data/` store; Shoreline still records writer provenance separately in
+agent run writes to the same `.shore/data/` store; Pointbreak still records writer provenance separately in
 the event envelope.
 
 ```bash
@@ -94,7 +94,7 @@ canonical spelling** for your agent name and always the same one (`claude-code`,
 `claude`): two spellings split one agent's history across two identities. Keep it lowercase and
 hyphenated, like the track rule; `/` inside the agent segment is reserved.
 
-**Signing is automatic.** On your first write under this `actor:agent:*` id, Shoreline generates a
+**Signing is automatic.** On your first write under this `actor:agent:*` id, Pointbreak generates a
 passphrase-less per-machine key and signs the event; it prints a one-line notice with your `did:key`
 and `shore key enroll` so a human can add you to the committed allow-list (once enrolled, your
 signed events verify and bind). Signing never blocks a write — if no key can be made the write still
@@ -164,7 +164,7 @@ shore validation add \
   --track "$track" \
   --check-name "targeted parser test" \
   --status passed \
-  --command "cargo +stable nextest run -p shoreline --test parser" \
+  --command "cargo +stable nextest run -p pointbreak --test parser" \
   --exit-code 0 \
   --summary "Passed after the final edit against the captured revision."
 
@@ -228,7 +228,7 @@ where the full snapshot is genuinely needed. It is not the human readback surfac
 Then stand down with a concise message:
 
 ```text
-Created the Shoreline handoff record on `<track>`. Read it with
+Created the Pointbreak handoff record on `<track>`. Read it with
 `shore observation list --revision <id> --track <track> --include-body --pretty`
 and
 `shore validation list --revision <id> --track <track> --include-body --pretty`

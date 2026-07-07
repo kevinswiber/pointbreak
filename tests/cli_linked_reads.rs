@@ -5,12 +5,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use serde_json::Value;
-use shoreline::model::ObjectId;
-use shoreline::session::{
+use pointbreak::model::ObjectId;
+use pointbreak::session::{
     ArtifactKind, ArtifactRef, ImportArtifactOptions, export_artifact, import_artifact,
     read_object_artifact, referenced_artifacts,
 };
+use serde_json::Value;
 use support::git_repo::GitRepo;
 use support::shore;
 
@@ -542,14 +542,14 @@ fn linked_reader_respond_copies_request_event_target_fields() {
     let response = events
         .iter()
         .find(|event| {
-            event.event_type == shoreline::session::event::EventType::InputRequestResponded
+            event.event_type == pointbreak::session::event::EventType::InputRequestResponded
         })
         .expect("the response event is in the linked store");
     // The response addresses the same review-domain revision the request did. The
     // signed envelope now carries only an opaque `subjectId`, so the revision rides
     // the payload's `revisionId` (reconstructable without re-reading the request) —
     // copied verbatim from the union-read request, on the same track.
-    let response_payload: shoreline::session::event::InputRequestRespondedPayload =
+    let response_payload: pointbreak::session::event::InputRequestRespondedPayload =
         serde_json::from_value(response.payload.clone()).unwrap();
     assert_eq!(
         response_payload.revision_id.as_ref().map(|id| id.as_str()),
@@ -828,7 +828,7 @@ fn event_file_names(store_dir: &Path) -> Vec<String> {
 /// `read_events(worktree)` resolves the worktree-local `.shore/data` store; in
 /// linked mode write-through lands events in the clone-local store, so reading
 /// those events back means reading the clone-local store directory itself.
-fn read_store_events(store_dir: &Path) -> Vec<shoreline::session::event::ShoreEvent> {
+fn read_store_events(store_dir: &Path) -> Vec<pointbreak::session::event::ShoreEvent> {
     let events_dir = store_dir.join("events");
     let mut entries: Vec<PathBuf> = match fs::read_dir(&events_dir) {
         Ok(read_dir) => read_dir

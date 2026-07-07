@@ -4,30 +4,30 @@ use std::path::Path;
 fn readme_explains_package_command_split() {
     let readme = std::fs::read_to_string("README.md").expect("read README");
 
-    assert!(readme.contains("cargo install shoreline"));
+    assert!(readme.contains("cargo install pointbreak"));
     assert!(readme.contains("provides the `shore` command"));
     assert!(!readme.contains("cargo install shore\n"));
     assert!(!readme.contains("cargo install shore "));
 }
 
 #[test]
-fn readme_has_release_badges_for_shoreline() {
+fn readme_has_release_badges_for_pointbreak() {
     let readme = std::fs::read_to_string("README.md").expect("read README");
 
-    assert!(readme.contains("https://crates.io/crates/shoreline"));
-    assert!(readme.contains("https://img.shields.io/crates/v/shoreline"));
-    assert!(readme.contains("https://docs.rs/shoreline"));
-    assert!(readme.contains("https://docs.rs/shoreline/badge.svg"));
-    assert!(readme.contains("https://github.com/kevinswiber/shoreline/actions/workflows/ci.yml"));
+    assert!(readme.contains("https://crates.io/crates/pointbreak"));
+    assert!(readme.contains("https://img.shields.io/crates/v/pointbreak"));
+    assert!(readme.contains("https://docs.rs/pointbreak"));
+    assert!(readme.contains("https://docs.rs/pointbreak/badge.svg"));
+    assert!(readme.contains("https://github.com/kevinswiber/pointbreak/actions/workflows/ci.yml"));
     assert!(readme.contains("actions/workflows/ci.yml/badge.svg"));
 }
 
 #[test]
-fn cargo_metadata_points_to_shoreline_repository() {
+fn cargo_metadata_points_to_pointbreak_repository() {
     let manifest = std::fs::read_to_string("Cargo.toml").expect("read Cargo manifest");
 
-    assert!(manifest.contains(r#"homepage = "https://github.com/kevinswiber/shoreline""#));
-    assert!(manifest.contains(r#"repository = "https://github.com/kevinswiber/shoreline""#));
+    assert!(manifest.contains(r#"homepage = "https://github.com/kevinswiber/pointbreak""#));
+    assert!(manifest.contains(r#"repository = "https://github.com/kevinswiber/pointbreak""#));
 }
 
 #[test]

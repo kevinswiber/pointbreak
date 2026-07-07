@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::Args;
-use shoreline::keys::{KeyCustody, agent_has_key, list_keys};
+use pointbreak::keys::{KeyCustody, agent_has_key, list_keys};
 
 use crate::cli::common::discover_trust_set;
 use crate::cli::{json, output};

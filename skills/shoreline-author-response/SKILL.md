@@ -1,11 +1,11 @@
 ---
 name: shoreline-author-response
-description: Use when the coding agent that authored a change should pick up a Shoreline reviewer pass on its existing revision. Read the reviewer's observations, validation evidence, assessment, and input requests with bounded commands, classify the verdict, respond to advisory requests with shore input-request respond, make changes only when the review is actionable, record author response observations, never add an assessment, and never recapture.
+description: Use when the coding agent that authored a change should pick up a Pointbreak reviewer pass on its existing revision. Read the reviewer's observations, validation evidence, assessment, and input requests with bounded commands, classify the verdict, respond to advisory requests with shore input-request respond, make changes only when the review is actionable, record author response observations, never add an assessment, and never recapture.
 ---
 
-# Shoreline Author Review Response
+# Pointbreak Author Review Response
 
-You are the agent that authored the change. A reviewer has recorded a Shoreline review on the
+You are the agent that authored the change. A reviewer has recorded a Pointbreak review on the
 existing revision, and you are picking that review back up. Your job is to triage the verdict,
 respond through structured input-request channels, make required changes when the review asks for
 them, and record your response on your author track.

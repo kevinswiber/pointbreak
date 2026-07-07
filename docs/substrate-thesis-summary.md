@@ -2,7 +2,7 @@
 
 ## Status
 
-Source-facing summary. Shoreline's substrate thesis is supported by the current code-review system and
+Source-facing summary. Pointbreak's substrate thesis is supported by the current code-review system and
 one headless agent task-supervision prototype. Treat the framing as stable internal architecture
 language, not as a universal product claim.
 
@@ -12,7 +12,7 @@ freshness, and advisory/operative patterns.
 
 ## Thesis
 
-Shoreline is a durable shared medium for software work objects. The same substrate pattern can support
+Pointbreak is a durable shared medium for software work objects. The same substrate pattern can support
 more than one software-work domain without growing a central workflow controller:
 
 - append-only event log;
@@ -104,7 +104,7 @@ the boundary between them is a design decision, not a gap to close:
   **current-state, single-author prose**: a plan, a research write-up, or an ADR that one author edits
   to a fixpoint. There is one evolving document, one writer at a time, and no durable multi-actor
   history to preserve. Folding this into the substrate would add ceremony without buying anything.
-- **The Shoreline substrate** is correct for **multi-actor, durable-record review of evolving work
+- **The Pointbreak substrate** is correct for **multi-actor, durable-record review of evolving work
   objects**: code changes that multiple actors (human, agent, import) assert facts about over time,
   where supersession, attribution, freshness, and advisory/operative policy all need to be durable and
   replay-stable.
@@ -117,7 +117,7 @@ handles well.
 
 ### No Hidden Controller
 
-Shoreline should not silently become a workflow engine. Executive policy belongs in named projections or
+Pointbreak should not silently become a workflow engine. Executive policy belongs in named projections or
 explicit ADRs. A projection may answer whether an actor can proceed, but the rule must be visible,
 testable, and diagnostic-rich.
 

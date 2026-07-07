@@ -1,6 +1,6 @@
 # Event versioning
 
-Shoreline separates four version axes so that different kinds of change cost what they should. The
+Pointbreak separates four version axes so that different kinds of change cost what they should. The
 guiding principle:
 
 > **Identity is frozen and signed; interpretation is versioned and hash-excluded.**

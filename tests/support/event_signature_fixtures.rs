@@ -12,15 +12,15 @@ use std::path::Path;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use ed25519_dalek::{Signer as _, SigningKey};
-use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
-use shoreline::crypto::SignerId;
-use shoreline::model::{
+use pointbreak::crypto::SignerId;
+use pointbreak::model::{
     JournalId, ReviewTargetRef, RevisionId, TargetRef, TaskTargetRef, TrackId, WorkObjectId,
 };
-use shoreline::session::event::{
+use pointbreak::session::event::{
     EventTarget, EventToBeSigned, ShoreEvent, event_signature_pre_authentication_encoding,
 };
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 /// In-memory fixture set: file name → exact file bytes.
 pub struct FixtureSet {

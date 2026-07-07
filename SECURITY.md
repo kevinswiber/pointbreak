@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Security reports should target the latest published `shoreline` crate and the current `main`
+Security reports should target the latest published `pointbreak` crate and the current `main`
 branch. The project is pre-1.0, so fixes may require upgrading to a newer patch release once one is
 available.
 
@@ -12,7 +12,7 @@ Please do not file security-sensitive reports as public GitHub issues.
 
 Send a private report to Kevin Swiber at `kevin@swiber.dev` with:
 
-- affected Shoreline version or commit
+- affected Pointbreak version or commit
 - operating system and Rust version if relevant
 - reproduction steps or a proof of concept
 - expected impact

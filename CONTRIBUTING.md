@@ -1,6 +1,6 @@
-# Contributing To Shoreline
+# Contributing To Pointbreak
 
-Thanks for taking time to improve Shoreline. The project is still early, so small, focused patches
+Thanks for taking time to improve Pointbreak. The project is still early, so small, focused patches
 are easiest to review.
 
 ## Development Setup
@@ -77,7 +77,7 @@ Use an unscoped commit unless `cog.toml` grows an explicit scopes list. Today th
 empty, so scoped commits such as `docs(readme): ...` are rejected.
 
 Check the current branch against the upstream default branch. In a fork, add an `upstream` remote
-that points to `kevinswiber/shoreline`; in the maintainer clone, replace `upstream` with `origin`
+that points to `kevinswiber/pointbreak`; in the maintainer clone, replace `upstream` with `origin`
 if `origin` is the upstream repository.
 
 ```bash
@@ -99,6 +99,6 @@ matrix.
 
 ## Project Shape
 
-Shoreline is a Rust terminal review tool. Keep the headless review model authoritative and make the
+Pointbreak is a Rust terminal review tool. Keep the headless review model authoritative and make the
 TUI or other surfaces project from that model. Public command output JSON is the integration
 surface; raw `.shore/data/` files are local storage details unless a command explicitly documents them.

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 #
 # Snapshot a git worktree plus its `.git/shore` review data into a self-contained
-# Shoreline test fixture. Worktrees come and go; this preserves the review
+# Pointbreak test fixture. Worktrees come and go; this preserves the review
 # context (the exact tree that was reviewed, the base it was reviewed against,
-# and the captured Shoreline store) so it survives the worktree's deletion.
+# and the captured Pointbreak store) so it survives the worktree's deletion.
 #
 # Since the common-dir store collapse (ADR-0015 / plan 0075) the durable store
 # lives at `<git-common-dir>/shore` — i.e. `<repo>/.git/shore`, INSIDE `.git`.
 # The working-tree copy below excludes `/.git`, so the store is copied
 # separately into the fixture's own resolved store location.
 #
-# The fixture is a standalone git repo (origin removed) so git-based Shoreline
+# The fixture is a standalone git repo (origin removed) so git-based Pointbreak
 # behavior keeps working without the source repo present. Build artifacts
 # (`target/`) are excluded by default. The store is copied verbatim.
 #
@@ -26,10 +26,10 @@
 #   --name <name>        Fixture dir name. Default: basename of the worktree.
 #   --base <ref>         Review base. Default: merge-base of the worktree HEAD
 #                        with the source repo's default branch.
-#   --tool-repo <dir>    Shoreline repo used for the review. Default: this
+#   --tool-repo <dir>    Pointbreak repo used for the review. Default: this
 #                        script's repo root.
-#   --tool-commit <sha>  Shoreline tool commit. Default: HEAD of --tool-repo.
-#   --pr <num>           Associated Shoreline PR number (recorded; looked up
+#   --tool-commit <sha>  Pointbreak tool commit. Default: HEAD of --tool-repo.
+#   --pr <num>           Associated Pointbreak PR number (recorded; looked up
 #                        via `gh` if available).
 #   --include-target     Include target/ build artifacts (default: excluded).
 #   --force              Overwrite an existing fixture directory.
@@ -122,7 +122,7 @@ BASE_SUBJECT="$(git -C "$WT" log -1 --format=%s "$BASE_COMMIT" 2>/dev/null || ec
 DIRTY="clean"
 [ -n "$(git -C "$WT" status --porcelain=v1 2>/dev/null)" ] && DIRTY="dirty (uncommitted changes preserved)"
 
-# Shoreline tool provenance
+# Pointbreak tool provenance
 if [ -z "$TOOL_COMMIT" ] && { [ -d "$TOOL_REPO/.git" ] || [ -f "$TOOL_REPO/.git" ]; }; then
   TOOL_COMMIT="$(git -C "$TOOL_REPO" rev-parse HEAD 2>/dev/null || true)"
 fi
@@ -190,7 +190,7 @@ RSYNC_EXCLUDES=(--exclude='/.git')
 [ "$INCLUDE_TARGET" -eq 1 ] || RSYNC_EXCLUDES+=(--exclude='/target/')
 rsync -a "${RSYNC_EXCLUDES[@]}" "$WT/" "$DEST/"
 
-# Copy the durable Shoreline store. Since the common-dir store collapse
+# Copy the durable Pointbreak store. Since the common-dir store collapse
 # (ADR-0015 / plan 0075) the store lives at `<git-common-dir>/shore` — i.e.
 # inside `.git` — so the rsync above (which excludes `/.git`) never copies it.
 # Copy it explicitly into the fixture's OWN resolved store location (the fixture
@@ -207,7 +207,7 @@ if [ ! -d "$SRC_STORE" ]; then
   else
     SRC_STORE=""
     STORE_SOURCE="none"
-    printf 'warning: no Shoreline store found (neither %s/shore nor %s/.shore/data)\n' \
+    printf 'warning: no Pointbreak store found (neither %s/shore nor %s/.shore/data)\n' \
       "$COMMON_DIR" "$WT" >&2
   fi
 fi
@@ -276,7 +276,7 @@ TOOL_ORIGIN="$(git -C "$TOOL_REPO" remote get-url origin 2>/dev/null || echo '(u
 {
   printf '# Fixture: %s\n\n' "$NAME"
   printf 'A snapshot of a git worktree plus its `.git/shore` review data, captured for\n'
-  printf 'testing Shoreline. The source worktree was *copied*, so this fixture stays\n'
+  printf 'testing Pointbreak. The source worktree was *copied*, so this fixture stays\n'
   printf 'valid after the original worktree is deleted.\n\n'
   printf '> Excluded from the git working tree (see `.git/info/exclude`) so `git status`\n'
   printf '> stays clean for tests that re-run git.\n\n'
@@ -285,14 +285,14 @@ TOOL_ORIGIN="$(git -C "$TOOL_REPO" remote get-url origin 2>/dev/null || echo '(u
   printf '| Reviewed head (HEAD, branch `%s`) | `%s` | %s |\n' "$BRANCH" "$HEAD_COMMIT" "$HEAD_SUBJECT"
   printf '| Review base (`%s`) | `%s` | %s |\n' "$DEFAULT_BRANCH" "$BASE_COMMIT" "$BASE_SUBJECT"
   if [ -n "$TOOL_COMMIT" ]; then
-    printf '| Shoreline tool build | `%s` | %s |\n' "$TOOL_COMMIT" "$TOOL_SUBJECT"
+    printf '| Pointbreak tool build | `%s` | %s |\n' "$TOOL_COMMIT" "$TOOL_SUBJECT"
   fi
   printf '\nReview diff: `%s..%s`.\n\n' "${BASE_COMMIT:0:12}" "${HEAD_COMMIT:0:12}"
   printf '## Provenance\n\n'
   printf -- '- Source repo: `%s` (default branch `%s`)\n' "$MAIN_WT" "$DEFAULT_BRANCH"
   printf -- '- Source worktree (copied from): `%s`\n' "$WT"
   printf -- '- Worktree state at capture: %s\n' "$DIRTY"
-  [ -n "$TOOL_COMMIT" ] && printf -- '- Shoreline tool repo: `%s` (%s)\n' "$TOOL_REPO" "$TOOL_ORIGIN"
+  [ -n "$TOOL_COMMIT" ] && printf -- '- Pointbreak tool repo: `%s` (%s)\n' "$TOOL_REPO" "$TOOL_ORIGIN"
   [ -n "$PR_LINE" ] && printf -- '- Associated PR: %s\n' "$PR_LINE"
   printf -- '- Captured into fixture: %s\n' "$TODAY"
   printf -- '- target/ build artifacts: %s\n\n' "$([ "$INCLUDE_TARGET" -eq 1 ] && echo included || echo excluded)"
@@ -309,10 +309,10 @@ INDEX="$OUT_DIR/README.md"
 if [ ! -f "$INDEX" ]; then
   {
     printf '# shoreline-fixtures\n\n'
-    printf 'Local snapshots of review sessions for testing Shoreline. Each fixture is a\n'
+    printf 'Local snapshots of review sessions for testing Pointbreak. Each fixture is a\n'
     printf 'standalone copy of a source worktree plus its `.git/shore` store; see each\n'
     printf "fixture's \`FIXTURE.md\` for provenance. These may contain private review data\n"
-    printf -- '— do not commit them into the Shoreline source repo.\n\n'
+    printf -- '— do not commit them into the Pointbreak source repo.\n\n'
     printf '## Fixtures\n\n'
   } > "$INDEX"
 fi

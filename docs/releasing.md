@@ -1,8 +1,8 @@
 # Releasing
 
-Shoreline releases are driven from GitHub Actions through Cocogitto.
+Pointbreak releases are driven from GitHub Actions through Cocogitto.
 
-The published crate is `shoreline`; it installs the `shore` command. The crate is licensed
+The published crate is `pointbreak`; it installs the `shore` command. The crate is licensed
 Apache-2.0 through `Cargo.toml` and the repository `LICENSE` file.
 
 Use the **Release Plan** workflow in `plan` mode first. It reports the current commit, recent CI
@@ -11,7 +11,7 @@ optional `version` input, for example `0.1.1`. After checking the plan, re-run t
 `release` mode with the same version input.
 
 Release mode creates the Cocogitto version commit and tag, pushes both to `main`, and dispatches the
-**Release** workflow for that tag. The Release workflow publishes the `shoreline` crate to crates.io,
+**Release** workflow for that tag. The Release workflow publishes the `pointbreak` crate to crates.io,
 then creates the GitHub Release.
 
 ## Local helper
@@ -34,11 +34,11 @@ GitHub repository settings:
 
 Repository secrets:
 
-- `CARGO_REGISTRY_TOKEN` - crates.io API token with publish access for `shoreline`.
+- `CARGO_REGISTRY_TOKEN` - crates.io API token with publish access for `pointbreak`.
 - `GPG_PRIVATE_KEY` - private key used by the Release Plan workflow to sign the Cocogitto version
   commit and tag.
 
-No Homebrew, npm, or binary-asset secrets are needed for Shoreline.
+No Homebrew, npm, or binary-asset secrets are needed for Pointbreak.
 
 ## Cocogitto Notes
 

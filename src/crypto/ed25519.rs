@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::crypto::SignerId;
 use crate::error::Result;
 
-/// Result of verifying a Shoreline event's optional Ed25519 producer signature.
+/// Result of verifying a Pointbreak event's optional Ed25519 producer signature.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventVerificationStatus {

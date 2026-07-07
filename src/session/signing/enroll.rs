@@ -1,5 +1,5 @@
 //! Writer side of the committed signature allow-list. The on-disk shape is a
-//! custom Shoreline JSON document — `{"allowedSigners": {"<actor>": ["<did:key>",
+//! custom Pointbreak JSON document — `{"allowedSigners": {"<actor>": ["<did:key>",
 //! …]}}` — **not** the OpenSSH `allowed_signers` line format despite the filename.
 //! Reader side lives in `trust.rs`; this module adds the symmetric writer.
 
@@ -12,7 +12,7 @@ use crate::crypto::SignerId;
 use crate::error::{Result, ShoreError};
 use crate::model::ActorId;
 
-/// Repo-relative path to the committed allow-list. Custom Shoreline JSON, not the
+/// Repo-relative path to the committed allow-list. Custom Pointbreak JSON, not the
 /// OpenSSH `allowed_signers` format despite the filename.
 pub const ALLOWED_SIGNERS_REL_PATH: &str = ".shore/allowed-signers.json";
 

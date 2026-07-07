@@ -2,9 +2,9 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::Args;
-use shoreline::documents::capture_document;
-use shoreline::model::{ReviewEndpoint, RevisionId};
-use shoreline::session::{CaptureOptions, CaptureResult, CommitRangeSpec, capture_review};
+use pointbreak::documents::capture_document;
+use pointbreak::model::{ReviewEndpoint, RevisionId};
+use pointbreak::session::{CaptureOptions, CaptureResult, CommitRangeSpec, capture_review};
 
 use crate::cli::output;
 use crate::cli_tracing::TracingArgs;
@@ -67,7 +67,7 @@ pub(super) fn run(
     crate::cli::common::surface_best_effort_skip(&skip, stderr);
     // Best-effort: if this worktree is splitting off from a family store a sibling
     // worktree is linked to, say so on stderr. Never fails the capture.
-    if let Ok(Some(advisory)) = shoreline::session::family_link_advisory(&args.repo) {
+    if let Ok(Some(advisory)) = pointbreak::session::family_link_advisory(&args.repo) {
         let _ = writeln!(stderr, "{advisory}");
     }
     // `capture_document` consumes the result by value; keep a clone for the text lane.

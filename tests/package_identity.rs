@@ -3,10 +3,10 @@ use std::process::Command;
 use std::{fs, io};
 
 #[test]
-fn package_and_library_identity_are_shoreline() {
-    assert_eq!(env!("CARGO_PKG_NAME"), "shoreline");
+fn package_and_library_identity_are_pointbreak() {
+    assert_eq!(env!("CARGO_PKG_NAME"), "pointbreak");
 
-    let _ = std::any::type_name::<shoreline::model::DiffSnapshot>();
+    let _ = std::any::type_name::<pointbreak::model::DiffSnapshot>();
 }
 
 #[test]

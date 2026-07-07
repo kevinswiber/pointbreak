@@ -228,9 +228,9 @@ fn capture_with_dirty_worktree_and_base_ignores_worktree_state() {
         .stdout,
     );
     let snapshot_id =
-        shoreline::model::ObjectId::new(capture["revision"]["objectId"].as_str().unwrap());
+        pointbreak::model::ObjectId::new(capture["revision"]["objectId"].as_str().unwrap());
 
-    let artifact = shoreline::session::read_object_artifact(repo.path(), &snapshot_id)
+    let artifact = pointbreak::session::read_object_artifact(repo.path(), &snapshot_id)
         .expect("object artifact for the range capture");
     let paths: Vec<&str> = artifact
         .snapshot

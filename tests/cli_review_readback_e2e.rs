@@ -6,10 +6,10 @@ use support::shore_env;
 const ENDORSER: &str = "actor:git-email:kevin@swiber.dev";
 
 fn captured_event_id(repo: &std::path::Path) -> String {
-    shoreline::session::read_events(repo)
+    pointbreak::session::read_events(repo)
         .unwrap()
         .iter()
-        .find(|e| e.event_type == shoreline::session::event::EventType::WorkObjectProposed)
+        .find(|e| e.event_type == pointbreak::session::event::EventType::WorkObjectProposed)
         .expect("a captured review unit")
         .event_id
         .as_str()

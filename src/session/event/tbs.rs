@@ -13,7 +13,7 @@ pub const EVENT_TO_BE_SIGNED_V1_PAYLOAD_TYPE: &str = "application/vnd.shore.even
 /// Canonical producer-fact view used as the body for event signature bytes.
 ///
 /// This is not the whole event minus its signature. It is the explicit set of
-/// event-envelope facts that Shoreline signs with Dead Simple Signing Envelope
+/// event-envelope facts that Pointbreak signs with Dead Simple Signing Envelope
 /// (DSSE) pre-authentication encoding.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,7 +49,7 @@ impl<'a> EventToBeSigned<'a> {
         })
     }
 
-    /// Serializes this signing view with Shoreline's canonical JSON byte contract.
+    /// Serializes this signing view with Pointbreak's canonical JSON byte contract.
     pub fn canonical_bytes(&self) -> Result<Vec<u8>> {
         canonical_json_bytes(&serde_json::to_value(self)?)
     }

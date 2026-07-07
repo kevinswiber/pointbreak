@@ -89,34 +89,34 @@ jobs:
           set -euo pipefail
 
           crate_version_published() {
-            curl -fsS "https://crates.io/api/v1/crates/shoreline/${VERSION}" >/dev/null 2>&1
+            curl -fsS "https://crates.io/api/v1/crates/pointbreak/${VERSION}" >/dev/null 2>&1
           }
 
           if crate_version_published; then
-            echo "shoreline ${VERSION} is already published; skipping"
+            echo "pointbreak ${VERSION} is already published; skipping"
             exit 0
           fi
 
           for attempt in $(seq 1 5); do
-            if cargo publish -p shoreline --locked; then
+            if cargo publish -p pointbreak --locked; then
               exit 0
             fi
             if crate_version_published; then
-              echo "shoreline ${VERSION} is already published after publish retry ${attempt}; continuing"
+              echo "pointbreak ${VERSION} is already published after publish retry ${attempt}; continuing"
               exit 0
             fi
             if [ "$attempt" -lt 5 ]; then
-              echo "Publish attempt ${attempt}/5 failed for shoreline; retrying after crates.io propagation delay"
+              echo "Publish attempt ${attempt}/5 failed for pointbreak; retrying after crates.io propagation delay"
               sleep 30
             fi
           done
 
-          echo "error: failed to publish shoreline ${VERSION}" >&2
+          echo "error: failed to publish pointbreak ${VERSION}" >&2
           exit 1
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
-          name: shoreline ${{ steps.meta.outputs.tag }}
+          name: pointbreak ${{ steps.meta.outputs.tag }}
           generate_release_notes: true

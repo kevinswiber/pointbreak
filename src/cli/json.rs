@@ -2,9 +2,9 @@ use std::io::Write;
 
 // Re-exported so the out-of-scope `store` commands keep wrapping bodies in the
 // shared envelope by the `json::` path. The `shore.review-*` commands now call
-// the `shoreline::documents` builders directly. `EventWriteDocument` lives in
-// `shoreline::documents` alongside it but has no remaining CLI-side caller.
-pub(super) use shoreline::documents::DiagnosticDocument;
+// the `pointbreak::documents` builders directly. `EventWriteDocument` lives in
+// `pointbreak::documents` alongside it but has no remaining CLI-side caller.
+pub(super) use pointbreak::documents::DiagnosticDocument;
 
 pub(super) fn write_json<T: serde::Serialize>(
     stdout: &mut dyn Write,

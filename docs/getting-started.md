@@ -1,14 +1,14 @@
 # Getting Started
 
-This guide walks through one local Shoreline review from an empty scratch repository. It is meant to
+This guide walks through one local Pointbreak review from an empty scratch repository. It is meant to
 show the shape of the workflow, not every option.
 
-## 1. Install Shoreline
+## 1. Install Pointbreak
 
-Install the `shoreline` crate; it provides the `shore` command:
+Install the `pointbreak` crate; it provides the `shore` command:
 
 ```bash
-cargo install shoreline
+cargo install pointbreak
 shore --help
 ```
 
@@ -21,13 +21,13 @@ cargo build --release
 
 ## 2. Create A Scratch Change
 
-Shoreline reviews a Git worktree diff. The repository needs a baseline commit so Git has a `HEAD`
+Pointbreak reviews a Git worktree diff. The repository needs a baseline commit so Git has a `HEAD`
 to compare against.
 
 ```bash
-rm -rf shoreline-review-scratch
-mkdir shoreline-review-scratch
-cd shoreline-review-scratch
+rm -rf pointbreak-review-scratch
+mkdir pointbreak-review-scratch
+cd pointbreak-review-scratch
 
 git init -q
 git config user.email "reviewer@example.com"
@@ -67,7 +67,7 @@ git diff
 shore capture
 ```
 
-The capture freezes the current diff as a local revision. Shoreline writes immutable event files to
+The capture freezes the current diff as a local revision. Pointbreak writes immutable event files to
 the store's `events/` log, stores captured object artifacts under `artifacts/`, and rebuilds
 `state.json` as a projection. By default the store is the shared common-dir store at `.git/shore` —
 the same store for every worktree of the clone — and an ephemeral worktree keeps a worktree-local

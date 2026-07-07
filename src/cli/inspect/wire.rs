@@ -7,13 +7,13 @@
 
 use std::collections::HashMap;
 
-use serde::Serialize;
-use shoreline::highlight::{EmphSpan, RowKey, TokenSpan};
-use shoreline::model::{
+use pointbreak::highlight::{EmphSpan, RowKey, TokenSpan};
+use pointbreak::model::{
     DiffFile, DiffRow, DiffRowKind, DiffSnapshot, FileId, FileMetadataRow, FileStatus, HunkId,
     ObjectId, ReviewHunk, ReviewId,
 };
-use shoreline::session::ObjectArtifact;
+use pointbreak::session::ObjectArtifact;
+use serde::Serialize;
 
 /// Per-file highlight cap. A file whose total diff rows exceed this is served plain (the
 /// manually-expanded large-file case). Mirrors the inspector's large-file threshold so the
@@ -275,8 +275,8 @@ fn utf16_len(s: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use shoreline::highlight::{EmphSpan, TokenKind, TokenSpan, emphasis_file, highlight_file};
-    use shoreline::model::{DiffRow, DiffRowKind};
+    use pointbreak::highlight::{EmphSpan, TokenKind, TokenSpan, emphasis_file, highlight_file};
+    use pointbreak::model::{DiffRow, DiffRowKind};
 
     use super::*;
 

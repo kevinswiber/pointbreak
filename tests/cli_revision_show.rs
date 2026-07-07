@@ -750,10 +750,10 @@ fn text_digest_groups_fact_counts_by_track() {
 
 /// Find the captured Revision event id via the public read path (`read_events`).
 fn captured_event_id(repo_path: &std::path::Path) -> String {
-    shoreline::session::read_events(repo_path)
+    pointbreak::session::read_events(repo_path)
         .unwrap()
         .iter()
-        .find(|e| e.event_type == shoreline::session::event::EventType::WorkObjectProposed)
+        .find(|e| e.event_type == pointbreak::session::event::EventType::WorkObjectProposed)
         .expect("a captured review unit event")
         .event_id
         .as_str()

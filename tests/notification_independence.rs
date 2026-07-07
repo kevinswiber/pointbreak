@@ -15,8 +15,8 @@ mod support;
 
 use std::path::Path;
 
-use shoreline::model::RevisionId;
-use shoreline::session::{LivenessToken, read_events};
+use pointbreak::model::RevisionId;
+use pointbreak::session::{LivenessToken, read_events};
 use support::git_repo::GitRepo;
 use support::inspect::capture;
 

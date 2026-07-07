@@ -1,6 +1,6 @@
 # CLI Reference
 
-This reference covers the public `shore` command surface provided by the `shoreline` crate.
+This reference covers the public `shore` command surface provided by the `pointbreak` crate.
 
 Command output JSON is the machine-integration surface, under a **tiered stability promise**. A
 narrow **hard core** is frozen within each document's `version`:
@@ -34,7 +34,7 @@ Most commands accept optional tracing flags:
 Tracing writes to stderr by default. When stdout is piped into JSON tools, prefer
 `--log-file <path>` so trace lines do not corrupt the JSON stream.
 
-When `--log-file <path>` points inside the repository, Shoreline treats that path as command-helper
+When `--log-file <path>` points inside the repository, Pointbreak treats that path as command-helper
 plumbing for the current command and excludes it from the reviewed snapshot and fingerprint.
 
 ## Actor Identity and Delegation
@@ -88,7 +88,7 @@ signature *is* the endorsement's content. See
 Every recorded fact — an observation, an assessment, a validation check, an input request, a
 commit or ref association — is scoped to a **review lane**: a caller-chosen free-text label
 naming who or what is doing the reviewing, such as `agent:codex` or a human reviewer's own
-identity. There is no fixed vocabulary or required shape; the label is opaque to Shoreline and
+identity. There is no fixed vocabulary or required shape; the label is opaque to Pointbreak and
 exists so a revision's facts can be filtered and grouped by who recorded them.
 
 - On every write command that records a fact (`shore observation add`,
@@ -237,7 +237,7 @@ tree, including untracked files (source `git_worktree`).
   `.shore/data/`.
 - `events/` stores immutable event files.
 - `state.json` is a rebuildable projection, not the authority.
-- Full captured snapshots are Shoreline-owned immutable object artifacts under `artifacts/objects/`.
+- Full captured snapshots are Pointbreak-owned immutable object artifacts under `artifacts/objects/`.
 - The `work_object_proposed` event binds to the object artifact's canonical content hash; the
   content-only artifact body carries no revision identity or endpoints (those live on the event).
 - Output is compact `shore.review-capture` JSON and includes the revision and object IDs
@@ -609,7 +609,7 @@ Observations are append-only review notes for a captured revision.
 - Bodies may come from `--body`, `--body-file`, or `--body-stdin`.
 - `--body-content-type` defaults to `text/plain`; use `text/markdown` when the body should render
   as Markdown in the inspector.
-- Large bodies are stored as Shoreline-owned `shore.note-body` artifacts while command output keeps
+- Large bodies are stored as Pointbreak-owned `shore.note-body` artifacts while command output keeps
   artifact paths private.
 - `--supersedes <observation-id>` (repeatable) records a correction by appending a new observation
   that names the older observation.
@@ -653,7 +653,7 @@ Input requests are durable pause or decision requests for a captured revision.
 - Request bodies may come from `--body`, `--body-file`, or `--body-stdin`.
 - `--body-content-type` defaults to `text/plain`; use `text/markdown` when the request body should
   render as Markdown in the inspector.
-- Large request bodies reuse Shoreline-owned `shore.note-body` artifacts while command output keeps
+- Large request bodies reuse Pointbreak-owned `shore.note-body` artifacts while command output keeps
   artifact paths private.
 - `input-request list` is the V1 polling read surface and defaults to open requests. It may filter
   by revision, track, mode, file, or status, and hydrates body text only with `--include-body`.
@@ -697,7 +697,7 @@ Assessments record review calls for a captured revision.
 - Summaries may come from `--summary`, `--summary-file`, or `--summary-stdin`.
 - `--summary-content-type` defaults to `text/plain`; use `text/markdown` when the summary should
   render as Markdown in the inspector.
-- Large summaries reuse Shoreline-owned `shore.note-body` artifacts while command output keeps
+- Large summaries reuse Pointbreak-owned `shore.note-body` artifacts while command output keeps
   artifact paths private.
 - `--replaces <assessment-id>` is the only V1 relationship that removes an older assessment from
   the current set.
@@ -737,7 +737,7 @@ replace a review assessment.
 - Summaries may come from `--summary`, `--summary-file`, or `--summary-stdin`.
 - `--summary-content-type` defaults to `text/plain`; use `text/markdown` when the summary should
   render as Markdown in the inspector.
-- Large summaries reuse Shoreline-owned `shore.note-body` artifacts while command output keeps
+- Large summaries reuse Pointbreak-owned `shore.note-body` artifacts while command output keeps
   artifact paths private.
 - `validation list` replays durable events for the revision and may filter by revision, track,
   or status. It hydrates summaries only with `--include-body`.
@@ -822,7 +822,7 @@ shore history [--repo <path>] [--revision <id>] [--track <track-id>] \
   [--include-body] [--pretty | --compact]
 ```
 
-`shore history` reads the chronological ledger of durable Shoreline events.
+`shore history` reads the chronological ledger of durable Pointbreak events.
 
 - History replays the resolved store's `events/` and emits compact `shore.review-history` v1 JSON by
   default.
@@ -930,7 +930,7 @@ shore revision show [REVISION] [--repo <path>] [--track <track-id>] \
 `shore revision show` is the composite view for one revision. It emits compact
 `shore.review-revision` v2 JSON by default.
 
-- When exactly one revision has been captured, Shoreline selects it automatically.
+- When exactly one revision has been captured, Pointbreak selects it automatically.
 - If multiple revisions exist, pass the `[REVISION]` positional. It is a **head seed**: a current
   head resolves exactly; a superseded revision resolves its thread's current head; and a thread with
   competing heads is reported as competing rather than auto-picked.

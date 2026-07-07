@@ -11,11 +11,11 @@ use std::collections::HashMap;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 
-use shoreline::highlight::{
+use pointbreak::highlight::{
     EmphSpan, TokenKind, TokenSpan, attributed_segments, emphasis_file, highlight_file,
 };
-use shoreline::model::{DiffFile, DiffRowKind, DiffSnapshot, FileStatus, ReviewHunk, RevisionId};
-use shoreline::session::{
+use pointbreak::model::{DiffFile, DiffRowKind, DiffSnapshot, FileStatus, ReviewHunk, RevisionId};
+use pointbreak::session::{
     RevisionShowOptions, RevisionShowResult, SnapshotContentState, diffstat_from_files,
     show_revision,
 };
@@ -492,7 +492,7 @@ pub(super) fn render_stat_table(files: &[DiffFile]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use shoreline::model::{
+    use pointbreak::model::{
         DiffRow, FileId, FileMetadataKind, FileMetadataRow, HunkId, ObjectId, ReviewHunk, ReviewId,
     };
 

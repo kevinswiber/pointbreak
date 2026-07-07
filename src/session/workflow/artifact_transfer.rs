@@ -28,7 +28,7 @@ pub enum ArtifactKind {
 /// events.
 ///
 /// The stable surface exposes the artifact kind and content hash. Any locator
-/// needed to read or write Shoreline's current on-disk layout stays private and
+/// needed to read or write Pointbreak's current on-disk layout stays private and
 /// must be passed back to [`export_artifact`] / [`import_artifact`]. Remote
 /// consumers derive these refs from forwarded events with
 /// [`referenced_artifacts`], fetch bytes by [`ArtifactRef::content_hash`], and

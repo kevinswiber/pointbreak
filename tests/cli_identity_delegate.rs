@@ -52,13 +52,13 @@ fn delegate_stages_delegates_file_and_reader_resolves_principal() {
 
     // Read back through the PUBLIC reader (INV-F).
     let path = repo.path().join(".shore/delegates.json");
-    let map = shoreline::session::DelegationMap::from_delegates_file(&path).unwrap();
+    let map = pointbreak::session::DelegationMap::from_delegates_file(&path).unwrap();
     assert_eq!(
         map.resolve(
-            &shoreline::model::ActorId::new("actor:agent:claude-code"),
+            &pointbreak::model::ActorId::new("actor:agent:claude-code"),
             "2026-06-11T00:00:00Z"
         ),
-        shoreline::session::PrincipalResolution::Resolved(shoreline::model::ActorId::new(
+        pointbreak::session::PrincipalResolution::Resolved(pointbreak::model::ActorId::new(
             "actor:git-email:kevin@swiber.dev"
         ))
     );
@@ -88,7 +88,7 @@ fn delegate_defaults_from_to_now_rfc3339() {
     );
     // The staged record re-reads (never a unix-ms: form, INV-C).
     assert!(
-        shoreline::session::DelegationMap::from_delegates_file(
+        pointbreak::session::DelegationMap::from_delegates_file(
             repo.path().join(".shore/delegates.json")
         )
         .is_ok()

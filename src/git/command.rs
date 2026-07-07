@@ -76,7 +76,7 @@ enum RepoFact {
 
 /// Memoizes [`RepoFact`] lookups keyed by the working directory passed to Git.
 ///
-/// Shoreline re-derives these facts many times across one capture/ingest — store
+/// Pointbreak re-derives these facts many times across one capture/ingest — store
 /// resolution alone resolves the worktree root ~10 times for a single repository
 /// — and each call previously spawned a fresh `git rev-parse`. Process spawning
 /// is the dominant cost in the `sys`-bound test suite and in every CLI
@@ -84,7 +84,7 @@ enum RepoFact {
 /// latency win for both.
 ///
 /// The memo is sound because these three facts are immutable for a given
-/// repository as long as it exists: Shoreline never relocates a repository
+/// repository as long as it exists: Pointbreak never relocates a repository
 /// mid-process, and the `info/exclude` *path* (not its mutable contents) is fixed
 /// by the layout. Only successful lookups are cached, so a transient failure is
 /// never memoized. Keys are canonicalized absolute paths (see [`repo_fact_key`]),
@@ -211,7 +211,7 @@ pub fn git_info_exclude_path(repo: &Path) -> Result<PathBuf> {
 /// Reports, for each pathspec, whether it is ignored by the standard Git
 /// exclude sources (the worktree `.gitignore`, the global excludes file, and
 /// the repository `.git/info/exclude`), in a single `git check-ignore`
-/// invocation — mirroring the `--exclude-standard` rules used when Shoreline
+/// invocation — mirroring the `--exclude-standard` rules used when Pointbreak
 /// discovers untracked files. Returns one bool per input path, in input order.
 ///
 /// Pathspecs are passed as arguments (not via `--stdin`), so plain check-ignore echoes

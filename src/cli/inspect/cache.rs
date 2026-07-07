@@ -12,7 +12,7 @@
 
 use std::sync::{Arc, RwLock};
 
-use shoreline::session::BaseHistoryProjection;
+use pointbreak::session::BaseHistoryProjection;
 
 /// A single-slot cache of the fully-hydrated base projection, keyed by the store
 /// head marker.

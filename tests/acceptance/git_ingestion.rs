@@ -1,5 +1,5 @@
-use shoreline::git::{IngestOptions, ingest_tracked_diff, ingest_tracked_diff_with_options};
-use shoreline::model::{DiffFile, DiffRowKind, FileMetadataKind, FileStatus};
+use pointbreak::git::{IngestOptions, ingest_tracked_diff, ingest_tracked_diff_with_options};
+use pointbreak::model::{DiffFile, DiffRowKind, FileMetadataKind, FileStatus};
 
 use crate::support::git_repo::GitRepo;
 use crate::support::snapshots::normalize_path;
@@ -248,11 +248,11 @@ fn executable_fixture_reports_git_mode_change() {
     );
 }
 
-fn variant_is_v1(kind: &shoreline::model::FileMetadataKind) -> bool {
+fn variant_is_v1(kind: &pointbreak::model::FileMetadataKind) -> bool {
     // Exhaustive match — NO wildcard arm. Adding a new FileMetadataKind variant
     // will fail to compile here, and that compile error is the tripwire. ADR-0002
     // ratifies these four as the V1 set; any new variant is itself a V2 decision.
-    use shoreline::model::FileMetadataKind::*;
+    use pointbreak::model::FileMetadataKind::*;
     match kind {
         BinarySummary | ModeChange | RenameSummary | SubmoduleSummary => true,
     }

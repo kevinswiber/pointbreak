@@ -1,6 +1,6 @@
 # Agent Authoring Handoffs
 
-Shoreline works best when the agent that made a change also leaves the first durable review record.
+Pointbreak works best when the agent that made a change also leaves the first durable review record.
 The agent is not reviewing itself. It is capturing the exact diff it just authored and recording the
 context a reviewer would otherwise have to reconstruct from chat, terminal output, and memory.
 
@@ -27,7 +27,7 @@ committed and the working tree is clean, capture the committed range instead wit
 history to manufacture a worktree diff.
 
 Humans set up the loop by making the expectation explicit: when the agent reaches the end of a task,
-it should run Shoreline before declaring the task complete. Agents execute the loop from inside the
+it should run Pointbreak before declaring the task complete. Agents execute the loop from inside the
 repository that contains the change. Reviewers pick up the recorded revision afterward and make the
 review call on their own track.
 
@@ -40,7 +40,7 @@ number, use the branch's distinctive segment as a fallback, and use a short rand
 exists. Keep the part after `agent:` lowercase, hyphenated, and around 15 characters or fewer.
 
 Tracks are review lanes, not actor identity. The unique tag keeps the lane legible when more than one
-agent run writes to the same `.shore/data/` store. Shoreline command output also records local Git and
+agent run writes to the same `.shore/data/` store. Pointbreak command output also records local Git and
 producer provenance, but the track is the durable lane that names which agent run is writing.
 
 ## Agent actor identity
@@ -68,7 +68,7 @@ authorization (see [cli-reference.md](./cli-reference.md)). Identity is reported
 of a binding decision. Agent events written before adopting an `actor:agent:` id carry the human's
 git-email id and stay exactly that — the `agent:*` track name is a heuristic, never re-attribution.
 
-Signing is automatic for agents. On the first write under an `actor:agent:*` id, Shoreline silently
+Signing is automatic for agents. On the first write under an `actor:agent:*` id, Pointbreak silently
 generates a passphrase-less per-machine key in the user-level key home, signs the event, and prints
 a one-line stderr notice with the agent's `did:key` and `shore key enroll` so a human can add the
 agent to the committed `.shore/allowed-signers.json` allow-list. The agent proposes the working-tree

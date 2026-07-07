@@ -18,7 +18,7 @@ fn ci_workflow_runs_project_lint_and_tests() {
 }
 
 #[test]
-fn release_workflows_target_single_shoreline_crate() {
+fn release_workflows_target_single_pointbreak_crate() {
     let release_plan =
         std::fs::read_to_string(".github/workflows/release-plan.yml").expect("read release plan");
     let release = std::fs::read_to_string(".github/workflows/release.yml").expect("read release");
@@ -26,19 +26,19 @@ fn release_workflows_target_single_shoreline_crate() {
         std::fs::read_to_string("scripts/run-release-plan.sh").expect("read release script");
     let cog = std::fs::read_to_string("cog.toml").expect("read cog config");
 
-    assert!(release_plan.contains("select(.name == \"shoreline\")"));
+    assert!(release_plan.contains("select(.name == \"pointbreak\")"));
     assert!(release_plan.contains("sort_by(.createdAt)"));
     assert!(release_plan.contains("RELEASE_COG_CONFIG"));
-    assert!(release.contains("cargo publish -p shoreline --locked"));
-    assert!(release.contains("https://crates.io/api/v1/crates/shoreline/${VERSION}"));
-    assert!(release_script.contains(r#"REPO="kevinswiber/shoreline""#));
+    assert!(release.contains("cargo publish -p pointbreak --locked"));
+    assert!(release.contains("https://crates.io/api/v1/crates/pointbreak/${VERSION}"));
+    assert!(release_script.contains(r#"REPO="kevinswiber/pointbreak""#));
     assert!(!release.contains("boardwalk"));
     assert!(cog.contains(r#""git commit --amend -m 'chore: v{{version}}'""#));
     assert!(cog.contains(r#""git tag -f v{{version}}""#));
     assert!(cog.contains(r#""git push origin HEAD:main""#));
     assert!(cog.contains(r#""git push origin refs/tags/v{{version}}""#));
     assert!(cog.contains("gh workflow run release.yml -f tag=v{{version}}"));
-    assert!(cog.contains(r#"repository = "shoreline""#));
+    assert!(cog.contains(r#"repository = "pointbreak""#));
 }
 
 #[test]

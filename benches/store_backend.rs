@@ -16,9 +16,9 @@ use std::hint::black_box;
 use std::path::{Path, PathBuf};
 
 use criterion::{BenchmarkId, Criterion, Throughput};
-use shoreline::bench_support::StoreBenchHarness;
-use shoreline::model::RevisionId;
-use shoreline::session::{
+use pointbreak::bench_support::StoreBenchHarness;
+use pointbreak::model::RevisionId;
+use pointbreak::session::{
     EventVerificationPolicy, ReviewHistoryOptions, RevisionListOptions, RevisionOverviewsOptions,
     RevisionShowOptions, event_log_head_marker, list_revisions, review_history, show_revision,
     show_revision_overviews,

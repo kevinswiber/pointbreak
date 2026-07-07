@@ -11,17 +11,17 @@
 
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
-use shoreline::crypto::SignerId;
-use shoreline::model::{EventId, JournalId};
-use shoreline::session::event::{
+use pointbreak::crypto::SignerId;
+use pointbreak::model::{EventId, JournalId};
+use pointbreak::session::event::{
     EventSignature, EventSignatureRecordedPayload, EventTarget, EventType, IngestProvenance,
     IngestVia, ShoreEvent, Writer,
 };
-use shoreline::session::{
+use pointbreak::session::{
     EventVerificationStatus, event_signature_pre_authentication_encoding,
     event_signature_trust_set, event_to_be_signed, verify_event_signature,
 };
+use serde_json::Value;
 
 mod support;
 

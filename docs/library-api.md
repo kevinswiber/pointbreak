@@ -1,13 +1,13 @@
 # Library API
 
-Shoreline ships as a library (`shoreline`) alongside the `shore` binary. This page documents the
+Pointbreak ships as a library (`pointbreak`) alongside the `shore` binary. This page documents the
 **supported, stable library surface** for consumers that read and write durable review facts
 in process, without shelling out to `shore`. The motivating consumer is a federation bridge that
 forwards review decisions on behalf of remote reviewers.
 
 The `shore` command-output JSON remains a supported integration surface (see
 [cli-reference.md](cli-reference.md)). The library surface below is an additional, equally supported
-contract: the [`shoreline::documents`](#documents) module produces the **byte-identical**
+contract: the [`pointbreak::documents`](#documents) module produces the **byte-identical**
 `shore.*` documents in process.
 
 ## What "stable" means
@@ -28,16 +28,16 @@ Async consumers (for example a Tokio server) must run these calls on a blocking 
 
 ```rust
 let result = tokio::task::spawn_blocking(move || {
-    shoreline::session::respond_input_request(options)
+    pointbreak::session::respond_input_request(options)
 })
 .await??;
 ```
 
-Shoreline does not introduce async traits or a runtime of its own.
+Pointbreak does not introduce async traits or a runtime of its own.
 
 ## Supported surface
 
-### Reads — `shoreline::session`
+### Reads — `pointbreak::session`
 
 | Item | Purpose |
 | ---- | ------- |
@@ -50,7 +50,7 @@ Shoreline does not introduce async traits or a runtime of its own.
 | `InputRequestView`, `InputRequestResponseView`, `ObservationView`, `AssessmentView`, `ValidationCheckView`, `RevisionProjection*` | Public-field result types. |
 | `InputRequestStatus`, `InputRequestStatusFilter`, `ObservationStatus`, `ValidationStatus`, `ValidationTrigger`, `CurrentAssessmentStatus` | Status/value enums consumers branch on. |
 
-### Writes — `shoreline::session`
+### Writes — `pointbreak::session`
 
 | Item | Purpose |
 | ---- | ------- |
@@ -91,7 +91,7 @@ review-fact command; passing a task-attempt request id to `respond_input_request
 domain-boundary error. A future task-attempt response writer that wants cross-worktree validation can
 route through the same `resolve_write_validation_store` seam — it is domain-agnostic.
 
-### Event signatures — `shoreline::session` / `shoreline::crypto`
+### Event signatures — `pointbreak::session` / `pointbreak::crypto`
 
 Per-event Ed25519 signatures are optional. Unsigned events remain valid and continue to omit
 `signer` and `signature`; all event-producing write options (`CaptureOptions`,
@@ -152,15 +152,15 @@ surfaces such as `review_history` report verification status only when requested
 persist that status into event files or `state.json`.
 
 An idempotent re-ingest keeps the first stored event. If a later event has the same idempotency key
-and payload hash but a different signer or signature, Shoreline keeps the first stored event and,
+and payload hash but a different signer or signature, Pointbreak keeps the first stored event and,
 when the incoming copy carries a resolvable attestation, transcribes it into a detached
 co-signature carrier (an unsigned divergent duplicate transcribes nothing); the affected input row
 reports `write_outcome: existing_divergent_signature`. Other metadata differences with the same
 payload hash remain an idempotent existing event. Signatures authenticate the producer facts; they
 do not choose an automatic conflict winner.
 
-`FileEd25519Signer` (`shoreline::keys`) is the production `EventSigner`: an Ed25519 key loaded from
-the user-level keystore (`shoreline::keys::{generate_key, load_signer, list_keys}`). Signing over a
+`FileEd25519Signer` (`pointbreak::keys`) is the production `EventSigner`: an Ed25519 key loaded from
+the user-level keystore (`pointbreak::keys::{generate_key, load_signer, list_keys}`). Signing over a
 loaded key is infallible — the only fallible work (resolving the key home, reading and decoding the
 key file) happens at load time, before the signer exists. **Signer resolution lives in the CLI
 layer, not the library**: the library seam `sign_event_if_requested` returns `Result` and propagates
@@ -169,14 +169,14 @@ and the workflow only ever signs with a known-good signer. That placement is why
 gates a write** — every resolution failure degrades to an unsigned write at exit 0 with a named
 diagnostic. The library seam is unchanged; there is no library entry point for resolution.
 
-`SshAgentSigner` (`shoreline::keys`) is the **second** production `EventSigner`: it signs by shipping
+`SshAgentSigner` (`pointbreak::keys`) is the **second** production `EventSigner`: it signs by shipping
 the DSSE PAE bytes to ssh-agent, so its `sign_event_message` is the **fallible** (network) one, unlike
 the file signer's infallible local sign. `sign_with` and the `EventSigner` trait are **unchanged** —
 the CLI resolution layer carries either signer as a boxed `dyn EventSigner` (a blanket impl lets the
 unchanged generic `sign_with` accept it), and a tightly-scoped sign-time degrade keeps never-gates true
 for the network signer. See [ADR-0010](./adr/adr-0010-actor-identity-and-delegation.md).
 
-### Actor identity and delegation — `shoreline::session`
+### Actor identity and delegation — `pointbreak::session`
 
 Verification answers "is this event authentic?"; delegation answers the orthogonal question "whose
 responsibility is this agent's write?". The two are independent — an unsigned local agent event can
@@ -196,7 +196,7 @@ typed migration error; see [storage-model.md](./storage-model.md).) The delegati
 policy are reader-supplied config the agent does not control, so consuming them never trusts a
 self-asserted field. See [ADR-0010](./adr/adr-0010-actor-identity-and-delegation.md).
 
-### Event ingest — `shoreline::session`
+### Event ingest — `pointbreak::session`
 
 | Item | Purpose |
 | ---- | ------- |
@@ -204,7 +204,7 @@ self-asserted field. See [ADR-0010](./adr/adr-0010-actor-identity-and-delegation
 | `import_event` + `ImportEventOptions` | Single-event convenience over `ingest_events`. |
 | `IngestEventVerification` | One row per verified event: `event_id`, `status`, `message`, and `write_outcome: Option<EventWriteOutcome>` — how the store resolved that event's write. |
 | `EventWriteOutcome` | The public per-event write resolution: `created`, `existing`, or `existing_divergent_signature`; serde, `as_str()`, and `Display` all use the snake_case wire strings. |
-| `shoreline::session::event::ShoreEvent` (+ `EventType`, `Writer`, payload types) | The event envelope; `Serialize` + `Deserialize`, so events can be forwarded as JSON. |
+| `pointbreak::session::event::ShoreEvent` (+ `EventType`, `Writer`, payload types) | The event envelope; `Serialize` + `Deserialize`, so events can be forwarded as JSON. |
 | `IngestProvenance` / `IngestVia` | The optional `ingest: { via, receivedAt }` envelope sibling stamped by import seams ([ADR-0009](adr/adr-0009-resumption-binding-trust-source.md)). |
 
 Ingest validates each envelope (`eventId`/`payloadHash`/schema) and validates the whole batch's
@@ -251,7 +251,7 @@ workflow or worktree produced the event, only its stamp and signature, so a resp
 verified, authorized signer binds identically from any store. Sign responses that must stay binding
 after a migration into the shared store.
 
-### Sensitivity vocabulary — `shoreline::session`
+### Sensitivity vocabulary — `pointbreak::session`
 
 `store_status` reports a redacted worktree sensitivity scan. The scan's vocabulary is a typed
 public contract so downstream boundaries (for example a relay's egress classification gate) can
@@ -272,13 +272,13 @@ expected `(kind, severity, policyOutcome)` rows for a positive (`block`) and a n
 repository, exercised against the real scanner by `tests/sensitivity_conformance.rs`. Boundary
 implementations can assert identical per-kind behavior from the same file.
 
-One deliberate divergence is part of the contract: shoreline's `known_token` detector matches the
+One deliberate divergence is part of the contract: pointbreak's `known_token` detector matches the
 `sk-`/`ghp_`/`github_pat_`/`AKIA` prefixes only at the start of a token, while shoreline-relay's
 egress gate matches the prefix anywhere in a token (its threat model is "the secret must not
 cross the wire", not "the token starts with a known prefix"). The fixture's embedded-prefix
-vector records both expectations: no shoreline finding, `known_token` at the relay.
+vector records both expectations: no pointbreak finding, `known_token` at the relay.
 
-### Artifacts — `shoreline::session`
+### Artifacts — `pointbreak::session`
 
 | Item | Purpose |
 | ---- | ------- |
@@ -311,9 +311,9 @@ referenced object or note-body artifact is unavailable, and an available artifac
 to an unsigned event. Consumers that need a full-fidelity mirror should verify both event signatures
 and artifact transfer separately.
 
-### Documents — `shoreline::documents`
+### Documents — `pointbreak::documents`
 
-The `shoreline::documents` module produces the documented `shore.review-*` command-output documents,
+The `pointbreak::documents` module produces the documented `shore.review-*` command-output documents,
 **byte-identical** to the `shore` CLI:
 
 - Envelopes: `DiagnosticDocument<T>`, `EventWriteDocument<T>` (schema/version/diagnostics, plus
@@ -327,7 +327,7 @@ The `shoreline::documents` module produces the documented `shore.review-*` comma
 A consumer that wants exactly the documented JSON contract calls a read/write workflow, passes the
 typed result to the matching builder, and serializes the document with `serde_json`.
 
-### Identifiers — `shoreline::model`
+### Identifiers — `pointbreak::model`
 
 The content-addressed id newtypes (`ActorId`, `RevisionId`, `ObjectId`, `InputRequestId`,
 `InputRequestResponseId`, `ObservationId`, `AssessmentId`, `ValidationCheckId`, `EventId`,
@@ -336,8 +336,8 @@ The content-addressed id newtypes (`ActorId`, `RevisionId`, `ObjectId`, `InputRe
 ## Example: read, attribute a write, and forward an event
 
 ```rust
-use shoreline::model::ActorId;
-use shoreline::session::{
+use pointbreak::model::ActorId;
+use pointbreak::session::{
     InputRequestListOptions, InputRequestRespondOptions, InputRequestResponseOutcome,
     list_input_requests, respond_input_request,
 };
@@ -353,6 +353,6 @@ let result = respond_input_request(
 )?;
 
 // Produce the documented `shore.review-input-request-respond` JSON in process.
-let document = shoreline::documents::input_request_respond_document(result);
+let document = pointbreak::documents::input_request_respond_document(result);
 let json = serde_json::to_value(&document)?;
 ```

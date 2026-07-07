@@ -1,7 +1,7 @@
 use std::cell::OnceCell;
 use std::path::{Path, PathBuf};
 
-use shoreline::session::{StoreIdIndex, store_id_index};
+use pointbreak::session::{StoreIdIndex, store_id_index};
 
 /// Minimum accepted abbreviated-id fragment length (ADR-0031 Decision 4). Four
 /// keeps memory-typed fragments short (git's default feel) while staying at or
@@ -257,7 +257,7 @@ mod tests {
     use std::collections::BTreeSet;
     use std::path::Path;
 
-    use shoreline::session::StoreIdIndex;
+    use pointbreak::session::StoreIdIndex;
 
     use super::{IdKind, IdResolver, MIN_ID_FRAGMENT, resolve_within};
 

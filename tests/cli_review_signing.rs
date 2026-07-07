@@ -3,10 +3,12 @@ mod support;
 use std::path::Path;
 use std::process::Output;
 
+use pointbreak::crypto::EventVerificationStatus;
+use pointbreak::session::event::EventType;
+use pointbreak::session::{
+    EventVerificationPolicy, ReviewHistoryOptions, TrustSet, review_history,
+};
 use serde_json::Value;
-use shoreline::crypto::EventVerificationStatus;
-use shoreline::session::event::EventType;
-use shoreline::session::{EventVerificationPolicy, ReviewHistoryOptions, TrustSet, review_history};
 use support::git_repo::GitRepo;
 use support::shore_env;
 

@@ -2,12 +2,12 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::Args;
-use serde::Serialize;
-use shoreline::model::ActorId;
-use shoreline::session::{
+use pointbreak::model::ActorId;
+use pointbreak::session::{
     DELEGATES_LOCAL_REL_PATH, DELEGATES_REL_PATH, DelegationMap, DelegationStageOutcome,
     DelegationWriteRecord, ensure_shore_gitignore, now_rfc3339_utc, stage_delegation,
 };
+use serde::Serialize;
 
 use crate::cli::json::DiagnosticDocument;
 use crate::cli::output;
@@ -76,7 +76,7 @@ pub(super) fn run(
     // Resolve the worktree root so a subdir enroll lands at the root file the reader
     // looks for (the same call keys/enroll.rs makes).
     let worktree_root =
-        shoreline::git::git_worktree_root(&args.repo).unwrap_or_else(|_| args.repo.clone());
+        pointbreak::git::git_worktree_root(&args.repo).unwrap_or_else(|_| args.repo.clone());
 
     let rel = if args.local {
         DELEGATES_LOCAL_REL_PATH

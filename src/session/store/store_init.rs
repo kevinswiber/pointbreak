@@ -225,7 +225,7 @@ fn body_is_purely_shore_generated(body: &str) -> bool {
     true
 }
 
-/// Keep Shoreline's generated/private files out of Git status via a committed
+/// Keep Pointbreak's generated/private files out of Git status via a committed
 /// `.shore/.gitignore` — visible in the working tree, scoped to the directory,
 /// and shared through clone — never by mutating the hidden, per-clone
 /// `.git/info/exclude`. A path already ignored by any standard source is

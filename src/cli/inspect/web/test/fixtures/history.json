@@ -37,7 +37,7 @@
         "actorId": "actor:git-email:shore-tests@example.com",
         "producer": {
           "name": "shore",
-          "version": "0.1.0"
+          "version": "0.5.0"
         }
       }
     },
@@ -62,7 +62,7 @@
         "actorId": "actor:git-email:shore-tests@example.com",
         "producer": {
           "name": "shore",
-          "version": "0.1.0"
+          "version": "0.5.0"
         }
       }
     },
@@ -102,7 +102,7 @@
         "actorId": "actor:git-email:shore-tests@example.com",
         "producer": {
           "name": "shore",
-          "version": "0.1.0"
+          "version": "0.5.0"
         }
       }
     },
@@ -136,7 +136,7 @@
         "actorId": "actor:git-email:shore-tests@example.com",
         "producer": {
           "name": "shore",
-          "version": "0.1.0"
+          "version": "0.5.0"
         }
       }
     },
@@ -168,7 +168,7 @@
         "actorId": "actor:git-email:shore-tests@example.com",
         "producer": {
           "name": "shore",
-          "version": "0.1.0"
+          "version": "0.5.0"
         }
       }
     },
@@ -203,7 +203,7 @@
         "actorId": "actor:git-email:shore-tests@example.com",
         "producer": {
           "name": "shore",
-          "version": "0.1.0"
+          "version": "0.5.0"
         }
       }
     },
@@ -234,7 +234,7 @@
         "actorId": "actor:git-email:shore-tests@example.com",
         "producer": {
           "name": "shore",
-          "version": "0.1.0"
+          "version": "0.5.0"
         }
       }
     },
@@ -267,7 +267,7 @@
         "actorId": "actor:git-email:shore-tests@example.com",
         "producer": {
           "name": "shore",
-          "version": "0.1.0"
+          "version": "0.5.0"
         }
       }
     }

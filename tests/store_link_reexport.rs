@@ -1,4 +1,4 @@
-use shoreline::session::{
+use pointbreak::session::{
     StoreLinkOptions, StoreLinkPreview, StoreLinkResult, StoreUnlinkOptions, StoreUnlinkResult,
     link_store_to_family, preview_link_to_family, unlink_store_from_family,
 };

@@ -1,6 +1,6 @@
 # Migrating a signed event store across a breaking shape change
 
-Shoreline's event store is append-only and content-addressed: an event's id, record
+Pointbreak's event store is append-only and content-addressed: an event's id, record
 hash, and on-disk filename are all derived from its bytes, and signatures attest those
 bytes. That makes a **breaking change to the event shape** — renaming an enum tag,
 reshaping a target, splitting an id — a hard break: old events no longer satisfy the new

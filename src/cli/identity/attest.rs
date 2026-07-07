@@ -2,12 +2,12 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::Args;
-use serde::Serialize;
-use shoreline::model::ActorId;
-use shoreline::session::{
+use pointbreak::model::ActorId;
+use pointbreak::session::{
     ACTOR_ATTRIBUTES_LOCAL_REL_PATH, ACTOR_ATTRIBUTES_REL_PATH, ActorAttributesStageOutcome,
     ActorAttributesWriteRecord, ensure_shore_gitignore, stage_actor_attributes,
 };
+use serde::Serialize;
 
 use crate::cli::json::DiagnosticDocument;
 use crate::cli::output;
@@ -65,7 +65,7 @@ pub(super) fn run(
         .with_comment(args.comment.clone());
 
     let worktree_root =
-        shoreline::git::git_worktree_root(&args.repo).unwrap_or_else(|_| args.repo.clone());
+        pointbreak::git::git_worktree_root(&args.repo).unwrap_or_else(|_| args.repo.clone());
     let rel = if args.local {
         ACTOR_ATTRIBUTES_LOCAL_REL_PATH
     } else {

@@ -152,7 +152,7 @@ fn getting_started_walks_through_first_review() {
     let normalized_guide = guide.replace("\r\n", "\n");
 
     for required in [
-        "cargo install shoreline",
+        "cargo install pointbreak",
         "shore capture",
         "shore revision show",
         "shore observation add",
@@ -234,7 +234,7 @@ fn readme_is_concise_and_routes_to_deeper_docs() {
     );
 
     for required in [
-        "cargo install shoreline",
+        "cargo install pointbreak",
         "docs/getting-started.md",
         "docs/cli-reference.md",
         "CONTRIBUTING.md",
@@ -258,7 +258,7 @@ fn release_docs_are_current_after_v0_1_publish() {
 
     assert!(!releasing.contains("Before the first v0.1.0 publish"));
     assert!(!releasing.contains("Cargo package preflight currently passes, but warns"));
-    assert!(releasing.contains("shoreline"));
+    assert!(releasing.contains("pointbreak"));
     assert!(releasing.contains("Release Plan"));
     assert!(releasing.contains("Release"));
     assert!(releasing.contains("Apache-2.0"));

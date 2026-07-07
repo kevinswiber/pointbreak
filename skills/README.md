@@ -1,13 +1,13 @@
-# Shoreline Agent Skills
+# Pointbreak Agent Skills
 
-This directory is the distribution source for Shoreline's spec-conformant Agent Skills, installable
+This directory is the distribution source for Pointbreak's spec-conformant Agent Skills, installable
 on any agentskills.io-conformant agent. It is not an auto-active project-skill path; install the
 skills into the agent environment where you want them to run.
 
 The recommended install path is:
 
 ```bash
-npx skills add kevinswiber/shoreline
+npx skills add kevinswiber/pointbreak
 ```
 
 Install the skill ahead of the work session where it should run, not after the implementation is
@@ -27,8 +27,8 @@ already finished.
 Manual fallback for agents that read the shared Agent Skills directory:
 
 ```bash
-git clone https://github.com/kevinswiber/shoreline.git
-cd shoreline
+git clone https://github.com/kevinswiber/pointbreak.git
+cd pointbreak
 mkdir -p ~/.agents/skills
 cp -r skills/* ~/.agents/skills/
 ```

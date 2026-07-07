@@ -12,7 +12,7 @@
 //! normalized output is asserted against the stored snapshot.
 //!
 //! The guard exists so the #118 extraction of the document/envelope layer into
-//! `shoreline::documents` provably preserves the documented bytes, field order,
+//! `pointbreak::documents` provably preserves the documented bytes, field order,
 //! renames, and `skip_serializing_if` behavior.
 
 mod support;

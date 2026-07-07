@@ -2,15 +2,15 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
-use shoreline::documents::{
+use pointbreak::documents::{
     input_request_fetch_document, input_request_list_document, input_request_open_document,
     input_request_respond_document,
 };
-use shoreline::model::{InputRequestId, ObservationId, RevisionId};
-use shoreline::session::event::{
+use pointbreak::model::{InputRequestId, ObservationId, RevisionId};
+use pointbreak::session::event::{
     AssertionMode, InputRequestReasonCode, InputRequestResponseOutcome,
 };
-use shoreline::session::{
+use pointbreak::session::{
     InputRequestFetchOptions, InputRequestListOptions, InputRequestListResult,
     InputRequestOpenOptions, InputRequestRespondOptions, InputRequestRespondResult,
     InputRequestStatusFilter, InputRequestTargetSelector, fetch_input_request, list_input_requests,

@@ -1,6 +1,6 @@
 # Assessment Model
 
-Shoreline records reviewer decisions as `review_assessment_recorded` events. An assessment is the
+Pointbreak records reviewer decisions as `review_assessment_recorded` events. An assessment is the
 current review call for a captured revision, file, range, observation, input request, or earlier
 assessment.
 
@@ -45,7 +45,7 @@ shore assessment add --track human:kevin --assessment accepted-with-follow-up \
 ```
 
 Summaries may come from `--summary`, `--summary-file`, or `--summary-stdin`. Large summaries use the
-same Shoreline-owned `shore.note-body` artifact path as other note-shaped bodies; command output keeps
+same Pointbreak-owned `shore.note-body` artifact path as other note-shaped bodies; command output keeps
 artifact paths private.
 
 `--replaces <assessment-id>` is the only relationship that removes an older assessment from the
@@ -89,7 +89,7 @@ identities folds into that single subject plus the distinct object sub-identity.
 
 ## Legacy disposition events
 
-Earlier versions of Shoreline wrote `review_disposition_recorded` events with eight variants. Shoreline is
+Earlier versions of Pointbreak wrote `review_disposition_recorded` events with eight variants. Pointbreak is
 pre-V1 and does not preserve those events on disk. Loading a `.shore/data/events/` directory that
 contains legacy disposition events fails with a typed error pointing at this section.
 

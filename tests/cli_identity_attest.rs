@@ -35,8 +35,8 @@ fn attest_stages_attributes_and_reader_resolves_kind_and_roles() {
 
     // Read back through the PUBLIC reader (INV-F).
     let path = repo.path().join(".shore/actor-attributes.json");
-    let map = shoreline::session::ActorAttributesMap::from_attributes_file(&path).unwrap();
-    let resolved = map.resolve(&shoreline::model::ActorId::new(
+    let map = pointbreak::session::ActorAttributesMap::from_attributes_file(&path).unwrap();
+    let resolved = map.resolve(&pointbreak::model::ActorId::new(
         "actor:git-email:kevin@swiber.dev",
     ));
     assert_eq!(resolved.kind(), Some("human"));
@@ -63,11 +63,11 @@ fn attest_normalizes_tokens() {
         &[],
     );
     assert!(out.status.success());
-    let map = shoreline::session::ActorAttributesMap::from_attributes_file(
+    let map = pointbreak::session::ActorAttributesMap::from_attributes_file(
         repo.path().join(".shore/actor-attributes.json"),
     )
     .unwrap();
-    let r = map.resolve(&shoreline::model::ActorId::new("actor:agent:review-bot"));
+    let r = map.resolve(&pointbreak::model::ActorId::new("actor:agent:review-bot"));
     assert_eq!(r.kind(), Some("reviewer-model"));
     assert_eq!(
         r.roles().iter().cloned().collect::<Vec<_>>(),

@@ -2,9 +2,9 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
-use shoreline::documents::{observation_add_document, observation_list_document};
-use shoreline::model::{ObservationId, RevisionId};
-use shoreline::session::{
+use pointbreak::documents::{observation_add_document, observation_list_document};
+use pointbreak::model::{ObservationId, RevisionId};
+use pointbreak::session::{
     ObservationAddOptions, ObservationListOptions, ObservationTargetSelector, list_observations,
     record_observation,
 };

@@ -14,8 +14,8 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
 
-use shoreline::model::EventId;
-use shoreline::session::{HistoryOrder, HistoryPage, HistoryQuery};
+use pointbreak::model::EventId;
+use pointbreak::session::{HistoryOrder, HistoryPage, HistoryQuery};
 
 use super::api;
 

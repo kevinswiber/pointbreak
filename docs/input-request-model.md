@@ -2,7 +2,7 @@
 
 ## Status
 
-V1 has a local durable input-request ledger. Shoreline can record `input_request_opened` events,
+V1 has a local durable input-request ledger. Pointbreak can record `input_request_opened` events,
 append `input_request_responded` events, and expose polling read surfaces through
 `shore input-request list` and `shore input-request show`.
 
@@ -11,12 +11,12 @@ behavior, notification transport, UI prompts, and automatic cancellation are def
 
 ## Goal
 
-Shoreline needs a durable way to represent moments where normal review flow needs input from another
+Pointbreak needs a durable way to represent moments where normal review flow needs input from another
 actor: a decision, an answer, an approval, a clarification, or an explicit response that changes how
 the work proceeds.
 
 Do not call this "human-in-the-loop" in the core model. The actor may be a human, reviewer, monitor
-process, automated tool, cloud worker, or another Shoreline client. The model describes the workflow
+process, automated tool, cloud worker, or another Pointbreak client. The model describes the workflow
 fact, not who resolves it.
 
 ## Core Terms
@@ -136,7 +136,7 @@ acknowledge.
 
 ## Legacy Intervention Events
 
-Earlier development versions of Shoreline wrote intervention events and exposed a
-`shore review intervention` command family. Current Shoreline uses input request events and
-`shore input-request` instead. Because Shoreline has not released this storage contract, the
+Earlier development versions of Pointbreak wrote intervention events and exposed a
+`shore review intervention` command family. Current Pointbreak uses input request events and
+`shore input-request` instead. Because Pointbreak has not released this storage contract, the
 supported migration is to discard the old local `.shore/data/` directory and recapture the review.

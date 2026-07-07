@@ -3,7 +3,7 @@
 //! This module owns the serializable documents the `shore review-*` commands
 //! emit: the shared envelopes ([`DiagnosticDocument`], [`EventWriteDocument`]),
 //! the per-item view-document mappers, the per-command body structs, and the
-//! `*_document()` builders that wrap a `shoreline::session` result into the
+//! `*_document()` builders that wrap a `pointbreak::session` result into the
 //! documented JSON shape.
 //!
 //! Consumers can produce **byte-identical** `shore review-*` JSON in-process by

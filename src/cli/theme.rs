@@ -3,7 +3,7 @@
 
 use std::borrow::Cow;
 
-use shoreline::highlight::TokenKind;
+use pointbreak::highlight::TokenKind;
 
 /// Resolved lightness class for the truecolor palette.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -376,7 +376,7 @@ pub(super) fn theme_selection_from_env(flag: Option<&str>) -> ThemeSelection {
 
 #[cfg(test)]
 mod tests {
-    use shoreline::highlight::TokenKind;
+    use pointbreak::highlight::TokenKind;
 
     use super::*;
 

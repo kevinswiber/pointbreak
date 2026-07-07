@@ -6,11 +6,11 @@ mod support;
 
 use std::fs;
 
-use serde::Deserialize;
-use shoreline::session::{
+use pointbreak::session::{
     SensitivityKind, SensitivityPolicyOutcome, StoreStatusOptions, StoreStatusSensitivity,
     store_status,
 };
+use serde::Deserialize;
 use support::git_repo::GitRepo;
 
 const VECTORS_PATH: &str = "tests/fixtures/sensitivity/conformance-vectors.json";

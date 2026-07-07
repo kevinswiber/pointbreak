@@ -1,6 +1,6 @@
 # Signing UX
 
-Shoreline events may carry an optional Ed25519 signature that authenticates the producer facts. This
+Pointbreak events may carry an optional Ed25519 signature that authenticates the producer facts. This
 page orients you across the three signing flows and the verification ladder. Reference material lives
 in [cli-reference.md](./cli-reference.md) (the `shore key` family and signing env vars),
 [storage-model.md](./storage-model.md) (the allowed-signers format and the user-level key home), and
@@ -82,7 +82,7 @@ reviewing agent (acting software).
 ssh-keygen -t ed25519 -C "you@example.com"   # writes ~/.ssh/id_ed25519 and ~/.ssh/id_ed25519.pub
 ```
 
-**Load it into ssh-agent so signing doesn't prompt every write.** Shoreline signs *through* the agent,
+**Load it into ssh-agent so signing doesn't prompt every write.** Pointbreak signs *through* the agent,
 so the private key must be loaded in it:
 
 ```bash
@@ -94,7 +94,7 @@ If the key is not loaded, `shore key list` reports `agentLoaded: false` and a si
 **unsigned, exit 0** (`signing_agent_key_absent`) — never blocking, but not yet `valid`. Load the key
 and re-run the write.
 
-**ssh-agent custody.** The private key is **never read**: ssh-agent custodies it, and Shoreline only
+**ssh-agent custody.** The private key is **never read**: ssh-agent custodies it, and Pointbreak only
 ever ships the DSSE pre-authentication bytes to the agent and unwraps the returned signature. Encrypted
 keys, 1Password, and hardware-backed agents all work for free.
 
@@ -103,7 +103,7 @@ keys, 1Password, and hardware-backed agents all work for free.
 - `ed25519-sk` (FIDO/`-sk`) signs a hash + flags + counter construction, never the raw message, so a
   signature from one can **never verify** under the strict Ed25519 path. Hard exclusion.
 - RSA and ECDSA are not Ed25519 — rejected, pointing at `shore key init`.
-- **No SSHSIG wrapper.** The `DSSEv1 ` PAE prefix already supplies domain separation, so Shoreline sends
+- **No SSHSIG wrapper.** The `DSSEv1 ` PAE prefix already supplies domain separation, so Pointbreak sends
   the bytes to the agent raw (sign flags = 0) and unwraps the SSH-wire `string "ssh-ed25519", string sig`
   response to the 64-byte signature ADR-0004 wants. Cross-protocol confusion with the same key is
   structurally excluded.

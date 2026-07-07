@@ -1,14 +1,14 @@
 # Review Workflow
 
 This document describes the intended end-to-end workflow for reviewing a
-tool-assisted change with Shoreline today. Command reference details live in the
+tool-assisted change with Pointbreak today. Command reference details live in the
 `README.md`; this is the narrative version that explains *when* to run each
 command and *why*. If the change was authored by a coding agent, start with
 [Agent authoring handoffs](agent-authoring.md) for the capture-at-end-of-work loop.
 
-## What Shoreline reviews
+## What Pointbreak reviews
 
-Shoreline reviews a **revision**: the base endpoint, the target endpoint, and a
+Pointbreak reviews a **revision**: the base endpoint, the target endpoint, and a
 captured diff snapshot taken at a single moment. Capturing a revision is the one **generative move**
 in the workflow — proposing a captured work object for others to assert facts about — while "review"
 stays the surface verb. V1 captures one of two shapes:
@@ -46,10 +46,10 @@ The rest of this document walks through each step.
 
 ## 1. Start in a worktree with the change
 
-Shoreline runs inside a Git worktree. For the default capture the working tree
+Pointbreak runs inside a Git worktree. For the default capture the working tree
 must differ from `HEAD`; the change can come from anywhere — a coding agent, a
 teammate's WIP branch, your own edits — but it must be present in the working
-tree before capture. Shoreline reads the diff from `git`; it does not summarize
+tree before capture. Pointbreak reads the diff from `git`; it does not summarize
 prior commits on its own. If the change is already committed, capture the
 committed range directly with `shore capture --base <rev>` (see
 [section 2](#2-capture-a-revision)) instead of recreating it in the working
@@ -67,7 +67,7 @@ into an ephemeral worktree (`shore store mode ephemeral`) or writing a `--local`
 generates a committed `.shore/.gitignore` (two lines: `data/` + `*.local.json`) that keeps the
 worktree-local store and the private overrides out of `git status`; the file is visible, meant to
 be committed, and survives clone. If the paths are already ignored — for example by a project
-`.gitignore` entry — Shoreline generates nothing and leaves your ignore files untouched. Nothing
+`.gitignore` entry — Pointbreak generates nothing and leaves your ignore files untouched. Nothing
 writes the hidden `.git/info/exclude` anymore.
 
 ## 2. Capture a revision
@@ -77,7 +77,7 @@ shore capture
 ```
 
 `shore capture` records a `work_object_proposed` event and writes the
-captured snapshot as an immutable Shoreline-owned object artifact. The output document is
+captured snapshot as an immutable Pointbreak-owned object artifact. The output document is
 `shore.review-capture` JSON and includes:
 
 - the revision ID
@@ -284,7 +284,7 @@ shore observation list --include-body
 ```
 
 Bodies may come from `--body`, `--body-file`, or `--body-stdin`. Large bodies
-are stored as Shoreline-owned content-addressed artifacts; command output never
+are stored as Pointbreak-owned content-addressed artifacts; command output never
 exposes those paths.
 
 ### Input requests
@@ -357,7 +357,7 @@ evidence.
 
 ### Durable event facts vs. rebuildable projections
 
-Shoreline separates **authoritative facts** from **derived views**. The paths below are relative to
+Pointbreak separates **authoritative facts** from **derived views**. The paths below are relative to
 the resolved store directory — `.git/shore` by default, or a worktree-local `.shore/data/` when the
 worktree is ephemeral:
 
@@ -371,7 +371,7 @@ worktree is ephemeral:
   may be deleted and regenerated; freshness against the current event set is
   verified through `eventSetHash`.
 
-If `state.json` looks stale or inconsistent, Shoreline rebuilds it from
+If `state.json` looks stale or inconsistent, Pointbreak rebuilds it from
 the event log. Do not write to `state.json` yourself, and do not depend on
 its internal shape.
 
@@ -385,7 +385,7 @@ and `shore.review-assessment-add` / `-show`.
 
 These documents expose semantic IDs, content hashes, and freshness metadata.
 Raw event files, event filenames, artifact paths, and `state.json` are
-Shoreline-owned storage details. They can change without a deprecation cycle.
+Pointbreak-owned storage details. They can change without a deprecation cycle.
 
 ### Tracks
 
@@ -412,7 +412,7 @@ shape either way.
 
 ### IDs are opaque
 
-Shoreline exposes several kinds of IDs in its output: revision IDs, object
+Pointbreak exposes several kinds of IDs in its output: revision IDs, object
 IDs, observation IDs, input request IDs, input request response
 IDs, assessment IDs, event IDs, and review-stream row IDs. **Treat them all
 as opaque strings.** They are stable and safe to use as keys or to pass back

@@ -3,7 +3,7 @@ use std::io::Write;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use clap::Args;
-use shoreline::keys::load_signer_id;
+use pointbreak::keys::load_signer_id;
 
 use crate::cli::{json, output};
 

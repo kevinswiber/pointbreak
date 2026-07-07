@@ -2,12 +2,12 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use clap::{ArgGroup, Args, Subcommand, ValueEnum};
-use shoreline::documents::{
+use pointbreak::documents::{
     associate_commit_document, associate_ref_document, list_associations_document,
     withdraw_commit_document, withdraw_ref_document,
 };
-use shoreline::model::{CommitAssociationId, RefAssociationId, RevisionId};
-use shoreline::session::{
+use pointbreak::model::{CommitAssociationId, RefAssociationId, RevisionId};
+use pointbreak::session::{
     AssociateCommitOptions, AssociateRefOptions, AssociationAxis, CommitEdgeSource,
     CommitGraphCondition, ListAssociationsOptions, ListAssociationsResult, RevisionCommitRangeView,
     WithdrawCommitOptions, WithdrawRefOptions, associate_commit, associate_ref, enrich_liveness,
@@ -469,8 +469,8 @@ impl_association_selection!(
 
 #[cfg(test)]
 mod tests {
-    use shoreline::model::RevisionId;
-    use shoreline::session::{CurrentCommitAssociation, ListAssociationsResult};
+    use pointbreak::model::RevisionId;
+    use pointbreak::session::{CurrentCommitAssociation, ListAssociationsResult};
 
     use super::*;
 

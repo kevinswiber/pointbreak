@@ -208,7 +208,7 @@ fn keys_show_pubkey_is_consistent_with_the_did_key() {
 
     // Derive the expected encoding from the did:key's own 32-byte payload so the
     // test pins consistency, not a hardcoded string.
-    let signer_id = shoreline::crypto::SignerId::parse(did_key).unwrap();
+    let signer_id = pointbreak::crypto::SignerId::parse(did_key).unwrap();
     let bytes = signer_id.ed25519_public_key().unwrap();
     let expected = encode_pubkey(&bytes);
     assert_eq!(pubkey_field, expected);
@@ -310,9 +310,9 @@ fn keys_enroll_stages_working_tree_file_and_reports_actor_and_did() {
     // The working-tree file exists and the existing reader loads the entry.
     let path = repo.path().join(".shore/allowed-signers.json");
     assert!(path.exists(), "enroll stages the working-tree file");
-    let trust = shoreline::session::TrustSet::from_allowed_signers_file(&path).unwrap();
-    let actor = shoreline::model::ActorId::new("actor:agent:claude-code");
-    let signer = shoreline::crypto::SignerId::parse(&did).unwrap();
+    let trust = pointbreak::session::TrustSet::from_allowed_signers_file(&path).unwrap();
+    let actor = pointbreak::model::ActorId::new("actor:agent:claude-code");
+    let signer = pointbreak::crypto::SignerId::parse(&did).unwrap();
     assert!(trust.authorizes(&actor, &signer, "2026-06-16T00:00:00Z"));
 }
 
@@ -354,9 +354,9 @@ fn keys_enroll_works_for_an_agent_backed_reference() {
     assert_eq!(doc["added"], true);
 
     let path = repo.path().join(".shore/allowed-signers.json");
-    let trust = shoreline::session::TrustSet::from_allowed_signers_file(&path).unwrap();
-    let actor = shoreline::model::ActorId::new("actor:git-email:dev@example.com");
-    let signer = shoreline::crypto::SignerId::parse(&did).unwrap();
+    let trust = pointbreak::session::TrustSet::from_allowed_signers_file(&path).unwrap();
+    let actor = pointbreak::model::ActorId::new("actor:git-email:dev@example.com");
+    let signer = pointbreak::crypto::SignerId::parse(&did).unwrap();
     assert!(trust.authorizes(&actor, &signer, "2026-06-16T00:00:00Z"));
 }
 

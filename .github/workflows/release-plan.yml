@@ -56,7 +56,7 @@ jobs:
           REPO="${GITHUB_REPOSITORY}"
           BRANCH="${GITHUB_REF_NAME}"
           CURRENT_VERSION=$(cargo metadata --no-deps --format-version 1 \
-            | jq -r '.packages[] | select(.name == "shoreline") | .version')
+            | jq -r '.packages[] | select(.name == "pointbreak") | .version')
           LATEST_TAG=$(git describe --tags --match "v[0-9]*" --abbrev=0 2>/dev/null || echo "")
           RELEASE_COG_CONFIG="${RUNNER_TEMP}/cog-release.toml"
           cp cog.toml "$RELEASE_COG_CONFIG"
@@ -84,7 +84,7 @@ jobs:
             echo ""
             echo "## Crate Release"
             echo ""
-            echo "**Crate:** \`shoreline\`"
+            echo "**Crate:** \`pointbreak\`"
             echo ""
           } | out
 
@@ -250,7 +250,7 @@ jobs:
           PLAN_FILE="${RUNNER_TEMP}/release-plan.md"
           out() { tee -a "$PLAN_FILE" >> "$GITHUB_STEP_SUMMARY"; }
           CURRENT_VERSION=$(cargo metadata --no-deps --format-version 1 \
-            | jq -r '.packages[] | select(.name == "shoreline") | .version')
+            | jq -r '.packages[] | select(.name == "pointbreak") | .version')
           LATEST_TAG=$(git describe --tags --match "v[0-9]*" --abbrev=0 2>/dev/null || echo "")
           RELEASE_COG_CONFIG="${RUNNER_TEMP}/cog-release.toml"
           cp cog.toml "$RELEASE_COG_CONFIG"

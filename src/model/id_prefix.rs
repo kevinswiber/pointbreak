@@ -1,4 +1,4 @@
-//! Internal registry of the prefix strings Shoreline mints into ids, artifact
+//! Internal registry of the prefix strings Pointbreak mints into ids, artifact
 //! references, and reserved tokens.
 //!
 //! Prefixes are opaque to consumers (see "IDs are opaque" in
@@ -102,7 +102,7 @@ pub(crate) struct IdPrefix {
     pub(crate) linkified: bool,
 }
 
-/// Every prefix Shoreline has ever put in front of an id, artifact reference,
+/// Every prefix Pointbreak has ever put in front of an id, artifact reference,
 /// or reserved token — the single enumerable source. Content-id entries first,
 /// then structural, artifact references, and tokens. The legacy `review-unit`
 /// and `snap` display entries were retired in #344 (no production path minted

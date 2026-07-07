@@ -8,14 +8,13 @@ use std::fs;
 use std::path::Path;
 
 use ed25519_dalek::{Signer as _, SigningKey};
-use serde_json::Value;
-use shoreline::crypto::{EventSignatureBytes, EventSigner, SignerId};
-use shoreline::error::{Result, ShoreError};
-use shoreline::model::ActorId;
-use shoreline::session::event::{
+use pointbreak::crypto::{EventSignatureBytes, EventSigner, SignerId};
+use pointbreak::error::{Result, ShoreError};
+use pointbreak::model::ActorId;
+use pointbreak::session::event::{
     EventType, InputRequestReasonCode, InputRequestResponseOutcome, ReviewAssessment,
 };
-use shoreline::session::{
+use pointbreak::session::{
     ArtifactKind, ArtifactRef, AssessmentAddOptions, CaptureOptions, EventVerificationPolicy,
     EventVerificationStatus, EventWriteOutcome, ImportArtifactOptions, ImportArtifactOutcome,
     IngestEventsOptions, InputRequestFetchOptions, InputRequestListOptions,
@@ -27,6 +26,7 @@ use shoreline::session::{
     record_observation, referenced_artifacts, respond_input_request, review_history, show_revision,
     verify_event_signature,
 };
+use serde_json::Value;
 use support::git_repo::GitRepo;
 
 fn modified_repo() -> GitRepo {
@@ -41,8 +41,8 @@ fn large_body() -> String {
     "large body line\n".repeat(320)
 }
 
-fn origin_with_large_input_request() -> (GitRepo, Vec<shoreline::session::event::ShoreEvent>, String)
-{
+fn origin_with_large_input_request()
+-> (GitRepo, Vec<pointbreak::session::event::ShoreEvent>, String) {
     let origin = modified_repo();
     capture_worktree_review(CaptureOptions::new(origin.path())).unwrap();
     let body = large_body();
@@ -262,7 +262,7 @@ fn review_history_can_include_verification_status_without_artifact_availability_
 fn all_library_write_options_expose_sign_with() {
     let repo = modified_repo();
     let signer = DeterministicSigner::fixture();
-    let request_id = shoreline::model::InputRequestId::new("input-request:sha256:test");
+    let request_id = pointbreak::model::InputRequestId::new("input-request:sha256:test");
 
     let _ = CaptureOptions::new(repo.path()).sign_with(signer.clone());
     let _ = InputRequestOpenOptions::new(repo.path()).sign_with(signer.clone());
@@ -316,7 +316,7 @@ fn in_process_consumer_reads_attributes_documents_and_forwards() {
     );
 
     // Reproduce the documented `shore.review-input-request-list` JSON in process (#118).
-    let document = shoreline::documents::input_request_list_document(listed, None);
+    let document = pointbreak::documents::input_request_list_document(listed, None);
     let json: Value = serde_json::to_value(&document).unwrap();
     assert_eq!(json["schema"], "shore.review-input-request-list");
     assert_eq!(json["version"], 1);
@@ -626,7 +626,7 @@ fn library_api_documents_event_signing_surface() {
 fn shore_gitignore_helper_is_public() {
     let repo = support::git_repo::GitRepo::new();
     // Reachable from outside the crate ⇒ it is pub (INV-A).
-    shoreline::session::ensure_shore_gitignore(repo.path()).unwrap();
+    pointbreak::session::ensure_shore_gitignore(repo.path()).unwrap();
     let body = std::fs::read_to_string(repo.path().join(".shore/.gitignore")).unwrap();
     assert!(body.lines().any(|l| l.trim() == "*.local.json"));
     assert!(body.lines().any(|l| l.trim() == "data/"));

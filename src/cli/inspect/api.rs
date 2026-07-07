@@ -1,6 +1,6 @@
 //! JSON payload builders for the inspector server.
 //!
-//! Each builder reuses a public `shoreline::session` projection so the
+//! Each builder reuses a public `pointbreak::session` projection so the
 //! inspector reads the store through the same validated path as the
 //! corresponding `shore` review read command, rather than parsing raw `.shore/data/`
 //! files. Errors are stringified so the server can surface them to the UI as
@@ -12,12 +12,11 @@ use std::sync::RwLock;
 
 use mmdflux::graph::{Direction, Edge, Graph, Node};
 use mmdflux::layout::{LaidOutGraph, LayoutOptions, layout_graph};
-use serde::Serialize;
-use shoreline::documents::revision_show_document;
-use shoreline::highlight::{emphasis_file, highlight_file};
-use shoreline::model::{ObjectId, ReviewEndpoint, RevisionId, RevisionSource, ValidationStatus};
-use shoreline::session::event::ReviewAssessment;
-use shoreline::session::{
+use pointbreak::documents::revision_show_document;
+use pointbreak::highlight::{emphasis_file, highlight_file};
+use pointbreak::model::{ObjectId, ReviewEndpoint, RevisionId, RevisionSource, ValidationStatus};
+use pointbreak::session::event::ReviewAssessment;
+use pointbreak::session::{
     AssessmentRecordStatus, AssessmentView, BaseProjectionConfig, CurrentAssessmentStatus,
     EventVerificationPolicy, HistoryPage, HistoryQuery, InputRequestStatus, LivenessEnrichment,
     ObservationStatus, ObservationView, ProjectionDiagnostic, ReviewHistoryEntry,
@@ -28,6 +27,7 @@ use shoreline::session::{
     read_bound_object_artifact, read_events_for_display, read_object_artifact, show_revision,
     show_revision_overviews, store_identity,
 };
+use serde::Serialize;
 
 use super::server::HighlightCache;
 use super::wire::WireObjectArtifact;
@@ -653,7 +653,7 @@ fn inspect_base_config(repo: &Path) -> BaseProjectionConfig {
         trust_set: crate::cli::common::discover_trust_set(repo),
         actor_attributes: crate::cli::common::discover_actor_attributes(repo),
         delegation_map: crate::cli::common::discover_delegation_map(repo),
-        removal_policy: shoreline::session::RemovalPolicy::default(),
+        removal_policy: pointbreak::session::RemovalPolicy::default(),
     }
 }
 
@@ -1295,10 +1295,10 @@ pub(super) fn identity_json(repo: &Path) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use shoreline::model::{
+    use pointbreak::model::{
         EngagementId, ObjectId, ReviewEndpoint, RevisionId, RevisionSource, WorktreeCaptureMode,
     };
-    use shoreline::session::event::{
+    use pointbreak::session::event::{
         GitProvenance, Revision, WorkObjectProposal, WorkObjectProposedPayload,
     };
 
@@ -1306,7 +1306,7 @@ mod tests {
 
     #[test]
     fn stale_review_fact_count_sums_review_facts_only_when_superseded() {
-        use shoreline::session::RevisionProjectionSummary;
+        use pointbreak::session::RevisionProjectionSummary;
 
         let summary = RevisionProjectionSummary {
             observation_count: 2,
@@ -1328,7 +1328,7 @@ mod tests {
 
     #[test]
     fn revision_classification_marks_head_superseded_and_isolated() {
-        use shoreline::session::SupersessionView;
+        use pointbreak::session::SupersessionView;
         // A <- B (B supersedes A), plus an isolated root Z.
         let view = SupersessionView::from_edges([
             (RevisionId::new("A"), vec![]),
@@ -1347,7 +1347,7 @@ mod tests {
 
     #[test]
     fn thread_layout_lays_out_a_fork_as_equal_peers() {
-        use shoreline::session::SupersessionView;
+        use pointbreak::session::SupersessionView;
         // A superseded by two heads B and C: heads {B, C}, superseded {A}.
         let view = SupersessionView::from_edges([
             (RevisionId::new("A"), vec![]),
@@ -1471,7 +1471,7 @@ mod tests {
 
     #[test]
     fn revision_thread_edges_omit_the_kind_field_on_the_wire() {
-        use shoreline::session::SupersessionView;
+        use pointbreak::session::SupersessionView;
         // A <- B (B supersedes A): the revision adapter must pass kind = None so the
         // /api/threads wire is byte-identical to before this field existed.
         let view = SupersessionView::from_edges([
@@ -1494,7 +1494,7 @@ mod tests {
 
     #[test]
     fn thread_layout_degenerate_single_node_has_no_edges() {
-        use shoreline::session::SupersessionView;
+        use pointbreak::session::SupersessionView;
         let view = SupersessionView::from_edges([(RevisionId::new("solo"), vec![])]);
         let component: std::collections::BTreeSet<RevisionId> =
             std::iter::once(RevisionId::new("solo")).collect();
@@ -1529,8 +1529,8 @@ mod tests {
         git(path, &["add", "--all"]);
         git(path, &["commit", "-m", "base"]);
         std::fs::write(path.join("src.txt"), "changed\n").unwrap();
-        let result = shoreline::session::capture_worktree_review(
-            shoreline::session::CaptureOptions::new(path),
+        let result = pointbreak::session::capture_worktree_review(
+            pointbreak::session::CaptureOptions::new(path),
         )
         .expect("capture worktree review");
         (
@@ -1576,8 +1576,8 @@ mod tests {
         git(path, &["add", "--all"]);
         git(path, &["commit", "-m", "base"]);
         std::fs::write(path.join(file), changed).unwrap();
-        let result = shoreline::session::capture_worktree_review(
-            shoreline::session::CaptureOptions::new(path),
+        let result = pointbreak::session::capture_worktree_review(
+            pointbreak::session::CaptureOptions::new(path),
         )
         .expect("capture worktree review");
         (
@@ -1740,8 +1740,8 @@ mod tests {
 
         let reviewed = base.replace("pub fn value() -> u32 { 1 }", "pub fn value() -> u32 { 2 }");
         std::fs::write(path.join("src/lib.rs"), reviewed).unwrap();
-        let first = shoreline::session::capture_worktree_review(
-            shoreline::session::CaptureOptions::new(path),
+        let first = pointbreak::session::capture_worktree_review(
+            pointbreak::session::CaptureOptions::new(path),
         )
         .expect("capture first revision");
 
@@ -1753,8 +1753,8 @@ mod tests {
         let rebased_reviewed =
             rebased_base.replace("pub fn value() -> u32 { 1 }", "pub fn value() -> u32 { 2 }");
         std::fs::write(path.join("src/lib.rs"), rebased_reviewed).unwrap();
-        let second = shoreline::session::capture_worktree_review(
-            shoreline::session::CaptureOptions::new(path)
+        let second = pointbreak::session::capture_worktree_review(
+            pointbreak::session::CaptureOptions::new(path)
                 .with_supersedes(vec![first.revision_id.clone()]),
         )
         .expect("capture rebased successor");
@@ -1907,7 +1907,7 @@ mod tests {
                 worktree_root: worktree.to_owned(),
             },
             object_artifact_content_hash: "sha256:artifact:abc".to_owned(),
-            commit_range: shoreline::session::RevisionCommitRangeView {
+            commit_range: pointbreak::session::RevisionCommitRangeView {
                 revision_id: RevisionId::new("review-unit:sha256:abc"),
                 anchored: false,
                 current_commits: Vec::new(),
@@ -2083,9 +2083,9 @@ mod tests {
         git(path, &["add", "--all"]);
         git(path, &["commit", "-m", "next"]);
 
-        let result = shoreline::session::capture_review(
-            shoreline::session::CaptureOptions::new(path).with_commit_range(
-                shoreline::session::CommitRangeSpec::new("HEAD~1").with_target_rev("HEAD"),
+        let result = pointbreak::session::capture_review(
+            pointbreak::session::CaptureOptions::new(path).with_commit_range(
+                pointbreak::session::CommitRangeSpec::new("HEAD~1").with_target_rev("HEAD"),
             ),
         )
         .expect("capture commit range review");
@@ -2128,8 +2128,8 @@ mod tests {
         git(path, &["add", "--all"]);
         git(path, &["commit", "-m", "base"]);
         std::fs::write(path.join("src.txt"), "changed\n").unwrap();
-        let capture = shoreline::session::capture_worktree_review(
-            shoreline::session::CaptureOptions::new(path),
+        let capture = pointbreak::session::capture_worktree_review(
+            pointbreak::session::CaptureOptions::new(path),
         )
         .expect("capture worktree review");
 
@@ -2187,7 +2187,7 @@ mod tests {
 
     #[test]
     fn resolve_head_live_branch_prefers_head_then_falls_back_to_single_unambiguous() {
-        use shoreline::session::{CommitGraphCondition, CommitLiveness, LivenessEnrichment};
+        use pointbreak::session::{CommitGraphCondition, CommitLiveness, LivenessEnrichment};
 
         // Head commit itself is among the current commits → use its own branch.
         let matched = LivenessEnrichment {

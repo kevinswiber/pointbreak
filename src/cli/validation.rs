@@ -2,9 +2,9 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
-use shoreline::documents::{validation_add_document, validation_list_document};
-use shoreline::model::{RevisionId, ValidationStatus, ValidationTrigger};
-use shoreline::session::{
+use pointbreak::documents::{validation_add_document, validation_list_document};
+use pointbreak::model::{RevisionId, ValidationStatus, ValidationTrigger};
+use pointbreak::session::{
     ValidationAddOptions, ValidationListOptions, list_validation_checks, record_validation_check,
 };
 

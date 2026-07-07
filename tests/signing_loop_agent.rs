@@ -2,13 +2,13 @@ mod support;
 
 use std::path::Path;
 
-use shoreline::crypto::EventVerificationStatus;
-use shoreline::keys::{
+use pointbreak::crypto::EventVerificationStatus;
+use pointbreak::keys::{
     KeyName, generate_key_in, load_signer_id_in, load_signer_in, write_agent_reference_in,
 };
-use shoreline::model::ActorId;
-use shoreline::session::event::EventType;
-use shoreline::session::{
+use pointbreak::model::ActorId;
+use pointbreak::session::event::EventType;
+use pointbreak::session::{
     CaptureOptions, EventVerificationPolicy, ReviewHistoryOptions, TrustSet,
     capture_worktree_review, review_history, stage_enrollment,
 };

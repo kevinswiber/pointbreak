@@ -60,10 +60,10 @@ fn endorse_target_accepts_a_bare_fragment() {
 /// PUBLIC read path (INV-F: `tests/` see only `pub` — `EventStore` is `pub(crate)`,
 /// so use `read_events`, which returns `Vec<ShoreEvent>` with public `event_id`/`event_type`).
 fn captured_event_id(repo_path: &std::path::Path) -> String {
-    let events = shoreline::session::read_events(repo_path).unwrap();
+    let events = pointbreak::session::read_events(repo_path).unwrap();
     events
         .iter()
-        .find(|e| e.event_type == shoreline::session::event::EventType::WorkObjectProposed)
+        .find(|e| e.event_type == pointbreak::session::event::EventType::WorkObjectProposed)
         .expect("a captured review unit event")
         .event_id
         .as_str()
@@ -179,11 +179,11 @@ fn endorse_with_a_key_emits_review_endorse_document_and_writes_a_carrier() {
     );
 
     // A detached co-signature carrier now exists in the store (public read path).
-    let events = shoreline::session::read_events(repo.path()).unwrap();
+    let events = pointbreak::session::read_events(repo.path()).unwrap();
     assert!(
         events
             .iter()
-            .any(|e| e.event_type == shoreline::session::event::EventType::EventSignatureRecorded)
+            .any(|e| e.event_type == pointbreak::session::event::EventType::EventSignatureRecorded)
     );
 }
 

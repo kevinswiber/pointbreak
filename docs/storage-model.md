@@ -2,19 +2,19 @@
 
 ## Status
 
-This is architecture guidance for Shoreline's durable review/session state. It describes constraints
+This is architecture guidance for Pointbreak's durable review/session state. It describes constraints
 the first filesystem persistence release should preserve, even when the implementation starts small.
 
 ## Goal
 
-Shoreline should make durable state boring: write facts once, rebuild projections, and keep output,
+Pointbreak should make durable state boring: write facts once, rebuild projections, and keep output,
 storage, and notification side effects behind explicit seams. The storage model should avoid the
 common failure modes of long-running coordination tools: hidden in-memory authority, direct delivery
 before persistence, shared mutable JSON files, unbounded retries, and helper bypasses.
 
 ## Storage Authority
 
-Shoreline V1 intentionally uses a filesystem-backed `events/` + `artifacts/` store as the
+Pointbreak V1 intentionally uses a filesystem-backed `events/` + `artifacts/` store as the
 authoritative local store. The authoritative store is the one the worktree **resolves**: the shared
 common-dir store at `.git/shore` by default (the same store for every worktree of a clone), or a
 worktree-local `.shore/data` store when the worktree is ephemeral. The on-disk layout is identical
@@ -41,15 +41,15 @@ These are the only authoritative durable storage in V1. Everything else is a cac
 They may be deleted and regenerated. Freshness against the current event set is verified through
 `eventSetHash`, not through the projection's existence or `eventCount` alone.
 
-**Consumer contract.** Stable automation should depend on Shoreline commands and named JSON documents,
+**Consumer contract.** Stable automation should depend on Pointbreak commands and named JSON documents,
 not on raw storage paths. Commands and documents expose semantic IDs, content hashes, and freshness
 metadata as the public surface. Event filenames, artifact paths, fan-out layout, the internal shape
-of `state.json`, raw storage envelopes, and row or hunk identifier formatting are Shoreline-owned
+of `state.json`, raw storage envelopes, and row or hunk identifier formatting are Pointbreak-owned
 storage details. They may change without a deprecation cycle unless a later design explicitly
 promotes them to a stable contract.
 
 **Deferred options.** SQLite-backed read indexes, content-address fan-out, snapshot compaction or
-delta packs, store manifests, and retention policy are implementation choices Shoreline may add later
+delta packs, store manifests, and retention policy are implementation choices Pointbreak may add later
 as derived layers. None of them are current authority, and none of them are part of the consumer
 contract until a later design explicitly promotes them.
 
@@ -87,7 +87,7 @@ and the private `.local.json` overrides are kept out of Git, via a committed
 **`.shore/.gitignore`** carrying exactly two lines (`data/` and `*.local.json`) — never a wholesale
 `.shore/` exclude, which would hide the committed config, and never the hidden, per-clone
 `.git/info/exclude`. (`allowed-signers.json` is committed-only and has no `.local.json` override, by
-deliberate trust-set-locality decision.) Shoreline generates the file when something first needs
+deliberate trust-set-locality decision.) Pointbreak generates the file when something first needs
 covering — opting into ephemeral mode (`shore store mode ephemeral` or a write to an ephemeral
 store) or staging a `--local` identity override — and skips generation entirely when the paths are
 already ignored by any standard source, so user-managed ignore files are respected. A shared-store
@@ -104,7 +104,7 @@ generated `.shore/.gitignore`, so a clone carrying one should delete that line b
 `failed/`, retried in place, or rewritten on read.
 
 `state.json` is a cache/projection. It must be rebuildable from durable records. If it is missing,
-stale, or invalid, Shoreline should rebuild it rather than treating it as authority.
+stale, or invalid, Pointbreak should rebuild it rather than treating it as authority.
 
 Revision capture follows the same authority split:
 
@@ -113,7 +113,7 @@ Revision capture follows the same authority split:
   content-only **object** identity; the Git endpoints are optional provenance, so a revision is
   git-optional
 - V1 captures the local Git worktree from `HEAD` to the working tree
-- full captured snapshots live as Shoreline-owned immutable **object artifacts** under
+- full captured snapshots live as Pointbreak-owned immutable **object artifacts** under
   `artifacts/objects/`
 - `work_object_proposed` events bind to the internal object artifact's canonical `contentHash`;
   the event/projection — not the artifact body — is the source of `revisionId`, `objectId`, `source`,
@@ -202,7 +202,7 @@ Observations are append-only. Corrections are new `review_observation_recorded` 
 older observations through `supersedesObservationIds`; standalone retraction is deferred.
 
 Observation read projections use `observationId` as the logical identity. If multiple durable
-events carry the same observation ID, Shoreline preserves those events but returns one observation row
+events carry the same observation ID, Pointbreak preserves those events but returns one observation row
 and emits a duplicate semantic diagnostic.
 
 Observation bodies use inline-or-artifact mechanics. Bodies under or
@@ -357,7 +357,7 @@ are storage details, not history output API.
   default output keeps large text omitted
 
 `shore.review-revision` is command-output API. Object artifacts, note body artifacts, event files,
-event filenames, and `state.json` remain Shoreline-owned storage details and are not exposed as stable
+event filenames, and `state.json` remain Pointbreak-owned storage details and are not exposed as stable
 paths.
 
 The review stream also surfaces stale and orphan notes as dedicated rows so reviewers can park the
@@ -375,7 +375,7 @@ store-only, with no committed-config sibling to separate from. This default stor
 user-level multi-repository store or remote sync service; a clone may opt into a separate,
 machine-wide **user-level family store tier** (see
 [User-Level Family Store Tier](#user-level-family-store-tier) below), which resolves the
-multi-repository case [issue #153](https://github.com/kevinswiber/shoreline/issues/153) named.
+multi-repository case [issue #153](https://github.com/kevinswiber/pointbreak/issues/153) named.
 
 Public commands expose the resolved store as command JSON using opaque refs. Callers must not depend
 on raw store paths, event filenames, artifact paths, `.git` paths, `.shore/data` paths, or
@@ -596,12 +596,12 @@ that repeats the same logical fact with different idempotency keys creates multi
 not a storage overwrite. Read projections collapse same-semantic-ID events to one logical row and
 surface a duplicate semantic diagnostic so the raw append-only history remains inspectable.
 
-Any hash that contributes to durable identity should use Shoreline's canonical JSON path, with object
+Any hash that contributes to durable identity should use Pointbreak's canonical JSON path, with object
 keys sorted recursively before hashing. Do not rely on incidental serde_json map ordering or local
 construction order for event payload hashes, revision fingerprints, snapshot fingerprints, or future
 content-derived IDs.
 
-Do not add a global sequence number until Shoreline has a concrete allocator that does not create a
+Do not add a global sequence number until Pointbreak has a concrete allocator that does not create a
 shared mutable counter. Deterministic event ordering can start from event metadata and filenames.
 
 ## Ingest Provenance
@@ -670,14 +670,14 @@ characters, while content-addressed naming earns its keep through deterministic 
 should not mix the two rules — locate object artifacts by their `objectId` and note-body
 artifacts by the relative path recorded in the referencing event.
 
-Artifact filenames remain Shoreline-owned storage details. The consumer contract is the command-output
+Artifact filenames remain Pointbreak-owned storage details. The consumer contract is the command-output
 JSON (`shore.review-capture`, `shore.review-revision`, and friends), which exposes semantic IDs and the
 object artifact's canonical `contentHash`. Filename derivation rules may change without a
 deprecation cycle, but artifacts are V1 authority alongside events — the event log alone cannot
 reconstruct snapshot rows or large note bodies. A future rule change must therefore rename or
 migrate the affected files in place, keep a compatibility read path during transition, or
 regenerate the directory from the original source (worktree capture, sidecar import) where that is
-possible. Shoreline does not promise dual-read of legacy filenames implicitly.
+possible. Pointbreak does not promise dual-read of legacy filenames implicitly.
 
 ## Atomic Writes
 
@@ -692,7 +692,7 @@ All durable writes should go through one storage helper. The helper owns:
 - stale temp file sweep
 
 Any helper that can create temp files must also participate in sweeping them. Cleanup should not be
-limited to queue code. On load, Shoreline should remove stale temp files matching its known prefixes and
+limited to queue code. On load, Pointbreak should remove stale temp files matching its known prefixes and
 older than the configured safety threshold.
 
 Rebuildable projections may use a non-durable write mode that skips fsync, but they still should use
@@ -714,7 +714,7 @@ version `1`), so the authoritative event and rebuildable projection remain bound
 
 ## Note Body Materialization
 
-Shoreline stores note-shaped event bodies (observations, input request bodies, input request response
+Pointbreak stores note-shaped event bodies (observations, input request bodies, input request response
 reasons, assessment summaries, imported review notes) using a threshold split, not as a uniform
 artifact-per-body materialization.
 
@@ -772,7 +772,7 @@ See [ADR-0001](./adr/adr-0001-note-body-materialization.md) for the decision rat
 
 ## Large Object Artifact Policy
 
-Shoreline stores captured revision diffs inline in content-hash-keyed object artifacts under
+Pointbreak stores captured revision diffs inline in content-hash-keyed object artifacts under
 `artifacts/objects/<objectArtifactContentHash>.json`. The artifact body is one JSON object per snapshot
 and carries every captured file, every metadata row, every hunk, and every diff row. There is no
 elision threshold, no generated-file detection, and no metadata-only marker for "too-large" or
@@ -806,7 +806,7 @@ have to change to flip it — is recorded in the ADR's "Future Reversal" section
 the projection. `eventCount` remains a cheap count, but it does not prove that a cached projection
 matches the current `events/` set in the resolved store.
 
-`eventSetHash` is computed from Shoreline's canonical JSON hash path over sorted `(eventId,
+`eventSetHash` is computed from Pointbreak's canonical JSON hash path over sorted `(eventId,
 payloadHash)` pairs. It intentionally excludes the full event JSON, event filenames, sequence
 numbers, writer metadata, storage paths, and `occurredAt`. The hash describes which durable facts
 the projection saw; it is not a causal ordering primitive or a raw event-file checksum.
@@ -832,7 +832,7 @@ are explicit and tested.
 
 ## V1 Writer Contract
 
-V1 has no store-directory lock: Shoreline does not coordinate writers with lockfiles, leases, a
+V1 has no store-directory lock: Pointbreak does not coordinate writers with lockfiles, leases, a
 daemon, IPC, or filesystem notifications. Concurrency safety rests on the store primitives instead.
 Events and object artifacts are written with content-addressed exclusive file creation, note-body
 artifacts are content-addressed by body hash, and `state.json` is a regenerable projection written by
@@ -858,14 +858,14 @@ whether the resulting event set is valid, ambiguous, or conflicting.
 `state.json` writes are projection cache writes. If projection writers race, events remain
 authoritative and the projection can be rebuilt.
 
-Workflow startup cleanup removes only Shoreline temp files older than the workflow startup threshold.
+Workflow startup cleanup removes only Pointbreak temp files older than the workflow startup threshold.
 Preserving fresh `.shore-write.*.tmp` files avoids clobbering an in-flight write, but it is not a
 lock or lease and does not make long-running multi-process writes a supported coordination model.
 
 ## Legacy Writer Role Events
 
-Earlier development versions of Shoreline wrote a `role` field inside each event's writer
-envelope. Current Shoreline does not store a writer role: the review act is derived from
+Earlier development versions of Pointbreak wrote a `role` field inside each event's writer
+envelope. Current Pointbreak does not store a writer role: the review act is derived from
 `eventType`, and the conversation speaker is recorded by adapters as a `sourceSpeaker` payload
 field. Store reads reject stored events whose writer carries `role`. This is a pre-1.0 shape: 1.0 is
 the store-format floor, so such events are not upgraded or migrated — the format is retired and no
@@ -873,8 +873,8 @@ longer supported (see [Migrations And Doctor](#migrations-and-doctor)).
 
 ## Legacy Writer Tool Events
 
-Earlier development versions of Shoreline wrote a `tool` object inside each event's writer
-envelope. Current Shoreline names the producing software under `producer` (`{name, version}`); per
+Earlier development versions of Pointbreak wrote a `tool` object inside each event's writer
+envelope. Current Pointbreak names the producing software under `producer` (`{name, version}`); per
 the [ADR-0010](./adr/adr-0010-actor-identity-and-delegation.md) vocabulary rule, "agent" names
 acting software, "producer" names software that writes events, and the word "tool" is reserved for
 the model-API/MCP sense and is no longer an envelope field. The rename rides the pre-adoption
@@ -941,7 +941,7 @@ its records **fully replace** the committed records for that agent (including re
 empty array, which disavows the agent locally); agents absent from the local file inherit the
 committed map; either file may exist alone, and a malformed local file is advisory — it never
 poisons the committed default. The committed file stays the shared, portable audit/authority root;
-the local override is a private, non-portable convenience. Shoreline keeps
+the local override is a private, non-portable convenience. Pointbreak keeps
 `.shore/delegates.local.json` out of Git via the committed `.shore/.gitignore`'s `*.local.json`
 line (the committed `.shore/delegates.json` and `.shore/allowed-signers.json` are deliberately
 tracked). `shore identity delegate --local` generates that file automatically before staging the
@@ -962,7 +962,7 @@ hatch.
 ## Signature Allow-List and Key Home
 
 The committed signature trust set lives at `.shore/allowed-signers.json`, a sibling of
-`.shore/delegates.json`. It is a **custom Shoreline JSON document** — **not the OpenSSH**
+`.shore/delegates.json`. It is a **custom Pointbreak JSON document** — **not the OpenSSH**
 `allowed_signers` line format despite the filename echo — mapping each actor to the `did:key`s
 authorized to sign on its behalf:
 
@@ -990,7 +990,7 @@ mirrored surfaces and would ship the private key. They live in a user-level **ke
 `$XDG_DATA_HOME/shore`, then `$HOME/.shore` on Unix or `%APPDATA%\shore` on Windows. On Unix the key
 home is created `0700` and each private-key file `0600`; on Windows mode bits are advisory and the
 directory inherits the parent ACL (documented caveat). A private-key file is a minimal
-Shoreline-native JSON document carrying the raw 32-byte Ed25519 seed (`{ "version", "alg", "seed" }`,
+Pointbreak-native JSON document carrying the raw 32-byte Ed25519 seed (`{ "version", "alg", "seed" }`,
 base64); a `<name>.pub` sidecar records the derived `did:key`.
 
 A key may instead be **agent-backed**: a custody-tagged reference adopted with `shore key use-ssh`,
@@ -1063,7 +1063,7 @@ ambient process TTY state unless the command is inherently interactive and fails
 Notifications are hints, not authority. The durable event must land before any notification fires.
 Clients that receive a notification should re-read durable state before acting.
 
-If Shoreline later adds a delivery queue, every retry path must have:
+If Pointbreak later adds a delivery queue, every retry path must have:
 
 - a maximum attempt count
 - backoff policy
@@ -1088,7 +1088,7 @@ supported, so the error offers no migration to run. (This retired flat layout is
 `shore store migrate`, which folds a pre-flip `.shore/data/` store into the shared common-dir store;
 see [Shared Common-Dir Store Selection](#shared-common-dir-store-selection).) The still-future
 `shore doctor`
-([issue #9](https://github.com/kevinswiber/shoreline/issues/9)) remains a separate, read-only
+([issue #9](https://github.com/kevinswiber/pointbreak/issues/9)) remains a separate, read-only
 diagnostic bundle concern — it is not built.
 
 Migration and repair work should commit independently. One successful fix should not be rolled back

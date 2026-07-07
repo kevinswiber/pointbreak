@@ -3,10 +3,10 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::Args;
-use shoreline::documents::revision_show_document;
-use shoreline::model::{EventId, ReviewEndpoint, RevisionId};
-use shoreline::session::event::AssertionMode;
-use shoreline::session::{
+use pointbreak::documents::revision_show_document;
+use pointbreak::model::{EventId, ReviewEndpoint, RevisionId};
+use pointbreak::session::event::AssertionMode;
+use pointbreak::session::{
     CurrentAssessmentStatus, EventVerificationPolicy, EventVerificationStatus, InputRequestStatus,
     InputRequestView, RemovalPolicy, RevisionShowOptions, RevisionShowResult, enrich_liveness,
     show_revision,

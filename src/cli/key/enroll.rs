@@ -2,15 +2,15 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::Args;
-use serde::Serialize;
-use shoreline::crypto::SignerId;
-use shoreline::error::{Result as ShoreResult, ShoreError};
-use shoreline::keys::load_signer_id;
-use shoreline::model::ActorId;
-use shoreline::session::{
+use pointbreak::crypto::SignerId;
+use pointbreak::error::{Result as ShoreResult, ShoreError};
+use pointbreak::keys::load_signer_id;
+use pointbreak::model::ActorId;
+use pointbreak::session::{
     ALLOWED_SIGNERS_REL_PATH, EnrollmentDiff, is_valid_actor_id, resolve_writer_actor_id,
     stage_enrollment,
 };
+use serde::Serialize;
 
 use crate::cli::json::DiagnosticDocument;
 use crate::cli::output;
@@ -67,7 +67,7 @@ pub(super) fn run(
     // at the root `.shore/allowed-signers.json` the reader looks for — not an
     // invisible `<subdir>/.shore/allowed-signers.json`.
     let worktree_root =
-        shoreline::git::git_worktree_root(&args.repo).unwrap_or_else(|_| args.repo.clone());
+        pointbreak::git::git_worktree_root(&args.repo).unwrap_or_else(|_| args.repo.clone());
     let path = worktree_root.join(ALLOWED_SIGNERS_REL_PATH);
     let EnrollmentDiff { added } = stage_enrollment(&path, &actor, &signer_id)?;
 

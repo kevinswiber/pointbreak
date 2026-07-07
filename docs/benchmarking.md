@@ -18,7 +18,7 @@ The API-level benches (`revision_overviews`, `freshness`) instead want a repo ro
 
 ## Schema currency matters
 
-The fixture store must be authored by the **current** Shoreline schema. A store from a retired schema
+The fixture store must be authored by the **current** Pointbreak schema. A store from a retired schema
 (for example the legacy `writer.role` envelope, pre-0076/0079) hard-errors under the strict
 `list_events`, so the real-world group silently skips — which is exactly why a rotted fixture is easy to
 miss.

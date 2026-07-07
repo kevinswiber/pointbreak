@@ -2,8 +2,8 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::{Args, ValueEnum};
-use shoreline::documents::revision_list_document;
-use shoreline::session::{OrphanVisibility, RefFilterMode, RevisionListOptions, list_revisions};
+use pointbreak::documents::revision_list_document;
+use pointbreak::session::{OrphanVisibility, RefFilterMode, RevisionListOptions, list_revisions};
 
 use crate::cli::output;
 

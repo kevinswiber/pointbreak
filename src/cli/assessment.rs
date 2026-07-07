@@ -2,10 +2,10 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
-use shoreline::documents::{assessment_add_document, assessment_show_document};
-use shoreline::model::{AssessmentId, InputRequestId, ObservationId, RevisionId};
-use shoreline::session::event::ReviewAssessment;
-use shoreline::session::{
+use pointbreak::documents::{assessment_add_document, assessment_show_document};
+use pointbreak::model::{AssessmentId, InputRequestId, ObservationId, RevisionId};
+use pointbreak::session::event::ReviewAssessment;
+use pointbreak::session::{
     AssessmentAddOptions, AssessmentRecordStatus, AssessmentShowOptions, AssessmentShowResult,
     AssessmentTargetSelector, record_assessment, show_assessments,
 };
@@ -28,7 +28,7 @@ enum AssessmentCommand {
 /// Record an assessment for a revision.
 #[derive(Debug, Args)]
 pub(super) struct AssessmentAddArgs {
-    /// Repository path to read/write Shoreline review state for.
+    /// Repository path to read/write Pointbreak review state for.
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
@@ -117,7 +117,7 @@ pub(super) struct AssessmentAddArgs {
 /// Show the current assessments for a revision.
 #[derive(Debug, Args)]
 pub(super) struct AssessmentShowArgs {
-    /// Repository path to read Shoreline review state from.
+    /// Repository path to read Pointbreak review state from.
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 

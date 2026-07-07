@@ -1,15 +1,15 @@
-# Shoreline
+# Pointbreak Review
 
-[![Crates.io](https://img.shields.io/crates/v/shoreline.svg)](https://crates.io/crates/shoreline)
-[![Documentation](https://docs.rs/shoreline/badge.svg)](https://docs.rs/shoreline)
-[![CI](https://github.com/kevinswiber/shoreline/actions/workflows/ci.yml/badge.svg)](https://github.com/kevinswiber/shoreline/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/pointbreak.svg)](https://crates.io/crates/pointbreak)
+[![Documentation](https://docs.rs/pointbreak/badge.svg)](https://docs.rs/pointbreak)
+[![CI](https://github.com/kevinswiber/pointbreak/actions/workflows/ci.yml/badge.svg)](https://github.com/kevinswiber/pointbreak/actions/workflows/ci.yml)
 
-Shoreline is a durable, local-first review record for code changes that humans and coding agents
-build together. It is designed for the iteration that happens long before a pull request opens,
-where you might guide one agent to author a change and another to review it.
+Pointbreak Review is a durable, local-first review record for code changes that humans and coding
+agents build together. It is designed for the iteration that happens long before a pull request
+opens, where you might guide one agent to author a change and another to review it.
 
 Coding agents generate far more activity than anyone can follow. Rather than store or replay full
-transcripts, Shoreline keeps only the facts that move a review forward: what changed and why, the
+transcripts, Pointbreak keeps only the facts that move a review forward: what changed and why, the
 open questions, and each assessment. It records them as an append-only log you can read in the
 terminal, browse in a local web inspector, or consume as JSON.
 
@@ -19,17 +19,17 @@ a reader can tell whether each fact is merely signed or bound to a trusted ident
 [docs/signing-ux.md](docs/signing-ux.md).
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/kevinswiber/shoreline/main/assets/shore-inspector-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/kevinswiber/shoreline/main/assets/shore-inspector-light.png">
-  <img alt="The shore inspect web UI: a filterable event timeline with per-actor tracks and signature-trust badges, beside an event detail pane" src="https://raw.githubusercontent.com/kevinswiber/shoreline/main/assets/shore-inspector-light.png" width="800">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/kevinswiber/pointbreak/main/assets/shore-inspector-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/kevinswiber/pointbreak/main/assets/shore-inspector-light.png">
+  <img alt="The shore inspect web UI: a filterable event timeline with per-actor tracks and signature-trust badges, beside an event detail pane" src="https://raw.githubusercontent.com/kevinswiber/pointbreak/main/assets/shore-inspector-light.png" width="800">
 </picture>
 
 *Watching a review in `shore inspect`: the event timeline, each fact attributed to its track, with signature-trust badges.*
 
-Install the `shoreline` crate; it provides the `shore` command:
+Install the `pointbreak` crate; it provides the `shore` command:
 
 ```bash
-cargo install shoreline
+cargo install pointbreak
 shore --help
 ```
 
@@ -70,7 +70,7 @@ a local web UI:
 shore inspect --open
 ```
 
-Shoreline stores local review facts in `.shore/data/`. Command output JSON is the integration surface;
+Pointbreak stores local review facts in `.shore/data/`. Command output JSON is the integration surface;
 raw event files, artifact paths, and `.shore/data/state.json` are internal storage details unless a
 command explicitly documents them. Consumers that prefer to read and write those facts in process
 can use the supported library API instead of the CLI — see [docs/library-api.md](docs/library-api.md).
@@ -83,10 +83,10 @@ documents, schema names, and V1 limitations.
 
 ## Agent Skills
 
-Shoreline ships a portable author-handoff skill under [skills/](skills/README.md). Install it with:
+Pointbreak ships a portable author-handoff skill under [skills/](skills/README.md). Install it with:
 
 ```bash
-npx skills add kevinswiber/shoreline
+npx skills add kevinswiber/pointbreak
 ```
 
 ## Documentation
@@ -99,7 +99,7 @@ For users:
   assessments, history, and revision show.
 - [Agent authoring handoffs](docs/agent-authoring.md) - how a coding agent captures a durable
   handoff record before declaring implementation work done.
-- [Agent skills](skills/README.md) - install the portable Shoreline author-handoff skill.
+- [Agent skills](skills/README.md) - install the portable Pointbreak author-handoff skill.
 - [Library API](docs/library-api.md) - the supported in-process library surface (reads, attributed
   writes, event ingest, documents) and its stability contract.
 - [Signing UX](docs/signing-ux.md) - human, agent, and CI signing flows and the
@@ -122,9 +122,8 @@ Architecture and model notes:
 
 ## Project Status
 
-Shoreline is experimental and under active development. The package is named `shoreline`
-because a shoreline is the boundary where tool-assisted changes meet review. The installed
-command stays `shore` because command names should remain short and practical.
+Pointbreak Review is experimental and under active development. The published crate is `pointbreak`;
+the installed command stays `shore` because command names should remain short and practical.
 
 The current focus is a headless, durable review model first:
 

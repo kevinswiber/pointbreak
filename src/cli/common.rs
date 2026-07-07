@@ -2,14 +2,14 @@ use std::io::{Read, Write};
 use std::path::Path;
 
 use clap::ValueEnum;
-use shoreline::crypto::EventSigner;
-use shoreline::keys::{
+use pointbreak::crypto::EventSigner;
+use pointbreak::keys::{
     AgentUnavailable, FileEd25519Signer, KeyHandle, KeyMaterial, KeyName, generate_key,
     generate_key_in, load_key_material, load_key_material_in, load_signer, load_signer_from_path,
     load_signer_in, preflight_ssh_agent_signer,
 };
-use shoreline::model::{ActorId, Side};
-use shoreline::session::{
+use pointbreak::model::{ActorId, Side};
+use pointbreak::session::{
     ActorAttributesMap, AssessmentAddOptions, AssociateCommitOptions, AssociateRefOptions,
     BestEffortSkipSink, BodyContentType, CaptureOptions, CurrentAssessmentStatus, DelegationMap,
     InputRequestOpenOptions, InputRequestRespondOptions, ObservationAddOptions, RemoveOptions,
@@ -72,7 +72,7 @@ pub(crate) fn current_call_line(status: &CurrentAssessmentStatus) -> String {
 /// review read command and the inspector server.
 pub(crate) fn discover_delegation_map(repo: &Path) -> Option<DelegationMap> {
     let worktree_root =
-        shoreline::git::git_worktree_root(repo).unwrap_or_else(|_| repo.to_path_buf());
+        pointbreak::git::git_worktree_root(repo).unwrap_or_else(|_| repo.to_path_buf());
     let committed = load_optional_delegates(&worktree_root.join(".shore/delegates.json"));
     let local = load_optional_delegates(&worktree_root.join(".shore/delegates.local.json"));
     match (committed, local) {
@@ -114,7 +114,7 @@ fn load_optional_delegates(path: &Path) -> Option<DelegationMap> {
 // classification, never a classifier input).
 pub(crate) fn discover_actor_attributes(repo: &Path) -> Option<ActorAttributesMap> {
     let worktree_root =
-        shoreline::git::git_worktree_root(repo).unwrap_or_else(|_| repo.to_path_buf());
+        pointbreak::git::git_worktree_root(repo).unwrap_or_else(|_| repo.to_path_buf());
     let committed =
         load_optional_actor_attributes(&worktree_root.join(".shore/actor-attributes.json"));
     let local =
@@ -149,7 +149,7 @@ fn load_optional_actor_attributes(path: &Path) -> Option<ActorAttributesMap> {
 /// Symmetric to [`discover_delegation_map`]: `repo` may be the worktree root or
 /// any path inside it, so discovery resolves the worktree root first (a non-git
 /// context falls back to `repo` as given), then loads `.shore/allowed-signers.json`
-/// — the custom Shoreline JSON allow-list (`{"allowedSigners": {...}}`), not the
+/// — the custom Pointbreak JSON allow-list (`{"allowedSigners": {...}}`), not the
 /// OpenSSH `allowed_signers` format. An absent file yields the empty
 /// `TrustSet::default()` (zero-setup stores see no change); a malformed file is
 /// advisory — a one-line stderr warning, then the empty default (a bad allow-list
@@ -158,7 +158,7 @@ fn load_optional_actor_attributes(path: &Path) -> Option<ActorAttributesMap> {
 /// reader-supplied trust config, never store content.
 pub(crate) fn discover_trust_set(repo: &Path) -> TrustSet {
     let worktree_root =
-        shoreline::git::git_worktree_root(repo).unwrap_or_else(|_| repo.to_path_buf());
+        pointbreak::git::git_worktree_root(repo).unwrap_or_else(|_| repo.to_path_buf());
     load_optional_trust_set(&worktree_root.join(".shore/allowed-signers.json")).unwrap_or_default()
 }
 
@@ -737,8 +737,8 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
 
-    use shoreline::model::ActorId;
-    use shoreline::session::PrincipalResolution;
+    use pointbreak::model::ActorId;
+    use pointbreak::session::PrincipalResolution;
 
     // Minimal committed map: claude-code -> KEVIN.
     const COMMITTED: &str = r#"{"delegates":{"actor:agent:claude-code":[
@@ -798,7 +798,7 @@ mod tests {
 
     #[test]
     fn discover_trust_set_loads_committed_allowed_signers() {
-        use shoreline::crypto::SignerId;
+        use pointbreak::crypto::SignerId;
 
         let repo = git_repo();
         write(&repo, ".shore/allowed-signers.json", ALLOWED);
@@ -813,7 +813,7 @@ mod tests {
     fn discover_trust_set_absent_file_is_empty_default_without_error() {
         let repo = git_repo();
         let trust = super::discover_trust_set(repo.path());
-        assert_eq!(trust, shoreline::session::TrustSet::default());
+        assert_eq!(trust, pointbreak::session::TrustSet::default());
     }
 
     #[test]
@@ -822,7 +822,7 @@ mod tests {
         write(&repo, ".shore/allowed-signers.json", "{ not json");
         // Malformed is advisory: a one-line warning, then the empty default.
         let trust = super::discover_trust_set(repo.path());
-        assert_eq!(trust, shoreline::session::TrustSet::default());
+        assert_eq!(trust, pointbreak::session::TrustSet::default());
     }
 
     #[test]
@@ -912,9 +912,9 @@ mod tests {
 mod resolve_signer_tests {
     use std::path::Path;
 
-    use shoreline::crypto::EventSigner as _;
-    use shoreline::keys::{KeyName, generate_key_in};
-    use shoreline::model::ActorId;
+    use pointbreak::crypto::EventSigner as _;
+    use pointbreak::keys::{KeyName, generate_key_in};
+    use pointbreak::model::ActorId;
 
     use super::resolve_signer_with_env;
 
@@ -938,9 +938,9 @@ mod resolve_signer_tests {
 
     #[test]
     fn a_boxed_signer_round_trips_through_sign_with_and_signs() {
-        use shoreline::crypto::{EventVerificationStatus, verify_ed25519_strict};
-        use shoreline::session::EventSigningOptions;
-        use shoreline::session::event::{
+        use pointbreak::crypto::{EventVerificationStatus, verify_ed25519_strict};
+        use pointbreak::session::EventSigningOptions;
+        use pointbreak::session::event::{
             EVENT_TO_BE_SIGNED_V1_PAYLOAD_TYPE, pre_authentication_encoding,
         };
 
@@ -951,7 +951,7 @@ mod resolve_signer_tests {
         let did = generate_into(root.path(), "default");
         let resolution =
             resolve_signer_with_env(repo(), &human_actor(), None, None, None, Some(root.path()));
-        let boxed: Box<dyn shoreline::crypto::EventSigner + Send + Sync> = resolution
+        let boxed: Box<dyn pointbreak::crypto::EventSigner + Send + Sync> = resolution
             .signer
             .expect("default key resolves as a boxed signer");
 
@@ -975,7 +975,7 @@ mod resolve_signer_tests {
     /// key bytes are arbitrary-but-fixed: did:key derivation does not validate the
     /// curve point, and these failure-path tests never reach a real agent.
     fn write_agent_into(root: &Path, name: &str) -> String {
-        use shoreline::keys::{KeyName, write_agent_reference_in};
+        use pointbreak::keys::{KeyName, write_agent_reference_in};
         write_agent_reference_in(root, &KeyName::parse(name).unwrap(), [7_u8; 32])
             .unwrap()
             .signer_id()
@@ -1047,7 +1047,7 @@ mod resolve_signer_tests {
 
     #[test]
     fn agent_unavailable_variants_map_to_their_diagnostics() {
-        use shoreline::keys::AgentUnavailable;
+        use pointbreak::keys::AgentUnavailable;
         assert!(
             super::map_agent_unavailable(AgentUnavailable::Socket)
                 .contains("signing_agent_unavailable")
@@ -1338,7 +1338,7 @@ mod resolve_signer_tests {
 
     #[test]
     fn actor_slug_maps_to_a_filesystem_safe_key_name() {
-        use shoreline::keys::KeyName;
+        use pointbreak::keys::KeyName;
 
         assert_eq!(
             super::agent_key_name("actor:agent:claude-code"),

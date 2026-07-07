@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use clap::Args;
 // Public keystore surface (the `store` submodule is private; the CLI is in the
-// binary crate and reaches only the re-exported `pub` items at `shoreline::keys::*`).
-use shoreline::keys::generate_key;
+// binary crate and reaches only the re-exported `pub` items at `pointbreak::keys::*`).
+use pointbreak::keys::generate_key;
 
 use crate::cli::{json, output};
 

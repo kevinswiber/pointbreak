@@ -1,6 +1,6 @@
-use shoreline::git::{git_worktree_root, ingest_tracked_diff};
-use shoreline::session::event::EventType;
-use shoreline::session::{
+use pointbreak::git::{git_worktree_root, ingest_tracked_diff};
+use pointbreak::session::event::EventType;
+use pointbreak::session::{
     CaptureOptions, SessionState, capture_worktree_fingerprint, capture_worktree_review,
     ensure_shore_gitignore, read_events, read_object_artifact, rebuild_state, store_dir_for_repo,
 };
@@ -271,7 +271,7 @@ fn capture_does_not_dirty_worktree_or_leak_storage_into_snapshot() {
     repo.write("src.txt", "alpha\n");
     repo.commit_all("base");
 
-    // The worktree is clean before any Shoreline command runs.
+    // The worktree is clean before any Pointbreak command runs.
     assert!(
         repo.git(["status", "--short"]).stdout.trim().is_empty(),
         "worktree should start clean"
@@ -294,7 +294,7 @@ fn capture_does_not_dirty_worktree_or_leak_storage_into_snapshot() {
         "capture must keep the worktree clean, got:\n{status}"
     );
 
-    // The captured snapshot carries no Shoreline storage or ignore-file rows.
+    // The captured snapshot carries no Pointbreak storage or ignore-file rows.
     let snapshot = ingest_tracked_diff(repo.path()).expect("ingest snapshot");
     assert!(
         snapshot.files.iter().all(|file| {
@@ -304,7 +304,7 @@ fn capture_does_not_dirty_worktree_or_leak_storage_into_snapshot() {
             !file.new_path.as_deref().is_some_and(mentions_shore_state)
                 && !file.old_path.as_deref().is_some_and(mentions_shore_state)
         }),
-        "snapshot must not include Shoreline storage or .gitignore rows, got: {:?}",
+        "snapshot must not include Pointbreak storage or .gitignore rows, got: {:?}",
         snapshot.files
     );
 }

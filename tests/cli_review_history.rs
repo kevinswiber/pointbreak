@@ -1,8 +1,8 @@
 mod support;
 
+use pointbreak::model::ValidationStatus;
+use pointbreak::session::{ValidationAddOptions, record_validation_check};
 use serde_json::Value;
-use shoreline::model::ValidationStatus;
-use shoreline::session::{ValidationAddOptions, record_validation_check};
 use support::git_repo::GitRepo;
 use support::{shore, shore_env};
 
@@ -506,10 +506,10 @@ fn history_renders_endorsement_for_an_endorsed_capture() {
 
 /// Find the captured Revision event id via the public read path (`read_events`).
 fn captured_event_id(repo_path: &std::path::Path) -> String {
-    shoreline::session::read_events(repo_path)
+    pointbreak::session::read_events(repo_path)
         .unwrap()
         .iter()
-        .find(|e| e.event_type == shoreline::session::event::EventType::WorkObjectProposed)
+        .find(|e| e.event_type == pointbreak::session::event::EventType::WorkObjectProposed)
         .expect("a captured review unit event")
         .event_id
         .as_str()

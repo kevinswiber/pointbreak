@@ -1,6 +1,6 @@
 # Manual Testing Playbook
 
-This is a maintainer-facing checklist for spot-checking Shoreline's current workflows by hand. It is
+This is a maintainer-facing checklist for spot-checking Pointbreak's current workflows by hand. It is
 intentionally small: each section creates a disposable scratch repo, runs a few commands, and
 describes what to look for. Use it after big changes to confirm the surfaces still behave the way
 the docs claim.
@@ -45,7 +45,7 @@ caller would see them.
     never appears in `git status` and never adds rows to a captured snapshot, and no `.shore/`
     directory is created. The walkthroughs below use this default unless they say otherwise.
   - **Ephemeral opt-in — a discardable worktree-local store at `.shore/data/`.** Enabled per
-    worktree with `shore store mode ephemeral`; Shoreline also writes a `.shore/store.json` marker
+    worktree with `shore store mode ephemeral`; Pointbreak also writes a `.shore/store.json` marker
     and a generated `.shore/.gitignore` (ignoring `data/` and `*.local.json`). Remove the worktree
     and the review facts vanish with it. §H opts into this mode to poke at the store's files
     directly.
@@ -114,8 +114,8 @@ shore revision show --pretty | jq '[.rows[] | select(.kind == "file_header") | .
 - `diffstat` reports `fileCount: 1`, `addedFiles: 1` (the untracked `new-file.txt`), and zero
   modified, deleted, or renamed files.
 - One `file_header` row, for `new-file.txt` — the untracked file is captured as `added`.
-- Nothing Shoreline-owned appears in the snapshot or in `git status`: the default store lives inside
-  `.git/`, so there is no `.shore/` directory and no store rows in the captured diff, and Shoreline
+- Nothing Pointbreak-owned appears in the snapshot or in `git status`: the default store lives inside
+  `.git/`, so there is no `.shore/` directory and no store rows in the captured diff, and Pointbreak
   never edits the root `.gitignore` (`git status --short` shows only `?? new-file.txt`).
 
 ## C. Observations — add and list

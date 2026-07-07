@@ -16,7 +16,7 @@ const KEY_FILE_ALG: &str = "ed25519";
 /// The result of minting (or, in a sibling module, loading) a named keystore
 /// key: its derived `did:key` identity plus where its files live on disk. `pub`
 /// (with `pub` accessors) because the binary CLI crate consumes it via
-/// `shoreline::keys`.
+/// `pointbreak::keys`.
 #[derive(Clone, Debug)]
 pub struct KeyHandle {
     name: String,
@@ -42,7 +42,7 @@ impl KeyHandle {
 
 /// A keystore key's public identity for listing: its name, derived `did:key`, and
 /// custody. `pub` (with `pub` accessors) so the binary CLI consumes it via
-/// `shoreline::keys`.
+/// `pointbreak::keys`.
 #[derive(Clone, Debug)]
 pub struct KeyInfo {
     name: String,
@@ -64,7 +64,7 @@ impl KeyInfo {
 
 /// Whether a keystore key holds its private seed on disk (`File`) or delegates
 /// custody to ssh-agent and stores only the public key (`Agent`). `pub` so the
-/// binary CLI's `keys list` reports it via `shoreline::keys`.
+/// binary CLI's `keys list` reports it via `pointbreak::keys`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyCustody {
     File,
@@ -74,7 +74,7 @@ pub enum KeyCustody {
 /// The custody-tagged material recovered from a keystore key: either the raw seed
 /// (→ a local `FileEd25519Signer`) or the public key of an agent-backed reference
 /// (→ an `SshAgentSigner` built at resolve time). `pub`: the binary CLI's resolve
-/// layer consumes it via `shoreline::keys`.
+/// layer consumes it via `pointbreak::keys`.
 #[derive(Clone, Debug)]
 pub enum KeyMaterial {
     Seed([u8; 32]),
@@ -217,7 +217,7 @@ fn write_key_document(path: &Path, document: &KeyFile, private: bool) -> Result<
 /// public key (no seed), plus the `<name>.pub` did:key sidecar. The `did:key`
 /// derives from `public_key` with no agent and no private key, so the reference is
 /// enroll/list/show-able offline. Refuse-to-clobber via `create_new`.
-/// `pub`: `shore key use-ssh` consumes it via `shoreline::keys`.
+/// `pub`: `shore key use-ssh` consumes it via `pointbreak::keys`.
 pub fn write_agent_reference(name: &str, public_key: [u8; 32]) -> Result<KeyHandle> {
     write_agent_reference_in(&keys_dir()?, &KeyName::parse(name)?, public_key)
 }
@@ -257,7 +257,7 @@ pub fn write_agent_reference_in(
 /// Load a named keystore key as a production signer: read its file from
 /// `keys_dir()`, reconstruct the `SigningKey`, and re-derive the `SignerId`.
 /// All fallible work (resolve + read + decode) lives here, ahead of signing.
-/// `pub`: the binary CLI consumes it via `shoreline::keys::load_signer`.
+/// `pub`: the binary CLI consumes it via `pointbreak::keys::load_signer`.
 pub fn load_signer(name: &str) -> Result<FileEd25519Signer> {
     load_signer_in(&keys_dir()?, name)
 }
@@ -283,7 +283,7 @@ pub fn load_signer_from_path(path: &Path) -> Result<FileEd25519Signer> {
 }
 
 /// Enumerate the keys in the user-level keystore, each with its derived
-/// `did:key`. `pub`: the binary CLI consumes it via `shoreline::keys::list_keys`.
+/// `did:key`. `pub`: the binary CLI consumes it via `pointbreak::keys::list_keys`.
 pub fn list_keys() -> Result<Vec<KeyInfo>> {
     list_keys_in(&keys_dir()?)
 }
@@ -343,7 +343,7 @@ pub fn list_keys_in(dir: &Path) -> Result<Vec<KeyInfo>> {
 
 /// Load a named key's custody-tagged material. A `seed` file loads as `Seed`; an
 /// agent reference loads as `AgentBacked`. `pub`: the binary CLI's resolve layer
-/// consumes it via `shoreline::keys`.
+/// consumes it via `pointbreak::keys`.
 pub fn load_key_material(name: &str) -> Result<KeyMaterial> {
     load_key_material_in(&keys_dir()?, name)
 }

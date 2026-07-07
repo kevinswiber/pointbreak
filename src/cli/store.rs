@@ -2,8 +2,8 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use clap::{ArgGroup, Args, Subcommand, ValueEnum};
-use shoreline::model::{ObjectId, RevisionId};
-use shoreline::session::{
+use pointbreak::model::{ObjectId, RevisionId};
+use pointbreak::session::{
     CompactOptions, CompactResult, MigrateToCommonDirOptions, MigrateToCommonDirResult,
     ProjectionDiagnostic, RemovalOperativeStatus, RemoveOptions, RemoveResult, RemoveSelector,
     RemovedContent, SkippedRemoval, StoreForgetOptions, StoreForgetResult, StoreLinkOptions,

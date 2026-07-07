@@ -118,7 +118,7 @@ style = { changelog_title = "Style", omit_from_changelog = true, order = 11 }
 path = "CHANGELOG.md"
 template = "remote"
 remote = "github.com"
-repository = "shoreline"
+repository = "pointbreak"
 owner = "kevinswiber"
 
 [[changelog.authors]]
