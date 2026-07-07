@@ -280,6 +280,12 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
 .detail .kv { display: grid; grid-template-columns: 130px 1fr; gap: 4px 10px; font-size: var(--fs-sm); margin-bottom: 12px; }
 .detail .kv dt { color: var(--fg-dim); font-family: var(--mono); }
 .detail .kv dd { margin: 0; font-family: var(--mono); word-break: break-all; }
+/* Entity anchors (title + eventId/revision rows): real links to the
+   entity-primary routes, so cmd/middle-click opens a new tab natively. */
+.detail h2 a { color: inherit; text-decoration: none; }
+.detail h2 a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.detail .kv dd a { color: var(--accent); text-decoration: none; }
+.detail .kv dd a:hover { text-decoration: underline; }
 .detail pre {
   background: var(--bg-code);
   border: 1px solid var(--border);

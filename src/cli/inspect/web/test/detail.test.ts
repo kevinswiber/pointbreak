@@ -85,6 +85,32 @@ describe("renderDetail (event detail / empty prompt)", () => {
     ).not.toBeNull();
   });
 
+  it("the detail title and entity kv rows are real anchors without ref-chip datasets", () => {
+    store.commit({ selected: { kind: "event", id: OBS_EVENT }, open: true });
+    detail.renderDetail();
+    const title =
+      document.querySelector<HTMLAnchorElement>("#detail-body h2 a");
+    expect(title?.getAttribute("href")).toBe(
+      `#/event/${encodeURIComponent(OBS_EVENT)}`,
+    );
+    expect(title?.hasAttribute("data-ref-kind")).toBe(false);
+    const revLink = document.querySelector(
+      `#detail-body dl.kv a[href="#/revision/${encodeURIComponent(REV)}"]`,
+    );
+    expect(revLink).not.toBeNull();
+    expect(revLink?.hasAttribute("data-ref-kind")).toBe(false);
+  });
+
+  it("the track kv row stays a ref chip (no entity route exists for tracks)", () => {
+    store.commit({ selected: { kind: "event", id: OBS_EVENT }, open: true });
+    detail.renderDetail();
+    const dts = [...document.querySelectorAll("#detail-body dl.kv dt")];
+    const trackDt = dts.find((d) => d.textContent === "track");
+    const dd = trackDt?.nextElementSibling;
+    expect(dd).not.toBeNull();
+    expect(dd?.querySelector("a[href]")).toBeNull();
+  });
+
   it("paints the selected event's identity, body, and raw payload", () => {
     store.commit({ selected: { kind: "event", id: OBS_EVENT } });
     detail.renderDetail();

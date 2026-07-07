@@ -2610,6 +2610,10 @@
 
   // src/detail.ts
   var shownCompositeId = null;
+  function entityAnchor(kind, id, label) {
+    return `<a href="#/${kind}/${encodeURIComponent(id)}">${escapeHtml(label ?? id)}</a>`;
+  }
+  __name(entityAnchor, "entityAnchor");
   function eventBodyBlock(e) {
     const s = e.summary ?? {};
     if (s.body) return renderBodyContent(s.body, s.bodyContentType);
@@ -2670,9 +2674,15 @@
     const endorse = endorsementsBlock(e.endorsements);
     const readback = verifyChip || endorse ? `<div class="${CLASS.readback}"><p class="${CLASS.readerScopeNote}">reader-relative — computed against your enrolled keys</p>${verifyChip ? `<div class="${CLASS.readbackRow}">${verifyChip}</div>` : ""}${endorse}</div>` : "";
     const diffButton = snapshotId ? `<button class="${CLASS.ghost} ${CLASS.diffBtn}" id="detail-diff-btn" data-open-diff="${escapeHtml(snapshotId)}" data-diff-hash="${escapeHtml(snapshotContentHashForRevision(revisionId))}" data-diff-focus="${escapeHtml(focusId ?? "")}">${escapeHtml(btnLabel)}</button>` : "";
+    const kvValue = /* @__PURE__ */ __name((k, v) => {
+      if (k === "eventId" && e.eventId) return entityAnchor("event", e.eventId);
+      if (k === "revision" && revisionId)
+        return entityAnchor("revision", revisionId);
+      return linkify(v);
+    }, "kvValue");
     el.innerHTML = `
-    <h2>${linkify(entryTitle(e))}</h2>
-    <dl class="${CLASS.kv}">${kv.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${linkify(v)}</dd>`).join("")}</dl>
+    <h2>${e.eventId ? entityAnchor("event", e.eventId, entryTitle(e)) : linkify(entryTitle(e))}</h2>
+    <dl class="${CLASS.kv}">${kv.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${kvValue(k, v)}</dd>`).join("")}</dl>
     ${readback}
     ${diffButton}
     ${bodyBlock}

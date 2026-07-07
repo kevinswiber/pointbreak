@@ -113,6 +113,21 @@ let shownCompositeId: string | null = null;
 // Event detail
 // ---------------------------------------------------------------------------
 
+/**
+ * A plain entity anchor to an entity-primary route. Deliberately NOT a
+ * `data-ref-kind` chip: the navigation delegate preventDefaults chips, and a
+ * real anchor must keep native behavior — one hashchange navigation on click,
+ * and cmd/middle-click opening a new tab. Enter on a focused anchor stays
+ * native via onKey's interactive-target yield.
+ */
+function entityAnchor(
+  kind: "event" | "revision",
+  id: string,
+  label?: string,
+): string {
+  return `<a href="#/${kind}/${encodeURIComponent(id)}">${escapeHtml(label ?? id)}</a>`;
+}
+
 /** The first non-empty body fallback for an event: body, then summary, then reason. */
 export function eventBodyBlock(e: HistoryEntry): string {
   const s = e.summary ?? {};
@@ -189,9 +204,20 @@ export function renderDetail(): void {
   const diffButton = snapshotId
     ? `<button class="${CLASS.ghost} ${CLASS.diffBtn}" id="detail-diff-btn" data-open-diff="${escapeHtml(snapshotId)}" data-diff-hash="${escapeHtml(snapshotContentHashForRevision(revisionId))}" data-diff-focus="${escapeHtml(focusId ?? "")}">${escapeHtml(btnLabel)}</button>`
     : "";
+  // The title and the eventId/revision rows are real anchors to their
+  // entity-primary routes (native open-in-new-tab); every other value keeps the
+  // linkify chip treatment. The title is ONE anchor with escaped text — nesting
+  // chips inside an anchor is an a11y fault, and its embedded ids repeat in the
+  // kv rows below.
+  const kvValue = (k: string, v: string): string => {
+    if (k === "eventId" && e.eventId) return entityAnchor("event", e.eventId);
+    if (k === "revision" && revisionId)
+      return entityAnchor("revision", revisionId);
+    return linkify(v);
+  };
   el.innerHTML = `
-    <h2>${linkify(entryTitle(e))}</h2>
-    <dl class="${CLASS.kv}">${kv.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${linkify(v)}</dd>`).join("")}</dl>
+    <h2>${e.eventId ? entityAnchor("event", e.eventId, entryTitle(e)) : linkify(entryTitle(e))}</h2>
+    <dl class="${CLASS.kv}">${kv.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${kvValue(k, v)}</dd>`).join("")}</dl>
     ${readback}
     ${diffButton}
     ${bodyBlock}
