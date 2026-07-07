@@ -325,33 +325,48 @@ export async function fetchEventIdForQuery(q: string): Promise<string | null> {
   return doc?.entries?.[0]?.eventId ?? null;
 }
 
+/** The auto-refresh poll's health, surfaced on the store chip (issue #257). */
+type Liveness = "idle" | "watching" | "updated" | "stalled";
+
+/**
+ * Reflect the poll health onto the store chip: a calm status dot (`#refresh`,
+ * state on `data-state` so it stays off the emittable-class ledger), a degraded
+ * word beside the chip that is empty unless stalled (`#refresh-word`, a polite
+ * live region so a stall is announced), and the word in the chip's detail popover
+ * (`#stat-live`). Every liveness writer goes through here.
+ */
+export function setLiveness(state: Liveness): void {
+  const dot = $("#refresh");
+  if (dot) {
+    dot.setAttribute("data-state", state);
+    dot.setAttribute("title", `Auto-refresh: ${state}`);
+  }
+  const word = $("#refresh-word");
+  if (word) word.textContent = state === "stalled" ? "stalled" : "";
+  const line = $("#stat-live");
+  if (line) {
+    line.textContent = state;
+    line.setAttribute("data-state", state);
+  }
+}
+
 /**
  * Probe `/api/freshness` and reload when the event-log head marker changed,
- * updating the `#refresh` indicator. A probe failure marks it stalled.
+ * updating the liveness indicator. A probe failure marks it stalled.
  */
 export async function pollFreshness(): Promise<void> {
   try {
     const f = (await fetchJSON("/api/freshness")) as FreshnessDoc;
-    const refresh = $("#refresh");
     const s = getState();
     const changed = (f.eventCount ?? null) !== s.lastEventCount;
     if (changed) {
-      if (refresh) {
-        refresh.textContent = "updated";
-        refresh.classList.add("live");
-      }
+      setLiveness("updated");
       await load();
-      setTimeout(() => {
-        if (refresh) {
-          refresh.textContent = "watching";
-          refresh.classList.remove("live");
-        }
-      }, 1200);
-    } else if (refresh) {
-      refresh.textContent = "watching";
+      setTimeout(() => setLiveness("watching"), 1200);
+    } else {
+      setLiveness("watching");
     }
   } catch {
-    const refresh = $("#refresh");
-    if (refresh) refresh.textContent = "stalled";
+    setLiveness("stalled");
   }
 }

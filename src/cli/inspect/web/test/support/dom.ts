@@ -21,6 +21,7 @@ const INDEX_BODY = `
   <div class="stats">
     <div id="store-identity" class="store-identity hidden">
       <span id="store-chip" class="store-identity-chip" tabindex="0" aria-label="">
+        <span id="refresh" class="store-live" data-state="idle" title="Auto-refresh status" aria-hidden="true"></span>
         <span id="store-chip-repo" class="store-identity-repo"></span>
         <span class="store-identity-caret" aria-hidden="true">▾</span>
       </span>
@@ -32,12 +33,13 @@ const INDEX_BODY = `
           <span id="stat-threads" class="stat" title="supersession threads">— threads</span>
           <span id="stat-hash" class="stat mono" title="eventSetHash">—</span>
         </div>
+        <p class="store-live-row">status <span id="stat-live" class="store-live-status" data-state="idle">idle</span></p>
         <p class="store-identity-note">Recorded state only — never gates writes; signature checks are reader-relative to your committed allow-list.</p>
       </div>
     </div>
-    <span id="refresh" class="stat" title="auto-refresh status">idle</span>
-    <button id="theme-toggle" class="ghost" aria-label="Toggle color theme" title="Toggle light/dark theme">theme</button>
-    <button id="density-toggle" class="ghost" aria-label="Toggle density" title="Toggle comfortable/compact density">density</button>
+    <span id="refresh-word" class="store-live-word" role="status" aria-live="polite"></span>
+    <button id="theme-toggle" class="ghost" aria-label="Color theme: system (dark)" title="Cycle theme (system / light / dark)">◐ dark</button>
+    <button id="density-toggle" class="ghost" aria-label="Density: comfortable" title="Toggle density (comfortable / compact)">≡ comfortable</button>
   </div>
 </header>
 

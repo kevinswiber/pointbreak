@@ -11,7 +11,13 @@
 // emit flip) invokes `main()` and ignores the return — the port stays parallel and
 // unserved here, so nothing calls `main()` automatically yet.
 
-import { load, loadIdentity, maybeReloadForQuery, pollFreshness } from "./data";
+import {
+  load,
+  loadIdentity,
+  maybeReloadForQuery,
+  pollFreshness,
+  setLiveness,
+} from "./data";
 import { initControls as initDetail } from "./detail";
 import { initControls as initDiff } from "./diff/controller";
 import { $ } from "./dom";
@@ -94,8 +100,7 @@ export function main(): Promise<void> {
   // data load, never on the freshness reload path.
   return Promise.all([load(), loadIdentity()]).then(() => {
     applyHash();
-    const refresh = $("#refresh");
-    if (refresh) refresh.textContent = "watching";
+    setLiveness("watching");
     setInterval(() => {
       void pollFreshness();
     }, 3000);

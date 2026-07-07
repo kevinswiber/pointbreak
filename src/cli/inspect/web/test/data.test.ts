@@ -216,8 +216,10 @@ describe("pollFreshness", () => {
     await data.load();
     await data.pollFreshness();
     const refresh = document.querySelector("#refresh");
-    expect(refresh?.textContent).toBe("watching");
-    expect(refresh?.classList.contains("live")).toBe(false);
+    expect(refresh?.getAttribute("data-state")).toBe("watching");
+    // Healthy: the degraded word stays empty and the detail line reads watching.
+    expect(document.querySelector("#refresh-word")?.textContent).toBe("");
+    expect(document.querySelector("#stat-live")?.textContent).toBe("watching");
   });
 
   it("reloads and flags the indicator when the event-count marker changed", async () => {
@@ -225,8 +227,7 @@ describe("pollFreshness", () => {
     setFreshnessResponse({ eventCount: HISTORY_EVENT_COUNT + 1 });
     await data.pollFreshness();
     const refresh = document.querySelector("#refresh");
-    expect(refresh?.textContent).toBe("updated");
-    expect(refresh?.classList.contains("live")).toBe(true);
+    expect(refresh?.getAttribute("data-state")).toBe("updated");
     // The reload re-seeded the baseline from the freshness probe (the new marker),
     // so a subsequent poll at the same marker reports unchanged — no reload loop.
     expect(store.getState().lastEventCount).toBe(HISTORY_EVENT_COUNT + 1);
@@ -243,7 +244,9 @@ describe("pollFreshness", () => {
       diagnosticCount: 3,
     });
     await data.pollFreshness();
-    expect(document.querySelector("#refresh")?.textContent).toBe("watching");
+    expect(document.querySelector("#refresh")?.getAttribute("data-state")).toBe(
+      "watching",
+    );
   });
 
   it("marks the indicator stalled when the freshness probe fails", async () => {
@@ -252,10 +255,33 @@ describe("pollFreshness", () => {
     globalThis.fetch = () => Promise.reject(new Error("offline"));
     try {
       await data.pollFreshness();
-      expect(document.querySelector("#refresh")?.textContent).toBe("stalled");
+      const refresh = document.querySelector("#refresh");
+      expect(refresh?.getAttribute("data-state")).toBe("stalled");
+      // Degraded: the word surfaces beside the chip so a stall is noticed.
+      expect(document.querySelector("#refresh-word")?.textContent).toBe(
+        "stalled",
+      );
     } finally {
       globalThis.fetch = restore;
     }
+  });
+});
+
+describe("setLiveness", () => {
+  it("drives the dot state + title and clears the degraded word on recovery", () => {
+    data.setLiveness("stalled");
+    expect(document.querySelector("#refresh-word")?.textContent).toBe(
+      "stalled",
+    );
+    data.setLiveness("watching");
+    const dot = document.querySelector("#refresh");
+    expect(dot?.getAttribute("data-state")).toBe("watching");
+    expect(dot?.getAttribute("title")).toBe("Auto-refresh: watching");
+    expect(document.querySelector("#refresh-word")?.textContent).toBe("");
+    // The detail-popover line mirrors the word AND the dot's state (for color).
+    const line = document.querySelector("#stat-live");
+    expect(line?.textContent).toBe("watching");
+    expect(line?.getAttribute("data-state")).toBe("watching");
   });
 });
 

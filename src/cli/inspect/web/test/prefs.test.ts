@@ -4,11 +4,11 @@ import {
   applyPrefs,
   applySplit,
   applyTheme,
+  cycleTheme,
   initControls,
   preferredSplit,
   preferredTheme,
   toggleDensity,
-  toggleTheme,
   watchColorScheme,
 } from "../src/prefs";
 import { mountInspectorDom, resetDom } from "./support/dom";
@@ -107,25 +107,61 @@ describe("preferredTheme", () => {
   });
 });
 
-describe("applyTheme / toggleTheme", () => {
+describe("applyTheme / cycleTheme", () => {
+  const themeBtn = () => document.getElementById("theme-toggle");
+
   it("applyTheme sets data-theme on the document root", () => {
     applyTheme("light");
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
   });
 
-  it("toggleTheme flips light<->dark and persists the choice", () => {
+  it("labels a pinned theme with its glyph + value (text visible, aria clean)", () => {
+    localStorage.setItem(THEME_KEY, "dark");
+    applyTheme("dark");
+    expect(themeBtn()?.textContent).toBe("☾ dark");
+    expect(themeBtn()?.getAttribute("aria-label")).toBe("Color theme: dark");
+    localStorage.setItem(THEME_KEY, "light");
     applyTheme("light");
-    toggleTheme();
-    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
-    expect(localStorage.getItem(THEME_KEY)).toBe("dark");
-    toggleTheme();
-    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
-    expect(localStorage.getItem(THEME_KEY)).toBe("light");
+    expect(themeBtn()?.textContent).toBe("☼ light");
+    expect(themeBtn()?.getAttribute("aria-label")).toBe("Color theme: light");
   });
 
-  it("toggles to light from an unset root (only 'is it light?' is checked)", () => {
-    toggleTheme();
+  it("labels system mode as ◐ <resolved>, spelling out the mode only in aria", () => {
+    // Unset key ⇒ system mode; applyTheme is passed the resolved theme.
+    applyTheme("dark");
+    expect(themeBtn()?.textContent).toBe("◐ dark");
+    expect(themeBtn()?.getAttribute("aria-label")).toBe(
+      "Color theme: system (dark)",
+    );
+  });
+
+  it("cycleTheme advances system → light → dark → system, persisting each mode", () => {
+    stubPrefersLight(false); // system resolves to dark
+    applyPrefs();
+    expect(themeBtn()?.textContent).toBe("◐ dark");
+
+    cycleTheme();
+    expect(localStorage.getItem(THEME_KEY)).toBe("light");
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(themeBtn()?.textContent).toBe("☼ light");
+
+    cycleTheme();
+    expect(localStorage.getItem(THEME_KEY)).toBe("dark");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(themeBtn()?.textContent).toBe("☾ dark");
+
+    cycleTheme();
+    expect(localStorage.getItem(THEME_KEY)).toBe("system");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(themeBtn()?.textContent).toBe("◐ dark");
+  });
+
+  it("cycleTheme back to system restores live OS-following", () => {
+    localStorage.setItem(THEME_KEY, "dark"); // pinned dark
+    applyPrefs();
+    cycleTheme(); // dark → system
+    expect(localStorage.getItem(THEME_KEY)).toBe("system");
+    expect(preferredTheme()).toBe("dark"); // now resolves via the OS stub
   });
 });
 
@@ -135,6 +171,16 @@ describe("applyDensity / toggleDensity", () => {
     expect(document.documentElement.classList.contains("compact")).toBe(true);
     applyDensity("comfortable");
     expect(document.documentElement.classList.contains("compact")).toBe(false);
+  });
+
+  it("applyDensity labels the #density-toggle with its glyph + value (text + aria)", () => {
+    applyDensity("compact");
+    const btn = document.getElementById("density-toggle");
+    expect(btn?.textContent).toBe("≡ compact");
+    expect(btn?.getAttribute("aria-label")).toBe("Density: compact");
+    applyDensity("comfortable");
+    expect(btn?.textContent).toBe("≡ comfortable");
+    expect(btn?.getAttribute("aria-label")).toBe("Density: comfortable");
   });
 
   it("toggleDensity flips compact<->comfortable and persists the choice", () => {
@@ -159,6 +205,18 @@ describe("applyPrefs", () => {
   it("defaults density to comfortable when unset", () => {
     applyPrefs();
     expect(document.documentElement.classList.contains("compact")).toBe(false);
+  });
+
+  it("seeds the control labels from the stored prefs at first paint", () => {
+    localStorage.setItem(THEME_KEY, "light");
+    localStorage.setItem(DENSITY_KEY, "compact");
+    applyPrefs();
+    expect(document.getElementById("theme-toggle")?.textContent).toBe(
+      "☼ light",
+    );
+    expect(document.getElementById("density-toggle")?.textContent).toBe(
+      "≡ compact",
+    );
   });
 });
 
@@ -205,8 +263,12 @@ describe("watchColorScheme", () => {
     watchColorScheme();
     media.setPrefersLight(true);
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(document.getElementById("theme-toggle")?.textContent).toBe(
+      "◐ light",
+    );
     media.setPrefersLight(false);
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(document.getElementById("theme-toggle")?.textContent).toBe("◐ dark");
   });
 
   it("ignores OS changes once the reader has pinned an explicit theme", () => {
@@ -220,11 +282,12 @@ describe("watchColorScheme", () => {
 });
 
 describe("initControls", () => {
-  it("wires the #theme-toggle and #density-toggle buttons", () => {
-    applyTheme("light");
+  it("wires the #theme-toggle (cycles the mode) and #density-toggle", () => {
+    applyPrefs(); // system mode, OS dark ⇒ data-theme dark
     initControls();
-    document.getElementById("theme-toggle")?.click();
-    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    document.getElementById("theme-toggle")?.click(); // system → light
+    expect(localStorage.getItem(THEME_KEY)).toBe("light");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     document.getElementById("density-toggle")?.click();
     expect(document.documentElement.classList.contains("compact")).toBe(true);
   });

@@ -1271,30 +1271,35 @@
     return doc?.entries?.[0]?.eventId ?? null;
   }
   __name(fetchEventIdForQuery, "fetchEventIdForQuery");
+  function setLiveness(state2) {
+    const dot = $("#refresh");
+    if (dot) {
+      dot.setAttribute("data-state", state2);
+      dot.setAttribute("title", `Auto-refresh: ${state2}`);
+    }
+    const word = $("#refresh-word");
+    if (word) word.textContent = state2 === "stalled" ? "stalled" : "";
+    const line = $("#stat-live");
+    if (line) {
+      line.textContent = state2;
+      line.setAttribute("data-state", state2);
+    }
+  }
+  __name(setLiveness, "setLiveness");
   async function pollFreshness() {
     try {
       const f = await fetchJSON("/api/freshness");
-      const refresh = $("#refresh");
       const s = getState();
       const changed = (f.eventCount ?? null) !== s.lastEventCount;
       if (changed) {
-        if (refresh) {
-          refresh.textContent = "updated";
-          refresh.classList.add("live");
-        }
+        setLiveness("updated");
         await load();
-        setTimeout(() => {
-          if (refresh) {
-            refresh.textContent = "watching";
-            refresh.classList.remove("live");
-          }
-        }, 1200);
-      } else if (refresh) {
-        refresh.textContent = "watching";
+        setTimeout(() => setLiveness("watching"), 1200);
+      } else {
+        setLiveness("watching");
       }
     } catch {
-      const refresh = $("#refresh");
-      if (refresh) refresh.textContent = "stalled";
+      setLiveness("stalled");
     }
   }
   __name(pollFreshness, "pollFreshness");
@@ -3117,32 +3122,69 @@
   var SPLIT_MIN = 25;
   var SPLIT_MAX = 75;
   var liveMediaQueries = [];
-  function hasPinnedTheme() {
+  var THEME_CYCLE = {
+    system: "light",
+    light: "dark",
+    dark: "system"
+  };
+  function preferredThemeMode() {
     const stored = localStorage.getItem(THEME_KEY);
-    return stored === "light" || stored === "dark";
+    return stored === "light" || stored === "dark" ? stored : "system";
+  }
+  __name(preferredThemeMode, "preferredThemeMode");
+  function hasPinnedTheme() {
+    return preferredThemeMode() !== "system";
   }
   __name(hasPinnedTheme, "hasPinnedTheme");
-  function preferredTheme() {
-    if (hasPinnedTheme()) return localStorage.getItem(THEME_KEY);
+  function osTheme() {
     return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
   }
+  __name(osTheme, "osTheme");
+  function preferredTheme() {
+    const mode = preferredThemeMode();
+    return mode === "system" ? osTheme() : mode;
+  }
   __name(preferredTheme, "preferredTheme");
+  var THEME_GLYPH = {
+    light: "☼",
+    dark: "☾",
+    system: "◐"
+  };
+  var DENSITY_GLYPH = "≡";
+  function labelControl(id, dimension, glyph, value, ariaValue = value) {
+    const btn = $(`#${id}`);
+    if (!btn) return;
+    btn.textContent = `${glyph} ${value}`;
+    btn.setAttribute("aria-label", `${dimension}: ${ariaValue}`);
+  }
+  __name(labelControl, "labelControl");
   function applyTheme(theme) {
     document.documentElement.setAttribute("data-theme", theme);
+    const mode = preferredThemeMode();
+    const ariaValue = mode === "system" ? `system (${theme})` : theme;
+    labelControl(
+      "theme-toggle",
+      "Color theme",
+      THEME_GLYPH[mode],
+      theme,
+      ariaValue
+    );
   }
   __name(applyTheme, "applyTheme");
-  function toggleTheme() {
-    const next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+  function cycleTheme() {
+    const next = THEME_CYCLE[preferredThemeMode()];
     localStorage.setItem(THEME_KEY, next);
-    applyTheme(next);
+    applyTheme(preferredTheme());
   }
-  __name(toggleTheme, "toggleTheme");
+  __name(cycleTheme, "cycleTheme");
   function preferredDensity() {
     return localStorage.getItem(DENSITY_KEY) || "comfortable";
   }
   __name(preferredDensity, "preferredDensity");
   function applyDensity(mode) {
-    document.documentElement.classList.toggle("compact", mode === "compact");
+    const value = mode === "compact" ? "compact" : "comfortable";
+    document.documentElement.classList.toggle("compact", value === "compact");
+    labelControl("density-toggle", "Density", DENSITY_GLYPH, value);
   }
   __name(applyDensity, "applyDensity");
   function toggleDensity() {
@@ -3185,7 +3227,7 @@
   }
   __name(watchColorScheme, "watchColorScheme");
   function initControls4() {
-    $("#theme-toggle")?.addEventListener("click", toggleTheme);
+    $("#theme-toggle")?.addEventListener("click", cycleTheme);
     $("#density-toggle")?.addEventListener("click", toggleDensity);
     watchColorScheme();
   }
@@ -4278,8 +4320,7 @@ click to open the revision page">
     window.addEventListener("hashchange", applyHash);
     return Promise.all([load(), loadIdentity()]).then(() => {
       applyHash();
-      const refresh = $("#refresh");
-      if (refresh) refresh.textContent = "watching";
+      setLiveness("watching");
       setInterval(() => {
         void pollFreshness();
       }, 3e3);

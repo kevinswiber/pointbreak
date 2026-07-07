@@ -45,8 +45,10 @@ describe("first paint + bootstrap tail", () => {
     expect(
       (document.querySelectorAll("#master #timeline .event").length ?? 0) > 0,
     ).toBe(true);
-    // The bootstrap tail flipped the refresh status.
-    expect(document.querySelector("#refresh")?.textContent).toBe("watching");
+    // The bootstrap tail flipped the liveness dot to watching.
+    expect(document.querySelector("#refresh")?.getAttribute("data-state")).toBe(
+      "watching",
+    );
   });
 });
 

@@ -24,33 +24,103 @@ const SPLIT_MAX = 75;
 // reference here keeps the query alive (Chromium/Firefox retain it regardless).
 const liveMediaQueries: MediaQueryList[] = [];
 
-/** True when the reader has pinned an explicit theme via the toggle (so the OS is ignored). */
-function hasPinnedTheme(): boolean {
+// The three theme modes the toggle cycles through. `system` follows the OS color
+// scheme live (see watchColorScheme); `light`/`dark` pin an explicit choice.
+// Persisted under THEME_KEY — anything else (unset or junk) reads as `system`, so
+// a fresh reader follows the OS.
+type ThemeMode = "system" | "light" | "dark";
+
+const THEME_CYCLE: Record<ThemeMode, ThemeMode> = {
+  system: "light",
+  light: "dark",
+  dark: "system",
+};
+
+/** The reader's stored theme mode; unset or junk reads as `system` (follow the OS). */
+function preferredThemeMode(): ThemeMode {
   const stored = localStorage.getItem(THEME_KEY);
-  return stored === "light" || stored === "dark";
+  return stored === "light" || stored === "dark" ? stored : "system";
 }
 
-/** The stored theme if it is `light`/`dark`, else the OS color-scheme preference. */
-export function preferredTheme(): string {
-  if (hasPinnedTheme()) return localStorage.getItem(THEME_KEY) as string;
+/** True when the reader has pinned light/dark, so the OS preference is ignored. */
+function hasPinnedTheme(): boolean {
+  return preferredThemeMode() !== "system";
+}
+
+/** The OS color-scheme preference, resolved to `light`/`dark`. */
+function osTheme(): string {
   return window.matchMedia("(prefers-color-scheme: light)").matches
     ? "light"
     : "dark";
 }
 
-/** Apply a theme by setting `data-theme` on the document root. */
-export function applyTheme(theme: string): void {
-  document.documentElement.setAttribute("data-theme", theme);
+/** The effective theme: the pinned `light`/`dark`, else the OS preference. */
+export function preferredTheme(): string {
+  const mode = preferredThemeMode();
+  return mode === "system" ? osTheme() : mode;
 }
 
-/** Flip the theme (only `light` is checked, so any other value goes to `light`), persist, apply. */
-export function toggleTheme(): void {
-  const next =
-    document.documentElement.getAttribute("data-theme") === "light"
-      ? "dark"
-      : "light";
+// Glyphs prefixing each toggle's value. A leading monochrome mark carries the
+// *dimension/mode* the word doesn't: for theme, ☼ = pinned light, ☾ = pinned
+// dark, and ◐ = following the OS (auto) — so the glyph alone distinguishes a
+// pinned choice from system-following, and the word is left to show the effective
+// light/dark. For density, ≡ (rows) names a control whose values (comfortable /
+// compact) don't self-announce as density. Kept text-presentation, matching the
+// restrained `▾ ○ ✕` vocabulary.
+const THEME_GLYPH: Record<ThemeMode, string> = {
+  light: "☼",
+  dark: "☾",
+  system: "◐",
+};
+const DENSITY_GLYPH = "≡";
+
+// Keep the topbar toggles state-legible: the visible label is a mode/dimension
+// glyph plus the effective value (the value alone mirrors `#order-toggle`'s
+// "newest first"). The glyph stays OUT of the accessible name — instead the
+// aria-label carries `dimension: ariaValue`, where `ariaValue` spells out what
+// the glyph shows visually (e.g. `system (dark)`), so a screen reader hears the
+// mode in words and the name still contains the visible value (WCAG "Label in
+// Name"). Every value change funnels through applyTheme/applyDensity, so syncing
+// here covers first paint, the toggle click, and the live OS watcher alike. The
+// lookup is defensive: the control may be absent (e.g. a headless mount).
+function labelControl(
+  id: string,
+  dimension: string,
+  glyph: string,
+  value: string,
+  ariaValue: string = value,
+): void {
+  const btn = $(`#${id}`);
+  if (!btn) return;
+  btn.textContent = `${glyph} ${value}`;
+  btn.setAttribute("aria-label", `${dimension}: ${ariaValue}`);
+}
+
+/**
+ * Apply a theme by setting `data-theme` on the document root and labeling the
+ * toggle. The visible word is always the effective `light`/`dark`; the glyph
+ * carries the mode, so `system` reads `◐ <resolved>` (the ◐ is the "following the
+ * OS" cue and re-resolves live as the OS flips). The aria-label still says
+ * `system (…)` so non-sighted readers get the mode the glyph conveys.
+ */
+export function applyTheme(theme: string): void {
+  document.documentElement.setAttribute("data-theme", theme);
+  const mode = preferredThemeMode();
+  const ariaValue = mode === "system" ? `system (${theme})` : theme;
+  labelControl(
+    "theme-toggle",
+    "Color theme",
+    THEME_GLYPH[mode],
+    theme,
+    ariaValue,
+  );
+}
+
+/** Advance the theme mode `system → light → dark → system`, persist it, and apply. */
+export function cycleTheme(): void {
+  const next = THEME_CYCLE[preferredThemeMode()];
   localStorage.setItem(THEME_KEY, next);
-  applyTheme(next);
+  applyTheme(preferredTheme());
 }
 
 /** The stored density, defaulting to `comfortable` when unset. */
@@ -58,9 +128,11 @@ function preferredDensity(): string {
   return localStorage.getItem(DENSITY_KEY) || "comfortable";
 }
 
-/** Apply a density by toggling the `compact` class on the document root. */
+/** Apply a density by toggling the `compact` class on the document root and labeling the toggle. */
 export function applyDensity(mode: string): void {
-  document.documentElement.classList.toggle("compact", mode === "compact");
+  const value = mode === "compact" ? "compact" : "comfortable";
+  document.documentElement.classList.toggle("compact", value === "compact");
+  labelControl("density-toggle", "Density", DENSITY_GLYPH, value);
 }
 
 /** Flip the density between `compact` and `comfortable`, persist, apply. */
@@ -130,7 +202,7 @@ export function watchColorScheme(): void {
 
 /** Wire the `#theme-toggle` / `#density-toggle` buttons and the OS color-scheme watcher. */
 export function initControls(): void {
-  $("#theme-toggle")?.addEventListener("click", toggleTheme);
+  $("#theme-toggle")?.addEventListener("click", cycleTheme);
   $("#density-toggle")?.addEventListener("click", toggleDensity);
   watchColorScheme();
 }
