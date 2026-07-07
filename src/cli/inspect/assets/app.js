@@ -2860,7 +2860,49 @@
 
   // src/lenses/timeline.ts
   var ROW_H = 52;
+  var rowH = ROW_H;
   var OVERSCAN = 8;
+  var REMEASURE_SETTLE_MS = 150;
+  var remeasureTimer;
+  var everMeasured = false;
+  function remeasureTimelineRows() {
+    const list = $("#timeline");
+    if (!list) return;
+    const rows = list.querySelectorAll("li.event[data-event-id]");
+    if (rows.length === 0) return;
+    let total = 0;
+    for (const row of rows) total += row.getBoundingClientRect().height;
+    const mean = total / rows.length;
+    if (!Number.isFinite(mean) || mean <= 0) return;
+    everMeasured = true;
+    if (Math.abs(mean - rowH) < 0.5) return;
+    const anchored = anchoredScrollTop(list, rowH, mean);
+    rowH = mean;
+    list.scrollTop = anchored;
+    renderTimeline();
+  }
+  __name(remeasureTimelineRows, "remeasureTimelineRows");
+  function anchoredScrollTop(list, prevRowH, nextRowH) {
+    const listTop = list.getBoundingClientRect().top;
+    const first = list.firstElementChild;
+    const leadingPx = first?.dataset.spacer === "1" ? Number.parseFloat(first.style.height) || 0 : 0;
+    const paintStart = Math.round(leadingPx / prevRowH);
+    const rows = list.querySelectorAll("li.event[data-event-id]");
+    let idx = 0;
+    for (const row of rows) {
+      const r = row.getBoundingClientRect();
+      if (r.height > 0 && r.bottom > listTop)
+        return Math.max(0, (paintStart + idx) * nextRowH - (r.top - listTop));
+      idx++;
+    }
+    return list.scrollTop / prevRowH * nextRowH;
+  }
+  __name(anchoredScrollTop, "anchoredScrollTop");
+  function scheduleTimelineRemeasure() {
+    clearTimeout(remeasureTimer);
+    remeasureTimer = setTimeout(remeasureTimelineRows, REMEASURE_SETTLE_MS);
+  }
+  __name(scheduleTimelineRemeasure, "scheduleTimelineRemeasure");
   function timelineRows() {
     return getState().history?.entries ?? [];
   }
@@ -2875,12 +2917,12 @@
   __name(loadedWindow, "loadedWindow");
   function visibleRange(scrollTop, viewportH, rowCount) {
     if (viewportH <= 0 || rowCount === 0) return { start: 0, end: rowCount };
-    const maxScroll = Math.max(0, rowCount * ROW_H - viewportH);
+    const maxScroll = Math.max(0, rowCount * rowH - viewportH);
     const clamped = Math.min(Math.max(0, scrollTop), maxScroll);
-    const start = Math.max(0, Math.floor(clamped / ROW_H) - OVERSCAN);
+    const start = Math.max(0, Math.floor(clamped / rowH) - OVERSCAN);
     const end = Math.min(
       rowCount,
-      Math.ceil((clamped + viewportH) / ROW_H) + OVERSCAN
+      Math.ceil((clamped + viewportH) / rowH) + OVERSCAN
     );
     return { start, end };
   }
@@ -2924,6 +2966,8 @@
     if (list.dataset.virtualized) return;
     list.dataset.virtualized = "1";
     list.addEventListener("scroll", () => renderTimeline());
+    if (typeof ResizeObserver !== "undefined")
+      new ResizeObserver(scheduleTimelineRemeasure).observe(list);
   }
   __name(ensureScrollListener, "ensureScrollListener");
   function renderTimeline() {
@@ -2948,12 +2992,13 @@
     const paintEnd = Math.min(Math.max(end, offset), loadEnd);
     const selected = selectedEventId();
     list.innerHTML = "";
-    if (paintStart > 0) list.appendChild(spacer(paintStart * ROW_H));
+    if (paintStart > 0) list.appendChild(spacer(paintStart * rowH));
     for (let i = paintStart; i < paintEnd; i++)
       list.appendChild(eventRow(rows[i - offset], selected));
     if (paintEnd < matchCount)
-      list.appendChild(spacer((matchCount - paintEnd) * ROW_H));
+      list.appendChild(spacer((matchCount - paintEnd) * rowH));
     maybeExtendWindow(viewportH, start, end, offset, loadEnd, matchCount);
+    if (!everMeasured && paintEnd > paintStart) remeasureTimelineRows();
   }
   __name(renderTimeline, "renderTimeline");
   function maybeExtendWindow(viewportH, visibleStart, visibleEnd, loadStart, loadEnd, matchCount) {
@@ -2971,8 +3016,9 @@
     if (!list) return;
     const local = timelineRows().findIndex((e) => e.eventId === eventId);
     if (local < 0) return;
+    remeasureTimelineRows();
     const global = loadedWindow(getState()).offset + local;
-    const centered = global * ROW_H - Math.max(0, (list.clientHeight - ROW_H) / 2);
+    const centered = global * rowH - Math.max(0, (list.clientHeight - rowH) / 2);
     list.scrollTop = Math.max(0, centered);
     renderTimeline();
     const el = list.querySelector(`li[data-event-id="${eventId}"]`);
@@ -4211,6 +4257,7 @@ click to open the revision page">
         { replace: true }
       );
     });
+    $("#density-toggle")?.addEventListener("click", scheduleTimelineRemeasure);
   }
   __name(wireToolbar, "wireToolbar");
   function main() {

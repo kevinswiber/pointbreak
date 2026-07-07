@@ -40,15 +40,104 @@ import type { HistoryEntry } from "../types";
 import { typeColor, typeLabel } from "../types";
 
 /**
- * Estimated row height in pixels for the virtual window math. The real row height
- * varies a little with density and meta wrapping; `OVERSCAN` rows above and below
- * the viewport absorb that variance, and reveal does a final `scrollIntoView` to
- * correct the exact offset.
+ * Fallback row height in pixels for the virtual window math, used until (and
+ * unless) the painted rows can be measured — no layout, nothing painted yet.
+ * The live estimate re-derives from real layout (`remeasureTimelineRows`)
+ * because the real height moves systematically with the pane: a narrow master
+ * wraps the meta line taller, compact density pads shorter. Residual per-row
+ * variance around the measured mean is absorbed by `OVERSCAN`, and reveal does
+ * a final `scrollIntoView` to correct the exact offset.
  */
 export const ROW_H = 52;
 
+// The live per-row estimate every consumer (window math, spacers, reveal)
+// reads. A module singleton like the store: one timeline, one geometry.
+let rowH: number = ROW_H;
+
+/** The live row-height estimate driving the virtual window math. */
+export function timelineRowHeight(): number {
+  return rowH;
+}
+
 /** Extra rows rendered above and below the viewport so a fast scroll never flashes blank. */
 const OVERSCAN = 8;
+
+/** Trailing settle before a re-measure, so a divider drag or a window-resize burst coalesces. */
+const REMEASURE_SETTLE_MS = 150;
+
+let remeasureTimer: ReturnType<typeof setTimeout> | undefined;
+
+// Whether a measurement has ever succeeded. Until one has, every paint retries
+// (a paint without layout measures nothing), so the estimate is seeded by the
+// FIRST laid-out paint — before the load-time reveal computes with it — rather
+// than waiting on the observer's initial (async) delivery.
+let everMeasured = false;
+
+/**
+ * Re-derive the row estimate from the painted rows' live layout: the mean
+ * `getBoundingClientRect().height` (unrounded — a half-pixel rounding error
+ * times hundreds of spacer rows is real drift). Guarded to keep the current
+ * estimate when there is nothing to measure: no painted rows (the empty state)
+ * or a zero/non-finite mean (no layout — tests, a hidden pane). A changed
+ * estimate repaints so the spacers and the visible window re-derive.
+ */
+export function remeasureTimelineRows(): void {
+  const list = $<HTMLElement>("#timeline");
+  if (!list) return;
+  const rows = list.querySelectorAll<HTMLElement>("li.event[data-event-id]");
+  if (rows.length === 0) return;
+  let total = 0;
+  for (const row of rows) total += row.getBoundingClientRect().height;
+  const mean = total / rows.length;
+  if (!Number.isFinite(mean) || mean <= 0) return;
+  everMeasured = true;
+  if (Math.abs(mean - rowH) < 0.5) return;
+  // Anchor the reading position before the repaint: the new estimate
+  // re-derives the whole scroll track, which would otherwise teleport the
+  // content under the reader (a density flip) or displace a just-revealed
+  // selection (the first measurement after a load's deep-link reveal).
+  const anchored = anchoredScrollTop(list, rowH, mean);
+  rowH = mean;
+  list.scrollTop = anchored;
+  renderTimeline();
+}
+
+/**
+ * Where the viewport top lands on the re-derived track. Prefer the painted
+ * row whose real rect straddles the viewport top and keep its exact offset —
+ * scrollTop itself cannot be trusted as `index * estimate`, because reveal's
+ * final `scrollIntoView` corrects it against REAL row heights. When no
+ * painted row intersects the top (a spacer region, or no layout), fall back
+ * to scaling scrollTop so the same global index stays at the top.
+ */
+function anchoredScrollTop(
+  list: HTMLElement,
+  prevRowH: number,
+  nextRowH: number,
+): number {
+  const listTop = list.getBoundingClientRect().top;
+  const first = list.firstElementChild as HTMLElement | null;
+  const leadingPx =
+    first?.dataset.spacer === "1"
+      ? Number.parseFloat(first.style.height) || 0
+      : 0;
+  const paintStart = Math.round(leadingPx / prevRowH);
+  const rows = list.querySelectorAll<HTMLElement>("li.event[data-event-id]");
+  let idx = 0;
+  for (const row of rows) {
+    const r = row.getBoundingClientRect();
+    if (r.height > 0 && r.bottom > listTop)
+      return Math.max(0, (paintStart + idx) * nextRowH - (r.top - listTop));
+    idx++;
+  }
+  return (list.scrollTop / prevRowH) * nextRowH;
+}
+
+/** Coalesce a burst of layout changes into one trailing `remeasureTimelineRows`. */
+export function scheduleTimelineRemeasure(): void {
+  clearTimeout(remeasureTimer);
+  remeasureTimer = setTimeout(remeasureTimelineRows, REMEASURE_SETTLE_MS);
+}
 
 /** The loaded page entries — the server already filtered and ordered them. */
 export function timelineRows(): HistoryEntry[] {
@@ -88,12 +177,12 @@ export function visibleRange(
   // search narrows the result set) the viewport's scrollTop can be far past the
   // new content height; without this clamp `start` would exceed `rowCount` and
   // the window would be empty, painting a blank list under a giant spacer.
-  const maxScroll = Math.max(0, rowCount * ROW_H - viewportH);
+  const maxScroll = Math.max(0, rowCount * rowH - viewportH);
   const clamped = Math.min(Math.max(0, scrollTop), maxScroll);
-  const start = Math.max(0, Math.floor(clamped / ROW_H) - OVERSCAN);
+  const start = Math.max(0, Math.floor(clamped / rowH) - OVERSCAN);
   const end = Math.min(
     rowCount,
-    Math.ceil((clamped + viewportH) / ROW_H) + OVERSCAN,
+    Math.ceil((clamped + viewportH) / rowH) + OVERSCAN,
   );
   return { start, end };
 }
@@ -137,13 +226,22 @@ function eventRow(e: HistoryEntry, selected: string | null): HTMLLIElement {
   return li;
 }
 
-// Repaint the visible window when the viewport scrolls. Registered once per
-// `#timeline` element (guarded by the `virtualized` dataset flag); the element is
-// stable across timeline renders (renderMaster rebuilds it only on a lens change).
+// Repaint the visible window when the viewport scrolls, and re-measure the row
+// estimate when the element's size changes. Registered once per `#timeline`
+// element (guarded by the `virtualized` dataset flag); the element is stable
+// across timeline renders (renderMaster rebuilds it only on a lens change).
+// One size observation covers every width-changing trigger — divider release
+// (the drag burst settles through the trailing debounce), window resize, the
+// narrow media query, detail-pane open/close, and reading mode — plus the
+// initial delivery on observe, which seeds the first real measurement. Density
+// is the one height-changing trigger with no width signal; the composition
+// root routes that toggle here explicitly.
 function ensureScrollListener(list: HTMLElement): void {
   if (list.dataset.virtualized) return;
   list.dataset.virtualized = "1";
   list.addEventListener("scroll", () => renderTimeline());
+  if (typeof ResizeObserver !== "undefined")
+    new ResizeObserver(scheduleTimelineRemeasure).observe(list);
 }
 
 /** Paint the visible window of the server-filtered timeline page into `#timeline`. */
@@ -172,12 +270,16 @@ export function renderTimeline(): void {
   const paintEnd = Math.min(Math.max(end, offset), loadEnd);
   const selected = selectedEventId();
   list.innerHTML = "";
-  if (paintStart > 0) list.appendChild(spacer(paintStart * ROW_H));
+  if (paintStart > 0) list.appendChild(spacer(paintStart * rowH));
   for (let i = paintStart; i < paintEnd; i++)
     list.appendChild(eventRow(rows[i - offset], selected));
   if (paintEnd < matchCount)
-    list.appendChild(spacer((matchCount - paintEnd) * ROW_H));
+    list.appendChild(spacer((matchCount - paintEnd) * rowH));
   maybeExtendWindow(viewportH, start, end, offset, loadEnd, matchCount);
+  // Seed the estimate from the first paint that has anything to measure (no
+  // recursion: a successful measurement flips `everMeasured` before its
+  // repaint). One synchronous layout read, once per load.
+  if (!everMeasured && paintEnd > paintStart) remeasureTimelineRows();
 }
 
 // Fetch the next page when the viewport nears the trailing loaded edge and more
@@ -219,9 +321,14 @@ export function scrollTimelineSelectionIntoView(eventId: string): void {
   if (!list) return;
   const local = timelineRows().findIndex((e) => e.eventId === eventId);
   if (local < 0) return;
+  // Sync the estimate with the live layout first: it can be stale at reveal
+  // time (the load path measures at full width, then the same render pass
+  // opens the split and reflows the rows before the deep-link reveal runs).
+  // Seeding from a stale estimate makes the scrollIntoView correction's
+  // repaint recompute a window that drops the target — the lost cursor.
+  remeasureTimelineRows();
   const global = loadedWindow(getState()).offset + local;
-  const centered =
-    global * ROW_H - Math.max(0, (list.clientHeight - ROW_H) / 2);
+  const centered = global * rowH - Math.max(0, (list.clientHeight - rowH) / 2);
   list.scrollTop = Math.max(0, centered);
   renderTimeline();
   const el = list.querySelector(`li[data-event-id="${eventId}"]`);

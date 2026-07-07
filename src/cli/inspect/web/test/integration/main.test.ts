@@ -162,6 +162,33 @@ describe("wired interactions drive the DOM/route through the delegates", () => {
   });
 });
 
+describe("the density toggle re-measures the timeline rows", () => {
+  // Density changes row heights without resizing the #timeline box, so the
+  // lens's size observer cannot see it — the composition root routes the
+  // toggle to the timeline's re-measure explicitly.
+  it("a density click re-derives the row estimate after the settle", async () => {
+    await main.main();
+    const timeline = await import("../../src/lenses/timeline");
+    for (const li of document.querySelectorAll<HTMLElement>(
+      "#master #timeline li.event[data-event-id]",
+    )) {
+      vi.spyOn(li, "getBoundingClientRect").mockReturnValue({
+        height: 44,
+      } as DOMRect);
+    }
+    vi.useFakeTimers();
+    try {
+      document
+        .querySelector<HTMLElement>("#density-toggle")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(1000);
+      expect(timeline.timelineRowHeight()).toBe(44);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("advisory framing (rendered DOM, reader-relative, never a gate)", () => {
   it("surfaces the read-only / advisory posture and exposes no gate affordance", async () => {
     await main.main();

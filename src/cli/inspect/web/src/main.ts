@@ -17,6 +17,7 @@ import { initControls as initDiff } from "./diff/controller";
 import { $ } from "./dom";
 import { initControls as initHelp } from "./help-overlay";
 import { onKey } from "./keyboard";
+import { scheduleTimelineRemeasure } from "./lenses/timeline";
 import { presentTypes } from "./model";
 import { onDocumentClick } from "./navigation";
 import { initControls as initPalette } from "./palette";
@@ -58,6 +59,11 @@ function wireToolbar(): void {
       { replace: true },
     );
   });
+  // Cross-module trigger the composition root owns: a density flip changes row
+  // heights without resizing the #timeline box, so the timeline's own size
+  // observer can never see it. The toggle itself stays prefs-owned; the settle
+  // delay means listener order against prefs' handler doesn't matter.
+  $("#density-toggle")?.addEventListener("click", scheduleTimelineRemeasure);
 }
 
 /**

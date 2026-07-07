@@ -413,6 +413,231 @@ describe("paged virtual timeline (server matchCount + offset window)", () => {
   });
 });
 
+// Real rows render taller than the built-in estimate when the master pane is
+// narrow (the meta line wraps) or shorter under compact density; the lens
+// re-derives its estimate from the painted rows' live layout. happy-dom has no
+// layout engine, so real measurements come back 0 — stub the painted rows'
+// rects to simulate a laid-out pane.
+function stubPaintedRowHeights(height: number): void {
+  for (const li of document.querySelectorAll<HTMLElement>(
+    "#timeline li.event[data-event-id]",
+  )) {
+    vi.spyOn(li, "getBoundingClientRect").mockReturnValue({
+      height,
+    } as DOMRect);
+  }
+}
+
+describe("measured row-height estimate", () => {
+  it("derives the estimate from the mean painted-row height and re-derives the spacers", () => {
+    seedHistory(manyEntries(500));
+    mockViewport(500);
+    timeline.renderTimeline();
+    stubPaintedRowHeights(72);
+    timeline.remeasureTimelineRows();
+    expect(timeline.timelineRowHeight()).toBe(72);
+    // The change repainted: the whole scroll track re-derives on the new
+    // estimate (spacers exactly cover the off-window rows at 72px/row, which
+    // also proves spacers and the empty state are never sampled).
+    const spacerHeight = spacerHeights().reduce((sum, h) => sum + h, 0);
+    expect(spacerHeight + rowIds().length * 72).toBe(500 * 72);
+  });
+
+  it("keeps the fallback estimate when layout yields no row heights", () => {
+    seedHistory(manyEntries(500));
+    mockViewport(500);
+    timeline.renderTimeline();
+    // No stubs: happy-dom rects measure 0 — the estimate must not collapse.
+    timeline.remeasureTimelineRows();
+    expect(timeline.timelineRowHeight()).toBe(timeline.ROW_H);
+  });
+
+  it("keeps the estimate when nothing is painted (the empty state)", () => {
+    seedHistory([], { matchCount: 0 });
+    timeline.renderTimeline();
+    timeline.remeasureTimelineRows();
+    expect(timeline.timelineRowHeight()).toBe(timeline.ROW_H);
+  });
+
+  it("reveals with the live estimate, not the built-in fallback", () => {
+    seedHistory(manyEntries(40, 100), { offset: 100, matchCount: 500 });
+    // Scrolled into the loaded window, so rows are painted and measurable.
+    const list = mockViewport(500, 100 * timeline.ROW_H);
+    timeline.renderTimeline();
+    stubPaintedRowHeights(80);
+    timeline.remeasureTimelineRows();
+    timeline.scrollTimelineSelectionIntoView("e139");
+    // Centered in the 80px-row model: global index 139.
+    expect(list.scrollTop).toBe(139 * 80 - (500 - 80) / 2);
+    expect(
+      document.querySelector('#timeline li[data-event-id="e139"]'),
+    ).not.toBeNull();
+  });
+
+  it("keeps the revealed row inside the viewport across the post-reveal repaint", () => {
+    // The lost-cursor mechanism: reveal's final scrollIntoView fires a scroll
+    // event whose repaint re-anchors rows to the spacer model. With a measured
+    // estimate the model matches the real rows, so that repaint cannot push
+    // the revealed row out of the viewport.
+    seedHistory(manyEntries(500));
+    const list = mockViewport(500, 0);
+    timeline.renderTimeline();
+    stubPaintedRowHeights(72);
+    timeline.remeasureTimelineRows();
+    timeline.scrollTimelineSelectionIntoView("e250");
+    // Emulate the browser correction: center the row's painted position, then
+    // fire the scroll event scrollIntoView produces.
+    const rowTop = () =>
+      spacerHeights()[0] +
+      rowIds().indexOf("e250") * timeline.timelineRowHeight();
+    (list as unknown as { scrollTop: number }).scrollTop =
+      rowTop() - (500 - 72) / 2;
+    list.dispatchEvent(new Event("scroll"));
+    expect(rowIds()).toContain("e250");
+    expect(rowTop()).toBeGreaterThanOrEqual(list.scrollTop);
+    expect(rowTop() + 72).toBeLessThanOrEqual(list.scrollTop + 500);
+  });
+
+  it("preserves the viewport-top index across an estimate change (no layout fallback)", () => {
+    // A new estimate re-derives the whole scroll track; without anchoring,
+    // a fixed scrollTop lands on entirely different rows (the density toggle
+    // teleports the reading position). With no row geometry to anchor to
+    // (zero rects), the same global index must stay at the viewport top:
+    // scrollTop scales with the estimate.
+    seedHistory(manyEntries(500));
+    const list = mockViewport(500, 100 * timeline.ROW_H);
+    timeline.renderTimeline();
+    stubPaintedRowHeights(72);
+    timeline.remeasureTimelineRows();
+    expect(list.scrollTop).toBe(100 * 72);
+  });
+
+  it("anchors to the real row at the viewport top when layout disagrees with the model", () => {
+    // After a reveal, scrollIntoView corrects scrollTop against REAL row
+    // heights, so scrollTop is no longer `index * estimate` — scaling it
+    // would overshoot. The anchor must come from the painted DOM: the row
+    // whose rect straddles the viewport top keeps its exact offset.
+    seedHistory(manyEntries(500));
+    const list = mockViewport(500, 100 * timeline.ROW_H);
+    timeline.renderTimeline();
+    vi.spyOn(list, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      bottom: 500,
+      height: 500,
+    } as DOMRect);
+    // Lay the painted rows out at their real 72px heights, starting where the
+    // leading spacer ends (the 52px model), relative to the mocked scrollTop.
+    const spacerPx = spacerHeights()[0];
+    const rows = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        "#timeline li.event[data-event-id]",
+      ),
+    );
+    rows.forEach((li, i) => {
+      const top = spacerPx + i * 72 - list.scrollTop;
+      vi.spyOn(li, "getBoundingClientRect").mockReturnValue({
+        top,
+        bottom: top + 72,
+        height: 72,
+      } as DOMRect);
+    });
+    const paintStart = Math.round(spacerPx / timeline.ROW_H);
+    // The first row whose real bottom crosses the viewport top, and its offset.
+    const topIdx = rows.findIndex(
+      (li) => li.getBoundingClientRect().bottom > 0,
+    );
+    const topOffset = rows[topIdx].getBoundingClientRect().top;
+    timeline.remeasureTimelineRows();
+    expect(timeline.timelineRowHeight()).toBe(72);
+    expect(list.scrollTop).toBe((paintStart + topIdx) * 72 - topOffset);
+  });
+
+  it("measures on the first laid-out paint, before any reveal runs", () => {
+    // The load-time deep-link reveal runs right after the first paint; if it
+    // computes on the fallback estimate, its own scrollIntoView-correction
+    // repaint displaces the revealed row before any observer fires. The first
+    // paint with real layout must seed the estimate itself.
+    const rect = vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockReturnValue({ top: 0, bottom: 72, height: 72 } as DOMRect);
+    try {
+      seedHistory(manyEntries(500));
+      mockViewport(500);
+      timeline.renderTimeline();
+      expect(timeline.timelineRowHeight()).toBe(72);
+    } finally {
+      rect.mockRestore();
+    }
+  });
+
+  it("re-measures at reveal time so a stale estimate cannot lose the target", () => {
+    // The estimate can go stale between paints — the load path measures at
+    // full width, then the same render pass opens the split and narrows the
+    // pane before the deep-link reveal runs. Reveal must measure the (already
+    // reflowed) painted rows itself before seeding the scroll position.
+    seedHistory(manyEntries(500));
+    const list = mockViewport(500, 0);
+    timeline.renderTimeline();
+    stubPaintedRowHeights(72);
+    timeline.scrollTimelineSelectionIntoView("e250");
+    expect(timeline.timelineRowHeight()).toBe(72);
+    expect(list.scrollTop).toBe(250 * 72 - (500 - 72) / 2);
+    expect(rowIds()).toContain("e250");
+  });
+
+  it("coalesces scheduled re-measures into one trailing measurement", () => {
+    vi.useFakeTimers();
+    try {
+      seedHistory(manyEntries(500));
+      mockViewport(500);
+      timeline.renderTimeline();
+      stubPaintedRowHeights(72);
+      timeline.scheduleTimelineRemeasure();
+      timeline.scheduleTimelineRemeasure();
+      // Trailing, not immediate: a divider drag's burst must settle first.
+      expect(timeline.timelineRowHeight()).toBe(timeline.ROW_H);
+      vi.advanceTimersByTime(1000);
+      expect(timeline.timelineRowHeight()).toBe(72);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("observes the timeline element's size (once) and re-measures on a change", () => {
+    const observed: Element[] = [];
+    let fireResize = () => {};
+    class FakeResizeObserver {
+      constructor(cb: () => void) {
+        fireResize = cb;
+      }
+      observe(el: Element): void {
+        observed.push(el);
+      }
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    vi.stubGlobal("ResizeObserver", FakeResizeObserver);
+    vi.useFakeTimers();
+    try {
+      seedHistory(manyEntries(500));
+      mockViewport(500);
+      timeline.renderTimeline();
+      timeline.renderTimeline();
+      // One observer on the (stable) timeline element, same guard as the
+      // scroll listener — covers divider release, window resize, the narrow
+      // media query, pane open/close, and reading mode via one width signal.
+      expect(observed).toEqual([document.querySelector("#timeline")]);
+      stubPaintedRowHeights(64);
+      fireResize();
+      vi.advanceTimersByTime(1000);
+      expect(timeline.timelineRowHeight()).toBe(64);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("scrollTimelineSelectionIntoView (global-index scroller)", () => {
   it("scrolls a loaded off-screen row into the window using its global index", () => {
     seedHistory(manyEntries(40, 100), { offset: 100, matchCount: 500 });
