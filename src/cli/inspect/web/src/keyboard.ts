@@ -272,6 +272,12 @@ export function onKey(ev: KeyboardEvent): void {
       // button or entity anchor would otherwise double-fire with the ladder).
       const t = ev.target;
       if (t instanceof Element && t.closest("a[href], button")) return;
+      // preventDefault matters: the keydown's default action activates whatever
+      // is focused AFTER handlers run — opening the diff focuses #diff-close,
+      // and without this the same trusted keystroke "clicks" it shut again.
+      // (Synthetic test events skip native activation, which is why only real
+      // keyboards ever saw the diff flash open and close.)
+      ev.preventDefault();
       activateSelection();
       return;
     }

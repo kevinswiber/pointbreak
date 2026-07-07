@@ -3547,6 +3547,7 @@
       case "Enter": {
         const t = ev.target;
         if (t instanceof Element && t.closest("a[href], button")) return;
+        ev.preventDefault();
         activateSelection();
         return;
       }
