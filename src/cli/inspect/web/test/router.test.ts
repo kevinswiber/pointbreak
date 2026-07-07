@@ -62,6 +62,7 @@ function routeFields(p: RoutePatch) {
   return {
     lens: p.lens,
     selected: p.selected,
+    open: p.open,
     filterTrack: p.filterTrack,
     filterSnapshot: p.filterSnapshot,
     order: p.order,
@@ -78,6 +79,7 @@ function snapshotFrom(p: RoutePatch): SerializeSnapshot {
   return {
     lens: p.lens,
     selected: p.selected,
+    open: p.open,
     filterTrack: p.filterTrack,
     filterSnapshot: p.filterSnapshot,
     order: p.order,
@@ -213,6 +215,19 @@ describe("parseHash", () => {
     expect(p.unsupportedJournal).not.toBeNull();
     expect(p.unsupportedAsOf).not.toBeNull();
   });
+
+  it("parses entity-primary as open and lens-primary ?sel= as a parked cursor", () => {
+    expect(router.parseHash(`#/event/${encodeURIComponent(EVT)}`, PT).open).toBe(
+      true,
+    );
+    expect(
+      router.parseHash(`#/revision/${encodeURIComponent(REV)}`, PT).open,
+    ).toBe(true);
+    expect(
+      router.parseHash(`#/timeline?sel=${encodeURIComponent(EVT)}`, PT).open,
+    ).toBe(false);
+    expect(router.parseHash("#/timeline", PT).open).toBe(false);
+  });
 });
 
 describe("serializeState", () => {
@@ -220,6 +235,7 @@ describe("serializeState", () => {
     return {
       lens: "timeline",
       selected: { kind: null, id: null },
+      open: false,
       filterTrack: "",
       filterSnapshot: "",
       order: "desc",
@@ -245,7 +261,11 @@ describe("serializeState", () => {
   it("serializes an entity-primary revision selection, carrying a non-default lens", () => {
     expect(
       router.serializeState(
-        snap({ lens: "list", selected: { kind: "revision", id: REV } }),
+        snap({
+          lens: "list",
+          selected: { kind: "revision", id: REV },
+          open: true,
+        }),
         PT,
       ),
     ).toBe(`#/revision/${encodeURIComponent(REV)}?lens=list`);
@@ -253,7 +273,10 @@ describe("serializeState", () => {
 
   it("omits the lens param when the selection sits on the default lens", () => {
     expect(
-      router.serializeState(snap({ selected: { kind: "event", id: EVT } }), PT),
+      router.serializeState(
+        snap({ selected: { kind: "event", id: EVT }, open: true }),
+        PT,
+      ),
     ).toBe(`#/event/${encodeURIComponent(EVT)}`);
   });
 
@@ -290,6 +313,35 @@ describe("serializeState", () => {
       router.serializeState(snap({ diff: null, diffHash: "sha256:abc" }), PT),
     ).toBe("#/timeline");
   });
+
+  it("serializes a parked cursor as lens-primary ?sel=", () => {
+    expect(
+      router.serializeState(
+        snap({ selected: { kind: "event", id: EVT }, open: false }),
+        PT,
+      ),
+    ).toBe(`#/timeline?sel=${encodeURIComponent(EVT)}`);
+    // A parked revision cursor on a non-default lens keeps the lens path.
+    expect(
+      router.serializeState(
+        snap({
+          lens: "list",
+          selected: { kind: "revision", id: REV },
+          open: false,
+        }),
+        PT,
+      ),
+    ).toBe(`#/list?sel=${encodeURIComponent(REV)}`);
+  });
+
+  it("serializes an open selection entity-primary", () => {
+    expect(
+      router.serializeState(
+        snap({ selected: { kind: "event", id: EVT }, open: true }),
+        PT,
+      ),
+    ).toBe(`#/event/${encodeURIComponent(EVT)}`);
+  });
 });
 
 describe("grammar round-trip (parseHash and serializeState are inverses)", () => {
@@ -304,6 +356,9 @@ describe("grammar round-trip (parseHash and serializeState are inverses)", () =>
     "#/timeline?diff=obj:1&diffHash=sha256:abc&focus=evt:9",
     // A subset of the present types — serializeState only re-emits present ids.
     `#/timeline?types=${PT[0]},${PT[1]}`,
+    // A parked cursor (lens-primary selection, pane closed).
+    `#/timeline?sel=${encodeURIComponent(EVT)}`,
+    `#/list?sel=${encodeURIComponent(REV)}`,
   ];
 
   for (const hash of hashes) {

@@ -102,6 +102,10 @@ export interface State {
   // The master-pane projection, serialized into the URL fragment by the router.
   lens: string;
   selected: Selection;
+  // Whether the detail pane projects the selection. A parked cursor keeps
+  // `open: false` (lens-primary `?sel=` URL form); `open: true` is the
+  // entity-primary form. The router derives and re-emits it (I1).
+  open: boolean;
   enabledTypes: Set<string>;
   seenTypes: Set<string>;
   // The structured query string (serialized as q=): free-text terms plus
@@ -129,6 +133,7 @@ const state: State = {
   identity: null,
   lens: "timeline",
   selected: { kind: null, id: null },
+  open: false,
   enabledTypes: new Set(TYPES.map((t) => t.id)),
   seenTypes: new Set(TYPES.map((t) => t.id)),
   filterText: "",
@@ -168,6 +173,8 @@ export function subscribe(fn: () => void): () => void {
 export function commit(patch: Partial<State>): void {
   Object.assign(state, patch);
   if (!state.selected) state.selected = { kind: null, id: null };
+  // No pane without a cursor: a cleared selection closes the detail pane.
+  if (!state.selected.id) state.open = false;
   if (!state.diff) state.diffHash = null;
   for (const fn of subscribers) fn();
 }

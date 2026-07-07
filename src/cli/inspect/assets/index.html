@@ -59,7 +59,12 @@
       <div class="split">
         <section id="master" class="master" aria-label="master pane"></section>
         <aside id="detail" class="detail">
-          <p class="empty">Select an event or revision to inspect.</p>
+          <header class="detail-head">
+            <button id="detail-close" class="ghost" aria-label="Close detail" title="Close detail (Esc)">✕</button>
+          </header>
+          <div id="detail-body">
+            <p class="empty">Select an event or revision to inspect.</p>
+          </div>
         </aside>
       </div>
     </main>

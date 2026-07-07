@@ -216,10 +216,22 @@ function renderMaster(): void {
   else renderTimeline();
 }
 
-// Detail pane: a pure projection of the single selection — the event detail, the
-// revision composite (fetched on demand by detail), or the empty prompt.
-/** Paint the detail pane from the single selection (delegating to detail). */
+// Project the open state onto the split grid: `split-closed` is a string-literal
+// state class (the `hidden` precedent, not a CLASS entry) the stylesheet keys the
+// single-column collapse — and, at narrow widths, the slide-over sheet — off.
+/** Toggle the split grid's mode classes from the open state. */
+function applySplitMode(): void {
+  const split = $(".split");
+  if (!split) return;
+  split.classList.toggle("split-closed", !getState().open);
+}
+
+// Detail pane: a pure projection of the single selection — the event detail or
+// the revision composite (fetched on demand by detail). A closed pane paints
+// nothing and, for a revision cursor, must not fetch the composite.
+/** Paint the detail pane from the open selection (delegating to detail). */
 function renderSelected(): void {
+  if (!getState().open) return;
   const sel = getState().selected;
   if (sel.kind === "revision" && sel.id) void showComposite(sel.id);
   else renderDetail();
@@ -263,6 +275,7 @@ export function render(): void {
   renderLensSwitcher();
   syncControls();
   renderTypeToggles();
+  applySplitMode();
   renderMaster();
   renderSelected();
   scrollSelectionIntoView();
@@ -311,16 +324,18 @@ function onMasterClick(ev: Event): void {
       openDiff(snapshotId, null, diffBtn.dataset.diffHash || null);
     return;
   }
+  // A mouse click both parks the cursor and opens the detail (today's feel);
+  // keyboard stepping, by contrast, leaves `open` unchanged.
   const eventEl = t.closest<HTMLElement>("[data-event-id]");
   if (eventEl) {
     const id = eventEl.dataset.eventId;
-    if (id) navigate({ selected: { kind: "event", id } });
+    if (id) navigate({ selected: { kind: "event", id }, open: true });
     return;
   }
   const revEl = t.closest<HTMLElement>(".unit-card[data-revision-id]");
   if (revEl) {
     const id = revEl.dataset.revisionId;
-    if (id) navigate({ selected: { kind: "revision", id } });
+    if (id) navigate({ selected: { kind: "revision", id }, open: true });
   }
 }
 
@@ -332,4 +347,9 @@ function onMasterClick(ev: Event): void {
 export function initControls(): void {
   $<HTMLElement>("#master")?.addEventListener("click", onMasterClick);
   $<HTMLElement>("#filter-types")?.addEventListener("click", onTypeToggleClick);
+  // The pane's close control: closing is deselection of the *pane*, not the
+  // cursor — the selection survives so Enter/j/k resume from it.
+  $<HTMLElement>("#detail-close")?.addEventListener("click", () =>
+    navigate({ open: false }),
+  );
 }

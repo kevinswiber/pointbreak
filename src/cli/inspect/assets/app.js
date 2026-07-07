@@ -772,6 +772,7 @@
     identity: null,
     lens: "timeline",
     selected: { kind: null, id: null },
+    open: false,
     enabledTypes: new Set(TYPES.map((t) => t.id)),
     seenTypes: new Set(TYPES.map((t) => t.id)),
     filterText: "",
@@ -798,6 +799,7 @@
   function commit(patch) {
     Object.assign(state, patch);
     if (!state.selected) state.selected = { kind: null, id: null };
+    if (!state.selected.id) state.open = false;
     if (!state.diff) state.diffHash = null;
     for (const fn of subscribers) fn();
   }
@@ -1778,6 +1780,7 @@
     const patch = {
       lens: DEFAULT_LENS2,
       selected: { kind: null, id: null },
+      open: false,
       filterTrack: p.track != null ? p.track : "",
       // The filter param is `snapshot`; legacy `object` is still parsed for old
       // bookmarks during the transition (#334).
@@ -1798,9 +1801,11 @@
       patch.lens = DEFAULT_LENS2;
     } else if (segs[0] === "revision" && segs[1]) {
       patch.selected = { kind: "revision", id: decodeURIComponent(segs[1]) };
+      patch.open = true;
       patch.lens = LENSES2.includes(lensParam) ? lensParam : DEFAULT_LENS2;
     } else if (segs[0] === "event" && segs[1]) {
       patch.selected = { kind: "event", id: decodeURIComponent(segs[1]) };
+      patch.open = true;
       patch.lens = LENSES2.includes(lensParam) ? lensParam : DEFAULT_LENS2;
     } else if (LENSES2.includes(segs[0])) {
       patch.lens = segs[0];
@@ -1816,7 +1821,7 @@
     const params = [];
     const sel = snapshot.selected ?? { kind: null, id: null };
     let path = snapshot.lens === DEFAULT_LENS2 ? "#/timeline" : `#/${snapshot.lens}`;
-    if (sel.id && (sel.kind === "revision" || sel.kind === "event")) {
+    if (sel.id && snapshot.open && (sel.kind === "revision" || sel.kind === "event")) {
       path = sel.kind === "revision" ? `#/revision/${encodeURIComponent(sel.id)}` : `#/event/${encodeURIComponent(sel.id)}`;
       if (snapshot.lens && snapshot.lens !== DEFAULT_LENS2)
         params.push(`lens=${encodeURIComponent(snapshot.lens)}`);
@@ -1925,6 +1930,7 @@
     return {
       lens: patch.lens,
       selected: patch.selected,
+      open: patch.open,
       filterTrack: patch.filterTrack,
       filterSnapshot: patch.filterSnapshot,
       order: patch.order,
@@ -2613,7 +2619,7 @@
   __name(eventBodyBlock, "eventBodyBlock");
   function renderDetail() {
     shownCompositeId = null;
-    const el = $("#detail");
+    const el = $("#detail-body");
     if (!el) return;
     const entries = getState().history?.entries ?? [];
     const e = entries.find((x) => x.eventId === selectedEventId());
@@ -2741,13 +2747,13 @@
     sections.push(
       `<section><h2>Validation checks (${validationChecks.length})</h2>${staleContext}${validationBody}</section>`
     );
-    const el = $("#detail");
+    const el = $("#detail-body");
     if (el)
       el.innerHTML = `<div class="${CLASS.unitPage}"><p class="${CLASS.unitPageTitle}">${escapeHtml(title)}</p>${sections.join("")}</div>`;
   }
   __name(renderRevisionPage, "renderRevisionPage");
   async function openRevision(revisionId) {
-    const el = $("#detail");
+    const el = $("#detail-body");
     if (el) el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
     try {
       const d = await fetchJSON(
@@ -2759,7 +2765,7 @@
     } catch (err) {
       const sel = getState().selected;
       if (sel.kind === "revision" && sel.id === revisionId) {
-        const live = $("#detail");
+        const live = $("#detail-body");
         if (live)
           live.innerHTML = `<p class="${CLASS.upEmpty}">error: ${escapeHtml(
             err instanceof Error ? err.message : String(err)
@@ -3397,6 +3403,11 @@
   __name(stepSelectionAsync, "stepSelectionAsync");
   function activateSelection() {
     const sel = getState().selected;
+    if (!getState().open) {
+      if (!sel.id) return;
+      navigate({ open: true });
+      return;
+    }
     if (sel.kind === "revision" && sel.id) {
       openRevisionDiff(sel.id);
     } else if (sel.kind === "event" && sel.id) {
@@ -3426,6 +3437,14 @@
     const active = document.activeElement;
     if (isTypingTarget(active)) {
       if (active instanceof HTMLElement) active.blur();
+      return;
+    }
+    if (getState().open) {
+      navigate({ open: false });
+      return;
+    }
+    if (getState().selected.id) {
+      navigate({ selected: { kind: null, id: null } });
       return;
     }
     if (getState().filterText) navigate({ filterText: "" }, { replace: true });
@@ -3510,9 +3529,12 @@
         ev.preventDefault();
         stepSelection(-1);
         return;
-      case "Enter":
+      case "Enter": {
+        const t = ev.target;
+        if (t instanceof Element && t.closest("a[href], button")) return;
         activateSelection();
         return;
+      }
       case "?":
         ev.preventDefault();
         toggleHelp();
@@ -3852,7 +3874,14 @@ click to open the revision page">
     else renderTimeline();
   }
   __name(renderMaster, "renderMaster");
+  function applySplitMode() {
+    const split = $(".split");
+    if (!split) return;
+    split.classList.toggle("split-closed", !getState().open);
+  }
+  __name(applySplitMode, "applySplitMode");
   function renderSelected() {
+    if (!getState().open) return;
     const sel = getState().selected;
     if (sel.kind === "revision" && sel.id) void showComposite(sel.id);
     else renderDetail();
@@ -3878,6 +3907,7 @@ click to open the revision page">
     renderLensSwitcher();
     syncControls();
     renderTypeToggles();
+    applySplitMode();
     renderMaster();
     renderSelected();
     scrollSelectionIntoView();
@@ -3916,19 +3946,23 @@ click to open the revision page">
     const eventEl = t.closest("[data-event-id]");
     if (eventEl) {
       const id = eventEl.dataset.eventId;
-      if (id) navigate({ selected: { kind: "event", id } });
+      if (id) navigate({ selected: { kind: "event", id }, open: true });
       return;
     }
     const revEl = t.closest(".unit-card[data-revision-id]");
     if (revEl) {
       const id = revEl.dataset.revisionId;
-      if (id) navigate({ selected: { kind: "revision", id } });
+      if (id) navigate({ selected: { kind: "revision", id }, open: true });
     }
   }
   __name(onMasterClick, "onMasterClick");
   function initControls6() {
     $("#master")?.addEventListener("click", onMasterClick);
     $("#filter-types")?.addEventListener("click", onTypeToggleClick);
+    $("#detail-close")?.addEventListener(
+      "click",
+      () => navigate({ open: false })
+    );
   }
   __name(initControls6, "initControls");
 

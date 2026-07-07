@@ -76,6 +76,15 @@ describe("renderDetail (event detail / empty prompt)", () => {
     expect(detailEl().textContent).toContain("Select an event or revision");
   });
 
+  it("paints the event detail into #detail-body under a persistent header", () => {
+    store.commit({ selected: { kind: "event", id: OBS_EVENT }, open: true });
+    detail.renderDetail();
+    expect(document.querySelector("#detail-body h2")).not.toBeNull();
+    expect(
+      document.querySelector("#detail .detail-head #detail-close"),
+    ).not.toBeNull();
+  });
+
   it("paints the selected event's identity, body, and raw payload", () => {
     store.commit({ selected: { kind: "event", id: OBS_EVENT } });
     detail.renderDetail();

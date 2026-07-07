@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HistoryDoc, RevisionsDoc, ThreadsDoc } from "../src/store";
 import historyJson from "./fixtures/history.json";
 import revisionsJson from "./fixtures/revisions.json";
@@ -25,6 +25,8 @@ let render: Render;
 
 const OBS_EVENT =
   "evt:sha256:8ac34bc85b48ed6623660a174b024bd9099edd09877180bfa87101cc76ac6058";
+const REV =
+  "rev:sha256:9a7626ca7cb2801721ed992402184460210477aadfd4f7228628b65ff11a6efd";
 const OBJ =
   "obj:sha256:38a493d2f09d6fde9d1dcac61a12c4ccc4de42a0b9c6829752d34cc648a9f9d7";
 
@@ -184,17 +186,51 @@ describe("renderLensSwitcher + renderMaster (lens dispatch + scaffold)", () => {
 
 describe("renderSelected (delegates to detail)", () => {
   it("paints the event detail for a selected event", () => {
-    store.commit({ selected: { kind: "event", id: OBS_EVENT } });
+    store.commit({ selected: { kind: "event", id: OBS_EVENT }, open: true });
     render.render();
     const detail = $("#detail");
     expect(detail?.querySelector("dl.kv")).not.toBeNull();
     expect(detail?.textContent).toContain("the return value changed");
   });
 
-  it("prompts when nothing is selected", () => {
+  it("rests closed (single column) when nothing is selected", () => {
     store.commit({ selected: { kind: null, id: null } });
     render.render();
-    expect($("#detail")?.textContent).toContain("Select an event or revision");
+    expect($(".split")?.classList.contains("split-closed")).toBe(true);
+  });
+
+  it("collapses to a single column when the detail is closed", () => {
+    store.commit({ selected: { kind: "event", id: OBS_EVENT }, open: false });
+    render.render();
+    expect($(".split")?.classList.contains("split-closed")).toBe(true);
+    store.commit({ open: true });
+    render.render();
+    expect($(".split")?.classList.contains("split-closed")).toBe(false);
+  });
+
+  it("the close button closes the detail keeping the cursor", () => {
+    store.commit({ selected: { kind: "event", id: OBS_EVENT }, open: true });
+    render.render();
+    ($("#detail-close") as HTMLElement).click();
+    expect(store.getState().open).toBe(false);
+    expect(store.getState().selected.id).toBe(OBS_EVENT);
+  });
+
+  it("a closed revision cursor does not fetch the composite", () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    store.commit({ selected: { kind: "revision", id: REV }, open: false });
+    render.render();
+    const urls = spy.mock.calls.map(([u]) => String(u));
+    expect(urls.some((u) => u.includes("/api/revisions/"))).toBe(false);
+    spy.mockRestore();
+  });
+
+  it("clicking a timeline row opens the detail", () => {
+    render.render();
+    const row = $("#master [data-event-id]") as HTMLElement;
+    row.click();
+    expect(store.getState().open).toBe(true);
+    expect(store.getState().selected.kind).toBe("event");
   });
 });
 

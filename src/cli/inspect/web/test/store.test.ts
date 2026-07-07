@@ -32,6 +32,7 @@ describe("getState defaults", () => {
     expect(s.diffHash).toBeNull();
     expect(s.focus).toBeNull();
     expect(s.lastEventCount).toBeNull();
+    expect(s.open).toBe(false);
   });
 
   it("seeds enabledTypes and seenTypes from every known event type", () => {
@@ -57,6 +58,16 @@ describe("commit applies patches", () => {
     expect(s.order).toBe("asc");
     expect(s.filterTrack).toBe("agent:codex");
     expect(s.filterText).toBe("");
+  });
+
+  it("forces open back to false when the selection clears (no pane without a cursor)", () => {
+    store.commit({
+      selected: { kind: "event", id: "evt:sha256:aa" },
+      open: true,
+    });
+    expect(store.getState().open).toBe(true);
+    store.commit({ selected: { kind: null, id: null } });
+    expect(store.getState().open).toBe(false);
   });
 
   it("holds the loaded /api docs the container forwards to render", () => {

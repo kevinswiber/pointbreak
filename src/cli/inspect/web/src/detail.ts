@@ -1,4 +1,6 @@
-// The detail pane: the `#detail` projection of the single selection. It paints
+// The detail pane: the `#detail-body` projection of the single selection (the
+// pane's persistent chrome — the `.detail-head` ghost controls — lives outside
+// the projection target and survives every repaint). It paints
 // the event detail (identity table + readback + body + raw payload), the revision
 // composite page (the on-demand `/api/revisions/{id}` fetch mounting the pure `cards`
 // renderers), and the state-bound `staleFactSectionContext` fed into the pure
@@ -8,7 +10,7 @@
 // vocabulary.
 //
 // Two structural moves preserve the served behaviour behind the new boundaries:
-//   - Detail mutates `#detail` and reads state / `http`; it never calls render
+//   - Detail mutates `#detail-body` and reads state / `http`; it never calls render
 //     (the store subscriber repaints on commit) and never imports a navigation
 //     module. The "show in timeline" affordance is therefore emitted as a
 //     `data-reveal-revision` dataset for the navigation delegate to resolve.
@@ -120,12 +122,12 @@ export function eventBodyBlock(e: HistoryEntry): string {
   return "";
 }
 
-/** Paint `#detail` from the selected event, or the empty prompt when none is selected. */
+/** Paint `#detail-body` from the selected event, or the empty prompt when none is selected. */
 export function renderDetail(): void {
   // Showing the event/empty pane means no composite is shown — so a later
   // re-selection of a revision re-fetches its composite.
   shownCompositeId = null;
-  const el = $("#detail");
+  const el = $("#detail-body");
   if (!el) return;
   const entries = getState().history?.entries ?? [];
   const e = entries.find((x) => x.eventId === selectedEventId());
@@ -293,14 +295,14 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
     `<section><h2>Validation checks (${validationChecks.length})</h2>${staleContext}${validationBody}</section>`,
   );
 
-  const el = $("#detail");
+  const el = $("#detail-body");
   if (el)
     el.innerHTML = `<div class="${CLASS.unitPage}"><p class="${CLASS.unitPageTitle}">${escapeHtml(title)}</p>${sections.join("")}</div>`;
 }
 
 /** Fetch a revision's composite document and paint it, guarding a superseding selection. */
 export async function openRevision(revisionId: string): Promise<void> {
-  const el = $("#detail");
+  const el = $("#detail-body");
   if (el) el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
   try {
     const d = await fetchJSON(
@@ -313,7 +315,7 @@ export async function openRevision(revisionId: string): Promise<void> {
   } catch (err: unknown) {
     const sel = getState().selected;
     if (sel.kind === "revision" && sel.id === revisionId) {
-      const live = $("#detail");
+      const live = $("#detail-body");
       if (live)
         live.innerHTML = `<p class="${CLASS.upEmpty}">error: ${escapeHtml(
           err instanceof Error ? err.message : String(err),

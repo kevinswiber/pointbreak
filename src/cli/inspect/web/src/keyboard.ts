@@ -112,9 +112,15 @@ export async function stepSelectionAsync(delta: number): Promise<void> {
   stepList(delta);
 }
 
-// Open the selection's snapshot diff — a read affordance, never a gate.
+// The Enter descend ladder: a parked cursor opens the detail pane; an open
+// selection descends into its snapshot diff — a read affordance, never a gate.
 function activateSelection(): void {
   const sel = getState().selected;
+  if (!getState().open) {
+    if (!sel.id) return;
+    navigate({ open: true });
+    return;
+  }
   if (sel.kind === "revision" && sel.id) {
     openRevisionDiff(sel.id);
   } else if (sel.kind === "event" && sel.id) {
@@ -138,8 +144,10 @@ function toggleHelp(): void {
   else openOverlay("help", "#key-help-close");
 }
 
-// Layered Escape: close the active overlay (diff / palette / help — mutually
-// exclusive), then blur a field, then clear the query — one precedence chain.
+// Layered Escape — one precedence chain, each press ascends one rung: close the
+// active overlay (diff / palette / help — mutually exclusive), then blur a
+// field, then close the detail pane (the cursor stays parked), then clear the
+// cursor, then clear the query.
 function handleEscape(): void {
   if (activeName()) {
     closeActive();
@@ -148,6 +156,14 @@ function handleEscape(): void {
   const active = document.activeElement;
   if (isTypingTarget(active)) {
     if (active instanceof HTMLElement) active.blur();
+    return;
+  }
+  if (getState().open) {
+    navigate({ open: false });
+    return;
+  }
+  if (getState().selected.id) {
+    navigate({ selected: { kind: null, id: null } });
     return;
   }
   if (getState().filterText) navigate({ filterText: "" }, { replace: true });
@@ -246,9 +262,14 @@ export function onKey(ev: KeyboardEvent): void {
       ev.preventDefault();
       stepSelection(-1);
       return;
-    case "Enter":
+    case "Enter": {
+      // Native interactive targets keep their native Enter (a focused header
+      // button or entity anchor would otherwise double-fire with the ladder).
+      const t = ev.target;
+      if (t instanceof Element && t.closest("a[href], button")) return;
       activateSelection();
       return;
+    }
     case "?":
       ev.preventDefault();
       toggleHelp();

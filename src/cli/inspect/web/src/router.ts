@@ -6,9 +6,9 @@
 // are deliberately NOT part of the fragment (not shareable view state).
 //
 //   #/<lens>                   lens-primary (lens ∈ timeline | list | threads)
-//   #/<lens>?sel=<id>          a selection within the lens
-//   #/revision/<revisionId>    entity-primary: the named revision is selected
-//   #/event/<eventId>          entity-primary: the named event is selected
+//   #/<lens>?sel=<id>          a parked cursor within the lens (detail pane closed)
+//   #/revision/<revisionId>    entity-primary: the named revision is open in the detail pane
+//   #/event/<eventId>          entity-primary: the named event is open in the detail pane
 //   ?lens=<lens>               the master lens behind an entity-primary path
 //   ?track= ?snapshot=         cross-lens scope (survive a lens switch)
 //   ?order= ?types= ?q=        per-lens timeline controls
@@ -49,6 +49,9 @@ const DEFAULT_LENS = "timeline";
 export interface RoutePatch {
   lens: string;
   selected: Selection;
+  // Openness rides the URL form: entity-primary paths parse as open, the
+  // lens-primary `?sel=` cursor form (and no selection) as closed.
+  open: boolean;
   filterTrack: string;
   filterSnapshot: string;
   order: string;
@@ -72,6 +75,7 @@ export interface RoutePatch {
 export interface SerializeSnapshot {
   lens: string;
   selected: Selection;
+  open: boolean;
   filterTrack: string;
   filterSnapshot: string;
   order: string;
@@ -127,6 +131,7 @@ export function parseHash(
   const patch: RoutePatch = {
     lens: DEFAULT_LENS,
     selected: { kind: null, id: null },
+    open: false,
     filterTrack: p.track != null ? p.track : "",
     // The filter param is `snapshot`; legacy `object` is still parsed for old
     // bookmarks during the transition (#334).
@@ -152,9 +157,11 @@ export function parseHash(
     patch.lens = DEFAULT_LENS;
   } else if (segs[0] === "revision" && segs[1]) {
     patch.selected = { kind: "revision", id: decodeURIComponent(segs[1]) };
+    patch.open = true;
     patch.lens = LENSES.includes(lensParam) ? lensParam : DEFAULT_LENS;
   } else if (segs[0] === "event" && segs[1]) {
     patch.selected = { kind: "event", id: decodeURIComponent(segs[1]) };
+    patch.open = true;
     patch.lens = LENSES.includes(lensParam) ? lensParam : DEFAULT_LENS;
   } else if (LENSES.includes(segs[0])) {
     patch.lens = segs[0];
@@ -168,9 +175,10 @@ export function parseHash(
 
 /**
  * Serialize a state snapshot into a fragment, omitting defaults to keep the URL
- * short. A selection is entity-primary (durable identity); the lens-primary `sel=`
- * form is the inverse of the parser's `?sel=` handling. `presentTypes` decides
- * whether a `types=` param is needed (only when a present type is disabled).
+ * short. An OPEN selection is entity-primary (durable identity, detail pane
+ * showing); a parked cursor serializes lens-primary via `sel=` — the inverse of
+ * the parser's `?sel=` handling. `presentTypes` decides whether a `types=` param
+ * is needed (only when a present type is disabled).
  */
 export function serializeState(
   snapshot: SerializeSnapshot,
@@ -180,7 +188,11 @@ export function serializeState(
   const sel = snapshot.selected ?? { kind: null, id: null };
   let path =
     snapshot.lens === DEFAULT_LENS ? "#/timeline" : `#/${snapshot.lens}`;
-  if (sel.id && (sel.kind === "revision" || sel.kind === "event")) {
+  if (
+    sel.id &&
+    snapshot.open &&
+    (sel.kind === "revision" || sel.kind === "event")
+  ) {
     path =
       sel.kind === "revision"
         ? `#/revision/${encodeURIComponent(sel.id)}`
@@ -329,6 +341,7 @@ function statePatchFrom(patch: RoutePatch): Partial<State> {
   return {
     lens: patch.lens,
     selected: patch.selected,
+    open: patch.open,
     filterTrack: patch.filterTrack,
     filterSnapshot: patch.filterSnapshot,
     order: patch.order,

@@ -88,10 +88,28 @@ describe("selection stepping / activation / search", () => {
     expect(store.getState().selected.id).toBe(first.id);
   });
 
-  it("Enter activates the selected revision's diff", () => {
-    store.commit({ selected: { kind: "revision", id: REV } });
+  it("Enter activates the selected revision's diff once the detail is open", () => {
+    store.commit({ selected: { kind: "revision", id: REV }, open: true });
     key({ key: "Enter" });
     expect(store.getState().diff).toBe(OBJ);
+  });
+
+  it("Enter on a parked cursor opens the detail; a second Enter opens the diff", () => {
+    store.commit({ selected: { kind: "revision", id: REV }, open: false });
+    key({ key: "Enter" });
+    expect(store.getState().open).toBe(true);
+    expect(store.getState().diff).toBeNull();
+    key({ key: "Enter" });
+    expect(store.getState().diff).toBe(OBJ);
+  });
+
+  it("Enter on a focused native control stays native (no ladder)", () => {
+    store.commit({ selected: { kind: "revision", id: REV }, open: false });
+    const btn = document.querySelector<HTMLElement>("#theme-toggle");
+    btn?.focus();
+    key({ key: "Enter" }, btn ?? document);
+    expect(store.getState().open).toBe(false);
+    expect(store.getState().diff).toBeNull();
   });
 
   it("/ focuses the search box and switches to the timeline lens", () => {
@@ -137,7 +155,26 @@ describe("overlays via the keyboard", () => {
   });
 
   it("Escape clears the query when nothing else is open", () => {
+    // No selection seeded: with a cursor present the ladder's cursor rungs
+    // would take precedence over the query clear.
     store.commit({ filterText: "obs" });
+    key({ key: "Escape" });
+    expect(store.getState().filterText).toBe("");
+  });
+
+  it("Escape closes an open detail keeping the cursor, then clears the cursor, then the query", () => {
+    store.commit({
+      selected: { kind: "revision", id: REV },
+      open: true,
+      filterText: "sig",
+    });
+    key({ key: "Escape" });
+    expect(store.getState().open).toBe(false);
+    expect(store.getState().selected.id).toBe(REV);
+    expect(store.getState().filterText).toBe("sig");
+    key({ key: "Escape" });
+    expect(store.getState().selected.id).toBeNull();
+    expect(store.getState().filterText).toBe("sig");
     key({ key: "Escape" });
     expect(store.getState().filterText).toBe("");
   });

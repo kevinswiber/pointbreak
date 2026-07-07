@@ -182,7 +182,10 @@ describe("advisory framing (rendered DOM, reader-relative, never a gate)", () =>
   it("the detail readback frames verification as reader-relative", async () => {
     await main.main();
     const event = store.getState().history?.entries?.[2];
-    store.commit({ selected: { kind: "event", id: event?.eventId ?? null } });
+    store.commit({
+      selected: { kind: "event", id: event?.eventId ?? null },
+      open: true,
+    });
     expect(document.querySelector("#detail")?.textContent).toContain(
       "reader-relative",
     );
