@@ -1,5 +1,5 @@
 ---
-name: shoreline-reviewer
+name: pointbreak-reviewer
 description: Use when a coding agent should review a Pointbreak handoff or captured revision that another agent left. Read the author's observations, validation evidence, and input requests with bounded list commands, review the live change independently, respond to open operative input requests, record reviewer findings and validation evidence on your own track, open advisory input requests for author decisions, record exactly one assessment, then stand down.
 ---
 

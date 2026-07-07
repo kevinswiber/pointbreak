@@ -197,7 +197,7 @@ That separation keeps the author's explanation and the reviewer's call distinct.
 
 ## Reviewer Loop
 
-The `shoreline-reviewer` skill is the reviewer-side pair to the author handoff. It starts from an
+The `pointbreak-reviewer` skill is the reviewer-side pair to the author handoff. It starts from an
 existing revision, reads the author's handoff with bounded list commands, reviews the change
 independently, records reviewer observations on a separate reviewer track, responds to any open
 operative input requests, opens advisory input requests for author decisions, and records exactly one
@@ -261,7 +261,7 @@ The reviewer should not write to the author's track. The author should not recor
 
 ## Author Response Loop
 
-The `shoreline-author-response` skill closes the loop when the original author picks up the
+The `pointbreak-author-response` skill closes the loop when the original author picks up the
 reviewer's pass. It attaches to the existing revision with `--revision`; it does not run
 `shore capture` again, and it does not add or replace assessments.
 

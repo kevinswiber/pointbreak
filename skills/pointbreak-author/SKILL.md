@@ -1,5 +1,5 @@
 ---
-name: shoreline-author
+name: pointbreak-author
 description: Use when a coding agent has finished a coherent implementation change, is about to declare work done, is about to commit the current task, or the user says done, hand off, ready for review, or ship it and wants to leave a durable Pointbreak review record. Capture with shore capture, record what changed and why as observations, record validation evidence for checks actually run, open input requests for genuine unresolved questions, and then stand down.
 ---
 

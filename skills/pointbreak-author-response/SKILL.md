@@ -1,5 +1,5 @@
 ---
-name: shoreline-author-response
+name: pointbreak-author-response
 description: Use when the coding agent that authored a change should pick up a Pointbreak reviewer pass on its existing revision. Read the reviewer's observations, validation evidence, assessment, and input requests with bounded commands, classify the verdict, respond to advisory requests with shore input-request respond, make changes only when the review is actionable, record author response observations, never add an assessment, and never recapture.
 ---
 

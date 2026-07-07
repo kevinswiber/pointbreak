@@ -2,23 +2,26 @@ use std::path::Path;
 
 #[test]
 fn agent_skills_and_docs_adopt_validation_evidence_workflow() {
-    assert_contains("skills/shoreline-author/SKILL.md", "shore validation add");
+    assert_contains("skills/pointbreak-author/SKILL.md", "shore validation add");
     assert_contains(
-        "skills/shoreline-author/SKILL.md",
+        "skills/pointbreak-author/SKILL.md",
         "That pre-change failure did not run against the captured revision",
     );
     assert_not_contains(
-        "skills/shoreline-author/SKILL.md",
+        "skills/pointbreak-author/SKILL.md",
         "Initial red run failed before the parser change",
     );
-    assert_contains("skills/shoreline-author/SKILL.md", "shore validation list");
+    assert_contains("skills/pointbreak-author/SKILL.md", "shore validation list");
     assert_contains(
-        "skills/shoreline-reviewer/SKILL.md",
+        "skills/pointbreak-reviewer/SKILL.md",
         "shore validation list",
     );
-    assert_contains("skills/shoreline-reviewer/SKILL.md", "shore validation add");
     assert_contains(
-        "skills/shoreline-author-response/SKILL.md",
+        "skills/pointbreak-reviewer/SKILL.md",
+        "shore validation add",
+    );
+    assert_contains(
+        "skills/pointbreak-author-response/SKILL.md",
         "shore validation list",
     );
     assert_contains("docs/agent-authoring.md", "shore validation add");
@@ -29,9 +32,9 @@ fn agent_skills_and_docs_adopt_validation_evidence_workflow() {
 #[test]
 fn agent_skills_document_automatic_signing_and_enrollment() {
     for skill in [
-        "skills/shoreline-author/SKILL.md",
-        "skills/shoreline-reviewer/SKILL.md",
-        "skills/shoreline-author-response/SKILL.md",
+        "skills/pointbreak-author/SKILL.md",
+        "skills/pointbreak-reviewer/SKILL.md",
+        "skills/pointbreak-author-response/SKILL.md",
     ] {
         // Auto-keygen + enrollment pointer is present in every shipped skill.
         assert_contains(skill, "shore key enroll");
@@ -48,9 +51,9 @@ fn agent_skills_document_automatic_signing_and_enrollment() {
 #[test]
 fn agent_skills_note_human_use_ssh_path() {
     for skill in [
-        "skills/shoreline-author/SKILL.md",
-        "skills/shoreline-reviewer/SKILL.md",
-        "skills/shoreline-author-response/SKILL.md",
+        "skills/pointbreak-author/SKILL.md",
+        "skills/pointbreak-reviewer/SKILL.md",
+        "skills/pointbreak-author-response/SKILL.md",
     ] {
         // Humans can reuse an existing SSH key; agents still auto-keygen (note stays).
         assert_contains(skill, "shore key use-ssh");
