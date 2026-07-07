@@ -596,9 +596,11 @@ fn topbar_exposes_an_accessible_theme_toggle() {
     let (_repo, inspector) = served_asset_inspector();
     let index = inspector.get_text("/");
     // A stable, user-visible accessible name for the control (assert the aria
-    // label, a durable contract — not the button's id).
+    // label, a durable contract — not the button's id). The label now names the
+    // control and carries its current value (`Color theme: <mode>`), so assert the
+    // durable prefix — the value after it is runtime state.
     assert!(
-        index.contains("aria-label=\"Toggle color theme\""),
+        index.contains("aria-label=\"Color theme:"),
         "the topbar carries an accessible theme toggle"
     );
 }
@@ -711,8 +713,10 @@ fn tokens_css_carries_the_type_scale() {
 fn topbar_exposes_a_density_toggle() {
     let (_repo, inspector) = served_asset_inspector();
     let index = inspector.get_text("/");
+    // The label names the control and carries its current value
+    // (`Density: <mode>`); assert the durable prefix, the value is runtime state.
     assert!(
-        index.contains("aria-label=\"Toggle density\""),
+        index.contains("aria-label=\"Density:"),
         "the topbar carries an accessible comfortable/compact density toggle"
     );
 }
