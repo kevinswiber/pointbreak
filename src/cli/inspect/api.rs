@@ -1669,6 +1669,18 @@ mod tests {
         }
     }
 
+    fn tree(oid: &str) -> ReviewEndpoint {
+        ReviewEndpoint::GitTree {
+            tree_oid: oid.to_owned(),
+        }
+    }
+
+    fn index_tree(oid: &str) -> ReviewEndpoint {
+        ReviewEndpoint::GitIndex {
+            tree_oid: oid.to_owned(),
+        }
+    }
+
     fn captured_repo() -> (tempfile::TempDir, String, String) {
         let root = tempfile::tempdir().expect("create temp repo");
         let path = root.path();
@@ -2064,6 +2076,29 @@ mod tests {
         assert_eq!(display.kind, "git_commit");
         assert_eq!(display.label, "9fceb02");
         assert_eq!(display.head.unwrap().commit_oid_short, "abc1234");
+        assert!(display.path_private);
+    }
+
+    #[test]
+    fn revision_source_target_display_handles_git_tree_base_without_head() {
+        let display = derive_target_display(
+            &commit("9fceb02d0ae598e95dc970b74767f19372d61af8"),
+            &tree("empty-tree"),
+        );
+
+        assert_eq!(display.kind, "git_commit");
+        assert_eq!(display.label, "9fceb02");
+        assert!(display.head.is_none());
+        assert!(display.path_private);
+    }
+
+    #[test]
+    fn revision_source_target_display_handles_git_index_explicitly() {
+        let display = derive_target_display(&index_tree("abcdef123456"), &commit("base1234"));
+
+        assert_eq!(display.kind, "git_index");
+        assert_eq!(display.label, "abcdef1");
+        assert_eq!(display.head.unwrap().commit_oid_short, "base123");
         assert!(display.path_private);
     }
 

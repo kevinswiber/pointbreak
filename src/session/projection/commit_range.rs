@@ -398,7 +398,7 @@ mod tests {
     use super::*;
     use crate::model::{
         EngagementId, JournalId, ObjectId, ReviewEndpoint, ReviewTargetRef, RevisionId,
-        RevisionSource, WorktreeCaptureMode,
+        RevisionSource, RootCommitCaptureMode, WorktreeCaptureMode,
     };
     use crate::session::event::{
         EventTarget, EventType, GitProvenance, Revision, RevisionCommitAssociatedPayload,
@@ -464,6 +464,44 @@ mod tests {
         capture(ReviewEndpoint::GitWorkingTree {
             worktree_root: "/repo".to_owned(),
         })
+    }
+
+    fn root_capture() -> ShoreEvent {
+        ShoreEvent::new(
+            EventType::WorkObjectProposed,
+            format!("work_object_proposed:{}", revision_id().as_str()),
+            envelope(),
+            Writer::shore_local("test"),
+            WorkObjectProposedPayload {
+                engagement_id: EngagementId::new(format!(
+                    "engagement:sha256:{}",
+                    crate::canonical_hash::sha256_bytes_hex(revision_id().as_str().as_bytes())
+                )),
+                work_object: WorkObjectProposal::Revision {
+                    revision: Revision {
+                        id: revision_id(),
+                        object_id: ObjectId::new("snap:git:sha256:root"),
+                        git_provenance: Some(GitProvenance {
+                            source: RevisionSource::GitRootCommit {
+                                mode: RootCommitCaptureMode::EmptyTreeToTargetTree,
+                                pathspecs: Vec::new(),
+                            },
+                            base: ReviewEndpoint::GitTree {
+                                tree_oid: "empty-tree".to_owned(),
+                            },
+                            target: ReviewEndpoint::GitCommit {
+                                commit_oid: "target".to_owned(),
+                                tree_oid: "target-tree".to_owned(),
+                            },
+                        }),
+                    },
+                    object_artifact_content_hash: "sha256:artifact".to_owned(),
+                    supersedes: vec![],
+                },
+            },
+            "2026-06-19T00:00:00Z",
+        )
+        .unwrap()
     }
 
     fn commit_associated(commit_oid: &str) -> ShoreEvent {
@@ -556,6 +594,19 @@ mod tests {
 
         assert!(!view.anchored);
         assert!(view.current_commits.is_empty());
+    }
+
+    #[test]
+    fn revision_source_root_capture_is_anchored_by_target_commit() {
+        let view = view_of(&[root_capture()]);
+
+        assert!(view.anchored);
+        assert_eq!(view.current_commits.len(), 1);
+        assert_eq!(view.current_commits[0].commit_oid, "target");
+        assert_eq!(
+            view.current_commits[0].source,
+            CommitEdgeSource::CaptureTarget
+        );
     }
 
     #[test]

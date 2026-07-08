@@ -810,7 +810,9 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::git::{Ancestry, git_is_ancestor};
-    use crate::model::{CommitAssociationId, CommitRangeCaptureMode, ReviewTargetRef};
+    use crate::model::{
+        CommitAssociationId, CommitRangeCaptureMode, ReviewTargetRef, RootCommitCaptureMode,
+    };
     use crate::session::event::RevisionCommitAssociatedPayload;
 
     /// A repo whose `main` is `base → mid → tip`, plus a dangling commit (child of
@@ -1321,6 +1323,53 @@ mod tests {
         .unwrap()
     }
 
+    fn scoped_root_captured_event(
+        suffix: &str,
+        occurred_at: &str,
+        commit_oid: &str,
+        pathspecs: &[&str],
+    ) -> ShoreEvent {
+        let revision_id = RevisionId::new(format!("review-unit:sha256:{suffix}"));
+        let object_id = ObjectId::new(format!("obj:sha256:{suffix}"));
+        let payload = WorkObjectProposedPayload {
+            engagement_id: EngagementId::new(format!(
+                "engagement:sha256:{}",
+                crate::canonical_hash::sha256_bytes_hex(revision_id.as_str().as_bytes())
+            )),
+            work_object: WorkObjectProposal::Revision {
+                revision: Revision {
+                    id: revision_id.clone(),
+                    object_id: object_id.clone(),
+                    git_provenance: Some(GitProvenance {
+                        source: RevisionSource::GitRootCommit {
+                            mode: RootCommitCaptureMode::EmptyTreeToTargetTree,
+                            pathspecs: pathspecs.iter().map(|s| (*s).to_owned()).collect(),
+                        },
+                        base: ReviewEndpoint::GitTree {
+                            tree_oid: "empty-tree".to_owned(),
+                        },
+                        target: ReviewEndpoint::GitCommit {
+                            commit_oid: commit_oid.to_owned(),
+                            tree_oid: format!("{commit_oid}-tree"),
+                        },
+                    }),
+                },
+                object_artifact_content_hash: format!("sha256:artifact:{suffix}"),
+                supersedes: vec![],
+            },
+        };
+        ShoreEvent::new(
+            EventType::WorkObjectProposed,
+            format!("capture:{suffix}"),
+            EventTarget::for_revision(JournalId::new("journal:default"), revision_id, None)
+                .unwrap(),
+            Writer::shore_local("test"),
+            payload,
+            occurred_at,
+        )
+        .unwrap()
+    }
+
     #[test]
     fn scoped_range_captures_with_different_pathspecs_stay_separate_entries() {
         // Two path-scoped captures of the SAME range are different review units
@@ -1355,6 +1404,27 @@ mod tests {
         for entry in &grouped {
             assert_eq!(entry.grouped_revision_ids, vec![entry.revision_id.clone()]);
         }
+    }
+
+    #[test]
+    fn revision_source_root_pathspecs_keep_scoped_groups_separate() {
+        let events = [
+            scoped_root_captured_event("scope-a", "2026-06-19T00:00:00Z", "shared", &["a"]),
+            scoped_root_captured_event("scope-b", "2026-06-19T00:00:01Z", "shared", &["b"]),
+        ];
+        let projection = RevisionCommitRangeProjection::from_events(&events).unwrap();
+        let grouping = CommitOidGroupingProjection::from_events(&events).unwrap();
+        let base = list_from_events(&events, &projection).unwrap();
+
+        let grouped = group_entries(base.entries, &grouping);
+
+        assert_eq!(grouped.len(), 2);
+        let mut scopes: Vec<Vec<String>> = grouped
+            .iter()
+            .map(|entry| source_pathspecs(&entry.source).to_vec())
+            .collect();
+        scopes.sort();
+        assert_eq!(scopes, vec![vec!["a".to_owned()], vec!["b".to_owned()]]);
     }
 
     #[test]

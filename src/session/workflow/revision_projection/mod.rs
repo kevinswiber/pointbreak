@@ -838,9 +838,9 @@ mod tests {
         InputRequestListOptions, InputRequestOpenOptions, InputRequestRespondOptions,
         InputRequestStatus, InputRequestStatusFilter, ObservationAddOptions,
         ObservationListOptions, ObservationTargetSelector, RemovalPolicy, RevisionListOptions,
-        capture_worktree_review, fetch_input_request, list_input_requests, list_observations,
-        list_revisions, open_input_request, record_assessment, record_observation,
-        respond_input_request, show_assessments,
+        RootCommitSpec, capture_review, capture_worktree_review, fetch_input_request,
+        list_input_requests, list_observations, list_revisions, open_input_request,
+        record_assessment, record_observation, respond_input_request, show_assessments,
     };
 
     // ---- Overview batch: golden-equality + single-read invariants ----
@@ -975,6 +975,35 @@ mod tests {
                 .iter()
                 .all(|check| check.superseded_by_revisions.is_empty())
         );
+    }
+
+    #[test]
+    fn capture_review_root_revision_show_preserves_source_and_tree_base() {
+        let repo = TestRepo::new();
+        repo.write("README.md", "hello\n");
+        repo.commit_all("initial");
+        let capture = capture_review(
+            CaptureOptions::new(repo.path()).with_root_commit(RootCommitSpec::new()),
+        )
+        .unwrap();
+
+        let shown = show_revision(
+            RevisionShowOptions::new(repo.path()).with_revision_id(capture.revision_id),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            shown.revision.source,
+            RevisionSource::GitRootCommit { .. }
+        ));
+        assert!(matches!(
+            shown.revision.base,
+            ReviewEndpoint::GitTree { .. }
+        ));
+        assert!(matches!(
+            shown.revision.target,
+            ReviewEndpoint::GitCommit { .. }
+        ));
     }
 
     #[test]

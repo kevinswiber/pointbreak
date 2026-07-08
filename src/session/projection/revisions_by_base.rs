@@ -63,7 +63,10 @@ impl RevisionsByBase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{EngagementId, JournalId, ObjectId, RevisionSource, WorktreeCaptureMode};
+    use crate::model::{
+        EngagementId, JournalId, ObjectId, RevisionSource, RootCommitCaptureMode,
+        WorktreeCaptureMode,
+    };
     use crate::session::event::{EventTarget, GitProvenance, Revision, Writer};
 
     fn rev(suffix: &str) -> RevisionId {
@@ -112,6 +115,38 @@ mod tests {
         }
     }
 
+    fn root_git_provenance() -> GitProvenance {
+        GitProvenance {
+            source: RevisionSource::GitRootCommit {
+                mode: RootCommitCaptureMode::EmptyTreeToTargetTree,
+                pathspecs: Vec::new(),
+            },
+            base: ReviewEndpoint::GitTree {
+                tree_oid: "empty-tree".to_owned(),
+            },
+            target: ReviewEndpoint::GitCommit {
+                commit_oid: "target".to_owned(),
+                tree_oid: "target-tree".to_owned(),
+            },
+        }
+    }
+
+    fn index_based_git_provenance() -> GitProvenance {
+        GitProvenance {
+            source: RevisionSource::GitWorktree {
+                mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                include_untracked: true,
+                pathspecs: Vec::new(),
+            },
+            base: ReviewEndpoint::GitIndex {
+                tree_oid: "index-tree".to_owned(),
+            },
+            target: ReviewEndpoint::GitWorkingTree {
+                worktree_root: "/repo".to_owned(),
+            },
+        }
+    }
+
     #[test]
     fn buckets_git_revisions_by_base_and_excludes_a_non_git_object() {
         let events = vec![
@@ -143,5 +178,22 @@ mod tests {
     fn is_empty_for_a_git_less_store() {
         let events = vec![revision_event("m", None)];
         assert!(RevisionsByBase::from_events(&events).unwrap().is_empty());
+    }
+
+    #[test]
+    fn revision_source_tree_and_index_bases_are_not_commit_base_buckets() {
+        let events = vec![
+            revision_event("root", Some(root_git_provenance())),
+            revision_event("index", Some(index_based_git_provenance())),
+            revision_event("commit", Some(git_provenance_based_at("base-1"))),
+        ];
+        let by_base = RevisionsByBase::from_events(&events).unwrap();
+
+        assert_eq!(
+            by_base.bucket("base-1"),
+            [rev("commit")].into_iter().collect()
+        );
+        assert!(!by_base.contains(&rev("root")));
+        assert!(!by_base.contains(&rev("index")));
     }
 }

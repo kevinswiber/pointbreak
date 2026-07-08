@@ -212,7 +212,7 @@ fn capture_with_base_and_target_pins_both_endpoints() {
 }
 
 #[test]
-fn capture_root_outputs_added_files_for_one_commit_repo() {
+fn cli_capture_root_outputs_added_files_for_one_commit_repo() {
     let repo = GitRepo::new();
     repo.write("README.md", "hello\n");
     repo.commit_all("initial");
@@ -232,7 +232,7 @@ fn capture_root_outputs_added_files_for_one_commit_repo() {
 }
 
 #[test]
-fn capture_root_with_target_pins_target_commit() {
+fn cli_capture_root_with_target_pins_target_commit() {
     let repo = committed_repo();
     let first_oid = rev(&repo, "HEAD~1");
 
@@ -256,7 +256,7 @@ fn capture_root_with_target_pins_target_commit() {
 }
 
 #[test]
-fn capture_root_with_path_scopes_added_files() {
+fn cli_capture_root_with_path_scopes_added_files() {
     let repo = GitRepo::new();
     repo.write("a/one.txt", "one\n");
     repo.write("b/two.txt", "two\n");
@@ -305,7 +305,7 @@ fn capture_root_with_path_scopes_added_files() {
 }
 
 #[test]
-fn capture_root_rejects_base() {
+fn cli_capture_root_rejects_base() {
     let output = shore(["capture", "--root", "--base", "HEAD"]);
 
     assert!(!output.status.success());
