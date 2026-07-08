@@ -63,6 +63,25 @@ pub enum RevisionSource {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pathspecs: Vec<String>,
     },
+    /// Staged source selector: lowers to a commit/tree base endpoint and a
+    /// captured index-tree target endpoint.
+    GitStaged {
+        mode: StagedCaptureMode,
+        /// Capture-time git pathspec scope; empty means the whole repository.
+        /// Ordering and normalization are owned by the capture workflow.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pathspecs: Vec<String>,
+    },
+    /// Unstaged source selector: lowers to a captured index-tree base endpoint
+    /// and the current working tree target endpoint.
+    GitUnstaged {
+        mode: UnstagedCaptureMode,
+        include_untracked: bool,
+        /// Capture-time git pathspec scope; empty means the whole repository.
+        /// Ordering and normalization are owned by the capture workflow.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pathspecs: Vec<String>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -84,6 +103,18 @@ pub enum CommitRangeCaptureMode {
 #[serde(rename_all = "snake_case")]
 pub enum RootCommitCaptureMode {
     EmptyTreeToTargetTree,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StagedCaptureMode {
+    BaseTreeToIndexTree,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UnstagedCaptureMode {
+    IndexTreeToWorkingTree,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -206,6 +237,28 @@ mod tests {
         assert_eq!(json["kind"], "git_root_commit");
         assert_eq!(json["mode"], "empty_tree_to_target_tree");
         assert!(json.get("pathspecs").is_none());
+    }
+
+    #[test]
+    fn staged_and_unstaged_sources_serialize_with_stable_shape() {
+        let staged = serde_json::to_value(RevisionSource::GitStaged {
+            mode: StagedCaptureMode::BaseTreeToIndexTree,
+            pathspecs: Vec::new(),
+        })
+        .unwrap();
+        let unstaged = serde_json::to_value(RevisionSource::GitUnstaged {
+            mode: UnstagedCaptureMode::IndexTreeToWorkingTree,
+            include_untracked: false,
+            pathspecs: Vec::new(),
+        })
+        .unwrap();
+
+        assert_eq!(staged["kind"], "git_staged");
+        assert_eq!(staged["mode"], "base_tree_to_index_tree");
+        assert!(staged.get("includeUntracked").is_none());
+        assert_eq!(unstaged["kind"], "git_unstaged");
+        assert_eq!(unstaged["mode"], "index_tree_to_working_tree");
+        assert_eq!(unstaged["includeUntracked"], false);
     }
 
     #[test]

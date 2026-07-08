@@ -126,6 +126,7 @@ fn binary_file_renders_collapsed_by_default() {
     repo.write("README.md", "base\n");
     repo.commit_all("base");
     std::fs::write(repo.path().join("logo.png"), [0u8, 1, 2, 0, 255, 0, 13]).unwrap();
+    repo.git(["add", "logo.png"]);
     support::inspect::capture(repo.path());
 
     let insp = Inspector::spawn(repo.path());

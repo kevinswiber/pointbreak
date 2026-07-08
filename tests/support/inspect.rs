@@ -295,7 +295,7 @@ fn drained(stderr: &Arc<Mutex<String>>) -> String {
 
 /// Run `shore capture` against a repo, returning the captured Revision id.
 pub fn capture(repo: &Path) -> String {
-    let output = shore(["capture", "--repo", repo.to_str().unwrap()]);
+    let output = shore(["capture", "--repo", repo.to_str().unwrap(), "--allow-empty"]);
     assert!(
         output.status.success(),
         "capture stderr:\n{}",
@@ -496,6 +496,8 @@ pub fn capture_supersession_round(repo: &Path, predecessor: Option<&str>) -> Str
         std::fs::write(&target, contents).expect("write successor content");
         args.push("--supersedes".to_owned());
         args.push(predecessor.to_owned());
+    } else {
+        args.push("--allow-empty".to_owned());
     }
 
     let output = shore(args);

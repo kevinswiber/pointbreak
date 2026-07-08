@@ -58,7 +58,7 @@
       "snapshotContentHash": "sha256:32161336d3627d277a7a5917abe2e2694edec4f3621dbf939bf22091b40e0871",
       "snapshotId": "obj:sha256:38a493d2f09d6fde9d1dcac61a12c4ccc4de42a0b9c6829752d34cc648a9f9d7",
       "source": {
-        "includeUntracked": true,
+        "includeUntracked": false,
         "kind": "git_worktree",
         "mode": "combined_head_to_working_tree"
       },

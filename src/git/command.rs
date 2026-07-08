@@ -375,6 +375,20 @@ pub fn git_head_oid(repo: &Path) -> Result<String> {
     git_stdout_string(repo, &output.stdout, "HEAD oid")
 }
 
+pub(crate) fn git_head_commit_oid_optional(repo: &Path) -> Result<Option<String>> {
+    let (code, stdout) = run_git_status(
+        repo,
+        ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
+        &[0, 1],
+    )?;
+    if code == 0 {
+        git_stdout_string(repo, &stdout, "HEAD oid").map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
+#[cfg(test)]
 pub fn git_head_tree_oid(repo: &Path) -> Result<String> {
     let output = run_git(repo, ["rev-parse", "HEAD^{tree}"])?;
     git_stdout_string(repo, &output.stdout, "HEAD tree oid")
@@ -403,6 +417,17 @@ pub(crate) fn git_commit_tree_oid(repo: &Path, commit_oid: &str) -> Result<Strin
 pub(crate) fn git_empty_tree_oid(repo: &Path) -> Result<String> {
     let output = run_git_with_stdin(repo, ["hash-object", "-t", "tree", "--stdin"], b"", &[0])?;
     git_stdout_string(repo, &output.stdout, "empty tree oid")
+}
+
+pub(crate) fn git_write_index_tree_oid(repo: &Path) -> Result<String> {
+    let output = run_git(repo, ["write-tree"]).map_err(|error| match error {
+        ShoreError::GitCommand { stderr, .. } => ShoreError::Message(format!(
+            "cannot capture the index as a tree; resolve unmerged paths first: {}",
+            stderr.trim()
+        )),
+        other => other,
+    })?;
+    git_stdout_string(repo, &output.stdout, "index tree oid")
 }
 
 /// List the full commit OIDs reachable in a `<a>..<b>` revision range via

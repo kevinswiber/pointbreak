@@ -365,7 +365,7 @@ mod tests {
         let repo = TestRepo::new();
         repo.write("README.md", "base\n");
         repo.commit_all("base");
-        capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        capture_worktree_review(CaptureOptions::new(repo.path()).with_allow_empty()).unwrap();
 
         let home = tempfile::tempdir().unwrap();
         // The scoped, single-threaded SHORE_HOME seam (nextest's process-per-test

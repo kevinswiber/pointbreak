@@ -10,15 +10,20 @@ use crate::git::raw::{RawFile, parse_raw};
 use crate::model::{DiffFile, DiffSnapshot, FileId, FileMetadataKind, FileMetadataRow, ReviewId};
 use crate::session::worktree_fingerprint_for_files;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct IngestOptions {
     helper_paths: Vec<PathBuf>,
     pathspecs: Vec<String>,
+    include_untracked: bool,
 }
 
 impl IngestOptions {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            helper_paths: Vec::new(),
+            pathspecs: Vec::new(),
+            include_untracked: true,
+        }
     }
 
     pub fn exclude_helper_path(mut self, path: impl AsRef<Path>) -> Self {
@@ -33,6 +38,17 @@ impl IngestOptions {
         self.pathspecs = pathspecs;
         self
     }
+
+    pub fn with_include_untracked(mut self, include_untracked: bool) -> Self {
+        self.include_untracked = include_untracked;
+        self
+    }
+}
+
+impl Default for IngestOptions {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 pub fn ingest_tracked_diff(repo: impl AsRef<Path>) -> Result<DiffSnapshot> {
@@ -45,7 +61,11 @@ pub fn ingest_tracked_diff_with_options(
 ) -> Result<DiffSnapshot> {
     let repo = repo.as_ref();
     let files = filter_helper_paths(
-        capture_worktree_diff_files_scoped(repo, &options.pathspecs)?,
+        capture_worktree_diff_files_scoped_with_untracked(
+            repo,
+            &options.pathspecs,
+            options.include_untracked,
+        )?,
         repo,
         &options.helper_paths,
     )?;
@@ -179,8 +199,30 @@ pub(crate) fn capture_worktree_diff_files_scoped(
     repo: &Path,
     pathspecs: &[String],
 ) -> Result<Vec<DiffFile>> {
+    capture_worktree_diff_files_scoped_with_untracked(repo, pathspecs, true)
+}
+
+pub(crate) fn capture_worktree_diff_files_from_base(
+    repo: &Path,
+    base_treeish: &str,
+    options: IngestOptions,
+) -> Result<Vec<DiffFile>> {
+    let mut files = diff_files_for_args(repo, &[base_treeish], &options.pathspecs)?;
+    if options.include_untracked {
+        files.extend(synthesize_untracked_files(repo, &options.pathspecs)?);
+    }
+    filter_helper_paths(files, repo, &options.helper_paths)
+}
+
+fn capture_worktree_diff_files_scoped_with_untracked(
+    repo: &Path,
+    pathspecs: &[String],
+    include_untracked: bool,
+) -> Result<Vec<DiffFile>> {
     let mut files = diff_files_for_args(repo, &["HEAD"], pathspecs)?;
-    files.extend(synthesize_untracked_files(repo, pathspecs)?);
+    if include_untracked {
+        files.extend(synthesize_untracked_files(repo, pathspecs)?);
+    }
     Ok(files)
 }
 
@@ -209,6 +251,33 @@ pub(crate) fn capture_root_commit_diff_files(
     pathspecs: &[String],
 ) -> Result<Vec<DiffFile>> {
     diff_files_for_treeish_pair(repo, empty_tree_oid, target_commit_oid, pathspecs)
+}
+
+/// Tree diff between a resolved base tree-ish and the captured index tree.
+/// Never reads the working tree and never synthesizes untracked rows.
+pub(crate) fn capture_staged_diff_files(
+    repo: &Path,
+    base_treeish: &str,
+    index_tree_oid: &str,
+    pathspecs: &[String],
+) -> Result<Vec<DiffFile>> {
+    diff_files_for_treeish_pair(repo, base_treeish, index_tree_oid, pathspecs)
+}
+
+/// Diff between the captured index tree and the working tree. By default this
+/// mirrors `git diff <index-tree>` and therefore excludes untracked files; the
+/// caller must opt in to synthesized untracked additions explicitly.
+pub(crate) fn capture_unstaged_diff_files(
+    repo: &Path,
+    index_tree_oid: &str,
+    include_untracked: bool,
+    options: IngestOptions,
+) -> Result<Vec<DiffFile>> {
+    let mut files = diff_files_for_args(repo, &[index_tree_oid], &options.pathspecs)?;
+    if include_untracked {
+        files.extend(synthesize_untracked_files(repo, &options.pathspecs)?);
+    }
+    filter_helper_paths(files, repo, &options.helper_paths)
 }
 
 fn synthesize_untracked_files(repo: &Path, pathspecs: &[String]) -> Result<Vec<DiffFile>> {

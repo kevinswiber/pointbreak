@@ -794,7 +794,7 @@ fn observation_add_rejects_unknown_file_target() {
 fn observation_add_with_explicit_revision_succeeds_when_current_is_ambiguous() {
     let repo = modified_repo();
     let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
-    repo.write("another.txt", "new untracked file\n");
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
     let second = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     assert_ne!(first["revision"]["id"], second["revision"]["id"]);
 
@@ -824,7 +824,7 @@ fn observation_add_with_explicit_revision_succeeds_when_current_is_ambiguous() {
 fn observation_add_errors_when_current_revision_is_ambiguous_without_explicit_id() {
     let repo = modified_repo();
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);
-    repo.write("another.txt", "new untracked file\n");
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
     let output = shore([

@@ -59,7 +59,15 @@ fn review_capture_is_idempotent_for_unchanged_diff() {
     let repo = modified_repo();
 
     let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
-    let second = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let second = parse_json(
+        &shore([
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--allow-empty",
+        ])
+        .stdout,
+    );
 
     assert_eq!(first["revision"]["id"], second["revision"]["id"]);
     assert_eq!(second["eventsCreated"], 0);
@@ -67,14 +75,80 @@ fn review_capture_is_idempotent_for_unchanged_diff() {
 }
 
 #[test]
-fn review_capture_changes_when_untracked_content_changes() {
+fn review_capture_rejects_empty_default_capture_without_allow_empty() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+
+    let output = shore(["capture", "--repo", repo.path().to_str().unwrap()]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("capture produced no changed files")
+            && stderr.contains("--allow-empty")
+            && stderr.contains("--include-untracked"),
+        "stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn review_capture_allow_empty_records_empty_snapshot() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+
+    let output = shore([
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--allow-empty",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    let artifact = pointbreak::session::read_object_artifact(
+        repo.path(),
+        &pointbreak::model::ObjectId::new(json["revision"]["objectId"].as_str().unwrap()),
+    )
+    .expect("object artifact for empty capture");
+    assert!(artifact.snapshot.files.is_empty());
+}
+
+#[test]
+fn review_capture_ignores_untracked_content_by_default() {
     let repo = modified_repo();
 
     let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     repo.write("untracked.txt", "new review content\n");
     let second = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
 
+    assert_eq!(first["revision"]["id"], second["revision"]["id"]);
+}
+
+#[test]
+fn review_capture_include_untracked_changes_when_untracked_content_changes() {
+    let repo = modified_repo();
+
+    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    repo.write("untracked.txt", "new review content\n");
+    let second = parse_json(
+        &shore([
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--include-untracked",
+        ])
+        .stdout,
+    );
+
     assert_ne!(first["revision"]["id"], second["revision"]["id"]);
+    let shown = show_revision_json(repo.path(), second["revision"]["id"].as_str().unwrap());
+    assert_eq!(shown["revision"]["source"]["includeUntracked"], true);
 }
 
 #[test]
@@ -310,10 +384,279 @@ fn cli_capture_root_rejects_base() {
 
     assert!(!output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("--root cannot be combined with --base"),
+        String::from_utf8_lossy(&output.stderr)
+            .contains("--base, --root, --staged, and --unstaged are mutually exclusive"),
         "stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn cli_capture_staged_ignores_unstaged_and_untracked_files() {
+    let repo = GitRepo::new();
+    repo.write("tracked.txt", "base\n");
+    repo.commit_all("base");
+    repo.write("staged.txt", "staged\n");
+    repo.git(["add", "staged.txt"]);
+    repo.write("tracked.txt", "unstaged\n");
+    repo.write("untracked.txt", "untracked\n");
+
+    let output = shore([
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--staged",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    let shown = show_revision_json(repo.path(), json["revision"]["id"].as_str().unwrap());
+    assert_eq!(shown["revision"]["source"]["kind"], "git_staged");
+    assert_eq!(json["revision"]["base"]["kind"], "git_commit");
+    assert_eq!(json["revision"]["target"]["kind"], "git_index");
+    let snapshot_id =
+        pointbreak::model::ObjectId::new(json["revision"]["objectId"].as_str().unwrap());
+    let artifact = pointbreak::session::read_object_artifact(repo.path(), &snapshot_id)
+        .expect("object artifact for staged capture");
+    let paths: Vec<&str> = artifact
+        .snapshot
+        .files
+        .iter()
+        .filter_map(|file| file.new_path.as_deref())
+        .collect();
+    assert_eq!(paths, vec!["staged.txt"]);
+}
+
+#[test]
+fn cli_capture_staged_in_unborn_repo_uses_empty_tree_base() {
+    let repo = GitRepo::new();
+    repo.write("README.md", "hello\n");
+    repo.git(["add", "README.md"]);
+
+    let output = shore([
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--staged",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    let shown = show_revision_json(repo.path(), json["revision"]["id"].as_str().unwrap());
+    assert_eq!(shown["revision"]["source"]["kind"], "git_staged");
+    assert_eq!(json["revision"]["base"]["kind"], "git_tree");
+    assert_eq!(json["revision"]["target"]["kind"], "git_index");
+    assert_eq!(json["diffstat"]["addedFiles"], 1);
+}
+
+#[test]
+fn cli_capture_unstaged_excludes_staged_and_untracked_by_default() {
+    let repo = GitRepo::new();
+    repo.write("tracked.txt", "base\n");
+    repo.commit_all("base");
+    repo.write("staged.txt", "staged\n");
+    repo.git(["add", "staged.txt"]);
+    repo.write("tracked.txt", "unstaged\n");
+    repo.write("untracked.txt", "untracked\n");
+
+    let output = shore([
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--unstaged",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    let shown = show_revision_json(repo.path(), json["revision"]["id"].as_str().unwrap());
+    assert_eq!(shown["revision"]["source"]["kind"], "git_unstaged");
+    assert_eq!(shown["revision"]["source"]["includeUntracked"], false);
+    assert_eq!(json["revision"]["base"]["kind"], "git_index");
+    assert_eq!(json["revision"]["target"]["kind"], "git_working_tree");
+    let snapshot_id =
+        pointbreak::model::ObjectId::new(json["revision"]["objectId"].as_str().unwrap());
+    let artifact = pointbreak::session::read_object_artifact(repo.path(), &snapshot_id)
+        .expect("object artifact for unstaged capture");
+    let paths: Vec<&str> = artifact
+        .snapshot
+        .files
+        .iter()
+        .filter_map(|file| file.new_path.as_deref())
+        .collect();
+    assert_eq!(paths, vec!["tracked.txt"]);
+}
+
+#[test]
+fn cli_capture_unstaged_include_untracked_does_not_mutate_the_index() {
+    let repo = GitRepo::new();
+    repo.write("tracked.txt", "base\n");
+    repo.commit_all("base");
+    repo.write("tracked.txt", "unstaged\n");
+    repo.write("untracked.txt", "untracked\n");
+
+    let output = shore([
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--unstaged",
+        "--include-untracked",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    let shown = show_revision_json(repo.path(), json["revision"]["id"].as_str().unwrap());
+    assert_eq!(shown["revision"]["source"]["kind"], "git_unstaged");
+    assert_eq!(shown["revision"]["source"]["includeUntracked"], true);
+    let snapshot_id =
+        pointbreak::model::ObjectId::new(json["revision"]["objectId"].as_str().unwrap());
+    let artifact = pointbreak::session::read_object_artifact(repo.path(), &snapshot_id)
+        .expect("object artifact for unstaged capture");
+    let paths: Vec<&str> = artifact
+        .snapshot
+        .files
+        .iter()
+        .filter_map(|file| file.new_path.as_deref())
+        .collect();
+    assert_eq!(paths, vec!["tracked.txt", "untracked.txt"]);
+
+    let status = repo.git(["status", "--porcelain=v2", "--untracked-files=all"]);
+    assert!(
+        status.stdout.contains("? untracked.txt"),
+        "untracked file should remain unstaged:\n{}",
+        status.stdout
+    );
+}
+
+#[test]
+fn cli_capture_unstaged_include_untracked_works_in_unborn_repo() {
+    let repo = GitRepo::new();
+    repo.write("README.md", "hello\n");
+
+    let output = shore([
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--unstaged",
+        "--include-untracked",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    let shown = show_revision_json(repo.path(), json["revision"]["id"].as_str().unwrap());
+    assert_eq!(shown["revision"]["source"]["kind"], "git_unstaged");
+    assert_eq!(json["revision"]["base"]["kind"], "git_index");
+    assert_eq!(json["revision"]["target"]["kind"], "git_working_tree");
+    assert_eq!(json["diffstat"]["addedFiles"], 1);
+}
+
+#[test]
+fn cli_capture_include_untracked_requires_unstaged() {
+    let repo = modified_repo();
+
+    let staged = shore([
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--staged",
+        "--include-untracked",
+    ]);
+    let root = shore([
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--root",
+        "--include-untracked",
+    ]);
+
+    for output in [staged, root] {
+        assert!(!output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("--include-untracked can only be used with worktree or unstaged capture"),
+            "stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn cli_capture_include_untracked_works_with_default_worktree_capture() {
+    let repo = modified_repo();
+    repo.write("untracked.txt", "untracked\n");
+
+    let output = shore([
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--include-untracked",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    let shown = show_revision_json(repo.path(), json["revision"]["id"].as_str().unwrap());
+    assert_eq!(shown["revision"]["source"]["kind"], "git_worktree");
+    assert_eq!(shown["revision"]["source"]["includeUntracked"], true);
+    let snapshot_id =
+        pointbreak::model::ObjectId::new(json["revision"]["objectId"].as_str().unwrap());
+    let artifact = pointbreak::session::read_object_artifact(repo.path(), &snapshot_id)
+        .expect("object artifact for untracked-inclusive worktree capture");
+    let paths: Vec<&str> = artifact
+        .snapshot
+        .files
+        .iter()
+        .filter_map(|file| file.new_path.as_deref())
+        .collect();
+    assert_eq!(paths, vec!["src/lib.rs", "untracked.txt"]);
+}
+
+#[test]
+fn cli_capture_include_untracked_works_in_unborn_repo_without_root() {
+    let repo = GitRepo::new();
+    repo.write("README.md", "hello\n");
+
+    let output = shore([
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--include-untracked",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    let shown = show_revision_json(repo.path(), json["revision"]["id"].as_str().unwrap());
+    assert_eq!(shown["revision"]["source"]["kind"], "git_worktree");
+    assert_eq!(shown["revision"]["source"]["includeUntracked"], true);
+    assert_eq!(json["revision"]["base"]["kind"], "git_tree");
+    assert_eq!(json["revision"]["target"]["kind"], "git_working_tree");
+    assert_eq!(json["diffstat"]["addedFiles"], 1);
 }
 
 #[test]
@@ -593,6 +936,7 @@ fn bounded_added_file_repo() -> GitRepo {
     repo.commit_all("base");
     let body = (1..=50).map(|n| format!("line {n}\n")).collect::<String>();
     repo.write("notes/added.txt", body);
+    repo.git(["add", "notes/added.txt"]);
     repo
 }
 
@@ -611,6 +955,19 @@ where
 
 fn parse_json(stdout: &[u8]) -> Value {
     serde_json::from_slice(stdout).expect("stdout is valid JSON")
+}
+
+fn show_revision_json(repo: &std::path::Path, revision_id: &str) -> Value {
+    parse_json(
+        &shore([
+            "revision",
+            "show",
+            revision_id,
+            "--repo",
+            repo.to_str().unwrap(),
+        ])
+        .stdout,
+    )
 }
 
 fn modified_repo() -> GitRepo {
@@ -744,7 +1101,7 @@ fn review_capture_with_path_matching_nothing_fails_with_a_pathspec_error() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("matched no changed files") && stderr.contains("docs"),
+        stderr.contains("produced no changed files") && stderr.contains("docs"),
         "stderr:\n{stderr}"
     );
 }

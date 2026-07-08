@@ -451,7 +451,9 @@ fn source_pathspecs(source: &RevisionSource) -> &[String] {
     match source {
         RevisionSource::GitWorktree { pathspecs, .. }
         | RevisionSource::GitCommitRange { pathspecs, .. }
-        | RevisionSource::GitRootCommit { pathspecs, .. } => pathspecs,
+        | RevisionSource::GitRootCommit { pathspecs, .. }
+        | RevisionSource::GitStaged { pathspecs, .. }
+        | RevisionSource::GitUnstaged { pathspecs, .. } => pathspecs,
     }
 }
 
@@ -1397,6 +1399,8 @@ mod tests {
                 RevisionSource::GitCommitRange { pathspecs, .. } => pathspecs.clone(),
                 RevisionSource::GitWorktree { pathspecs, .. } => pathspecs.clone(),
                 RevisionSource::GitRootCommit { pathspecs, .. } => pathspecs.clone(),
+                RevisionSource::GitStaged { pathspecs, .. } => pathspecs.clone(),
+                RevisionSource::GitUnstaged { pathspecs, .. } => pathspecs.clone(),
             })
             .collect();
         scopes.sort();

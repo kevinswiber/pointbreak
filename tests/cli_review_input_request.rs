@@ -786,7 +786,7 @@ fn input_request_respond_reason_inputs_are_mutually_exclusive() {
 fn input_request_open_requires_revision_when_current_is_ambiguous() {
     let repo = modified_repo();
     let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
-    repo.write("another.txt", "new untracked file\n");
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
     let second = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
     assert_ne!(first["revision"]["id"], second["revision"]["id"]);
 

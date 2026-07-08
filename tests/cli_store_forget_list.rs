@@ -14,9 +14,12 @@ fn linked_repo(home: &str) -> GitRepo {
     repo.commit_all("base");
     let repo_arg = repo.path().to_str().unwrap().to_owned();
     assert!(
-        shore_env(["capture", "--repo", &repo_arg], &[("SHORE_HOME", home)])
-            .status
-            .success()
+        shore_env(
+            ["capture", "--repo", &repo_arg, "--allow-empty"],
+            &[("SHORE_HOME", home)],
+        )
+        .status
+        .success()
     );
     assert!(
         shore_env(

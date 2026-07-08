@@ -277,7 +277,8 @@ fn capture_does_not_dirty_worktree_or_leak_storage_into_snapshot() {
         "worktree should start clean"
     );
 
-    capture_worktree_review(CaptureOptions::new(repo.path())).expect("capture succeeds");
+    capture_worktree_review(CaptureOptions::new(repo.path()).with_allow_empty())
+        .expect("capture succeeds");
 
     // A shared-store capture must never mutate the worktree it is capturing:
     // no generated .shore/.gitignore (the shared store lives inside .git/),

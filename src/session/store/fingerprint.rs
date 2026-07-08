@@ -4,11 +4,11 @@ use serde::Serialize;
 
 use crate::canonical_hash::sha256_json_hex;
 use crate::error::{Result, ShoreError};
-use crate::git::{capture_worktree_diff_files, git_head_oid, git_head_tree_oid, git_worktree_root};
+use crate::git::{capture_worktree_diff_files, git_head_oid, git_worktree_root};
 use crate::model::{
     CommitRangeCaptureMode, DiffFile, DiffRowKind, EngagementId, FileStatus, ObjectId,
-    ReviewEndpoint, RevisionId, RevisionSource, RootCommitCaptureMode, WorktreeCaptureMode,
-    id_prefix,
+    ReviewEndpoint, RevisionId, RevisionSource, RootCommitCaptureMode, StagedCaptureMode,
+    UnstagedCaptureMode, WorktreeCaptureMode, id_prefix,
 };
 use crate::session::event::GitProvenance;
 
@@ -74,6 +74,17 @@ pub(crate) struct ResolvedTreeEndpoint {
     pub tree_oid: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ResolvedIndexEndpoint {
+    pub tree_oid: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ResolvedStagedBaseEndpoint {
+    Commit(ResolvedCommitEndpoint),
+    Tree(ResolvedTreeEndpoint),
+}
+
 pub fn capture_worktree_fingerprint(repo: &Path) -> Result<WorktreeFingerprint> {
     let files = capture_worktree_diff_files(repo)?;
     worktree_fingerprint_for_files(repo, &files)
@@ -107,18 +118,26 @@ pub(crate) fn worktree_fingerprint_for_files(
 
 pub(crate) fn resolve_combined_worktree_endpoints(
     repo: &Path,
+    base: &ResolvedStagedBaseEndpoint,
+    include_untracked: bool,
     pathspecs: &[String],
 ) -> Result<ResolvedRevisionEndpoints> {
+    let base = match base {
+        ResolvedStagedBaseEndpoint::Commit(base) => ReviewEndpoint::GitCommit {
+            commit_oid: base.commit_oid.clone(),
+            tree_oid: base.tree_oid.clone(),
+        },
+        ResolvedStagedBaseEndpoint::Tree(base) => ReviewEndpoint::GitTree {
+            tree_oid: base.tree_oid.clone(),
+        },
+    };
     Ok(ResolvedRevisionEndpoints {
         source: RevisionSource::GitWorktree {
             mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
-            include_untracked: true,
+            include_untracked,
             pathspecs: pathspecs.to_vec(),
         },
-        base: ReviewEndpoint::GitCommit {
-            commit_oid: git_head_oid(repo)?,
-            tree_oid: git_head_tree_oid(repo)?,
-        },
+        base,
         target: ReviewEndpoint::GitWorkingTree {
             worktree_root: normalized_worktree_root(repo)?,
         },
@@ -172,12 +191,71 @@ pub(crate) fn resolve_root_commit_endpoints(
     }
 }
 
+pub(crate) fn resolve_staged_endpoints(
+    base: &ResolvedStagedBaseEndpoint,
+    target: &ResolvedIndexEndpoint,
+    pathspecs: &[String],
+) -> ResolvedRevisionEndpoints {
+    let base = match base {
+        ResolvedStagedBaseEndpoint::Commit(base) => ReviewEndpoint::GitCommit {
+            commit_oid: base.commit_oid.clone(),
+            tree_oid: base.tree_oid.clone(),
+        },
+        ResolvedStagedBaseEndpoint::Tree(base) => ReviewEndpoint::GitTree {
+            tree_oid: base.tree_oid.clone(),
+        },
+    };
+    ResolvedRevisionEndpoints {
+        source: RevisionSource::GitStaged {
+            mode: StagedCaptureMode::BaseTreeToIndexTree,
+            pathspecs: pathspecs.to_vec(),
+        },
+        base,
+        target: ReviewEndpoint::GitIndex {
+            tree_oid: target.tree_oid.clone(),
+        },
+    }
+}
+
+pub(crate) fn resolve_unstaged_endpoints(
+    repo: &Path,
+    base: &ResolvedIndexEndpoint,
+    include_untracked: bool,
+    pathspecs: &[String],
+) -> Result<ResolvedRevisionEndpoints> {
+    Ok(ResolvedRevisionEndpoints {
+        source: RevisionSource::GitUnstaged {
+            mode: UnstagedCaptureMode::IndexTreeToWorkingTree,
+            include_untracked,
+            pathspecs: pathspecs.to_vec(),
+        },
+        base: ReviewEndpoint::GitIndex {
+            tree_oid: base.tree_oid.clone(),
+        },
+        target: ReviewEndpoint::GitWorkingTree {
+            worktree_root: normalized_worktree_root(repo)?,
+        },
+    })
+}
+
+#[cfg(test)]
 pub(crate) fn revision_fingerprint_for_files(
     repo: &Path,
     files: &[DiffFile],
     pathspecs: &[String],
 ) -> Result<RevisionFingerprint> {
-    let endpoints = resolve_combined_worktree_endpoints(repo, pathspecs)?;
+    let base = resolve_head_or_empty_tree_base(repo)?;
+    worktree_revision_fingerprint_for_files(repo, &base, files, true, pathspecs)
+}
+
+pub(crate) fn worktree_revision_fingerprint_for_files(
+    repo: &Path,
+    base: &ResolvedStagedBaseEndpoint,
+    files: &[DiffFile],
+    include_untracked: bool,
+    pathspecs: &[String],
+) -> Result<RevisionFingerprint> {
+    let endpoints = resolve_combined_worktree_endpoints(repo, base, include_untracked, pathspecs)?;
     revision_fingerprint_from_parts(endpoints, files)
 }
 
@@ -207,6 +285,44 @@ pub(crate) fn root_commit_revision_fingerprint_for_files(
     let _ = repo;
     let endpoints = resolve_root_commit_endpoints(base, target, pathspecs);
     revision_fingerprint_from_parts(endpoints, files)
+}
+
+pub(crate) fn staged_revision_fingerprint_for_files(
+    repo: &Path,
+    base: &ResolvedStagedBaseEndpoint,
+    target: &ResolvedIndexEndpoint,
+    files: &[DiffFile],
+    pathspecs: &[String],
+) -> Result<RevisionFingerprint> {
+    let _ = repo;
+    let endpoints = resolve_staged_endpoints(base, target, pathspecs);
+    revision_fingerprint_from_parts(endpoints, files)
+}
+
+pub(crate) fn unstaged_revision_fingerprint_for_files(
+    repo: &Path,
+    base: &ResolvedIndexEndpoint,
+    include_untracked: bool,
+    files: &[DiffFile],
+    pathspecs: &[String],
+) -> Result<RevisionFingerprint> {
+    let endpoints = resolve_unstaged_endpoints(repo, base, include_untracked, pathspecs)?;
+    revision_fingerprint_from_parts(endpoints, files)
+}
+
+#[cfg(test)]
+fn resolve_head_or_empty_tree_base(repo: &Path) -> Result<ResolvedStagedBaseEndpoint> {
+    if let Some(commit_oid) = crate::git::git_head_commit_oid_optional(repo)? {
+        let tree_oid = crate::git::git_commit_tree_oid(repo, &commit_oid)?;
+        Ok(ResolvedStagedBaseEndpoint::Commit(ResolvedCommitEndpoint {
+            commit_oid,
+            tree_oid,
+        }))
+    } else {
+        Ok(ResolvedStagedBaseEndpoint::Tree(ResolvedTreeEndpoint {
+            tree_oid: crate::git::git_empty_tree_oid(repo)?,
+        }))
+    }
 }
 
 /// Shared identity tail for every source adapter. Mints the content-only object
@@ -613,8 +729,10 @@ mod tests {
     fn scoped_worktree_endpoints_record_the_pathspec_set_in_the_source() {
         let repo = modified_repo();
         let pathspecs = vec!["src".to_owned()];
+        let base = resolved_staged_base(repo.path());
 
-        let endpoints = resolve_combined_worktree_endpoints(repo.path(), &pathspecs).unwrap();
+        let endpoints =
+            resolve_combined_worktree_endpoints(repo.path(), &base, false, &pathspecs).unwrap();
 
         let RevisionSource::GitWorktree {
             pathspecs: recorded,
@@ -680,8 +798,10 @@ mod tests {
     #[test]
     fn combined_worktree_capture_resolves_head_commit_and_tree() {
         let repo = modified_repo();
+        let base = resolved_staged_base(repo.path());
 
-        let endpoints = resolve_combined_worktree_endpoints(repo.path(), &[]).unwrap();
+        let endpoints =
+            resolve_combined_worktree_endpoints(repo.path(), &base, false, &[]).unwrap();
 
         assert!(matches!(
             endpoints.source,
@@ -1001,6 +1121,10 @@ mod tests {
             commit_oid,
             tree_oid,
         }
+    }
+
+    fn resolved_staged_base(repo: &Path) -> ResolvedStagedBaseEndpoint {
+        ResolvedStagedBaseEndpoint::Commit(resolved_endpoint(repo, "HEAD"))
     }
 
     fn clone_repo(source: &TestRepo) -> TestRepo {

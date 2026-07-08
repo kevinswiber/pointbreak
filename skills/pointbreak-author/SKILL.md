@@ -25,31 +25,33 @@ work, you turn the handoff into self-grading and pollute the review surface the 
 8. Stop and tell the user the Pointbreak handoff record exists.
 ```
 
-Run this loop when you are about to say the task is complete, before committing any part of the
-current task, when the user says "done" or "hand off", or before switching to unrelated work. Capture
-once per coherent change, not once per edit.
+Run this loop when you are about to say the task is complete, when the user says "done" or
+"hand off", or before switching to unrelated work. It may run before or after committing; choose the
+capture source that covers the whole coherent change. Capture once per coherent change, not once per
+edit.
 
-## Capture first
+## Capture The Right Revision
 
-Capture before you commit when you can. Plain `shore capture` records the Git worktree diff
-from `HEAD` to the working tree, including untracked files, so an uncommitted change is captured
-whole.
+If the task is still uncommitted, plain `shore capture` records the Git worktree diff from `HEAD`
+to the working tree. Default worktree capture excludes untracked files to match `git diff HEAD`, so
+use `shore capture --include-untracked` when the intended change includes new files that are not
+staged.
 
-If the task is already committed and the working tree is clean, capture the landed range instead with
-`shore capture --base <rev>`. That captures the tree diff from `<rev>` to `--target` (default
-`HEAD`) without reading the working tree or untracked files. `--base` resolves any rev — a branch,
-tag, `HEAD~N`, or commit OID — so point it at the commit the task started from.
+If the task is committed, capture the landed range with `shore capture --base <rev>`. That captures
+the tree diff from `<rev>` to `--target` (default `HEAD`) without reading the working tree or
+untracked files. `--base` resolves any rev — a branch, tag, `HEAD~N`, or commit OID — so point it at
+the commit the task started from.
 
 ```bash
 git status --short
 
-# Preferred: the task is still uncommitted in the worktree.
+# Uncommitted task in the worktree.
 capture_file=$(mktemp)
 shore capture | tee "$capture_file" | jq .
 revision_id=$(jq -r '.revision.id' "$capture_file")
 rm "$capture_file"
 
-# Already committed (clean tree): capture the landed range from the task's starting commit.
+# Committed task: capture the landed range from the task's starting commit.
 capture_file=$(mktemp)
 shore capture --base <commit-before-task> | tee "$capture_file" | jq .
 revision_id=$(jq -r '.revision.id' "$capture_file")
@@ -62,9 +64,10 @@ capturable diff: do not `git reset --soft` back to the base just to fake a workt
 `--base` instead.
 
 If `git status --short` is empty and no commits belong to this task, there is nothing to hand off:
-tell the user there is no change for Pointbreak to capture. If you committed only part of the task and
-left the rest uncommitted, plain `shore capture` sees only the uncommitted remainder; capture
-the whole change with `--base` from the task's starting commit instead.
+tell the user there is no change for Pointbreak to capture. If you committed only part of the task
+and left the rest uncommitted, plain `shore capture` sees only the uncommitted remainder; capture
+the whole change with `--base` from the task's starting commit, or finish the remaining work before
+capturing.
 
 Use the captured revision ID for every write. If `jq` is unavailable, copy `revision.id` from the
 compact JSON output and use it in place of `$revision_id`.
@@ -240,8 +243,8 @@ I did not add an assessment; that is for the reviewer.
 ## Standing down
 
 After the capture, observations, validation evidence, any input requests, and readback are complete,
-stop. Do not keep editing or make a commit as part of this handoff; wait for the user's next
-instruction. Do not add an assessment from this authoring role.
+do not keep editing as part of the same handoff. Continue with commit, push, PR, or review-loop
+steps only when the user has asked for them. Do not add an assessment from this authoring role.
 
 If the user immediately asks for another implementation task, treat that as a new unit of work and
 capture a separate handoff when that task reaches its own end.

@@ -40,8 +40,8 @@ pub use association::{
     list_associations, withdraw_commit, withdraw_ref,
 };
 pub use capture::{
-    CaptureDiffstat, CaptureOptions, CaptureResult, CommitRangeSpec, RootCommitSpec,
-    capture_review, capture_worktree_review, diffstat_from_files,
+    CaptureDiffstat, CaptureOptions, CaptureResult, CommitRangeSpec, RootCommitSpec, StagedSpec,
+    UnstagedSpec, WorktreeSpec, capture_review, capture_worktree_review, diffstat_from_files,
 };
 pub use commit_range_liveness::{
     CommitGraphCondition, CommitLiveness, LivenessEnrichment, OrphanReason, enrich_liveness,

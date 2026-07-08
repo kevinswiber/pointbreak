@@ -17,14 +17,18 @@ recreating a worktree diff.
 
 ## The Capture Moment
 
-`shore capture` freezes the current Git worktree diff from `HEAD` to the working tree,
-including untracked files. That timing matters for the default capture: if the agent commits part of
-the task first, a later worktree capture only sees the remaining uncommitted diff. The preferred
-order is to finish the implementation, run the relevant checks, capture the revision while the full
-change is still in the worktree, record the handoff facts, then stop. If the change is already
-committed and the working tree is clean, capture the committed range instead with
-`shore capture --base <commit-before-the-change>` (target defaults to `HEAD`) — never rewrite
-history to manufacture a worktree diff.
+`shore capture` freezes the current Git worktree diff from `HEAD` to the working tree. Default
+capture excludes untracked files; pass `--include-untracked` when new files have not been staged and
+should be part of the handoff. Capture refuses to record a revision when the selected source has no
+changed files; use the error as a signal to check for missed untracked files, a staged/unstaged
+boundary mismatch, or an accidental clean tree before reaching for `--allow-empty`. That timing
+matters for the default capture: if the agent commits part of the task first, a later worktree
+capture only sees the remaining uncommitted diff. The preferred order is to finish the
+implementation, run the relevant checks, capture the revision while the full change is still in the
+worktree, record the handoff facts, then stop. If the change is already committed and the working
+tree is clean, capture the committed range instead with `shore capture --base
+<commit-before-the-change>` (target defaults to `HEAD`) — never rewrite history to manufacture a
+worktree diff.
 
 Humans set up the loop by making the expectation explicit: when the agent reaches the end of a task,
 it should run Pointbreak before declaring the task complete. Agents execute the loop from inside the

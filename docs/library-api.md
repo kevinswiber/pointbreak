@@ -54,8 +54,8 @@ Pointbreak does not introduce async traits or a runtime of its own.
 
 | Item | Purpose |
 | ---- | ------- |
-| `capture_review` + `CaptureOptions` | Canonical capture entry point; records a `WorkObjectProposed` event carrying a `WorkObjectProposedPayload` (the one generative move), and dispatches on the options' source spec (worktree by default, or a commit range via `CaptureOptions::with_commit_range`). The function name is unchanged. |
-| `CommitRangeSpec` | Commit-range capture input: a base rev and an optional target rev (default `HEAD`), resolved to commit endpoints at capture time. |
+| `capture_review` + `CaptureOptions` | Canonical capture entry point; records a `WorkObjectProposed` event carrying a `WorkObjectProposedPayload` (the one generative move), and dispatches on the options' source spec. Worktree capture is the default; callers can select commit-range, root-commit, staged, or unstaged capture with the matching builder. |
+| `WorktreeSpec`, `CommitRangeSpec`, `RootCommitSpec`, `StagedSpec`, `UnstagedSpec` | Capture source inputs. Worktree capture excludes untracked files unless `WorktreeSpec::with_include_untracked` is used; unstaged capture can also opt into untracked synthesis. |
 | `capture_worktree_review` + `CaptureOptions` | Worktree-source convenience entry point; delegates to `capture_review`. The function name is unchanged. |
 | `open_input_request` / `respond_input_request` (+ options/results) | Open and operatively respond to input requests. |
 | `record_observation` / `record_assessment` / `record_validation_check` (+ options/results) | Record observations, the review assessment, and advisory validation evidence. |

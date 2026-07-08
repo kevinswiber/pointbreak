@@ -198,13 +198,24 @@ from the snapshot wire (there is nothing to redact). Endpoint/target display liv
 ## `shore capture`
 
 ```bash
-shore capture [--repo <path>] [--base <rev> | --root] [--target <rev>] \
+shore capture [--repo <path>] [--base <rev> | --root | --staged | --unstaged] \
+  [--target <rev>] [--include-untracked] [--allow-empty] \
   [--path <pathspec>]... [--supersedes <revision-id>]...
 ```
 
 `shore capture` records the current V1 revision: the base endpoint, target endpoint, and
-captured diff snapshot. By default V1 captures the local Git worktree from `HEAD` to the working
-tree, including untracked files (source `git_worktree`).
+captured diff snapshot. By default V1 captures the local Git worktree from `HEAD` (or Git's empty
+tree before the first commit) to the working tree (source `git_worktree`). That default is a
+combined "what differs from the baseline" capture: it includes staged and unstaged tracked changes
+because both differ from `HEAD`. Like `git diff HEAD`, default capture excludes untracked files; add
+`--include-untracked` to synthesize untracked files as added files in the captured snapshot.
+In a newly initialized repository with no commits, default worktree capture uses Git's empty tree as
+the base endpoint and the working tree as the target. If the only files are still untracked, use
+`shore capture --include-untracked`.
+
+By default, a selected source that produces zero changed files is an error. The error suggests
+likely source flags such as `--include-untracked`, `--staged`, or `--unstaged` when they might
+explain the empty result. Use `--allow-empty` to intentionally record an empty revision.
 
 - With `--base <rev>`, capture instead records the committed range from `<rev>` to `--target`
   (default `HEAD`) as a `git_commit_range` source. Both revs are resolved with `git rev-parse` to
@@ -220,9 +231,29 @@ tree, including untracked files (source `git_worktree`).
   `git_root_commit` source. The base endpoint serializes as `git_tree`; the target endpoint
   serializes as `git_commit`. This is the supported way to review a repository's first commit, or
   any explicit target commit as "all files added", without creating orphan-branch workarounds.
-  `--root` cannot be combined with `--base`, and `--target` is accepted only with `--base` or
-  `--root`. Like `--base`, root capture reads only committed trees: the working tree, index,
-  untracked files, and command-helper paths do not affect the captured revision.
+  `--root` cannot be combined with `--base`, `--staged`, or `--unstaged`, and `--target` is
+  accepted only with `--base` or `--root`. Like `--base`, root capture reads only committed trees:
+  the working tree, index, untracked files, and command-helper paths do not affect the captured
+  revision.
+- With `--staged`, capture records staged changes only as a `git_staged` source. If `HEAD` exists,
+  the base endpoint is the current commit and the target endpoint is the captured Git index tree. If
+  the repository has no commits yet, the base endpoint is Git's empty tree and the target is still
+  the captured index tree. The working tree and untracked files are not read, so unstaged edits do
+  not affect the captured revision.
+- With `--unstaged`, capture records the captured index tree to the working tree as a
+  `git_unstaged` source. This mirrors `git diff` from the index by default: staged changes are in
+  the base endpoint and untracked files are excluded. Add `--include-untracked` to synthesize
+  untracked files as added files without staging or mutating them. In a repository with no commits,
+  `--unstaged --include-untracked` captures untracked working-tree files from the empty index tree
+  to the working tree.
+- `--include-untracked` is valid only with default worktree capture or `--unstaged`. It is rejected
+  with `--base`, `--root`, and `--staged` because those modes are tree/index captures rather than
+  worktree-plus-untracked captures. To capture a new repository's untracked initial files, use
+  `shore capture --include-untracked`, not `shore capture --root --include-untracked`.
+- `--allow-empty` is valid with every capture source. Without it, Pointbreak refuses to record a
+  revision whose selected source has no changed files. This keeps accidental empty captures from
+  hiding a missed `--include-untracked`, `--staged`, `--unstaged`, or pathspec typo while still
+  allowing an explicit empty revision when that is the intended review object.
 - Durable state lands in the shared common-dir store at `.git/shore` under the clone's Git common
   directory (the default for every worktree). An `ephemeral` worktree instead keeps its own
   discardable `.shore/data/` store. A legacy flat `.shore/` store from before the `.shore/data/`
@@ -254,23 +285,26 @@ tree, including untracked files (source `git_worktree`).
   head; when two captures supersede the same predecessor, the competing heads are surfaced rather than
   auto-collapsed.
 - With `--path <pathspec>` (repeatable), the capture is scoped to the given git pathspec(s): both
-  the tracked diff and untracked-file synthesis include only matching files. This composes with the
-  default worktree capture, with `--base`/`--target`, and with `--root`/`--target`. The syntax is
+  the tracked diff and any enabled untracked-file synthesis include only matching files. This
+  composes with the default worktree capture, with `--base`/`--target`, with `--root`/`--target`,
+  and with `--staged` or `--unstaged`. The syntax is
   native git pathspec — including magic such as `:(exclude)...` — executed by git itself, and
   pathspecs are interpreted relative to the repository root regardless of the invoking directory.
   The recorded set is
   order-independent (sorted, deduped, trailing slashes normalized on plain paths) and is part of
   the captured revision's identity: the same range captured under a different scope is a different
   revision, while identical captured content still shares one content object. A scope that matches
-  no changed files is an error — a scoped capture never records an empty revision. The scope is
-  visible in `shore revision show`, `shore revision list`, and `shore history` under
+  no changed files is an error unless `--allow-empty` is passed; with `--allow-empty`, the empty
+  revision still records the requested scope. The scope is visible in `shore revision show`,
+  `shore revision list`, and `shore history` under
   `source.pathspecs`; an unscoped capture carries no `pathspecs` key and its identity is unchanged
   from before the option existed. (This is deliberately git pathspec syntax, not the
   gitignore-style globs of `.shore/sensitivity.json` — capture scoping is executed by git, while
   the sensitivity exclude config is matched by Shore at scan time.)
-- `git_tree` and `git_index` are endpoint states in the recorded model. The only new user-facing
-  source selector here is `--root`; staged or index-specific capture flags are not part of this
-  surface.
+- `git_tree`, `git_index`, and `git_working_tree` are endpoint states in the recorded model. The
+  source selector decides which endpoint pair is captured: default worktree (`HEAD` or empty tree to
+  working tree), committed range (`commit` to `commit`), root (`empty tree` to `commit`), staged
+  (`commit` or empty tree to `index`), or unstaged (`index` to `working tree`).
 
 V1 storage is local and synchronous. The shared common-dir store may take concurrent writes from
 multiple worktrees of the same clone, kept safe by content-addressed writes and a regenerable

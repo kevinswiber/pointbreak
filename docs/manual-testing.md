@@ -16,10 +16,11 @@ caller would see them.
 - All commands below assume `shore` resolves to that binary. Set `SHORE=$(pwd)/target/release/shore`
   in your shell and substitute `"$SHORE"` if you do not want to install it on `PATH`.
 - Use a fresh temp directory per test so storage state does not bleed across cases. Default
-  `shore capture` shells out to `git diff … HEAD`, so the repo needs **at least one commit** before
-  default capture runs; otherwise the underlying git call fails with `fatal: bad revision 'HEAD'`.
-  Root capture is the exception: §B uses `shore capture --root` to review the first commit against
-  Git's empty tree. For default worktree capture, include a baseline commit in the setup:
+  `shore capture` captures `HEAD` to the working tree when `HEAD` exists, and Git's empty tree to
+  the working tree in a repository with no commits. It excludes untracked files unless
+  `--include-untracked` is passed. §B uses `shore capture --root` to review a committed first commit
+  against Git's empty tree. A capture with zero changed files fails unless `--allow-empty` is passed.
+  For ordinary default worktree capture, include a baseline commit in the setup:
 
   ```bash
   TMP=$(mktemp -d)
@@ -131,7 +132,8 @@ shore revision show --pretty | jq '[.rows[] | select(.kind == "file_header") | .
 
 ## C. Capture with untracked files
 
-**Goal.** Confirm that untracked files appear as `added` in the captured snapshot.
+**Goal.** Confirm that untracked files are excluded by default and appear as `added` only with
+`--include-untracked`.
 
 Run §C in its **own** fresh temp repo (re-run the setup baseline) so its capture is the only
 revision and the later sections' single-revision commands are unaffected:
@@ -139,15 +141,19 @@ revision and the later sections' single-revision commands are unaffected:
 ```bash
 # Fresh temp repo with only the baseline commit (see setup), then add one untracked file:
 echo "fresh content" > new-file.txt
-shore capture | jq .diffstat
+shore capture 2>&1 || true
+shore capture --include-untracked | jq .diffstat
 shore revision show --pretty | jq '[.rows[] | select(.kind == "file_header") | .filePath]'
 ```
 
 **Expect.**
 
-- `diffstat` reports `fileCount: 1`, `addedFiles: 1` (the untracked `new-file.txt`), and zero
-  modified, deleted, or renamed files.
-- One `file_header` row, for `new-file.txt` — the untracked file is captured as `added`.
+- The first command fails with `capture produced no changed files`, suggests `--include-untracked`,
+  and mentions `--allow-empty`; no empty revision is written.
+- The `--include-untracked` capture reports `fileCount: 1`, `addedFiles: 1` (the untracked
+  `new-file.txt`), and zero modified, deleted, or renamed files.
+- One `file_header` row, for `new-file.txt`, after the `--include-untracked` capture — the untracked
+  file is captured as `added`.
 - Nothing Pointbreak-owned appears in the snapshot or in `git status`: the default store lives inside
   `.git/`, so there is no `.shore/` directory and no store rows in the captured diff, and Pointbreak
   never edits the root `.gitignore` (`git status --short` shows only `?? new-file.txt`).

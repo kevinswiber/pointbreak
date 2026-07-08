@@ -73,6 +73,11 @@ the store's `events/` log, stores captured object artifacts under `artifacts/`, 
 the same store for every worktree of the clone — and an ephemeral worktree keeps a worktree-local
 `.shore/data/` store instead.
 
+Default capture matches `git diff HEAD` for untracked files: untracked files are ignored unless you
+opt in with `shore capture --include-untracked`. A capture whose selected source has no changed
+files fails with a suggestion instead of recording an accidental empty revision; pass
+`--allow-empty` only when an empty revision is intentional.
+
 Those files are local storage. Use command output as the integration surface instead of depending
 on internal file paths.
 

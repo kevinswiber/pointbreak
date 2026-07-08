@@ -99,7 +99,11 @@ fn store_migrate_retire_source_completes_in_one_command() {
             .status
             .success()
     );
-    assert!(shore(["capture", "--repo", &repo_arg]).status.success());
+    assert!(
+        shore(["capture", "--repo", &repo_arg, "--allow-empty"])
+            .status
+            .success()
+    );
     assert!(
         shore(["store", "mode", "shared", "--repo", &repo_arg])
             .status
@@ -154,7 +158,11 @@ fn store_migrate_excluded_fixture_paths_unblock_the_gate() {
             .status
             .success()
     );
-    assert!(shore(["capture", "--repo", &repo_arg]).status.success());
+    assert!(
+        shore(["capture", "--repo", &repo_arg, "--allow-empty"])
+            .status
+            .success()
+    );
     assert!(
         shore(["store", "mode", "shared", "--repo", &repo_arg])
             .status
@@ -184,7 +192,11 @@ fn store_migrate_block_refusal_names_the_targeted_exclude_alternative() {
             .status
             .success()
     );
-    assert!(shore(["capture", "--repo", &repo_arg]).status.success());
+    assert!(
+        shore(["capture", "--repo", &repo_arg, "--allow-empty"])
+            .status
+            .success()
+    );
     assert!(
         shore(["store", "mode", "shared", "--repo", &repo_arg])
             .status

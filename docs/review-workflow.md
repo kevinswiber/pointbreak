@@ -11,11 +11,12 @@ command and *why*. If the change was authored by a coding agent, start with
 Pointbreak reviews a **revision**: the base endpoint, the target endpoint, and a
 captured diff snapshot taken at a single moment. Capturing a revision is the one **generative move**
 in the workflow — proposing a captured work object for others to assert facts about — while "review"
-stays the surface verb. V1 captures one of two shapes:
-the local Git worktree from `HEAD` to the working tree, including untracked files
-(the default); or, with `shore capture --base <rev>`, the committed range
-between two resolved commits (`<rev>..--target`, target defaulting to `HEAD`),
-read as a tree diff with no working-tree involvement.
+stays the surface verb. V1 captures several Git-backed shapes: the local Git worktree from `HEAD` to
+the working tree (the default, excluding untracked files unless `--include-untracked` is passed); the
+committed range between two resolved commits with `shore capture --base <rev>`
+(`<rev>..--target`, target defaulting to `HEAD`), read as a tree diff with no working-tree
+involvement; or explicit index-boundary captures with `shore capture --staged` and
+`shore capture --unstaged`.
 
 Each revision binds an immutable **object artifact** by content hash. The artifact body is
 content-only, so two revisions capturing the same change in different worktrees share one
@@ -74,6 +75,7 @@ writes the hidden `.git/info/exclude` anymore.
 
 ```bash
 shore capture
+shore capture --include-untracked
 ```
 
 `shore capture` records a `work_object_proposed` event and writes the
@@ -92,6 +94,33 @@ supersession thread with `--revision <id>`.
 
 The snapshot is now frozen. Re-running `shore capture` later creates a
 new revision; it does not mutate the previous one.
+
+Default worktree capture is a combined `HEAD` to working-tree capture: staged
+and unstaged tracked changes are both included because both differ from `HEAD`.
+It follows `git diff HEAD` for untracked files, so untracked paths are ignored
+unless you opt in with `--include-untracked`. In a repository with no commits
+yet, `shore capture --include-untracked` captures untracked initial files from
+Git's empty tree to the working tree; `--root` is for capturing a committed
+target from the empty tree.
+
+If the selected source has no changed files, capture returns an error instead
+of recording an accidental empty revision. The message suggests relevant flags
+such as `--include-untracked`, `--staged`, or `--unstaged`. Pass
+`--allow-empty` only when an empty revision is the intended review object.
+
+When the index boundary matters, capture it explicitly:
+
+```bash
+shore capture --staged
+shore capture --unstaged
+shore capture --unstaged --include-untracked
+```
+
+`--staged` records the current commit (or Git's empty tree in a repository with
+no commits) to the captured index tree. `--unstaged` records the captured index
+tree to the working tree, matching plain `git diff`: staged changes are in the
+base endpoint, and untracked files are excluded unless `--include-untracked` is
+present.
 
 ### Capturing a committed range
 
@@ -131,8 +160,9 @@ shore capture --path packages/foo
 shore capture --base v1.2.0 --target HEAD --path docs/spec
 ```
 
-`--path` takes a native git pathspec, is repeatable, and scopes tracked and
-untracked files alike; a scope that matches no changed files is an error. See
+`--path` takes a native git pathspec, is repeatable, and scopes tracked files and
+any enabled untracked-file synthesis alike; a scope that matches no changed
+files is an error unless `--allow-empty` is passed. See
 [`shore capture`](./cli-reference.md#shore-capture) for the full
 semantics.
 

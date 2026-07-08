@@ -5,7 +5,8 @@ use clap::Args;
 use pointbreak::documents::capture_document;
 use pointbreak::model::{ReviewEndpoint, RevisionId};
 use pointbreak::session::{
-    CaptureOptions, CaptureResult, CommitRangeSpec, RootCommitSpec, capture_review,
+    CaptureOptions, CaptureResult, CommitRangeSpec, RootCommitSpec, StagedSpec, UnstagedSpec,
+    WorktreeSpec, capture_review,
 };
 
 use crate::cli::output;
@@ -26,6 +27,22 @@ pub(super) struct CaptureArgs {
     /// Capture the target commit against Git's empty tree.
     #[arg(long)]
     root: bool,
+
+    /// Capture staged changes only.
+    #[arg(long)]
+    staged: bool,
+
+    /// Capture unstaged tracked changes only.
+    #[arg(long)]
+    unstaged: bool,
+
+    /// Include untracked files with worktree or unstaged capture.
+    #[arg(long)]
+    include_untracked: bool,
+
+    /// Record a revision even when the selected source has no changed files.
+    #[arg(long)]
+    allow_empty: bool,
 
     /// Target rev (resolved to a commit). Defaults to HEAD with --base or --root.
     #[arg(long)]
@@ -65,11 +82,20 @@ pub(super) fn run(
     let span = tracing::info_span!("shore.review.capture");
     let _entered = span.enter();
     tracing::debug!(command = "review.capture", "command_start");
-    if args.root && args.base.is_some() {
-        return Err("--root cannot be combined with --base".into());
+    let explicit_sources = [args.base.is_some(), args.root, args.staged, args.unstaged]
+        .into_iter()
+        .filter(|selected| *selected)
+        .count();
+    if explicit_sources > 1 {
+        return Err("--base, --root, --staged, and --unstaged are mutually exclusive".into());
     }
     if args.target.is_some() && args.base.is_none() && !args.root {
         return Err("--target requires --base or --root".into());
+    }
+    if args.include_untracked && (args.base.is_some() || args.root || args.staged) {
+        return Err(
+            "--include-untracked can only be used with worktree or unstaged capture".into(),
+        );
     }
     let (options, skip) = capture_options(&args, tracing, stderr)?;
     let capture = capture_review(options)?;
@@ -165,8 +191,14 @@ fn capture_options(
     let mut options = CaptureOptions::new(&args.repo);
     if args.root {
         options = options.with_root_commit(root_commit_spec(args));
+    } else if args.staged {
+        options = options.with_staged(StagedSpec::new());
+    } else if args.unstaged {
+        options = options.with_unstaged(unstaged_spec(args));
     } else if let Some(range) = commit_range_spec(args) {
         options = options.with_commit_range(range);
+    } else if args.include_untracked {
+        options = options.with_worktree(WorktreeSpec::new().with_include_untracked());
     }
     if !args.supersedes.is_empty() {
         let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
@@ -178,6 +210,9 @@ fn capture_options(
     }
     if !args.paths.is_empty() {
         options = options.with_pathspecs(args.paths.clone());
+    }
+    if args.allow_empty {
+        options = options.with_allow_empty();
     }
     if let Some(log_file) = &tracing.log_file {
         options = options.with_excluded_helper_path(log_file);
@@ -211,4 +246,12 @@ fn root_commit_spec(args: &CaptureArgs) -> RootCommitSpec {
         root = root.with_target_rev(target.clone());
     }
     root
+}
+
+fn unstaged_spec(args: &CaptureArgs) -> UnstagedSpec {
+    let mut unstaged = UnstagedSpec::new();
+    if args.include_untracked {
+        unstaged = unstaged.with_include_untracked();
+    }
+    unstaged
 }

@@ -5,8 +5,9 @@ use crate::crypto::EventSigner;
 use crate::error::{Result, ShoreError};
 use crate::git::{
     IngestOptions, capture_commit_range_diff_files, capture_root_commit_diff_files,
-    git_commit_tree_oid, git_empty_tree_oid, git_head_oid, git_head_ref, git_rev_parse_commit_oid,
-    ingest_tracked_diff_with_options,
+    capture_staged_diff_files, capture_unstaged_diff_files, git_commit_tree_oid,
+    git_empty_tree_oid, git_head_commit_oid_optional, git_head_oid, git_head_ref,
+    git_rev_parse_commit_oid, git_write_index_tree_oid,
 };
 use crate::model::{
     ActorId, DiffFile, DiffRowKind, DiffSnapshot, EngagementId, EngagementType, FileStatus,
@@ -18,8 +19,8 @@ use crate::session::event::{
     subject_id, type_code,
 };
 use crate::session::fingerprint::{
-    ResolvedCommitEndpoint, ResolvedTreeEndpoint, RevisionFingerprint, engagement_id_from_root,
-    engagement_id_provisional,
+    ResolvedCommitEndpoint, ResolvedIndexEndpoint, ResolvedStagedBaseEndpoint,
+    ResolvedTreeEndpoint, RevisionFingerprint, engagement_id_from_root, engagement_id_provisional,
 };
 use crate::session::store::resolution::{prepare_write_landing, resolve_write_store};
 use crate::session::workflow::util::sorted_unique;
@@ -72,23 +73,75 @@ impl RootCommitSpec {
     }
 }
 
+/// Worktree capture input: diff `HEAD` against the working tree. Untracked
+/// files are excluded by default so the default selector mirrors
+/// `git diff HEAD`; callers can opt in explicitly for review-tool convenience.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct WorktreeSpec {
+    include_untracked: bool,
+}
+
+impl WorktreeSpec {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_include_untracked(mut self) -> Self {
+        self.include_untracked = true;
+        self
+    }
+}
+
+/// Staged capture input: diff a base commit/tree against the current index
+/// materialized as a tree.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct StagedSpec;
+
+impl StagedSpec {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+/// Unstaged capture input: diff the current index tree against the working
+/// tree, optionally synthesizing untracked additions.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct UnstagedSpec {
+    include_untracked: bool,
+}
+
+impl UnstagedSpec {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_include_untracked(mut self) -> Self {
+        self.include_untracked = true;
+        self
+    }
+}
+
 /// Which source adapter a capture lowers through. The default is the worktree
 /// (`HEAD` -> working tree) adapter; `CommitRange` is the first explicit
 /// non-worktree source (research 0004 carry-forward).
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum CaptureSourceSpec {
-    Worktree,
+    Worktree(WorktreeSpec),
     CommitRange(CommitRangeSpec),
     RootCommit(RootCommitSpec),
+    Staged(StagedSpec),
+    Unstaged(UnstagedSpec),
 }
 
 impl CaptureSourceSpec {
     /// Stable label for the capture tracing span.
     fn label(&self) -> &'static str {
         match self {
-            Self::Worktree => "worktree",
+            Self::Worktree(_) => "worktree",
             Self::CommitRange(_) => "commit_range",
             Self::RootCommit(_) => "root_commit",
+            Self::Staged(_) => "staged",
+            Self::Unstaged(_) => "unstaged",
         }
     }
 }
@@ -101,6 +154,7 @@ pub struct CaptureOptions {
     actor_id: Option<ActorId>,
     supersedes: Vec<RevisionId>,
     pathspecs: Vec<String>,
+    allow_empty: bool,
     signing: EventSigningOptions,
 }
 
@@ -108,11 +162,12 @@ impl CaptureOptions {
     pub fn new(repo: impl AsRef<Path>) -> Self {
         Self {
             repo: repo.as_ref().to_path_buf(),
-            source: CaptureSourceSpec::Worktree,
+            source: CaptureSourceSpec::Worktree(WorktreeSpec::new()),
             excluded_helper_paths: Vec::new(),
             actor_id: None,
             supersedes: Vec::new(),
             pathspecs: Vec::new(),
+            allow_empty: false,
             signing: EventSigningOptions::default(),
         }
     }
@@ -120,7 +175,7 @@ impl CaptureOptions {
     /// Capture the tree diff of a commit range instead of the `HEAD` ->
     /// working-tree diff. The working tree and untracked files are not read, and
     /// helper-path exclusion does not apply (a range capture is a faithful tree
-    /// diff). The default (no call) keeps today's worktree capture behavior.
+    /// diff). The default (no call) captures the worktree source.
     pub fn with_commit_range(mut self, range: CommitRangeSpec) -> Self {
         self.source = CaptureSourceSpec::CommitRange(range);
         self
@@ -131,6 +186,26 @@ impl CaptureOptions {
     /// read; the default target is `HEAD`.
     pub fn with_root_commit(mut self, root: RootCommitSpec) -> Self {
         self.source = CaptureSourceSpec::RootCommit(root);
+        self
+    }
+
+    /// Capture the default `HEAD` -> working-tree source with explicit options.
+    pub fn with_worktree(mut self, worktree: WorktreeSpec) -> Self {
+        self.source = CaptureSourceSpec::Worktree(worktree);
+        self
+    }
+
+    /// Capture staged content only, diffing the base commit (or the empty tree
+    /// in an unborn repository) against the current index tree.
+    pub fn with_staged(mut self, staged: StagedSpec) -> Self {
+        self.source = CaptureSourceSpec::Staged(staged);
+        self
+    }
+
+    /// Capture unstaged content only, diffing the current index tree against the
+    /// working tree. Untracked files are included only when the spec opts in.
+    pub fn with_unstaged(mut self, unstaged: UnstagedSpec) -> Self {
+        self.source = CaptureSourceSpec::Unstaged(unstaged);
         self
     }
 
@@ -164,6 +239,15 @@ impl CaptureOptions {
     /// error.
     pub fn with_pathspecs(mut self, pathspecs: Vec<String>) -> Self {
         self.pathspecs = pathspecs;
+        self
+    }
+
+    /// Allow recording a revision with an empty diff snapshot. By default,
+    /// capture rejects empty snapshots because they usually mean the selected
+    /// endpoint pair ignored the user's intended changes, such as untracked
+    /// files without `include_untracked`.
+    pub fn with_allow_empty(mut self) -> Self {
+        self.allow_empty = true;
         self
     }
 
@@ -287,8 +371,8 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
 
     let pathspecs = normalize_pathspecs(&options.pathspecs)?;
     let PreparedCapture { files, fingerprint } = match &options.source {
-        CaptureSourceSpec::Worktree => {
-            prepare_worktree_capture(&worktree_root, &options, &pathspecs)?
+        CaptureSourceSpec::Worktree(worktree) => {
+            prepare_worktree_capture(&worktree_root, &options, worktree, &pathspecs)?
         }
         CaptureSourceSpec::CommitRange(range) => {
             prepare_commit_range_capture(&worktree_root, range, &pathspecs)?
@@ -296,11 +380,17 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
         CaptureSourceSpec::RootCommit(root) => {
             prepare_root_commit_capture(&worktree_root, root, &pathspecs)?
         }
+        CaptureSourceSpec::Staged(staged) => {
+            prepare_staged_capture(&worktree_root, staged, &pathspecs)?
+        }
+        CaptureSourceSpec::Unstaged(unstaged) => {
+            prepare_unstaged_capture(&worktree_root, &options, unstaged, &pathspecs)?
+        }
     };
-    if !pathspecs.is_empty() && files.is_empty() {
-        return Err(crate::error::ShoreError::Message(format!(
-            "pathspec scope matched no changed files: {}",
-            pathspecs.join(", ")
+    if files.is_empty() && !options.allow_empty {
+        return Err(ShoreError::Message(empty_capture_message(
+            &options.source,
+            &pathspecs,
         )));
     }
     // Tally the diffstat from the files in hand, before they move into the
@@ -373,7 +463,9 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
     // checked-out branch is not its provenance. Detached HEAD names no ref, so the
     // helper skips it. Any failure degrades to a diagnostic and never blocks capture.
     let auto_record_ref = match &options.source {
-        CaptureSourceSpec::Worktree => true,
+        CaptureSourceSpec::Worktree(_)
+        | CaptureSourceSpec::Staged(_)
+        | CaptureSourceSpec::Unstaged(_) => git_head_oid(&worktree_root).is_ok(),
         CaptureSourceSpec::CommitRange(_) | CaptureSourceSpec::RootCommit(_) => matches!(
             &fingerprint.target,
             ReviewEndpoint::GitCommit { commit_oid, .. }
@@ -477,6 +569,7 @@ struct PreparedCapture {
 fn prepare_worktree_capture(
     worktree_root: &Path,
     options: &CaptureOptions,
+    worktree: &WorktreeSpec,
     pathspecs: &[String],
 ) -> Result<PreparedCapture> {
     // Auto-exclude Shore's own generated files (today just an untracked, byte-
@@ -488,14 +581,23 @@ fn prepare_worktree_capture(
     let ingest_options = crate::session::store::shore_generated_excluded_paths(worktree_root)?
         .into_iter()
         .fold(
-            capture_ingest_options(options).with_pathspecs(pathspecs.to_vec()),
+            capture_ingest_options(options)
+                .with_pathspecs(pathspecs.to_vec())
+                .with_include_untracked(worktree.include_untracked),
             |ingest_options, path| ingest_options.exclude_helper_path(path),
         );
-    let snapshot = ingest_tracked_diff_with_options(worktree_root, ingest_options)?;
-    let files = snapshot.files;
-    let fingerprint = crate::session::fingerprint::revision_fingerprint_for_files(
+    let base = resolve_head_or_empty_tree_base(worktree_root)?;
+    let base_treeish = staged_base_treeish(&base);
+    let files = crate::git::capture_worktree_diff_files_from_base(
         worktree_root,
+        &base_treeish,
+        ingest_options,
+    )?;
+    let fingerprint = crate::session::fingerprint::worktree_revision_fingerprint_for_files(
+        worktree_root,
+        &base,
         &files,
+        worktree.include_untracked,
         pathspecs,
     )?;
     Ok(PreparedCapture { files, fingerprint })
@@ -558,6 +660,59 @@ fn prepare_root_commit_capture(
     Ok(PreparedCapture { files, fingerprint })
 }
 
+/// Staged adapter: materialize the index as a tree, diff the base tree against
+/// it, and fingerprint the result as staged-only provenance. In an unborn
+/// repository there is no base commit, so the base endpoint is the empty tree.
+fn prepare_staged_capture(
+    worktree_root: &Path,
+    _staged: &StagedSpec,
+    pathspecs: &[String],
+) -> Result<PreparedCapture> {
+    let base = resolve_head_or_empty_tree_base(worktree_root)?;
+    let index = ResolvedIndexEndpoint {
+        tree_oid: git_write_index_tree_oid(worktree_root)?,
+    };
+    let base_treeish = staged_base_treeish(&base);
+    let files =
+        capture_staged_diff_files(worktree_root, &base_treeish, &index.tree_oid, pathspecs)?;
+    let fingerprint = crate::session::fingerprint::staged_revision_fingerprint_for_files(
+        worktree_root,
+        &base,
+        &index,
+        &files,
+        pathspecs,
+    )?;
+    Ok(PreparedCapture { files, fingerprint })
+}
+
+/// Unstaged adapter: materialize the index as a tree and diff it against the
+/// working tree. Untracked files are synthesized only on explicit opt-in.
+fn prepare_unstaged_capture(
+    worktree_root: &Path,
+    options: &CaptureOptions,
+    unstaged: &UnstagedSpec,
+    pathspecs: &[String],
+) -> Result<PreparedCapture> {
+    let index = ResolvedIndexEndpoint {
+        tree_oid: git_write_index_tree_oid(worktree_root)?,
+    };
+    let ingest_options = capture_ingest_options(options).with_pathspecs(pathspecs.to_vec());
+    let files = capture_unstaged_diff_files(
+        worktree_root,
+        &index.tree_oid,
+        unstaged.include_untracked,
+        ingest_options,
+    )?;
+    let fingerprint = crate::session::fingerprint::unstaged_revision_fingerprint_for_files(
+        worktree_root,
+        &index,
+        unstaged.include_untracked,
+        &files,
+        pathspecs,
+    )?;
+    Ok(PreparedCapture { files, fingerprint })
+}
+
 /// Resolve a user rev to a commit endpoint (commit OID + tree OID). The
 /// underlying git helper's error already names the rev and says "commit", so a
 /// failed `--base`/`--target` surfaces honestly to the CLI without coupling the
@@ -571,6 +726,27 @@ fn resolve_commit_endpoint(repo: &Path, rev: &str) -> Result<ResolvedCommitEndpo
     })
 }
 
+fn resolve_head_or_empty_tree_base(repo: &Path) -> Result<ResolvedStagedBaseEndpoint> {
+    if let Some(commit_oid) = git_head_commit_oid_optional(repo)? {
+        let tree_oid = git_commit_tree_oid(repo, &commit_oid)?;
+        Ok(ResolvedStagedBaseEndpoint::Commit(ResolvedCommitEndpoint {
+            commit_oid,
+            tree_oid,
+        }))
+    } else {
+        Ok(ResolvedStagedBaseEndpoint::Tree(ResolvedTreeEndpoint {
+            tree_oid: git_empty_tree_oid(repo)?,
+        }))
+    }
+}
+
+fn staged_base_treeish(base: &ResolvedStagedBaseEndpoint) -> String {
+    match base {
+        ResolvedStagedBaseEndpoint::Commit(base) => base.tree_oid.clone(),
+        ResolvedStagedBaseEndpoint::Tree(base) => base.tree_oid.clone(),
+    }
+}
+
 fn capture_ingest_options(options: &CaptureOptions) -> IngestOptions {
     options
         .excluded_helper_paths
@@ -578,6 +754,50 @@ fn capture_ingest_options(options: &CaptureOptions) -> IngestOptions {
         .fold(IngestOptions::new(), |options, path| {
             options.exclude_helper_path(path)
         })
+}
+
+fn empty_capture_message(source: &CaptureSourceSpec, pathspecs: &[String]) -> String {
+    let mut message = if pathspecs.is_empty() {
+        "capture produced no changed files".to_owned()
+    } else {
+        format!(
+            "capture produced no changed files for pathspec scope: {}",
+            pathspecs.join(", ")
+        )
+    };
+
+    match source {
+        CaptureSourceSpec::Worktree(worktree) if !worktree.include_untracked => {
+            message.push_str(
+                "; untracked files are ignored by default, so pass --include-untracked if you meant to capture them",
+            );
+        }
+        CaptureSourceSpec::Worktree(_) => {
+            message.push_str("; no tracked or untracked working-tree changes were found");
+        }
+        CaptureSourceSpec::CommitRange(_) => {
+            message.push_str("; choose a range whose endpoint trees differ");
+        }
+        CaptureSourceSpec::RootCommit(_) => {
+            message.push_str("; choose a target commit with content relative to Git's empty tree");
+        }
+        CaptureSourceSpec::Staged(_) => {
+            message.push_str(
+                "; if you meant to capture unstaged edits, use --unstaged or default capture; if you meant to capture untracked files, use default capture with --include-untracked",
+            );
+        }
+        CaptureSourceSpec::Unstaged(unstaged) if !unstaged.include_untracked => {
+            message.push_str(
+                "; if you meant to capture staged changes, use --staged; if you meant to capture untracked files, add --include-untracked",
+            );
+        }
+        CaptureSourceSpec::Unstaged(_) => {
+            message.push_str("; if you meant to capture staged changes, use --staged");
+        }
+    }
+
+    message.push_str("; pass --allow-empty to record an empty revision");
+    message
 }
 
 /// Canonicalize a capture pathspec set: reject empty entries, keep `:`-magic
@@ -708,9 +928,10 @@ mod tests {
     use crate::session::workflow::capture::diffstat_from_files;
     use crate::session::{
         ArtifactKind, CaptureOptions, CommitRangeSpec, EventStore, ImportArtifactOptions,
-        ImportArtifactOutcome, RevisionShowOptions, RootCommitSpec, ShoreStorePaths,
-        capture_review, capture_worktree_review, ensure_shore_gitignore, export_artifact,
-        import_artifact, read_object_artifact, referenced_artifacts, show_revision,
+        ImportArtifactOutcome, RevisionShowOptions, RootCommitSpec, ShoreStorePaths, StagedSpec,
+        UnstagedSpec, WorktreeSpec, capture_review, capture_worktree_review,
+        ensure_shore_gitignore, export_artifact, import_artifact, read_object_artifact,
+        referenced_artifacts, show_revision,
     };
 
     fn diff_row(kind: DiffRowKind) -> DiffRow {
@@ -795,7 +1016,11 @@ mod tests {
         let repo = modified_repo();
         ensure_shore_gitignore(repo.path()).unwrap();
 
-        let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let result = capture_worktree_review(
+            CaptureOptions::new(repo.path())
+                .with_worktree(WorktreeSpec::new().with_include_untracked()),
+        )
+        .unwrap();
         let artifact = read_object_artifact(repo.path(), &result.object_id).unwrap();
 
         let paths: Vec<&str> = artifact
@@ -854,7 +1079,11 @@ mod tests {
         )
         .unwrap();
 
-        let result = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+        let result = capture_worktree_review(
+            CaptureOptions::new(repo.path())
+                .with_worktree(WorktreeSpec::new().with_include_untracked()),
+        )
+        .unwrap();
         let artifact = read_object_artifact(repo.path(), &result.object_id).unwrap();
         let paths: Vec<&str> = artifact
             .snapshot
@@ -1057,11 +1286,134 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(error.to_string().contains("matched no changed files"));
+        let message = error.to_string();
+        assert!(
+            message.contains("capture produced no changed files"),
+            "message: {message}"
+        );
+        assert!(message.contains("docs"), "message: {message}");
+        assert!(message.contains("--allow-empty"), "message: {message}");
         let events = EventStore::open(resolved_store_dir(repo.path()))
             .list_events()
             .unwrap_or_default();
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn staged_capture_records_index_target_and_ignores_unstaged_state() {
+        let repo = TestRepo::new();
+        repo.write("tracked.txt", "base\n");
+        repo.commit_all("base");
+        repo.write("staged.txt", "staged\n");
+        repo.git(["add", "staged.txt"]);
+        repo.write("tracked.txt", "unstaged\n");
+        repo.write("untracked.txt", "untracked\n");
+
+        let result =
+            capture_review(CaptureOptions::new(repo.path()).with_staged(StagedSpec::new()))
+                .unwrap();
+        let artifact = read_object_artifact(repo.path(), &result.object_id).unwrap();
+        let paths: Vec<&str> = artifact
+            .snapshot
+            .files
+            .iter()
+            .filter_map(|file| file.new_path.as_deref())
+            .collect();
+
+        assert!(matches!(result.source, RevisionSource::GitStaged { .. }));
+        assert!(matches!(result.base, ReviewEndpoint::GitCommit { .. }));
+        assert!(matches!(result.target, ReviewEndpoint::GitIndex { .. }));
+        assert_eq!(paths, vec!["staged.txt"]);
+    }
+
+    #[test]
+    fn staged_capture_in_unborn_repo_uses_empty_tree_base() {
+        let repo = TestRepo::new();
+        repo.write("README.md", "hello\n");
+        repo.git(["add", "README.md"]);
+
+        let result =
+            capture_review(CaptureOptions::new(repo.path()).with_staged(StagedSpec::new()))
+                .unwrap();
+
+        assert!(matches!(result.source, RevisionSource::GitStaged { .. }));
+        assert!(matches!(result.base, ReviewEndpoint::GitTree { .. }));
+        assert!(matches!(result.target, ReviewEndpoint::GitIndex { .. }));
+        assert_eq!(result.diffstat.added_files, 1);
+    }
+
+    #[test]
+    fn unstaged_capture_records_index_base_and_excludes_untracked_by_default() {
+        let repo = TestRepo::new();
+        repo.write("tracked.txt", "base\n");
+        repo.commit_all("base");
+        repo.write("staged.txt", "staged\n");
+        repo.git(["add", "staged.txt"]);
+        repo.write("tracked.txt", "unstaged\n");
+        repo.write("untracked.txt", "untracked\n");
+
+        let result =
+            capture_review(CaptureOptions::new(repo.path()).with_unstaged(UnstagedSpec::new()))
+                .unwrap();
+        let artifact = read_object_artifact(repo.path(), &result.object_id).unwrap();
+        let paths: Vec<&str> = artifact
+            .snapshot
+            .files
+            .iter()
+            .filter_map(|file| file.new_path.as_deref())
+            .collect();
+
+        assert!(matches!(
+            result.source,
+            RevisionSource::GitUnstaged {
+                include_untracked: false,
+                ..
+            }
+        ));
+        assert!(matches!(result.base, ReviewEndpoint::GitIndex { .. }));
+        assert!(matches!(
+            result.target,
+            ReviewEndpoint::GitWorkingTree { .. }
+        ));
+        assert_eq!(paths, vec!["tracked.txt"]);
+    }
+
+    #[test]
+    fn unstaged_capture_include_untracked_synthesizes_untracked_additions() {
+        let repo = TestRepo::new();
+        repo.write("tracked.txt", "base\n");
+        repo.commit_all("base");
+        repo.write("tracked.txt", "unstaged\n");
+        repo.write("untracked.txt", "untracked\n");
+
+        let result = capture_review(
+            CaptureOptions::new(repo.path())
+                .with_unstaged(UnstagedSpec::new().with_include_untracked()),
+        )
+        .unwrap();
+        let artifact = read_object_artifact(repo.path(), &result.object_id).unwrap();
+        let paths: Vec<&str> = artifact
+            .snapshot
+            .files
+            .iter()
+            .filter_map(|file| file.new_path.as_deref())
+            .collect();
+
+        assert!(matches!(
+            result.source,
+            RevisionSource::GitUnstaged {
+                include_untracked: true,
+                ..
+            }
+        ));
+        assert_eq!(paths, vec!["tracked.txt", "untracked.txt"]);
+        assert!(
+            artifact
+                .snapshot
+                .files
+                .iter()
+                .any(|file| file.new_path.as_deref() == Some("untracked.txt") && file.synthetic)
+        );
     }
 
     #[test]
@@ -1172,10 +1524,11 @@ mod tests {
         .unwrap_err();
         let message = error.to_string();
         assert!(
-            message.contains("matched no changed files"),
+            message.contains("capture produced no changed files"),
             "message: {message}"
         );
         assert!(message.contains("docs"), "message: {message}");
+        assert!(message.contains("--allow-empty"), "message: {message}");
 
         // No event was written.
         let events = EventStore::open(resolved_store_dir(repo.path()))
@@ -1195,7 +1548,13 @@ mod tests {
                 .with_pathspecs(vec!["docs".to_owned()]),
         )
         .unwrap_err();
-        assert!(error.to_string().contains("matched no changed files"));
+        let message = error.to_string();
+        assert!(
+            message.contains("capture produced no changed files"),
+            "message: {message}"
+        );
+        assert!(message.contains("docs"), "message: {message}");
+        assert!(message.contains("--allow-empty"), "message: {message}");
     }
 
     #[test]
@@ -1692,14 +2051,18 @@ mod tests {
         let repo = committed_repo();
 
         let first = capture_review(
-            CaptureOptions::new(repo.path()).with_commit_range(CommitRangeSpec::new("HEAD")),
+            CaptureOptions::new(repo.path())
+                .with_commit_range(CommitRangeSpec::new("HEAD"))
+                .with_allow_empty(),
         )
         .unwrap();
         let artifact = read_object_artifact(repo.path(), &first.object_id).unwrap();
         assert!(artifact.snapshot.files.is_empty());
 
         let second = capture_review(
-            CaptureOptions::new(repo.path()).with_commit_range(CommitRangeSpec::new("HEAD")),
+            CaptureOptions::new(repo.path())
+                .with_commit_range(CommitRangeSpec::new("HEAD"))
+                .with_allow_empty(),
         )
         .unwrap();
         assert_eq!(first.revision_id, second.revision_id);
