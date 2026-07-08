@@ -97,7 +97,7 @@ pub fn discover_enrollment_candidates(repo: &Path) -> EnrollmentDiscovery {
     let mut discovery = EnrollmentDiscovery::default();
     let gpg_format = crate::git::git_config_get(&worktree_root, GPG_FORMAT_CONFIG);
     let user_signing_key = crate::git::git_config_get(&worktree_root, USER_SIGNING_KEY_CONFIG);
-    let _allowed_signers_file =
+    let allowed_signers_file =
         crate::git::git_config_get(&worktree_root, ALLOWED_SIGNERS_FILE_CONFIG);
 
     if !gpg_format
@@ -109,19 +109,20 @@ pub fn discover_enrollment_candidates(repo: &Path) -> EnrollmentDiscovery {
             "Git SSH signing is not configured; set gpg.format to ssh".to_owned(),
             Some(git_config_source(GPG_FORMAT_CONFIG)),
         ));
-        return discovery;
-    }
-
-    let Some(signing_key) = user_signing_key else {
+    } else if let Some(signing_key) = user_signing_key {
+        discover_user_signing_key(&worktree_root, &signing_key, &mut discovery);
+    } else {
         discovery.diagnostics.push(diagnostic(
             EnrollmentDiscoveryDiagnosticCode::GitUserSigningKeyMissing,
             "Git SSH signing is enabled, but user.signingKey is not configured".to_owned(),
             Some(git_config_source(USER_SIGNING_KEY_CONFIG)),
         ));
-        return discovery;
-    };
+    }
 
-    discover_user_signing_key(&worktree_root, &signing_key, &mut discovery);
+    if let Some(allowed_signers_file) = allowed_signers_file {
+        discover_allowed_signers_file(&worktree_root, &allowed_signers_file, &mut discovery);
+    }
+
     discovery
 }
 
@@ -193,6 +194,54 @@ fn discover_user_signing_key(
             ),
             Some(file_source(public_path, None)),
         )),
+    }
+}
+
+fn discover_allowed_signers_file(
+    worktree_root: &Path,
+    allowed_signers_file: &str,
+    discovery: &mut EnrollmentDiscovery,
+) {
+    let path = resolve_config_path(worktree_root, allowed_signers_file.trim());
+    let contents = match std::fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(error) => {
+            discovery.diagnostics.push(diagnostic(
+                EnrollmentDiscoveryDiagnosticCode::GitAllowedSignersFileUnreadable,
+                format!(
+                    "Git allowed signers file {} is not readable: {error}",
+                    path.display()
+                ),
+                Some(file_source(path, None)),
+            ));
+            return;
+        }
+    };
+
+    let parsed = super::ssh::parse_allowed_signers(&contents);
+    for candidate in parsed.candidates {
+        discovery.candidates.push(EnrollmentCandidate {
+            id: format!("git-allowed-signers-file:{}", candidate.line),
+            source: EnrollmentCandidateSource::GitAllowedSignersFile {
+                path: path.clone(),
+                line: candidate.line,
+            },
+            signer_id: candidate.signer_id,
+            key_argument: Some(candidate.key_argument),
+            suggested_name: None,
+            actor_hints: candidate.principal_hints,
+        });
+    }
+
+    for allowed_signers_diagnostic in parsed.diagnostics {
+        discovery.diagnostics.push(diagnostic(
+            allowed_signers_diagnostic.code,
+            allowed_signers_diagnostic.message,
+            Some(file_source(
+                path.clone(),
+                Some(allowed_signers_diagnostic.line),
+            )),
+        ));
     }
 }
 
@@ -283,6 +332,7 @@ mod tests {
             repo.git(["config", "commit.gpgsign", "false"]);
             repo.git(["config", "gpg.format", ""]);
             repo.git(["config", "user.signingKey", ""]);
+            repo.git(["config", "gpg.ssh.allowedSignersFile", ""]);
             repo
         }
 
@@ -452,6 +502,69 @@ mod tests {
         assert_diagnostic(
             &discovery,
             EnrollmentDiscoveryDiagnosticCode::GitSigningKeyPublicKeyMissing,
+        );
+    }
+
+    #[test]
+    fn discovers_candidates_from_git_allowed_signers_file() {
+        let repo = TestRepo::new();
+        let allowed_signers_path = repo.path().join("allowed_signers");
+        std::fs::write(
+            &allowed_signers_path,
+            format!("alice@example.com {SSH_ED25519_PUBKEY}\n"),
+        )
+        .unwrap();
+        repo.config("gpg.format", "ssh");
+        repo.config(
+            "gpg.ssh.allowedSignersFile",
+            allowed_signers_path.to_str().unwrap(),
+        );
+
+        let discovery = discover_enrollment_candidates(repo.path());
+
+        assert_eq!(discovery.candidates.len(), 1, "{discovery:#?}");
+        let candidate = &discovery.candidates[0];
+        assert_eq!(
+            candidate.source,
+            EnrollmentCandidateSource::GitAllowedSignersFile {
+                path: allowed_signers_path.clone(),
+                line: 1
+            }
+        );
+        assert_eq!(candidate.actor_hints, vec!["alice@example.com"]);
+        assert_eq!(
+            candidate.key_argument.as_deref(),
+            Some(git_literal().as_str())
+        );
+    }
+
+    #[test]
+    fn discovers_allowed_signers_file_without_gpg_format_ssh() {
+        let repo = TestRepo::new();
+        let allowed_signers_path = repo.path().join("allowed_signers");
+        std::fs::write(
+            &allowed_signers_path,
+            format!("alice@example.com {SSH_ED25519_PUBKEY}\n"),
+        )
+        .unwrap();
+        repo.config(
+            "gpg.ssh.allowedSignersFile",
+            allowed_signers_path.to_str().unwrap(),
+        );
+
+        let discovery = discover_enrollment_candidates(repo.path());
+
+        assert_eq!(discovery.candidates.len(), 1, "{discovery:#?}");
+        assert_eq!(
+            discovery.candidates[0].source,
+            EnrollmentCandidateSource::GitAllowedSignersFile {
+                path: allowed_signers_path,
+                line: 1
+            }
+        );
+        assert_diagnostic(
+            &discovery,
+            EnrollmentDiscoveryDiagnosticCode::GitSshSigningNotConfigured,
         );
     }
 
