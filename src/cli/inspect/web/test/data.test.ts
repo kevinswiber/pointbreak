@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import historyJson from "./fixtures/history.json";
+import revisionsJson from "./fixtures/revisions.json";
+import threadsJson from "./fixtures/threads.json";
 import { mountInspectorDom, resetDom } from "./support/dom";
 import {
   installFetchMock,
@@ -85,6 +87,23 @@ function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function deferredResponse(payload: unknown): {
+  promise: Promise<Response>;
+  resolve: () => void;
+} {
+  let resolve!: () => void;
+  const promise = new Promise<Response>((done) => {
+    resolve = () =>
+      done(
+        new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+  });
+  return { promise, resolve };
+}
+
 describe("load", () => {
   it("commits history, revisions, and objects to the store", async () => {
     await data.load();
@@ -160,6 +179,40 @@ describe("load", () => {
     store.commit({ filterText: "pinned" });
     await data.load();
     expect(store.getState().history?.queryKey).toContain("q=pinned");
+  });
+
+  it("commits the history page before revisions and threads finish loading", async () => {
+    const revisions = deferredResponse(revisionsJson);
+    const threads = deferredResponse(threadsJson);
+    const inner = globalThis.fetch;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      const path = new URL(url, "http://inspector.test").pathname;
+      if (path === "/api/revisions") return revisions.promise;
+      if (path === "/api/threads") return threads.promise;
+      return inner(input as RequestInfo, init);
+    }) as typeof fetch;
+    try {
+      const loading = data.load();
+      await flush();
+      expect(store.getState().history?.entries.length).toBe(8);
+      expect(store.getState().lastEventCount).toBe(HISTORY_EVENT_COUNT);
+      expect(store.getState().revisions).toBeNull();
+      expect(store.getState().threads).toBeNull();
+
+      revisions.resolve();
+      threads.resolve();
+      await loading;
+      expect(store.getState().revisions?.entries.length).toBe(1);
+      expect(store.getState().threads?.threads.length).toBe(1);
+    } finally {
+      globalThis.fetch = inner;
+    }
   });
 
   it("a poll reload re-fetches page 1 of the CURRENT query", async () => {

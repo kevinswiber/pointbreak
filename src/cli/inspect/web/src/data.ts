@@ -76,10 +76,10 @@ export function showError(message: string | null): void {
 }
 
 /**
- * Load page 1 of the history for the current query, plus the (still full)
- * revisions and threads documents, then commit them + the freshness baseline to
- * the store in one shot. Never calls render — the store subscriber repaints. A
- * load failure surfaces in `#error` rather than throwing.
+ * Load page 1 of the history for the current query, commit it with the freshness
+ * baseline as soon as it lands, then load the (still full) revisions and threads
+ * documents on a second commit. Never calls render — the store subscriber repaints.
+ * A load failure surfaces in `#error` rather than throwing.
  */
 export async function load(): Promise<void> {
   try {
@@ -93,17 +93,21 @@ export async function load(): Promise<void> {
     // marker exceeds the post-skip history count — from forcing a reload every tick.
     const freshness = (await fetchJSON("/api/freshness")) as FreshnessDoc;
     const params = historyQueryParams(getState());
-    const [historyRaw, revisionsRaw, threadsRaw] = await Promise.all([
-      fetchJSON(`/api/history?${params}`),
+    const historyRaw = await fetchJSON(`/api/history?${params}`);
+    showError(null);
+    commit({
+      history: { ...(historyRaw as HistoryDoc), queryKey: params },
+      lastEventCount: freshness.eventCount ?? null,
+    });
+
+    const [revisionsRaw, threadsRaw] = await Promise.all([
       fetchJSON("/api/revisions"),
       fetchJSON("/api/threads"),
     ]);
     showError(null);
     commit({
-      history: { ...(historyRaw as HistoryDoc), queryKey: params },
       revisions: revisionsRaw as RevisionsDoc,
       threads: threadsRaw as ThreadsDoc,
-      lastEventCount: freshness.eventCount ?? null,
     });
   } catch (err) {
     showError(err instanceof Error ? err.message : String(err));

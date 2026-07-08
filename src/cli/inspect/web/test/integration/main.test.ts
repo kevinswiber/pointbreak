@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import revisionsJson from "../fixtures/revisions.json";
+import threadsJson from "../fixtures/threads.json";
 import { mountInspectorDom, resetDom } from "../support/dom";
 import { installFetchMock, uninstallFetchMock } from "../support/fetch";
 
@@ -14,6 +16,27 @@ let main: Main;
 
 const REV =
   "rev:sha256:9a7626ca7cb2801721ed992402184460210477aadfd4f7228628b65ff11a6efd";
+
+function flush(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function deferredResponse(payload: unknown): {
+  promise: Promise<Response>;
+  resolve: () => void;
+} {
+  let resolve!: () => void;
+  const promise = new Promise<Response>((done) => {
+    resolve = () =>
+      done(
+        new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+  });
+  return { promise, resolve };
+}
 
 beforeEach(async () => {
   vi.resetModules();
@@ -49,6 +72,44 @@ describe("first paint + bootstrap tail", () => {
     expect(document.querySelector("#refresh")?.getAttribute("data-state")).toBe(
       "watching",
     );
+  });
+
+  it("paints the timeline before revisions and threads finish loading", async () => {
+    const revisions = deferredResponse(revisionsJson);
+    const threads = deferredResponse(threadsJson);
+    const inner = globalThis.fetch;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      const path = new URL(url, "http://inspector.test").pathname;
+      if (path === "/api/revisions") return revisions.promise;
+      if (path === "/api/threads") return threads.promise;
+      return inner(input as RequestInfo, init);
+    }) as typeof fetch;
+    try {
+      const boot = main.main();
+      await flush();
+      expect(document.querySelector("#master #timeline")).not.toBeNull();
+      expect(
+        (document.querySelectorAll("#master #timeline .event").length ?? 0) > 0,
+      ).toBe(true);
+      expect(document.querySelector("#stat-units")?.textContent).toBe(
+        "— units",
+      );
+
+      revisions.resolve();
+      threads.resolve();
+      await boot;
+      expect(document.querySelector("#stat-units")?.textContent).toBe(
+        "1 units",
+      );
+    } finally {
+      globalThis.fetch = inner;
+    }
   });
 });
 

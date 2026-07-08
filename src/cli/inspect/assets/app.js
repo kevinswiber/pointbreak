@@ -1127,17 +1127,20 @@
     try {
       const freshness = await fetchJSON("/api/freshness");
       const params = historyQueryParams(getState());
-      const [historyRaw, revisionsRaw, threadsRaw] = await Promise.all([
-        fetchJSON(`/api/history?${params}`),
+      const historyRaw = await fetchJSON(`/api/history?${params}`);
+      showError(null);
+      commit({
+        history: { ...historyRaw, queryKey: params },
+        lastEventCount: freshness.eventCount ?? null
+      });
+      const [revisionsRaw, threadsRaw] = await Promise.all([
         fetchJSON("/api/revisions"),
         fetchJSON("/api/threads")
       ]);
       showError(null);
       commit({
-        history: { ...historyRaw, queryKey: params },
         revisions: revisionsRaw,
-        threads: threadsRaw,
-        lastEventCount: freshness.eventCount ?? null
+        threads: threadsRaw
       });
     } catch (err) {
       showError(err instanceof Error ? err.message : String(err));
