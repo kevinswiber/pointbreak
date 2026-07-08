@@ -572,20 +572,12 @@ fn prepare_worktree_capture(
     worktree: &WorktreeSpec,
     pathspecs: &[String],
 ) -> Result<PreparedCapture> {
-    // Auto-exclude Shore's own generated files (today just an untracked, byte-
-    // identical `.shore/.gitignore`) through the provenance-free helper-path filter:
-    // the file is dropped from the inventory before fingerprinting and nothing is
-    // recorded in provenance, so its presence never forks the revision id. A
-    // user-edited or committed file is not returned, so it stays a visible reviewable
-    // change. Worktree-source only — a commit-range capture never lands here.
-    let ingest_options = crate::session::store::shore_generated_excluded_paths(worktree_root)?
-        .into_iter()
-        .fold(
-            capture_ingest_options(options)
-                .with_pathspecs(pathspecs.to_vec())
-                .with_include_untracked(worktree.include_untracked),
-            |ingest_options, path| ingest_options.exclude_helper_path(path),
-        );
+    let ingest_options = worktree_ingest_options(
+        options,
+        worktree_root,
+        pathspecs,
+        worktree.include_untracked,
+    )?;
     let base = resolve_head_or_empty_tree_base(worktree_root)?;
     let base_treeish = staged_base_treeish(&base);
     let files = crate::git::capture_worktree_diff_files_from_base(
@@ -696,7 +688,12 @@ fn prepare_unstaged_capture(
     let index = ResolvedIndexEndpoint {
         tree_oid: git_write_index_tree_oid(worktree_root)?,
     };
-    let ingest_options = capture_ingest_options(options).with_pathspecs(pathspecs.to_vec());
+    let ingest_options = worktree_ingest_options(
+        options,
+        worktree_root,
+        pathspecs,
+        unstaged.include_untracked,
+    )?;
     let files = capture_unstaged_diff_files(
         worktree_root,
         &index.tree_oid,
@@ -754,6 +751,29 @@ fn capture_ingest_options(options: &CaptureOptions) -> IngestOptions {
         .fold(IngestOptions::new(), |options, path| {
             options.exclude_helper_path(path)
         })
+}
+
+fn worktree_ingest_options(
+    options: &CaptureOptions,
+    worktree_root: &Path,
+    pathspecs: &[String],
+    include_untracked: bool,
+) -> Result<IngestOptions> {
+    // Auto-exclude Shore's own generated files (today just an untracked, byte-
+    // identical `.shore/.gitignore`) through the provenance-free helper-path filter:
+    // the file is dropped from the inventory before fingerprinting and nothing is
+    // recorded in provenance, so its presence never forks the revision id. A
+    // user-edited or committed file is not returned, so it stays a visible reviewable
+    // change. This applies to working-tree backed adapters; commit/range and staged
+    // captures never synthesize untracked rows.
+    crate::session::store::shore_generated_excluded_paths(worktree_root).map(|paths| {
+        paths.into_iter().fold(
+            capture_ingest_options(options)
+                .with_pathspecs(pathspecs.to_vec())
+                .with_include_untracked(include_untracked),
+            |ingest_options, path| ingest_options.exclude_helper_path(path),
+        )
+    })
 }
 
 fn empty_capture_message(source: &CaptureSourceSpec, pathspecs: &[String]) -> String {
@@ -1414,6 +1434,27 @@ mod tests {
                 .iter()
                 .any(|file| file.new_path.as_deref() == Some("untracked.txt") && file.synthetic)
         );
+    }
+
+    #[test]
+    fn unstaged_capture_include_untracked_excludes_generated_gitignore() {
+        let repo = modified_repo();
+        ensure_shore_gitignore(repo.path()).unwrap();
+
+        let result = capture_review(
+            CaptureOptions::new(repo.path())
+                .with_unstaged(UnstagedSpec::new().with_include_untracked()),
+        )
+        .unwrap();
+        let artifact = read_object_artifact(repo.path(), &result.object_id).unwrap();
+        let paths: Vec<&str> = artifact
+            .snapshot
+            .files
+            .iter()
+            .filter_map(|file| file.new_path.as_deref())
+            .collect();
+
+        assert_eq!(paths, vec!["src/lib.rs"]);
     }
 
     #[test]

@@ -544,6 +544,39 @@ fn cli_capture_unstaged_include_untracked_does_not_mutate_the_index() {
 }
 
 #[test]
+fn cli_capture_unstaged_include_untracked_excludes_generated_gitignore() {
+    let repo = modified_repo();
+    pointbreak::session::ensure_shore_gitignore(repo.path()).unwrap();
+
+    let output = shore([
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--unstaged",
+        "--include-untracked",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    let snapshot_id =
+        pointbreak::model::ObjectId::new(json["revision"]["objectId"].as_str().unwrap());
+    let artifact = pointbreak::session::read_object_artifact(repo.path(), &snapshot_id)
+        .expect("object artifact for unstaged capture");
+    let paths: Vec<&str> = artifact
+        .snapshot
+        .files
+        .iter()
+        .filter_map(|file| file.new_path.as_deref())
+        .collect();
+
+    assert_eq!(paths, vec!["src/lib.rs"]);
+}
+
+#[test]
 fn cli_capture_unstaged_include_untracked_works_in_unborn_repo() {
     let repo = GitRepo::new();
     repo.write("README.md", "hello\n");
