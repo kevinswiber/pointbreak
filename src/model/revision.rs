@@ -13,6 +13,14 @@ pub enum ReviewEndpoint {
         commit_oid: String,
         tree_oid: String,
     },
+    /// A resolved Git tree endpoint, independent of any commit object.
+    GitTree {
+        tree_oid: String,
+    },
+    /// A captured index tree endpoint for future staged/unstaged capture modes.
+    GitIndex {
+        tree_oid: String,
+    },
     GitWorkingTree {
         worktree_root: String,
     },
@@ -45,6 +53,16 @@ pub enum RevisionSource {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pathspecs: Vec<String>,
     },
+    /// Root commit source selector: lowers to a tree base endpoint and a
+    /// commit target endpoint so the empty-tree side does not masquerade as a
+    /// commit.
+    GitRootCommit {
+        mode: RootCommitCaptureMode,
+        /// Capture-time git pathspec scope; empty means the whole repository.
+        /// Ordering and normalization are owned by the capture workflow.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pathspecs: Vec<String>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -60,6 +78,12 @@ pub enum WorktreeCaptureMode {
 #[serde(rename_all = "snake_case")]
 pub enum CommitRangeCaptureMode {
     BaseTreeToTargetTree,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RootCommitCaptureMode {
+    EmptyTreeToTargetTree,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -152,6 +176,57 @@ mod tests {
 
         let round_tripped: RevisionSource = serde_json::from_value(json).unwrap();
         assert_eq!(round_tripped, source);
+    }
+
+    #[test]
+    fn tree_and_index_endpoints_serialize_with_stable_shape() {
+        let tree = serde_json::to_value(ReviewEndpoint::GitTree {
+            tree_oid: "tree-oid".to_owned(),
+        })
+        .unwrap();
+        let index = serde_json::to_value(ReviewEndpoint::GitIndex {
+            tree_oid: "index-tree".to_owned(),
+        })
+        .unwrap();
+
+        assert_eq!(tree["kind"], "git_tree");
+        assert_eq!(tree["treeOid"], "tree-oid");
+        assert_eq!(index["kind"], "git_index");
+        assert_eq!(index["treeOid"], "index-tree");
+    }
+
+    #[test]
+    fn root_commit_source_serializes_with_stable_shape() {
+        let source = RevisionSource::GitRootCommit {
+            mode: RootCommitCaptureMode::EmptyTreeToTargetTree,
+            pathspecs: Vec::new(),
+        };
+        let json = serde_json::to_value(&source).unwrap();
+
+        assert_eq!(json["kind"], "git_root_commit");
+        assert_eq!(json["mode"], "empty_tree_to_target_tree");
+        assert!(json.get("pathspecs").is_none());
+    }
+
+    #[test]
+    fn root_capture_serialization_uses_tree_base_and_commit_target() {
+        let json = serde_json::json!({
+            "source": RevisionSource::GitRootCommit {
+                mode: RootCommitCaptureMode::EmptyTreeToTargetTree,
+                pathspecs: Vec::new(),
+            },
+            "base": ReviewEndpoint::GitTree {
+                tree_oid: "empty-tree".to_owned(),
+            },
+            "target": ReviewEndpoint::GitCommit {
+                commit_oid: "target".to_owned(),
+                tree_oid: "target-tree".to_owned(),
+            },
+        });
+
+        assert_eq!(json["source"]["kind"], "git_root_commit");
+        assert_eq!(json["base"]["kind"], "git_tree");
+        assert_eq!(json["target"]["kind"], "git_commit");
     }
 
     #[test]

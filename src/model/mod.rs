@@ -29,7 +29,8 @@ pub use ids::{
 pub use review::DiffSnapshot;
 pub use review_note::Side;
 pub use revision::{
-    CommitRangeCaptureMode, ReviewEndpoint, ReviewTargetRef, RevisionSource, WorktreeCaptureMode,
+    CommitRangeCaptureMode, ReviewEndpoint, ReviewTargetRef, RevisionSource, RootCommitCaptureMode,
+    WorktreeCaptureMode,
 };
 pub use row::{DiffRow, DiffRowKind, FileMetadataKind, FileMetadataRow};
 pub use validation::{ValidationStatus, ValidationTarget, ValidationTrigger};

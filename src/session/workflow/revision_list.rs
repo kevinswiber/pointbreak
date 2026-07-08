@@ -450,7 +450,8 @@ fn connected_components(
 fn source_pathspecs(source: &RevisionSource) -> &[String] {
     match source {
         RevisionSource::GitWorktree { pathspecs, .. }
-        | RevisionSource::GitCommitRange { pathspecs, .. } => pathspecs,
+        | RevisionSource::GitCommitRange { pathspecs, .. }
+        | RevisionSource::GitRootCommit { pathspecs, .. } => pathspecs,
     }
 }
 
@@ -1346,6 +1347,7 @@ mod tests {
             .map(|entry| match &entry.source {
                 RevisionSource::GitCommitRange { pathspecs, .. } => pathspecs.clone(),
                 RevisionSource::GitWorktree { pathspecs, .. } => pathspecs.clone(),
+                RevisionSource::GitRootCommit { pathspecs, .. } => pathspecs.clone(),
             })
             .collect();
         scopes.sort();

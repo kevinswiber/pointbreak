@@ -7,7 +7,8 @@ use crate::error::{Result, ShoreError};
 use crate::git::{capture_worktree_diff_files, git_head_oid, git_head_tree_oid, git_worktree_root};
 use crate::model::{
     CommitRangeCaptureMode, DiffFile, DiffRowKind, EngagementId, FileStatus, ObjectId,
-    ReviewEndpoint, RevisionId, RevisionSource, WorktreeCaptureMode, id_prefix,
+    ReviewEndpoint, RevisionId, RevisionSource, RootCommitCaptureMode, WorktreeCaptureMode,
+    id_prefix,
 };
 use crate::session::event::GitProvenance;
 
@@ -63,6 +64,13 @@ pub(crate) struct ResolvedRevisionEndpoints {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedCommitEndpoint {
     pub commit_oid: String,
+    pub tree_oid: String,
+}
+
+/// A resolved tree endpoint for selectors whose base side is a tree object
+/// without a corresponding commit object, such as empty-tree root capture.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ResolvedTreeEndpoint {
     pub tree_oid: String,
 }
 
@@ -144,6 +152,26 @@ pub(crate) fn resolve_commit_range_endpoints(
     }
 }
 
+pub(crate) fn resolve_root_commit_endpoints(
+    base: &ResolvedTreeEndpoint,
+    target: &ResolvedCommitEndpoint,
+    pathspecs: &[String],
+) -> ResolvedRevisionEndpoints {
+    ResolvedRevisionEndpoints {
+        source: RevisionSource::GitRootCommit {
+            mode: RootCommitCaptureMode::EmptyTreeToTargetTree,
+            pathspecs: pathspecs.to_vec(),
+        },
+        base: ReviewEndpoint::GitTree {
+            tree_oid: base.tree_oid.clone(),
+        },
+        target: ReviewEndpoint::GitCommit {
+            commit_oid: target.commit_oid.clone(),
+            tree_oid: target.tree_oid.clone(),
+        },
+    }
+}
+
 pub(crate) fn revision_fingerprint_for_files(
     repo: &Path,
     files: &[DiffFile],
@@ -166,6 +194,18 @@ pub(crate) fn commit_range_revision_fingerprint_for_files(
 ) -> Result<RevisionFingerprint> {
     let _ = repo;
     let endpoints = resolve_commit_range_endpoints(base, target, pathspecs);
+    revision_fingerprint_from_parts(endpoints, files)
+}
+
+pub(crate) fn root_commit_revision_fingerprint_for_files(
+    repo: &Path,
+    base: &ResolvedTreeEndpoint,
+    target: &ResolvedCommitEndpoint,
+    files: &[DiffFile],
+    pathspecs: &[String],
+) -> Result<RevisionFingerprint> {
+    let _ = repo;
+    let endpoints = resolve_root_commit_endpoints(base, target, pathspecs);
     revision_fingerprint_from_parts(endpoints, files)
 }
 
@@ -780,6 +820,67 @@ mod tests {
         assert!(!target_commit.is_empty() && !target_tree.is_empty());
         assert_ne!(base_commit, target_commit);
         assert_ne!(base_tree, target_tree);
+    }
+
+    #[test]
+    fn root_commit_endpoints_record_tree_base_and_commit_target() {
+        let base = ResolvedTreeEndpoint {
+            tree_oid: "empty-tree".to_owned(),
+        };
+        let target = ResolvedCommitEndpoint {
+            commit_oid: "target".to_owned(),
+            tree_oid: "target-tree".to_owned(),
+        };
+
+        let endpoints = resolve_root_commit_endpoints(&base, &target, &[]);
+
+        assert!(matches!(
+            endpoints.source,
+            RevisionSource::GitRootCommit { .. }
+        ));
+        assert_eq!(
+            endpoints.base,
+            ReviewEndpoint::GitTree {
+                tree_oid: "empty-tree".to_owned()
+            }
+        );
+        assert_eq!(
+            endpoints.target,
+            ReviewEndpoint::GitCommit {
+                commit_oid: "target".to_owned(),
+                tree_oid: "target-tree".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn root_commit_revision_fingerprint_uses_tree_base_provenance() {
+        let repo = committed_repo();
+        let base = ResolvedTreeEndpoint {
+            tree_oid: "empty-tree".to_owned(),
+        };
+        let target = resolved_endpoint(repo.path(), "HEAD");
+        let files = clone_a_files();
+
+        let fingerprint =
+            root_commit_revision_fingerprint_for_files(repo.path(), &base, &target, &files, &[])
+                .unwrap();
+
+        assert_eq!(fingerprint.object_id, object_identity(&files));
+        assert!(matches!(
+            fingerprint.source,
+            RevisionSource::GitRootCommit { .. }
+        ));
+        assert_eq!(
+            fingerprint.base,
+            ReviewEndpoint::GitTree {
+                tree_oid: "empty-tree".to_owned()
+            }
+        );
+        assert!(matches!(
+            fingerprint.target,
+            ReviewEndpoint::GitCommit { .. }
+        ));
     }
 
     #[test]
