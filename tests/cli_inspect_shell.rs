@@ -70,6 +70,27 @@ fn served_topbar_uses_the_pointbreak_logo_mark() {
 }
 
 #[test]
+fn served_shell_exposes_the_pointbreak_favicon() {
+    let store = representative_store();
+    let inspector = Inspector::spawn(store.repo.path());
+    let html = inspector.get_text("/");
+    assert!(
+        html.contains(
+            r#"<link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any" />"#
+        ),
+        "the served shell should declare the SVG Pointbreak favicon"
+    );
+
+    let favicon = inspector.get_text("/favicon.svg");
+    assert!(
+        favicon.contains("prefers-color-scheme: dark")
+            && favicon.contains("#0369a1")
+            && favicon.contains("#38bdf8"),
+        "the served favicon should carry explicit light/dark Pointbreak colors"
+    );
+}
+
+#[test]
 fn served_css_has_a_narrow_viewport_shell_contract() {
     let css = served_app_css();
     assert!(
