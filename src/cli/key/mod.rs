@@ -2,12 +2,14 @@ use std::io::Write;
 
 use clap::{Args, Subcommand};
 
+mod discover;
 mod enroll;
 mod init;
 mod list;
 mod show;
 mod use_ssh;
 
+use discover::DiscoverArgs;
 use enroll::EnrollArgs;
 use init::InitArgs;
 use list::ListArgs;
@@ -28,6 +30,8 @@ enum KeyCommand {
     List(ListArgs),
     /// Print a key's did:key and/or raw public key.
     Show(ShowArgs),
+    /// Discover advisory Git/OpenSSH signing evidence; does not authorize keys.
+    Discover(DiscoverArgs),
     /// Adopt an existing SSH Ed25519 key as an agent-backed signer (sign via
     /// ssh-agent; no new key material). Parallel to `init`.
     UseSsh(UseSshArgs),
@@ -50,6 +54,10 @@ pub(super) fn run(args: KeyArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn s
         KeyCommand::Show(args) => {
             tracing::debug!(command = "key.show", "command_start");
             show::run(args, stdout)
+        }
+        KeyCommand::Discover(args) => {
+            tracing::debug!(command = "key.discover", "command_start");
+            discover::run(args, stdout)
         }
         KeyCommand::UseSsh(args) => {
             tracing::debug!(command = "key.use-ssh", "command_start");

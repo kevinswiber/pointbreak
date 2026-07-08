@@ -13,6 +13,21 @@ fn encode_pubkey(bytes: &[u8]) -> String {
     BASE64.encode(bytes)
 }
 
+fn ssh_ed25519_key_literal() -> String {
+    SSH_ED25519_PUBKEY
+        .split_whitespace()
+        .take(2)
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replacen("ssh-ed25519", "key::ssh-ed25519", 1)
+}
+
+fn mask_git_signing_config(repo: &support::git_repo::GitRepo) {
+    repo.git(["config", "gpg.format", ""]);
+    repo.git(["config", "user.signingKey", ""]);
+    repo.git(["config", "gpg.ssh.allowedSignersFile", ""]);
+}
+
 const EXPLICIT_SIGNER_DID: &str = "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd";
 
 #[test]
@@ -784,6 +799,202 @@ fn keys_show_rejects_path_traversal_name_even_when_target_exists() {
         !stderr.contains("panicked"),
         "clean error, not a panic: {stderr}"
     );
+}
+
+#[test]
+fn key_discover_reports_git_user_signing_key_candidate() {
+    let repo = support::git_repo::GitRepo::new();
+    mask_git_signing_config(&repo);
+    let literal = ssh_ed25519_key_literal();
+    repo.git(["config", "gpg.format", "ssh"]);
+    repo.git(["config", "user.signingKey", &literal]);
+
+    let out = shore_env(
+        [
+            "key",
+            "discover",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ],
+        &[],
+    );
+    assert!(
+        out.status.success(),
+        "discover stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(doc["schema"], "pointbreak.key-discover");
+    assert_eq!(doc["version"], 1);
+    let candidate = &doc["candidates"].as_array().unwrap()[0];
+    assert_eq!(candidate["source"]["kind"], "git_user_signing_key");
+    assert_eq!(
+        candidate["signerId"],
+        pointbreak::keys::parse_ssh_ed25519_public_key(&literal)
+            .unwrap()
+            .as_str()
+    );
+    let commands = serde_json::to_string(&candidate["commands"]).unwrap();
+    assert!(commands.contains("use-ssh"), "use-ssh command: {commands}");
+    assert!(commands.contains("enroll"), "enroll command: {commands}");
+}
+
+#[test]
+fn key_discover_reports_allowed_signers_candidate_with_key_literal_argument() {
+    let repo = support::git_repo::GitRepo::new();
+    mask_git_signing_config(&repo);
+    let allowed_signers_path = repo.path().join("allowed_signers");
+    std::fs::write(
+        &allowed_signers_path,
+        format!("alice@example.com {SSH_ED25519_PUBKEY}\n"),
+    )
+    .unwrap();
+    repo.git([
+        "config",
+        "gpg.ssh.allowedSignersFile",
+        allowed_signers_path.to_str().unwrap(),
+    ]);
+
+    let out = shore_env(
+        [
+            "key",
+            "discover",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ],
+        &[],
+    );
+    assert!(
+        out.status.success(),
+        "discover stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let candidate = &doc["candidates"].as_array().unwrap()[0];
+    assert_eq!(candidate["source"]["kind"], "git_allowed_signers_file");
+    assert_eq!(candidate["source"]["line"], 1);
+    assert_eq!(
+        candidate["actorHints"],
+        serde_json::json!(["alice@example.com"])
+    );
+    assert!(
+        candidate["keyArgument"]
+            .as_str()
+            .unwrap()
+            .starts_with("key::ssh-ed25519"),
+        "key argument is a key:: literal: {candidate:#}"
+    );
+}
+
+#[test]
+fn key_discover_is_read_only() {
+    let home = tempfile::tempdir().expect("create empty keystore home");
+    let repo = support::git_repo::GitRepo::new();
+    mask_git_signing_config(&repo);
+    let literal = ssh_ed25519_key_literal();
+    repo.git(["config", "gpg.format", "ssh"]);
+    repo.git(["config", "user.signingKey", &literal]);
+
+    let out = shore_env(
+        [
+            "key",
+            "discover",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ],
+        &[("SHORE_HOME", home.path().to_str().unwrap())],
+    );
+    assert!(
+        out.status.success(),
+        "discover stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    assert!(
+        !home.path().join("keys/default").exists(),
+        "discovery must not adopt a local key"
+    );
+    assert!(
+        !repo.path().join(".shore/allowed-signers.json").exists(),
+        "discovery must not stage Pointbreak trust"
+    );
+    let status = Command::new("git")
+        .args(["status", "--porcelain", "-uall"])
+        .current_dir(repo.path())
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "discovery must not write repo changes"
+    );
+}
+
+#[test]
+fn key_discover_reports_diagnostics_for_missing_pub_companion() {
+    let repo = support::git_repo::GitRepo::new();
+    mask_git_signing_config(&repo);
+    let private_path = repo.path().join("id_ed25519");
+    repo.git(["config", "gpg.format", "ssh"]);
+    repo.git(["config", "user.signingKey", private_path.to_str().unwrap()]);
+
+    let out = shore_env(
+        [
+            "key",
+            "discover",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ],
+        &[],
+    );
+    assert!(
+        out.status.success(),
+        "diagnostics are non-fatal:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(doc["candidates"].as_array().unwrap().is_empty());
+    let diagnostic = &doc["diagnostics"].as_array().unwrap()[0];
+    assert_eq!(diagnostic["code"], "git_signing_key_public_key_missing");
+    assert_eq!(
+        diagnostic["source"]["path"],
+        private_path
+            .with_file_name("id_ed25519.pub")
+            .to_str()
+            .unwrap()
+    );
+}
+
+#[test]
+fn key_discover_reports_non_repo_diagnostic() {
+    let dir = tempfile::tempdir().expect("create non-git directory");
+
+    let out = shore_env(
+        [
+            "key",
+            "discover",
+            "--repo",
+            dir.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ],
+        &[],
+    );
+    assert!(
+        out.status.success(),
+        "non-repo discovery exits zero:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(doc["candidates"].as_array().unwrap().is_empty());
+    assert_eq!(doc["diagnostics"][0]["code"], "git_repository_unavailable");
 }
 
 // A real `ssh-keygen -t ed25519`-produced public key (the same key Task 1.1's
