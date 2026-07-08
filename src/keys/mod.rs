@@ -1,8 +1,14 @@
+mod discovery;
 mod home;
 mod signer;
 mod ssh;
 mod store;
 
+pub use discovery::{
+    EnrollmentCandidate, EnrollmentCandidateSource, EnrollmentDiscovery,
+    EnrollmentDiscoveryDiagnostic, EnrollmentDiscoveryDiagnosticCode,
+    EnrollmentDiscoveryDiagnosticSource, discover_enrollment_candidates,
+};
 pub use signer::FileEd25519Signer;
 pub use ssh::{
     AgentUnavailable, SshAgentSigner, agent_has_key, parse_ssh_ed25519_public_key,
