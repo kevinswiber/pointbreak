@@ -3,7 +3,7 @@ use crate::documents::{DiagnosticDocument, EventWriteDocument, ValidationCheckVi
 use crate::model::{ValidationStatus, ValidationTarget};
 use crate::session::{DelegationMap, ValidationAddResult, ValidationListResult};
 
-/// Documented advisory body for `shore.review-validation-add`.
+/// Documented advisory body for `pointbreak.review-validation-add`.
 ///
 /// Validation evidence is reported for review context only; this document does
 /// not carry merge, gate, or acceptance authority.
@@ -20,7 +20,7 @@ pub struct ValidationAddBody {
     summary_content_hash: Option<String>,
 }
 
-/// Documented body for `shore.review-validation-list`.
+/// Documented body for `pointbreak.review-validation-list`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ValidationListBody {
@@ -39,12 +39,12 @@ struct ValidationListFiltersDocument {
     include_body: bool,
 }
 
-/// Build the `shore.review-validation-add` document from an add result.
+/// Build the `pointbreak.review-validation-add` document from an add result.
 pub fn validation_add_document(
     result: ValidationAddResult,
 ) -> EventWriteDocument<ValidationAddBody> {
     EventWriteDocument::new(
-        "shore.review-validation-add",
+        "pointbreak.review-validation-add",
         ValidationAddBody {
             revision_id: result.revision_id.as_str().to_owned(),
             validation_check_id: result.validation_check_id.as_str().to_owned(),
@@ -61,13 +61,13 @@ pub fn validation_add_document(
     )
 }
 
-/// Build the `shore.review-validation-list` document from a list result.
+/// Build the `pointbreak.review-validation-list` document from a list result.
 pub fn validation_list_document(
     result: ValidationListResult,
     delegation_map: Option<&DelegationMap>,
 ) -> DiagnosticDocument<ValidationListBody> {
     DiagnosticDocument::new(
-        "shore.review-validation-list",
+        "pointbreak.review-validation-list",
         ValidationListBody {
             revision_id: result.revision_id.as_str().to_owned(),
             filters: ValidationListFiltersDocument {

@@ -285,5 +285,5 @@
   "historyCount": 8,
   "matchCount": 8,
   "offset": 0,
-  "schema": "shore.inspect-history"
+  "schema": "pointbreak.inspect-history"
 }

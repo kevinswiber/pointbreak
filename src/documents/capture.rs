@@ -3,7 +3,7 @@ use crate::documents::EventWriteDocument;
 use crate::model::ReviewEndpoint;
 use crate::session::CaptureResult;
 
-/// Documented body for `shore.review-capture`.
+/// Documented body for `pointbreak.review-capture`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureBody {
@@ -39,10 +39,10 @@ struct CaptureRevisionDocument {
     object_artifact_content_hash: String,
 }
 
-/// Build the `shore.review-capture` document from a capture result.
+/// Build the `pointbreak.review-capture` document from a capture result.
 pub fn capture_document(result: CaptureResult) -> EventWriteDocument<CaptureBody> {
     EventWriteDocument::new(
-        "shore.review-capture",
+        "pointbreak.review-capture",
         CaptureBody {
             revision: CaptureRevisionDocument {
                 id: result.revision_id.as_str().to_owned(),

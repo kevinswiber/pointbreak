@@ -89,7 +89,7 @@ fn record_commit_writes_then_reports_existing_on_rerun() {
         String::from_utf8_lossy(&first.stderr)
     );
     let json = parse_json(&first.stdout);
-    assert_eq!(json["schema"], "shore.review-association-commit");
+    assert_eq!(json["schema"], "pointbreak.review-association-commit");
     assert_eq!(json["eventsCreated"], 1);
     assert_eq!(json["eventsCreatedByType"]["revision_commit_associated"], 1);
     let association_id = json["commitAssociationId"].as_str().unwrap();
@@ -165,7 +165,10 @@ fn withdraw_removes_from_current_list() {
         String::from_utf8_lossy(&withdraw.stderr)
     );
     let json = parse_json(&withdraw.stdout);
-    assert_eq!(json["schema"], "shore.review-association-commit-withdrawn");
+    assert_eq!(
+        json["schema"],
+        "pointbreak.review-association-commit-withdrawn"
+    );
     assert_eq!(json["commitAssociationId"], association_id);
 
     let current_after = parse_json(
@@ -213,7 +216,7 @@ fn record_ref_stores_full_ref_and_head() {
         String::from_utf8_lossy(&output.stderr)
     );
     let json = parse_json(&output.stdout);
-    assert_eq!(json["schema"], "shore.review-association-ref");
+    assert_eq!(json["schema"], "pointbreak.review-association-ref");
     assert_eq!(json["refName"], "refs/heads/feat/x");
     assert_eq!(json["headOid"], head_oid);
     assert!(
@@ -610,7 +613,7 @@ fn association_record_commit_emits_frozen_schema() {
         String::from_utf8_lossy(&output.stderr)
     );
     let json = parse_json(&output.stdout);
-    assert_eq!(json["schema"], "shore.review-association-commit");
+    assert_eq!(json["schema"], "pointbreak.review-association-commit");
     let id = json["commitAssociationId"].as_str().unwrap();
     assert!(id.starts_with("assoc-commit:"));
 }
@@ -726,7 +729,7 @@ fn association_withdraw_takes_a_positional_prefixed_id() {
     );
     assert_eq!(
         parse_json(&out.stdout)["schema"],
-        "shore.review-association-commit-withdrawn"
+        "pointbreak.review-association-commit-withdrawn"
     );
 }
 
@@ -794,7 +797,7 @@ fn association_withdraw_resolves_a_prefixed_short_id_and_rejects_bare_fragments(
     );
     assert_eq!(
         parse_json(&out.stdout)["schema"],
-        "shore.review-association-commit-withdrawn"
+        "pointbreak.review-association-commit-withdrawn"
     );
 }
 
@@ -830,7 +833,7 @@ fn association_documents_stay_per_axis() {
         ])
         .stdout,
     );
-    assert_eq!(commit["schema"], "shore.review-association-commit");
+    assert_eq!(commit["schema"], "pointbreak.review-association-commit");
     // record --ref → today's associate-ref document, unchanged.
     let ref_assoc = parse_json(
         &shore([
@@ -847,7 +850,7 @@ fn association_documents_stay_per_axis() {
         ])
         .stdout,
     );
-    assert_eq!(ref_assoc["schema"], "shore.review-association-ref");
+    assert_eq!(ref_assoc["schema"], "pointbreak.review-association-ref");
 
     // withdraw resolves the axis by prefix; each emits its own withdrawn document.
     let wc = parse_json(
@@ -862,7 +865,10 @@ fn association_documents_stay_per_axis() {
         ])
         .stdout,
     );
-    assert_eq!(wc["schema"], "shore.review-association-commit-withdrawn");
+    assert_eq!(
+        wc["schema"],
+        "pointbreak.review-association-commit-withdrawn"
+    );
     let wr = parse_json(
         &shore([
             "association",
@@ -875,7 +881,7 @@ fn association_documents_stay_per_axis() {
         ])
         .stdout,
     );
-    assert_eq!(wr["schema"], "shore.review-association-ref-withdrawn");
+    assert_eq!(wr["schema"], "pointbreak.review-association-ref-withdrawn");
 }
 
 #[test]

@@ -21,7 +21,7 @@ fn format_text_falls_back_to_indented_json_pre_digest() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     // Pre-digest fallback: indented JSON (multi-line), same schema tag visible.
     assert!(stdout.lines().count() > 1);
-    assert!(stdout.contains("shore.review-history"));
+    assert!(stdout.contains("pointbreak.review-history"));
 }
 
 #[test]

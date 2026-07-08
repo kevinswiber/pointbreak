@@ -31,7 +31,7 @@ fn observation_add_and_list_run_at_the_top_level() {
         String::from_utf8_lossy(&add.stderr)
     );
     let added = parse_json(&add.stdout);
-    assert_eq!(added["schema"], "shore.review-observation-add"); // INV-1
+    assert_eq!(added["schema"], "pointbreak.review-observation-add"); // INV-1
 
     let list = shore([
         "observation",
@@ -147,7 +147,7 @@ fn observation_add_records_review_wide_observation_and_emits_v1_json() {
         String::from_utf8_lossy(&output.stderr)
     );
     let json = parse_json(&output.stdout);
-    assert_eq!(json["schema"], "shore.review-observation-add");
+    assert_eq!(json["schema"], "pointbreak.review-observation-add");
     assert_eq!(json["version"], 1);
     assert_eq!(json["revisionId"], capture["revision"]["id"]);
     assert!(
@@ -355,7 +355,7 @@ fn observation_list_reads_recorded_observations() {
         String::from_utf8_lossy(&output.stderr)
     );
     let json = parse_json(&output.stdout);
-    assert_eq!(json["schema"], "shore.review-observation-list");
+    assert_eq!(json["schema"], "pointbreak.review-observation-list");
     assert_eq!(json["version"], 1);
     assert_eq!(json["observations"].as_array().unwrap().len(), 1);
     assert_eq!(json["observations"][0]["trackId"], "agent:codex");

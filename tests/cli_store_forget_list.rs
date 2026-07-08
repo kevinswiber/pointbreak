@@ -42,6 +42,7 @@ fn store_forget_without_yes_previews_and_refuses_to_delete() {
         String::from_utf8_lossy(&forget.stderr)
     );
     let json = parse_json(&forget.stdout);
+    assert_eq!(json["schema"], "pointbreak.store-forget");
     assert_eq!(json["dryRun"], true);
     assert_eq!(json["deleted"], false);
     assert!(
@@ -75,6 +76,7 @@ fn store_forget_yes_on_an_orphaned_family_deletes_it() {
         String::from_utf8_lossy(&forget.stderr)
     );
     let json = parse_json(&forget.stdout);
+    assert_eq!(json["schema"], "pointbreak.store-forget");
     assert_eq!(json["deleted"], true);
     assert!(!home.path().join("stores/acme").exists());
 }
@@ -92,6 +94,7 @@ fn store_list_shows_the_linked_family_without_repo() {
         String::from_utf8_lossy(&list.stderr)
     );
     let json = parse_json(&list.stdout);
+    assert_eq!(json["schema"], "pointbreak.store-list");
     let families = json["families"].as_array().unwrap();
     assert!(families.iter().any(|entry| entry["familyRef"] == "acme"));
 }
@@ -108,5 +111,6 @@ fn store_list_with_an_empty_home_prints_an_empty_result() {
         String::from_utf8_lossy(&list.stderr)
     );
     let json = parse_json(&list.stdout);
+    assert_eq!(json["schema"], "pointbreak.store-list");
     assert!(json["families"].as_array().unwrap().is_empty());
 }

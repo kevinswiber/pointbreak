@@ -31,7 +31,7 @@ fn assessment_add_and_show_run_at_the_top_level() {
         String::from_utf8_lossy(&add.stderr)
     );
     let added = parse_json(&add.stdout);
-    assert_eq!(added["schema"], "shore.review-assessment-add"); // INV-1
+    assert_eq!(added["schema"], "pointbreak.review-assessment-add"); // INV-1
 
     let show = shore([
         "assessment",
@@ -45,7 +45,7 @@ fn assessment_add_and_show_run_at_the_top_level() {
         String::from_utf8_lossy(&show.stderr)
     );
     let shown = parse_json(&show.stdout);
-    assert_eq!(shown["schema"], "shore.review-assessment-show");
+    assert_eq!(shown["schema"], "pointbreak.review-assessment-show");
 }
 
 #[test]
@@ -128,7 +128,7 @@ fn shore_review_assessment_add_emits_assessment_id_and_event() {
     );
     let output = parse_json(&add.stdout);
 
-    assert_eq!(output["schema"], "shore.review-assessment-add");
+    assert_eq!(output["schema"], "pointbreak.review-assessment-add");
     assert!(
         output["assessmentId"]
             .as_str()
@@ -159,7 +159,7 @@ fn shore_review_assessment_show_resolves_to_single_assessment() {
     );
     let output = parse_json(&show.stdout);
 
-    assert_eq!(output["schema"], "shore.review-assessment-show");
+    assert_eq!(output["schema"], "pointbreak.review-assessment-show");
     assert_eq!(output["current"]["status"], "resolved");
     assert_eq!(output["current"]["assessment"], "accepted");
     assert_eq!(

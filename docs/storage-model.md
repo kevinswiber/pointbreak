@@ -36,8 +36,8 @@ notes name `.shore/data` literally.
 
 These are the only authoritative durable storage in V1. Everything else is a cache or projection.
 
-**Rebuildable projections.** `state.json`, command-output views such as `shore.review-history` and
-`shore.review-revision`, and any future read indexes are derived from durable events and artifacts.
+**Rebuildable projections.** `state.json`, command-output views such as `pointbreak.review-history` and
+`pointbreak.review-revision`, and any future read indexes are derived from durable events and artifacts.
 They may be deleted and regenerated. Freshness against the current event set is verified through
 `eventSetHash`, not through the projection's existence or `eventCount` alone.
 
@@ -125,7 +125,7 @@ Revision capture follows the same authority split:
 - bounded `state.json` may summarize revision count and current unambiguous revision ID, but it
   is not the source of revision identity or snapshot content
 
-`shore capture` returns `shore.review-capture` JSON as the command-output contract. The
+`shore capture` returns `pointbreak.review-capture` JSON as the command-output contract. The
 command reports the revision and object IDs plus the object artifact content hash, without making
 object artifact paths a user-facing API.
 
@@ -323,7 +323,7 @@ type, `sigVersion`, or family-specific signing path. See
 
 Review history is the chronological read surface over durable events:
 
-- `shore history` returns `shore.review-history` JSON derived from a validated scan of the
+- `shore history` returns `pointbreak.review-history` JSON derived from a validated scan of the
   resolved store's `events/`
 - `eventSetHash` and `eventCount` describe the full event set read for the command, not only the
   returned entries after filters
@@ -342,7 +342,7 @@ are storage details, not history output API.
 
 `shore revision show` is the composite read surface for one captured revision:
 
-- `shore revision show` returns `shore.review-revision` JSON derived from a validated scan of the
+- `shore revision show` returns `pointbreak.review-revision` JSON derived from a validated scan of the
   resolved store's `events/` plus the bound immutable object artifact for the selected revision
 - `eventSetHash` and `eventCount` describe the full event set read for the command, not only the
   selected revision's returned narrative facts
@@ -356,7 +356,7 @@ are storage details, not history output API.
 - `--include-body` hydrates body-like text from inline payloads or `artifacts/notes/`, while the
   default output keeps large text omitted
 
-`shore.review-revision` is command-output API. Object artifacts, note body artifacts, event files,
+`pointbreak.review-revision` is command-output API. Object artifacts, note body artifacts, event files,
 event filenames, and `state.json` remain Pointbreak-owned storage details and are not exposed as stable
 paths.
 
@@ -671,7 +671,7 @@ should not mix the two rules — locate object artifacts by their `objectId` and
 artifacts by the relative path recorded in the referencing event.
 
 Artifact filenames remain Pointbreak-owned storage details. The consumer contract is the command-output
-JSON (`shore.review-capture`, `shore.review-revision`, and friends), which exposes semantic IDs and the
+JSON (`pointbreak.review-capture`, `pointbreak.review-revision`, and friends), which exposes semantic IDs and the
 object artifact's canonical `contentHash`. Filename derivation rules may change without a
 deprecation cycle, but artifacts are V1 authority alongside events — the event log alone cannot
 reconstruct snapshot rows or large note bodies. A future rule change must therefore rename or

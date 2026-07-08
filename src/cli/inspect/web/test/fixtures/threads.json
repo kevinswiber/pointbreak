@@ -9,7 +9,7 @@
       "supersedes": []
     }
   },
-  "schema": "shore.inspect-threads",
+  "schema": "pointbreak.inspect-threads",
   "supersededBy": {},
   "supersedes": {},
   "threadCount": 1,

@@ -157,7 +157,7 @@ fn store_link_dry_run_previews_without_writing() {
         String::from_utf8_lossy(&dry.stderr)
     );
     let json = parse_json(&dry.stdout);
-    assert_eq!(json["schema"], "shore.store-link-preview");
+    assert_eq!(json["schema"], "pointbreak.store-link-preview");
     assert_eq!(json["familyRef"], "acme");
     assert_eq!(json["wouldCreateFamily"], true);
     assert_eq!(json["exportFidelity"], "full");

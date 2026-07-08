@@ -77,7 +77,7 @@ import { type EntryBase, type HistoryEntry, typeLabel } from "./types";
 interface RevisionPageRevision {
   id?: string;
   base?: EntryBase;
-  // Shared `shore.review-revision` vocabulary: the member doc keeps `objectId`
+  // Shared `pointbreak.review-revision` vocabulary: the member doc keeps `objectId`
   // and `objectArtifactContentHash` on the wire, unlike the snapshot-named
   // `/api/revisions` list entries.
   objectId?: string;

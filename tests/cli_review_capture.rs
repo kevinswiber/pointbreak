@@ -21,7 +21,7 @@ fn review_capture_creates_revision_from_subdir() {
         String::from_utf8_lossy(&output.stderr)
     );
     let json = parse_json(&output.stdout);
-    assert_eq!(json["schema"], "shore.review-capture");
+    assert_eq!(json["schema"], "pointbreak.review-capture");
     assert_eq!(json["version"], 1);
     assert!(
         json["revision"]["id"]
@@ -538,7 +538,7 @@ fn capture_is_available_at_the_top_level() {
         String::from_utf8_lossy(&output.stderr)
     );
     let document = parse_json(&output.stdout);
-    assert_eq!(document["schema"], "shore.review-capture"); // INV-1: schema tag is frozen
+    assert_eq!(document["schema"], "pointbreak.review-capture"); // INV-1: schema tag is frozen
 }
 
 #[test]

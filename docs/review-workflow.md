@@ -78,7 +78,7 @@ shore capture
 
 `shore capture` records a `work_object_proposed` event and writes the
 captured snapshot as an immutable Pointbreak-owned object artifact. The output document is
-`shore.review-capture` JSON and includes:
+`pointbreak.review-capture` JSON and includes:
 
 - the revision ID
 - the object ID (the content-only identity)
@@ -184,7 +184,7 @@ flat directory of revisions. It is the discovery surface — start here when
 `shore revision show` errors with `multiple captured revisions; pass
 --revision`, or whenever you need to pick an ID for `--revision <id>`.
 
-It returns `shore.review-revision-list` JSON with `eventSetHash`, `eventCount`,
+It returns `pointbreak.review-revision-list` JSON with `eventSetHash`, `eventCount`,
 `revisionCount`, and an `entries` array whose elements include
 `revisionId`, `capturedAt`, `objectId`, `source`, `base`,
 `target`, and `objectArtifactContentHash`. Entries are sorted by capture
@@ -204,7 +204,7 @@ pre-authentication encoding.
 ### `shore revision show`
 
 `shore revision show` is the composite view of one revision. It returns
-`shore.review-revision` JSON containing:
+`pointbreak.review-revision` JSON containing:
 
 - revision identity and event-set freshness metadata
 - summary counts and current assessment status
@@ -378,10 +378,10 @@ its internal shape.
 ### Command-output JSON is the integration surface
 
 The stable surface for automation is **command-output JSON documents**:
-`shore.review-capture`, `shore.review-history`, `shore.review-revision`,
-`shore.review-observation-add` / `-list`,
-`shore.review-input-request-open` / `-list` / `-fetch` / `-respond`,
-and `shore.review-assessment-add` / `-show`.
+`pointbreak.review-capture`, `pointbreak.review-history`, `pointbreak.review-revision`,
+`pointbreak.review-observation-add` / `-list`,
+`pointbreak.review-input-request-open` / `-list` / `-show` / `-respond`,
+and `pointbreak.review-assessment-add` / `-show`.
 
 These documents expose semantic IDs, content hashes, and freshness metadata.
 Raw event files, event filenames, artifact paths, and `state.json` are

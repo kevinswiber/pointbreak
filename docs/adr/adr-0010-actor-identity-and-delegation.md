@@ -537,8 +537,8 @@ shore identity enroll <agent-actor-id> --principal <principal-actor-id>
   `delegates.rs::parse_record` enforces it at load.
 - **Defaults:** `--from` = now (UTC RFC 3339); `--until` = null (open window). The common case is a
   one-liner: `shore identity enroll actor:agent:claude-code --principal actor:git-email:kevin@swiber.dev`.
-- **Output:** a `DiagnosticDocument` (`shore.identity-enroll`) carrying the staged record/diff, with a
-  stderr hint to review and commit (mirroring `shore keys enroll`'s `shore.keys-enroll` document and the
+- **Output:** a `DiagnosticDocument` (`pointbreak.identity-delegate`) carrying the staged record/diff, with a
+  stderr hint to review and commit (mirroring `shore keys enroll`'s `pointbreak.key-enroll` document and the
   `use_ssh` enroll-hint pattern).
 - **Closes the `--local` *writer* gap — and surfaces the full-replace caveat.** Today only the delegates
   *reader* layering exists (`with_local_override`); there had been **no way to write** the local override.

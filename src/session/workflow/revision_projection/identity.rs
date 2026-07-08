@@ -197,7 +197,7 @@ pub struct RevisionShowResult {
     pub removed_snapshot_content_hash: Option<String>,
     /// The resolved read state of the bound snapshot content (present, suppressed
     /// but still stored, or physically swept). A library-API addition; not
-    /// serialized into the `shore.review-revision` document (the diagnostics carry
+    /// serialized into the `pointbreak.review-revision` document (the diagnostics carry
     /// the public surface).
     pub snapshot_content_state: SnapshotContentState,
     pub filters: RevisionShowFilters,

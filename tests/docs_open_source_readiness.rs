@@ -66,9 +66,20 @@ fn cli_reference_exists_and_covers_current_commands() {
         );
     }
 
-    assert!(cli.contains("shore.review-capture"));
-    assert!(cli.contains("shore.review-revision"));
+    assert!(cli.contains("pointbreak.review-capture"));
+    assert!(cli.contains("pointbreak.review-revision"));
     assert!(cli.contains("eventSetHash"));
+
+    let workflow =
+        std::fs::read_to_string("docs/review-workflow.md").expect("read review workflow");
+    assert!(
+        workflow.contains("pointbreak.review-input-request-open` / `-list` / `-show` / `-respond"),
+        "review workflow documents the reminted input-request show schema"
+    );
+    assert!(
+        !workflow.contains("pointbreak.review-input-request-open` / `-list` / `-fetch`"),
+        "review workflow must not describe a pointbreak.* fetch schema"
+    );
 
     assert_markdown_section_contains(
         &cli,
@@ -116,7 +127,7 @@ fn public_docs_cover_the_shared_common_dir_store() {
         &[
             "shore store status",
             "shore store migrate",
-            "shore.store-status",
+            "pointbreak.store-status",
             "policyOutcome",
             "file:sha256:",
             "hard-blocking policy",
@@ -438,7 +449,7 @@ fn docs_cover_key_custody_and_signing_ux() {
             "shore key list",
             "shore key show",
             "shore key enroll",
-            "shore.keys-init",
+            "pointbreak.key-init",
             "--sign-key",
         ],
     );
@@ -501,7 +512,7 @@ fn docs_cover_ssh_agent_use_ssh_signing() {
     assert_markdown_section_contains(
         &cli,
         "## `shore key`",
-        &["shore key use-ssh", "shore.keys-use-ssh"],
+        &["shore key use-ssh", "pointbreak.key-use-ssh"],
     );
 
     // Signing UX: the developer parallel, custody, the exclusions, and the agent never-gates modes.

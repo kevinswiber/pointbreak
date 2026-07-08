@@ -66,7 +66,7 @@ fn inspector_harness_serves_history_for_minimal_store() {
     let inspector = Inspector::spawn(repo.path());
     let history = inspector.get_json("/api/history");
 
-    assert_eq!(history["schema"], "shore.inspect-history");
+    assert_eq!(history["schema"], "pointbreak.inspect-history");
     // A minimal worktree capture records the capture event plus the auto-recorded
     // capture-time ref association (no separate `review_initialized` event exists).
     let entries = history["entries"].as_array().unwrap();
@@ -91,7 +91,7 @@ fn api_history_returns_chronological_typed_summaries() {
     let inspector = Inspector::spawn(store.repo.path());
     let history = inspector.get_json("/api/history");
 
-    assert_eq!(history["schema"], "shore.inspect-history");
+    assert_eq!(history["schema"], "pointbreak.inspect-history");
     assert!(
         history["eventSetHash"]
             .as_str()
@@ -156,7 +156,7 @@ fn api_units_lists_captured_unit_with_counts_and_target_display() {
     let inspector = Inspector::spawn(store.repo.path());
     let units = inspector.get_json("/api/revisions");
 
-    assert_eq!(units["schema"], "shore.inspect-revisions");
+    assert_eq!(units["schema"], "pointbreak.inspect-revisions");
     assert_eq!(units["revisionCount"], 1);
     let entry = &units["entries"][0];
     assert_eq!(entry["revisionId"], store.revision_id.as_str());
@@ -257,7 +257,7 @@ fn api_freshness_exposes_the_event_count_marker() {
     let history = inspector.get_json("/api/history");
     let freshness = inspector.get_json("/api/freshness");
 
-    assert_eq!(freshness["schema"], "shore.inspect-freshness");
+    assert_eq!(freshness["schema"], "pointbreak.inspect-freshness");
     // The cheap change key is the event-log head marker — the event count, equal
     // to what a full history read reports, but computed without the full read.
     // (Monotonic-on-append and stable-across-envelope-edit are proven at the
@@ -891,7 +891,7 @@ fn api_history_unparamd_shape_is_unchanged_plus_additive_fields() {
     let full = inspector.get_json("/api/history");
     let entries = full["entries"].as_array().unwrap().len();
     // Unchanged: schema + historyCount = entries.
-    assert_eq!(full["schema"], "shore.inspect-history");
+    assert_eq!(full["schema"], "pointbreak.inspect-history");
     assert_eq!(full["historyCount"], entries);
     // Positional paging surface: facets/matchCount/offset always present, matchIndex
     // only for at=, and no opaque cursor (dropped in favor of offset/at).
@@ -997,7 +997,7 @@ fn inspector_serves_revision_and_history_over_a_swept_body() {
     assert_eq!(entry["bodyContentState"], "physically_removed");
 
     let history = inspector.get_json("/api/history");
-    assert_eq!(history["schema"], "shore.inspect-history");
+    assert_eq!(history["schema"], "pointbreak.inspect-history");
     assert!(
         !history["entries"].as_array().unwrap().is_empty(),
         "the always-hydrating history base cache must survive a swept body"

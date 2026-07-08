@@ -73,7 +73,7 @@ pub(super) fn run(
             }
         })
         .collect();
-    let document = json::DiagnosticDocument::new("shore.keys-list", ListBody { keys }, vec![]);
+    let document = json::DiagnosticDocument::new("pointbreak.key-list", ListBody { keys }, vec![]);
     let format = output::resolve_format(
         args.format_args.explicit(args.pretty),
         output::OutputFormat::Json,

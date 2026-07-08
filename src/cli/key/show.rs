@@ -59,7 +59,7 @@ pub(super) fn run(
         did_key,
         public_key,
     };
-    let document = json::DiagnosticDocument::new("shore.keys-show", body, vec![]);
+    let document = json::DiagnosticDocument::new("pointbreak.key-show", body, vec![]);
     let format =
         output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)

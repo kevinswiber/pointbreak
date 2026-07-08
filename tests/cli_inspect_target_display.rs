@@ -224,7 +224,7 @@ fn api_objects_threads_a_supersession_chain() {
     let inspector = Inspector::spawn(repo.path());
 
     let objects = inspector.get_json("/api/threads");
-    assert_eq!(objects["schema"], "shore.inspect-threads");
+    assert_eq!(objects["schema"], "pointbreak.inspect-threads");
     assert!(objects["eventCount"].as_u64().unwrap() > 0);
     assert_eq!(objects["threadCount"], 1);
     assert_eq!(objects["diagnostics"].as_array().unwrap().len(), 0);
@@ -354,7 +354,7 @@ fn api_objects_carries_per_revision_classification() {
     assert_eq!(cls[&branch_a]["supersedes"][0], root.as_str());
 
     // Additive: every existing field is byte-unchanged.
-    assert_eq!(objects["schema"], "shore.inspect-threads");
+    assert_eq!(objects["schema"], "pointbreak.inspect-threads");
     assert_eq!(objects["threads"][0]["competing"], true);
 }
 

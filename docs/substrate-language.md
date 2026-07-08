@@ -184,7 +184,7 @@ Review-domain terms remain correct in command names and user-facing JSON. Do not
 surfaces to substrate terms just because the underlying pattern generalizes.
 
 The domain surface is `shore validation` and documents such as
-`shore.review-validation-list`. Internally, those records are evidence supporting an assertion, but
+`pointbreak.review-validation-list`. Internally, those records are evidence supporting an assertion, but
 public commands and JSON stay review-domain named.
 
 ## Current Prototype Domain: Task Supervision

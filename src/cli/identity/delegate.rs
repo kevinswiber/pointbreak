@@ -125,7 +125,7 @@ pub(super) fn run(
         added,
         local_shadows_committed,
     };
-    let document = DiagnosticDocument::new("shore.identity-enroll", body, Vec::new());
+    let document = DiagnosticDocument::new("pointbreak.identity-delegate", body, Vec::new());
     let format = output::resolve_format(
         args.format_args.explicit(args.pretty),
         output::OutputFormat::Json,

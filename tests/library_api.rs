@@ -315,10 +315,10 @@ fn in_process_consumer_reads_attributes_documents_and_forwards() {
         "the per-call actor override must be the durable writer"
     );
 
-    // Reproduce the documented `shore.review-input-request-list` JSON in process (#118).
+    // Reproduce the documented `pointbreak.review-input-request-list` JSON in process (#118).
     let document = pointbreak::documents::input_request_list_document(listed, None);
     let json: Value = serde_json::to_value(&document).unwrap();
-    assert_eq!(json["schema"], "shore.review-input-request-list");
+    assert_eq!(json["schema"], "pointbreak.review-input-request-list");
     assert_eq!(json["version"], 1);
     assert_eq!(json["inputRequests"][0]["status"], "responded");
     assert_eq!(

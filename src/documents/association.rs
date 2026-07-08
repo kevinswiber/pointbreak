@@ -59,7 +59,7 @@ pub fn associate_commit_document(
     result: AssociateCommitResult,
 ) -> EventWriteDocument<AssociateCommitBody> {
     EventWriteDocument::new(
-        "shore.review-association-commit",
+        "pointbreak.review-association-commit",
         AssociateCommitBody {
             revision_id: result.revision_id.as_str().to_owned(),
             commit_association_id: result.commit_association_id.as_str().to_owned(),
@@ -78,7 +78,7 @@ pub fn withdraw_commit_document(
     result: WithdrawCommitResult,
 ) -> EventWriteDocument<WithdrawCommitBody> {
     EventWriteDocument::new(
-        "shore.review-association-commit-withdrawn",
+        "pointbreak.review-association-commit-withdrawn",
         WithdrawCommitBody {
             revision_id: result.revision_id.as_str().to_owned(),
             commit_withdrawal_id: result.commit_withdrawal_id.as_str().to_owned(),
@@ -94,7 +94,7 @@ pub fn withdraw_commit_document(
 
 pub fn associate_ref_document(result: AssociateRefResult) -> EventWriteDocument<AssociateRefBody> {
     EventWriteDocument::new(
-        "shore.review-association-ref",
+        "pointbreak.review-association-ref",
         AssociateRefBody {
             revision_id: result.revision_id.as_str().to_owned(),
             ref_association_id: result.ref_association_id.as_str().to_owned(),
@@ -111,7 +111,7 @@ pub fn associate_ref_document(result: AssociateRefResult) -> EventWriteDocument<
 
 pub fn withdraw_ref_document(result: WithdrawRefResult) -> EventWriteDocument<WithdrawRefBody> {
     EventWriteDocument::new(
-        "shore.review-association-ref-withdrawn",
+        "pointbreak.review-association-ref-withdrawn",
         WithdrawRefBody {
             revision_id: result.revision_id.as_str().to_owned(),
             ref_withdrawal_id: result.ref_withdrawal_id.as_str().to_owned(),
@@ -129,7 +129,7 @@ pub fn list_associations_document(
     result: ListAssociationsResult,
 ) -> DiagnosticDocument<ListAssociationsBody> {
     DiagnosticDocument::new(
-        "shore.review-association-list",
+        "pointbreak.review-association-list",
         ListAssociationsBody {
             revision_id: result.revision_id.as_str().to_owned(),
             anchored: result.anchored,

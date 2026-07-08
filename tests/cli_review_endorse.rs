@@ -24,7 +24,7 @@ fn endorse_is_available_at_the_top_level() {
         String::from_utf8_lossy(&out.stderr)
     );
     let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(doc["schema"], "shore.review-endorse"); // INV-1: schema frozen
+    assert_eq!(doc["schema"], "pointbreak.review-endorse"); // INV-1: schema frozen
 }
 
 #[test]
@@ -167,7 +167,7 @@ fn endorse_with_a_key_emits_review_endorse_document_and_writes_a_carrier() {
         String::from_utf8_lossy(&out.stderr)
     );
     let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(doc["schema"], "shore.review-endorse");
+    assert_eq!(doc["schema"], "pointbreak.review-endorse");
     assert_eq!(doc["targetEventId"], target);
     assert_eq!(doc["actorId"], "actor:git-email:kevin@swiber.dev"); // endorser's own actor (INV-D)
     assert_eq!(doc["eventsCreated"], 1);

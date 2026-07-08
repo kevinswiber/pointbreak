@@ -26,7 +26,7 @@ fn revision_show_positional_accepts_and_omits() {
         String::from_utf8_lossy(&current.stderr)
     );
     let json = parse_json(&current.stdout);
-    assert_eq!(json["schema"], "shore.review-revision");
+    assert_eq!(json["schema"], "pointbreak.review-revision");
     let id = json["revision"]["id"].as_str().unwrap().to_owned();
 
     // Positional full id: selects that revision.
@@ -74,7 +74,7 @@ fn revision_show_emits_v2_json() {
     );
     let json = parse_json(&output.stdout);
 
-    assert_eq!(json["schema"], "shore.review-revision");
+    assert_eq!(json["schema"], "pointbreak.review-revision");
     assert_eq!(json["version"], 2);
     assert!(json.get("adapterNotes").is_none());
     assert!(json["summary"].get("adapterNoteCount").is_none());

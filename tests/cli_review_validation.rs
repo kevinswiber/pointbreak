@@ -27,7 +27,7 @@ fn validation_add_and_list_run_at_the_top_level() {
         String::from_utf8_lossy(&add.stderr)
     );
     let added = parse_json(&add.stdout);
-    assert_eq!(added["schema"], "shore.review-validation-add"); // INV-1
+    assert_eq!(added["schema"], "pointbreak.review-validation-add"); // INV-1
 
     let list = shore([
         "validation",
@@ -105,7 +105,7 @@ fn cli_review_validation_add_emits_validation_add_document() {
         String::from_utf8_lossy(&output.stderr)
     );
     let value = parse_json(&output.stdout);
-    assert_eq!(value["schema"], "shore.review-validation-add");
+    assert_eq!(value["schema"], "pointbreak.review-validation-add");
     assert_eq!(value["eventsCreated"], 1);
     assert_eq!(value["status"], "passed");
     assert_eq!(value["target"]["kind"], "revision");
@@ -146,7 +146,7 @@ fn cli_review_validation_list_emits_list_document() {
         String::from_utf8_lossy(&output.stderr)
     );
     let value = parse_json(&output.stdout);
-    assert_eq!(value["schema"], "shore.review-validation-list");
+    assert_eq!(value["schema"], "pointbreak.review-validation-list");
     assert!(value["validationChecks"].is_array());
     assert_eq!(value["validationChecks"][0]["checkName"], "cargo test");
 }

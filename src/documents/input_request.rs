@@ -10,7 +10,7 @@ use crate::session::{
     InputRequestRespondResult,
 };
 
-/// Documented body for `shore.review-input-request-open`.
+/// Documented body for `pointbreak.review-input-request-open`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InputRequestOpenBody {
@@ -25,7 +25,7 @@ pub struct InputRequestOpenBody {
     body_content_hash: Option<String>,
 }
 
-/// Documented body for `shore.review-input-request-list`.
+/// Documented body for `pointbreak.review-input-request-list`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InputRequestListBody {
@@ -34,14 +34,14 @@ pub struct InputRequestListBody {
     input_requests: Vec<InputRequestViewDocument>,
 }
 
-/// Documented body for `shore.review-input-request-fetch`.
+/// Documented body for `pointbreak.review-input-request-show`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InputRequestFetchBody {
     input_request: InputRequestViewDocument,
 }
 
-/// Documented body for `shore.review-input-request-respond`.
+/// Documented body for `pointbreak.review-input-request-respond`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InputRequestRespondBody {
@@ -66,12 +66,12 @@ struct InputRequestListFiltersDocument {
     include_body: bool,
 }
 
-/// Build the `shore.review-input-request-open` document from an open result.
+/// Build the `pointbreak.review-input-request-open` document from an open result.
 pub fn input_request_open_document(
     result: InputRequestOpenResult,
 ) -> EventWriteDocument<InputRequestOpenBody> {
     EventWriteDocument::new(
-        "shore.review-input-request-open",
+        "pointbreak.review-input-request-open",
         InputRequestOpenBody {
             revision_id: result.revision_id.as_str().to_owned(),
             input_request_id: result.input_request_id.as_str().to_owned(),
@@ -89,13 +89,13 @@ pub fn input_request_open_document(
     )
 }
 
-/// Build the `shore.review-input-request-list` document from a list result.
+/// Build the `pointbreak.review-input-request-list` document from a list result.
 pub fn input_request_list_document(
     result: InputRequestListResult,
     delegation_map: Option<&DelegationMap>,
 ) -> DiagnosticDocument<InputRequestListBody> {
     DiagnosticDocument::new(
-        "shore.review-input-request-list",
+        "pointbreak.review-input-request-list",
         InputRequestListBody {
             revision_id: result.revision_id.as_str().to_owned(),
             filters: InputRequestListFiltersDocument {
@@ -123,13 +123,13 @@ pub fn input_request_list_document(
     )
 }
 
-/// Build the `shore.review-input-request-fetch` document from a fetch result.
+/// Build the `pointbreak.review-input-request-show` document from a fetch result.
 pub fn input_request_fetch_document(
     result: InputRequestFetchResult,
     delegation_map: Option<&DelegationMap>,
 ) -> DiagnosticDocument<InputRequestFetchBody> {
     DiagnosticDocument::new(
-        "shore.review-input-request-fetch",
+        "pointbreak.review-input-request-show",
         InputRequestFetchBody {
             input_request: InputRequestViewDocument::from(result.input_request)
                 .with_resolved_principal(delegation_map),
@@ -138,12 +138,12 @@ pub fn input_request_fetch_document(
     )
 }
 
-/// Build the `shore.review-input-request-respond` document from a respond result.
+/// Build the `pointbreak.review-input-request-respond` document from a respond result.
 pub fn input_request_respond_document(
     result: InputRequestRespondResult,
 ) -> EventWriteDocument<InputRequestRespondBody> {
     EventWriteDocument::new(
-        "shore.review-input-request-respond",
+        "pointbreak.review-input-request-respond",
         InputRequestRespondBody {
             input_request_id: result.input_request_id.as_str().to_owned(),
             input_request_response_id: result.input_request_response_id.as_str().to_owned(),

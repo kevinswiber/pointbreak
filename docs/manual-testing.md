@@ -83,7 +83,7 @@ ls .git/shore/events/ .git/shore/artifacts/objects/
 
 **Expect.**
 
-- One JSON document with `schema: "shore.review-capture"`; under `revision` it carries `id`,
+- One JSON document with `schema: "pointbreak.review-capture"`; under `revision` it carries `id`,
   `revisionId`, `objectId`, and `objectArtifactContentHash`. It also reports `eventsCreated: 2` and
   `eventsCreatedByType: { "work_object_proposed": 1, "revision_ref_associated": 1 }`.
 - `.git/shore/events/` contains exactly two event files — one `work_object_proposed` and one
@@ -143,7 +143,7 @@ shore observation list --pretty --include-body
 
 **Expect.**
 
-- Each `add` returns `shore.review-observation-add` JSON with a new `observationId` and
+- Each `add` returns `pointbreak.review-observation-add` JSON with a new `observationId` and
   `eventId`, plus a `bodyContentHash` for the second observation only.
 - `observation list` returns both observations under the same `revisionId`. The range-targeted
   observation has `target.kind: "range"` with `filePath`, `side`, `startLine`, `endLine`.
@@ -411,15 +411,15 @@ shore store status | jq '{mode, storeRef}'                     # back to clone-l
 
 - Before link, `store status` reports `mode: "local"` and `storeRef: "local"` (the clone-local
   `.git/shore` default).
-- `store link … --dry-run` emits a `shore.store-link-preview` document and exits 0 without writing
-  anything; the real `store link` emits `shore.store-link` with `familyRef: "demo-family"`,
+- `store link … --dry-run` emits a `pointbreak.store-link-preview` document and exits 0 without writing
+  anything; the real `store link` emits `pointbreak.store-link` with `familyRef: "demo-family"`,
   `createdFamily: true`, and `foldedEventsCreated: 2` (the clone-local history folded forward).
 - After link, `store status` reports `mode: "user-level"`, `storeRef: "demo-family"`,
   `liveCloneCount: 1`, `orphaned: false`, and the family directory exists at
   `$SHORE_HOME/stores/demo-family/` with `events/` and `artifacts/`.
 - Capturing while linked writes into the family store — its `events/` grows to four (the two folded
   events plus the two from the new capture).
-- `store unlink` emits `shore.store-unlink` with `previousFamilyRef: "demo-family"` and
+- `store unlink` emits `pointbreak.store-unlink` with `previousFamilyRef: "demo-family"` and
   `deregistered: true`; afterward `store status` reports `mode: "local"` again. Unlink moves no
   review data.
 

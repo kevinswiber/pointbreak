@@ -13,7 +13,7 @@ use crate::session::{
     RevisionShowFilters, RevisionShowResult, WithdrawnCommitAssociation, WithdrawnRefAssociation,
 };
 
-/// Documented body for `shore.review-revision`.
+/// Documented body for `pointbreak.review-revision`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RevisionShowBody {
@@ -31,7 +31,7 @@ pub struct RevisionShowBody {
     commit_range: CommitRangeDocument,
 }
 
-/// Documented body for `shore.review-revision-list`.
+/// Documented body for `pointbreak.review-revision-list`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RevisionListBody {
@@ -145,7 +145,7 @@ struct SnapshotOrderDocument {
     row_index: Option<usize>,
 }
 
-/// Build the `shore.review-revision` composite document from a show result.
+/// Build the `pointbreak.review-revision` composite document from a show result.
 pub fn revision_show_document(
     mut result: RevisionShowResult,
 ) -> DiagnosticDocument<RevisionShowBody> {
@@ -156,7 +156,7 @@ pub fn revision_show_document(
     // Version 2: the adapterNotes/adapterNoteCount fields left the document when
     // the imported-notes pipeline retired (soft-shell removal, ADR-0029 D7).
     DiagnosticDocument::with_version(
-        "shore.review-revision",
+        "pointbreak.review-revision",
         2,
         RevisionShowBody {
             event_set_hash: result.event_set_hash,
@@ -196,10 +196,10 @@ pub fn revision_show_document(
     )
 }
 
-/// Build the `shore.review-revision-list` document from a list result.
+/// Build the `pointbreak.review-revision-list` document from a list result.
 pub fn revision_list_document(result: RevisionListResult) -> DiagnosticDocument<RevisionListBody> {
     DiagnosticDocument::new(
-        "shore.review-revision-list",
+        "pointbreak.review-revision-list",
         RevisionListBody {
             event_set_hash: result.event_set_hash,
             event_count: result.event_count,

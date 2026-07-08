@@ -184,7 +184,7 @@ fn api_unit_serves_validation_checks_and_count() {
     let inspector = Inspector::spawn(store.repo.path());
     let unit = inspector.get_json(&format!("/api/revisions/{}", urlencode(&store.revision_id)));
 
-    assert_eq!(unit["schema"], "shore.review-revision");
+    assert_eq!(unit["schema"], "pointbreak.review-revision");
     assert_eq!(unit["summary"]["validationCheckCount"], 2);
 
     let checks = unit["validationChecks"].as_array().unwrap();

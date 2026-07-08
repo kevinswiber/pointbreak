@@ -33,7 +33,7 @@ fn input_request_open_runs_at_top_level() {
     );
     let json = parse_json(&output.stdout);
     // INV-1: the wire schema is frozen — the surface rename does not touch it.
-    assert_eq!(json["schema"], "shore.review-input-request-open");
+    assert_eq!(json["schema"], "pointbreak.review-input-request-open");
 }
 
 #[test]
@@ -57,7 +57,7 @@ fn input_request_show_reads_back_with_frozen_fetch_schema() {
     );
     let json = parse_json(&output.stdout);
     // INV-1: the read-one schema stays `…-fetch`; only the argv verb changed.
-    assert_eq!(json["schema"], "shore.review-input-request-fetch");
+    assert_eq!(json["schema"], "pointbreak.review-input-request-show");
     assert_eq!(json["inputRequest"]["id"], id);
     assert_eq!(json["inputRequest"]["body"], "full request body");
 }
@@ -114,7 +114,7 @@ fn input_request_open_defaults_to_operative_mode_and_emits_v1_json() {
     );
     let json = parse_json(&output.stdout);
 
-    assert_eq!(json["schema"], "shore.review-input-request-open");
+    assert_eq!(json["schema"], "pointbreak.review-input-request-open");
     assert_eq!(json["version"], 1);
     assert!(
         json["inputRequestId"]
@@ -201,7 +201,7 @@ fn input_request_list_emits_v1_json_and_pretty_prints() {
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("{\n"));
     let json = parse_json(&output.stdout);
 
-    assert_eq!(json["schema"], "shore.review-input-request-list");
+    assert_eq!(json["schema"], "pointbreak.review-input-request-list");
     assert_eq!(json["version"], 1);
     assert_eq!(json["filters"]["status"], "open");
     assert_eq!(json["inputRequests"].as_array().unwrap().len(), 1);
@@ -372,7 +372,7 @@ fn input_request_fetch_include_body_emits_v1_json_and_hydrates_body() {
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("{\n"));
     let json = parse_json(&output.stdout);
 
-    assert_eq!(json["schema"], "shore.review-input-request-fetch");
+    assert_eq!(json["schema"], "pointbreak.review-input-request-show");
     assert_eq!(json["version"], 1);
     assert_eq!(json["inputRequest"]["id"], input_request_id);
     assert_eq!(json["inputRequest"]["mode"], "operative");
@@ -405,7 +405,7 @@ fn input_request_respond_records_response_and_emits_v1_json() {
     );
     let json = parse_json(&output.stdout);
 
-    assert_eq!(json["schema"], "shore.review-input-request-respond");
+    assert_eq!(json["schema"], "pointbreak.review-input-request-respond");
     assert_eq!(json["version"], 1);
     assert_eq!(json["inputRequestId"], input_request_id);
     assert!(
@@ -529,7 +529,7 @@ fn input_request_list_filters_responded_requests() {
     );
     let json = parse_json(&output.stdout);
 
-    assert_eq!(json["schema"], "shore.review-input-request-list");
+    assert_eq!(json["schema"], "pointbreak.review-input-request-list");
     assert_eq!(json["filters"]["status"], "responded");
     assert_eq!(json["inputRequests"].as_array().unwrap().len(), 1);
     assert_eq!(json["inputRequests"][0]["id"], input_request_id);
@@ -1002,7 +1002,7 @@ fn diagnostic_with_code<'a>(json: &'a Value, code: &str) -> &'a Value {
 
 fn assert_has_no_legacy_public_input_request_shape(json: &Value) {
     let output = serde_json::to_string(json).unwrap();
-    assert!(!output.contains("shore.review-intervention"));
+    assert!(!output.contains("pointbreak.review-intervention"));
     assert!(!output.contains("interventionId"));
     assert!(!output.contains("interventionResolutionId"));
     assert!(!output.contains("\"resolutions\""));

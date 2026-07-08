@@ -1274,7 +1274,7 @@ fn worktree_local_unit_list_is_unchanged() {
 
     let json = run_shore_json(&["revision", "list", "--repo", repo.path().to_str().unwrap()]);
 
-    assert_eq!(json["schema"], "shore.review-revision-list");
+    assert_eq!(json["schema"], "pointbreak.review-revision-list");
     assert_eq!(json["version"], 1);
     assert_eq!(json["eventCount"], 2);
     assert_eq!(json["revisionCount"], 1);

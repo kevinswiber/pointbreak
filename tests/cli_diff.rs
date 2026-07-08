@@ -48,7 +48,7 @@ fn modified_repo() -> GitRepo {
     repo
 }
 
-/// Capture the current worktree and return the `shore.review-capture` document.
+/// Capture the current worktree and return the `pointbreak.review-capture` document.
 fn capture(path: &Path) -> Value {
     let output = shore(["capture", "--repo", path.to_str().unwrap()]);
     assert!(

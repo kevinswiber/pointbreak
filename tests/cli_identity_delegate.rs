@@ -45,7 +45,7 @@ fn delegate_stages_delegates_file_and_reader_resolves_principal() {
         String::from_utf8_lossy(&out.stderr)
     );
     let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(doc["schema"], "shore.identity-enroll");
+    assert_eq!(doc["schema"], "pointbreak.identity-delegate");
     assert_eq!(doc["agent"], "actor:agent:claude-code");
     assert_eq!(doc["principal"], "actor:git-email:kevin@swiber.dev");
     assert_eq!(doc["added"], true);

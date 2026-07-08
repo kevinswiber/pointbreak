@@ -100,7 +100,7 @@ fn legacy_store_with_imported_notes_still_loads_and_reads() {
         String::from_utf8_lossy(&show.stderr)
     );
     let show = parse_json(&show.stdout);
-    assert_eq!(show["schema"], "shore.review-revision");
+    assert_eq!(show["schema"], "pointbreak.review-revision");
     assert_eq!(show["version"], 2);
     assert!(show.get("adapterNotes").is_none());
     assert!(show["summary"].get("adapterNoteCount").is_none());

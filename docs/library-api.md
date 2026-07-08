@@ -313,7 +313,7 @@ and artifact transfer separately.
 
 ### Documents — `pointbreak::documents`
 
-The `pointbreak::documents` module produces the documented `shore.review-*` command-output documents,
+The `pointbreak::documents` module produces the documented `pointbreak.review-*` command-output documents,
 **byte-identical** to the `shore` CLI:
 
 - Envelopes: `DiagnosticDocument<T>`, `EventWriteDocument<T>` (schema/version/diagnostics, plus
@@ -352,7 +352,7 @@ let result = respond_input_request(
         .with_actor_id(ActorId::new("actor:agent:remote-reviewer")),
 )?;
 
-// Produce the documented `shore.review-input-request-respond` JSON in process.
+// Produce the documented `pointbreak.review-input-request-respond` JSON in process.
 let document = pointbreak::documents::input_request_respond_document(result);
 let json = serde_json::to_value(&document)?;
 ```

@@ -75,9 +75,9 @@ fn store_remove_by_snapshot_emits_removed_document() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.starts_with("{\"schema\":\"shore.store-remove\""));
+    assert!(stdout.starts_with("{\"schema\":\"pointbreak.store-remove\""));
     let json = parse_json(stdout.as_bytes());
-    assert_eq!(json["schema"], "shore.store-remove");
+    assert_eq!(json["schema"], "pointbreak.store-remove");
     assert_eq!(json["version"], 1);
     let removed = json["removed"].as_array().unwrap();
     assert_eq!(removed.len(), 1);
@@ -248,7 +248,7 @@ fn store_compact_deletes_removed_blob_and_emits_document() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.starts_with("{\"schema\":\"shore.store-compact\""));
+    assert!(stdout.starts_with("{\"schema\":\"pointbreak.store-compact\""));
     let json = parse_json(stdout.as_bytes());
     assert!(
         json["swept"]
@@ -296,7 +296,7 @@ fn store_gc_is_alias_of_compact() {
         String::from_utf8_lossy(&gc.stderr)
     );
     let stdout = String::from_utf8(gc.stdout).unwrap();
-    assert!(stdout.starts_with("{\"schema\":\"shore.store-compact\""));
+    assert!(stdout.starts_with("{\"schema\":\"pointbreak.store-compact\""));
 
     // A second sweep finds the blob already gone (idempotent).
     let second = shore([

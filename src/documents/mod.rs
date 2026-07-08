@@ -220,7 +220,7 @@ mod tests {
         });
 
         let value = serde_json::to_value(&doc).unwrap();
-        assert_eq!(value["schema"], "shore.review-validation-add");
+        assert_eq!(value["schema"], "pointbreak.review-validation-add");
         assert_eq!(value["status"], "passed");
         assert_eq!(value["summaryContentHash"], "sha256:summary");
         assert!(value.get("accepted").is_none());

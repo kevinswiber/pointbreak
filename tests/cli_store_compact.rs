@@ -96,7 +96,7 @@ fn bare_compact_previews_and_refuses_without_yes() {
         String::from_utf8_lossy(&output.stderr)
     );
     let json = parse_json(&output.stdout);
-    assert_eq!(json["schema"], "shore.store-compact");
+    assert_eq!(json["schema"], "pointbreak.store-compact");
     // The preview lists the would-erase blob, deletes nothing, and refuses.
     assert_eq!(json["dryRun"], true);
     assert_eq!(json["bytesReclaimed"].as_u64().unwrap(), 0);

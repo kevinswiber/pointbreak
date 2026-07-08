@@ -26,7 +26,7 @@ fn keys_init_writes_key_and_emits_did_key_document() {
         String::from_utf8_lossy(&out.stderr)
     );
     let json: Value = serde_json::from_slice(&out.stdout).expect("stdout is json");
-    assert_eq!(json["schema"], "shore.keys-init");
+    assert_eq!(json["schema"], "pointbreak.key-init");
     assert_eq!(json["name"], "default");
     assert!(
         json["didKey"].as_str().unwrap().starts_with("did:key:z"),
@@ -105,7 +105,7 @@ fn keys_list_reports_generated_keys_and_marks_default() {
         String::from_utf8_lossy(&out.stderr)
     );
     let json: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(json["schema"], "shore.keys-list");
+    assert_eq!(json["schema"], "pointbreak.key-list");
     let keys = json["keys"].as_array().expect("keys array");
     assert_eq!(keys.len(), 2);
 
@@ -155,7 +155,7 @@ fn keys_list_empty_keystore_is_empty_list_exit_zero() {
     );
     assert!(out.status.success());
     let json: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(json["schema"], "shore.keys-list");
+    assert_eq!(json["schema"], "pointbreak.key-list");
     assert_eq!(json["keys"].as_array().unwrap().len(), 0);
 }
 
@@ -174,7 +174,7 @@ fn keys_show_default_with_did_prints_the_did_key() {
         String::from_utf8_lossy(&out.stderr)
     );
     let json: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(json["schema"], "shore.keys-show");
+    assert_eq!(json["schema"], "pointbreak.key-show");
     assert_eq!(json["name"], "default");
     assert_eq!(json["didKey"], did_key);
 }
@@ -302,7 +302,7 @@ fn keys_enroll_stages_working_tree_file_and_reports_actor_and_did() {
         String::from_utf8_lossy(&out.stderr)
     );
     let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(doc["schema"], "shore.keys-enroll");
+    assert_eq!(doc["schema"], "pointbreak.key-enroll");
     assert_eq!(doc["actorId"], "actor:agent:claude-code");
     assert_eq!(doc["signerId"], did);
     assert_eq!(doc["added"], true);
@@ -349,7 +349,7 @@ fn keys_enroll_works_for_an_agent_backed_reference() {
         String::from_utf8_lossy(&out.stderr)
     );
     let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(doc["schema"], "shore.keys-enroll");
+    assert_eq!(doc["schema"], "pointbreak.key-enroll");
     assert_eq!(doc["signerId"], did, "enrolled the offline-derived did:key");
     assert_eq!(doc["added"], true);
 
@@ -729,7 +729,7 @@ fn keys_use_ssh_from_pubkey_path_writes_reference_and_emits_did_key() {
     );
 
     let json: Value = serde_json::from_slice(&out.stdout).expect("stdout is json");
-    assert_eq!(json["schema"], "shore.keys-use-ssh");
+    assert_eq!(json["schema"], "pointbreak.key-use-ssh");
     assert_eq!(json["name"], "default"); // default --name
     assert!(
         json["didKey"].as_str().unwrap().starts_with("did:key:z6Mk"),
@@ -756,7 +756,7 @@ fn keys_use_ssh_accepts_a_key_literal() {
         String::from_utf8_lossy(&out.stderr)
     );
     let json: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(json["schema"], "shore.keys-use-ssh");
+    assert_eq!(json["schema"], "pointbreak.key-use-ssh");
     assert!(json["didKey"].as_str().unwrap().starts_with("did:key:z6Mk"));
 }
 

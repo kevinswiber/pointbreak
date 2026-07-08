@@ -188,7 +188,7 @@ fn review_assessment_add(
     let (options, skip) = assessment_add_options(args, stderr)?;
     let result = record_assessment(options)?;
     crate::cli::common::surface_best_effort_skip(&skip, stderr);
-    let document = assessment_add_document("shore.review-assessment-add", result);
+    let document = assessment_add_document("pointbreak.review-assessment-add", result);
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
 }
@@ -207,7 +207,7 @@ fn review_assessment_show(
     // reads the same result, so clone it only when that lane will render.
     let text_source = matches!(format.format, output::OutputFormat::Text).then(|| result.clone());
     let document = assessment_show_document(
-        "shore.review-assessment-show",
+        "pointbreak.review-assessment-show",
         result,
         delegation_map.as_ref(),
     );

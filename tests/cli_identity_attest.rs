@@ -28,7 +28,7 @@ fn attest_stages_attributes_and_reader_resolves_kind_and_roles() {
         String::from_utf8_lossy(&out.stderr)
     );
     let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(doc["schema"], "shore.identity-attest");
+    assert_eq!(doc["schema"], "pointbreak.identity-attest");
     assert_eq!(doc["actor"], "actor:git-email:kevin@swiber.dev");
     assert_eq!(doc["kind"], "human");
     assert_eq!(doc["changed"], true);

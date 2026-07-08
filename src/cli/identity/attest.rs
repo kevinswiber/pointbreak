@@ -99,7 +99,7 @@ pub(super) fn run(
         local: args.local,
         changed,
     };
-    let document = DiagnosticDocument::new("shore.identity-attest", body, Vec::new());
+    let document = DiagnosticDocument::new("pointbreak.identity-attest", body, Vec::new());
     let format = output::resolve_format(
         args.format_args.explicit(args.pretty),
         output::OutputFormat::Json,

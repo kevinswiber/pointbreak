@@ -2,7 +2,7 @@
 use crate::documents::DiagnosticDocument;
 use crate::session::{ReviewHistoryEntry, ReviewHistoryFilters, ReviewHistoryResult};
 
-/// Documented body for `shore.review-history`.
+/// Documented body for `pointbreak.review-history`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryBody {
@@ -16,11 +16,11 @@ pub struct HistoryBody {
     next_cursor: Option<String>,
 }
 
-/// Build the `shore.review-history` document from a history result.
+/// Build the `pointbreak.review-history` document from a history result.
 pub fn history_document(result: ReviewHistoryResult) -> DiagnosticDocument<HistoryBody> {
     let history_count = result.history_count();
     DiagnosticDocument::new(
-        "shore.review-history",
+        "pointbreak.review-history",
         HistoryBody {
             event_set_hash: result.event_set_hash,
             event_count: result.event_count,

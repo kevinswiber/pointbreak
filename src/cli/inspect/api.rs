@@ -174,7 +174,7 @@ struct LayoutBounds {
 /// spliced into `/api/revisions/{id}`. Fork-gated: a sub-field is present only
 /// when that fact type forks, and the whole struct is omitted when neither does,
 /// so a non-forked revision's wire is byte-identical. Never added to the shared
-/// `shore.review-revision` document.
+/// `pointbreak.review-revision` document.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FactSupersessionDocument {
@@ -201,7 +201,7 @@ struct FactGraphDocument {
 /// One `/api/revisions` entry: the shared `RevisionListEntry` re-keyed into the
 /// inspector's snapshot vocabulary (`snapshotId`, `snapshotContentHash`), plus
 /// the additive, path-private `targetDisplay` and the server-computed
-/// `overview`. The shared `shore.review-revision-list` document is untouched;
+/// `overview`. The shared `pointbreak.review-revision-list` document is untouched;
 /// this is the inspector-private wire shape. Fields are listed explicitly (no
 /// flatten) so a new shared field forces a naming decision on this surface.
 #[derive(Serialize)]
@@ -678,7 +678,7 @@ pub(super) fn history_json(
     })?;
     let out = apply_history_query(&base, query, page);
     let payload = HistoryPayload {
-        schema: "shore.inspect-history",
+        schema: "pointbreak.inspect-history",
         event_set_hash: out.event_set_hash,
         event_count: out.event_count,
         history_count: out.entries.len(),
@@ -698,7 +698,7 @@ pub(super) fn revisions_json(repo: &Path) -> Result<String, String> {
         .map_err(|error| error.to_string())?;
     let overviews = revision_overviews(repo, &result.entries)?;
     let payload = RevisionsPayload {
-        schema: "shore.inspect-revisions",
+        schema: "pointbreak.inspect-revisions",
         event_set_hash: result.event_set_hash,
         event_count: result.event_count,
         revision_count: result.revision_count,
@@ -750,7 +750,7 @@ pub(super) fn threads_json(repo: &Path) -> Result<String, String> {
     let mut diagnostics = view.diagnostics;
     diagnostics.extend(display_diagnostics);
     let payload = ThreadsPayload {
-        schema: "shore.inspect-threads",
+        schema: "pointbreak.inspect-threads",
         event_set_hash: state.event_set_hash.unwrap_or_default(),
         event_count: state.event_count,
         thread_count: threads.len(),
@@ -1164,7 +1164,7 @@ fn splice_fact_supersession(
     Ok(())
 }
 
-/// Reuses the exact `shore.review-revision` document the `shore revision show`
+/// Reuses the exact `pointbreak.review-revision` document the `shore revision show`
 /// command builds (`revision_show_document`), so the inspector renders the same
 /// authoritative composite — current-assessment status, duplicate-collapsed
 /// facts, supersession, adapter notes, and projection rows — rather than
@@ -1263,7 +1263,7 @@ fn set_head_live_branch(document: &mut serde_json::Value, live_branch: String) {
 pub(super) fn freshness_json(repo: &Path) -> Result<String, String> {
     let event_count = event_log_head_marker(repo).map_err(|error| error.to_string())?;
     let payload = FreshnessPayload {
-        schema: "shore.inspect-freshness",
+        schema: "pointbreak.inspect-freshness",
         event_count,
     };
     serde_json::to_string(&payload).map_err(|error| error.to_string())
@@ -1271,7 +1271,7 @@ pub(super) fn freshness_json(repo: &Path) -> Result<String, String> {
 
 /// The schema-tagged wire wrapper for the repo/store identity document. The
 /// `StoreIdentity` fields are flattened alongside the `schema` tag, matching the
-/// other `shore.inspect-*` payload shapes.
+/// other `pointbreak.inspect-*` payload shapes.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct IdentityPayload {
@@ -1287,7 +1287,7 @@ pub(super) fn identity_json(repo: &Path) -> Result<String, String> {
     let identity =
         store_identity(StoreIdentityOptions::new(repo)).map_err(|error| error.to_string())?;
     let payload = IdentityPayload {
-        schema: "shore.inspect-identity",
+        schema: "pointbreak.inspect-identity",
         identity,
     };
     serde_json::to_string(&payload).map_err(|error| error.to_string())
@@ -1622,7 +1622,7 @@ mod tests {
         // substrate "objects" term.
         let payload: serde_json::Value =
             serde_json::from_str(&threads_json(repo.path()).unwrap()).unwrap();
-        assert_eq!(payload["schema"], "shore.inspect-threads");
+        assert_eq!(payload["schema"], "pointbreak.inspect-threads");
     }
 
     #[test]

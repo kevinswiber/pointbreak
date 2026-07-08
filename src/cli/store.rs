@@ -53,7 +53,7 @@ struct StoreStatusArgs {
 
     /// Also list the real worktree paths each sensitivity finding matched, so an
     /// excludeGlobs decision is actionable. Local-only, printed to your terminal.
-    /// Text-only — it keeps the `shore.store-status` JSON document uniformly
+    /// Text-only — it keeps the `pointbreak.store-status` JSON document uniformly
     /// path-free — so it cannot be combined with a JSON format.
     #[arg(long)]
     show_paths: bool,
@@ -124,7 +124,7 @@ struct StoreLinkArgs {
     retire_source: bool,
 
     /// Preview gates 1–5 and the fold preflight without writing anything — no
-    /// scaffold, no fold, no binding flip. Emits a `shore.store-link-preview`
+    /// scaffold, no fold, no binding flip. Emits a `pointbreak.store-link-preview`
     /// document; exits non-zero with the first blocking reason if the link would
     /// not succeed.
     #[arg(long)]
@@ -469,7 +469,7 @@ fn status(args: StoreStatusArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn s
         // goes to the operator's own terminal, the paths are their own local
         // files, and plain text is as machine-readable as JSON — a program can
         // read either lane. The restriction keeps the versioned
-        // `shore.store-status` JSON document a single, uniformly path-free shape,
+        // `pointbreak.store-status` JSON document a single, uniformly path-free shape,
         // so a tool that pipes that document into a log or relay never depends on
         // a flag to stay path-free. The redaction that genuinely matters is on the
         // STORED/forwarded data (events in `.git/shore`, the default document);
@@ -483,7 +483,7 @@ fn status(args: StoreStatusArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn s
         ) {
             return Err(
                 "`--show-paths` lists real worktree paths on the text lane only, to keep the \
-                 `shore.store-status` JSON document uniformly path-free; it cannot be combined \
+                 `pointbreak.store-status` JSON document uniformly path-free; it cannot be combined \
                  with a JSON format. Drop the JSON selection or pass `--format text`."
                     .into(),
             );
@@ -498,7 +498,7 @@ fn status(args: StoreStatusArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn s
     // first, only on the text lane (the machine lanes never pay for it).
     let digest = matches!(format.format, output::OutputFormat::Text)
         .then(|| render_store_status_text(&body));
-    let document = json::DiagnosticDocument::new("shore.store-status", body, vec![]);
+    let document = json::DiagnosticDocument::new("pointbreak.store-status", body, vec![]);
     output::write_document(stdout, format, &document, || {
         digest.expect("text lane resolves the digest")
     })
@@ -634,7 +634,7 @@ fn mode(args: StoreModeArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::
         mode: outcome.mode,
         source: outcome.source,
     };
-    let document = json::DiagnosticDocument::new("shore.store-mode", body, vec![]);
+    let document = json::DiagnosticDocument::new("pointbreak.store-mode", body, vec![]);
     let format = output::resolve_format(
         args.format_args.explicit(args.pretty),
         output::OutputFormat::Json,
@@ -665,7 +665,7 @@ fn migrate(
             ),
         });
     }
-    let document = json::DiagnosticDocument::new("shore.store-migrate", body, diagnostics);
+    let document = json::DiagnosticDocument::new("pointbreak.store-migrate", body, diagnostics);
     let format = output::resolve_format(
         args.format_args.explicit(args.pretty),
         output::OutputFormat::Json,
@@ -727,7 +727,8 @@ fn link(args: StoreLinkArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::
                 message: warning.clone(),
             });
         }
-        let document = json::DiagnosticDocument::new("shore.store-link-preview", body, diagnostics);
+        let document =
+            json::DiagnosticDocument::new("pointbreak.store-link-preview", body, diagnostics);
         return output::write_document_json_fallback(stdout, format, &document);
     }
 
@@ -770,7 +771,7 @@ fn link(args: StoreLinkArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::
 
     let digest =
         matches!(format.format, output::OutputFormat::Text).then(|| render_store_link_text(&body));
-    let document = json::DiagnosticDocument::new("shore.store-link", body, diagnostics);
+    let document = json::DiagnosticDocument::new("pointbreak.store-link", body, diagnostics);
     output::write_document(stdout, format, &document, || {
         digest.expect("text lane resolves the digest")
     })
@@ -797,8 +798,11 @@ fn unlink(args: StoreUnlinkArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn s
     let span = tracing::info_span!("shore.store.unlink");
     let _entered = span.enter();
     let result = unlink_store_from_family(StoreUnlinkOptions::new(args.repo))?;
-    let document =
-        json::DiagnosticDocument::new("shore.store-unlink", StoreUnlinkBody::from(result), vec![]);
+    let document = json::DiagnosticDocument::new(
+        "pointbreak.store-unlink",
+        StoreUnlinkBody::from(result),
+        vec![],
+    );
     let format = output::resolve_format(
         args.format_args.explicit(args.pretty),
         output::OutputFormat::Json,
@@ -821,7 +825,7 @@ fn forget(args: StoreForgetArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn s
     )?;
     let digest = matches!(format.format, output::OutputFormat::Text)
         .then(|| render_store_forget_text(&body));
-    let document = json::DiagnosticDocument::new("shore.store-forget", body, vec![]);
+    let document = json::DiagnosticDocument::new("pointbreak.store-forget", body, vec![]);
     output::write_document(stdout, format, &document, || {
         digest.expect("text lane resolves the digest")
     })
@@ -847,7 +851,7 @@ fn list(args: StoreListArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::
     let _entered = span.enter();
     let result = list_family_stores()?;
     let body = StoreListBody::from(result);
-    let document = json::DiagnosticDocument::new("shore.store-list", body, vec![]);
+    let document = json::DiagnosticDocument::new("pointbreak.store-list", body, vec![]);
     let format = output::resolve_format(
         args.format_args.explicit(args.pretty),
         output::OutputFormat::Json,
@@ -875,8 +879,11 @@ fn remove(
     }
     let result = remove_content(options)?;
     surface_best_effort_skip(&skip, stderr);
-    let document =
-        json::DiagnosticDocument::new("shore.store-remove", StoreRemoveBody::from(result), vec![]);
+    let document = json::DiagnosticDocument::new(
+        "pointbreak.store-remove",
+        StoreRemoveBody::from(result),
+        vec![],
+    );
     let format = output::resolve_format(
         args.format_args.explicit(args.pretty),
         output::OutputFormat::Json,
@@ -946,7 +953,7 @@ fn compact(
     }
 
     let document = json::DiagnosticDocument::new(
-        "shore.store-compact",
+        "pointbreak.store-compact",
         StoreCompactBody::from(result),
         diagnostics,
     );
@@ -958,7 +965,7 @@ fn compact(
 }
 
 /// Map a skipped removal's reason to its public `removal_claim_*` code, matching
-/// the `shore.review-revision` claim-diagnostic spellings.
+/// the `pointbreak.review-revision` claim-diagnostic spellings.
 fn removal_claim_reason_code(status: RemovalOperativeStatus) -> &'static str {
     match status {
         RemovalOperativeStatus::ClaimUnsigned => "removal_claim_unsigned",

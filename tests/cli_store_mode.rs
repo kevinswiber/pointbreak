@@ -20,7 +20,7 @@ fn store_mode_show_defaults_to_shared() {
         String::from_utf8_lossy(&output.stderr)
     );
     let json = parse_json(&output.stdout);
-    assert_eq!(json["schema"], "shore.store-mode");
+    assert_eq!(json["schema"], "pointbreak.store-mode");
     assert_eq!(json["mode"], "shared");
     // With no config file, the source is the built-in default.
     assert_eq!(json["source"], "default");

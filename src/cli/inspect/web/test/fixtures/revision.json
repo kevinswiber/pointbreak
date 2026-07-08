@@ -475,7 +475,7 @@
       }
     }
   ],
-  "schema": "shore.review-revision",
+  "schema": "pointbreak.review-revision",
   "summary": {
     "assessmentCount": 2,
     "fileCount": 1,

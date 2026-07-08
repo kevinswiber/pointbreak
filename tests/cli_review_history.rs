@@ -63,7 +63,7 @@ fn review_history_emits_v1_json_with_freshness_metadata() {
     );
     let json = parse_json(&output.stdout);
 
-    assert_eq!(json["schema"], "shore.review-history");
+    assert_eq!(json["schema"], "pointbreak.review-history");
     assert_eq!(json["version"], 1);
     assert!(
         json["eventSetHash"]

@@ -240,7 +240,7 @@ tree, including untracked files (source `git_worktree`).
 - Full captured snapshots are Pointbreak-owned immutable object artifacts under `artifacts/objects/`.
 - The `work_object_proposed` event binds to the object artifact's canonical content hash; the
   content-only artifact body carries no revision identity or endpoints (those live on the event).
-- Output is compact `shore.review-capture` JSON and includes the revision and object IDs
+- Output is compact `pointbreak.review-capture` JSON and includes the revision and object IDs
   plus `objectArtifactContentHash`.
 - With `--supersedes <revision-id>` (repeatable, order-independent), the capture records that it
   evolves past the named revisions, extending the supersession DAG. The new revision becomes a thread
@@ -302,7 +302,7 @@ directory, a capture in any worktree is immediately visible from its siblings. B
 per-clone store, not a user-level multi-repository store or remote sync service; a clone can opt into
 the machine-wide **user-level family store tier** with `shore store link` (see below).
 
-`shore store status` resolves the store and emits `shore.store-status` JSON.
+`shore store status` resolves the store and emits `pointbreak.store-status` JSON.
 
 - `mode` is `local` (the clone-local common-dir store), `ephemeral` (a worktree pinned to its
   discardable `.shore/data`), or `user-level` (a clone linked to a family store). `storeRef` is
@@ -340,7 +340,7 @@ common-dir store. The mode is written to a committed `.shore/store.json`, and ma
 privately by a git-excluded `.shore/store.local.json` (the local file wins, the
 `delegates.json` / `delegates.local.json` precedent). A malformed or unsupported config is a hard
 error rather than a silent fallback. `shore store mode show` reports the resolved mode without changing
-it. All three forms emit `shore.store-mode` JSON with `mode` (`shared` | `ephemeral`) and `source`
+it. All three forms emit `pointbreak.store-mode` JSON with `mode` (`shared` | `ephemeral`) and `source`
 (`default` | `committed` | `local`); the body embeds no storage path.
 
 ### Sensitivity exclude globs
@@ -391,10 +391,10 @@ a targeted `excludeGlobs` entry. The `link`/`migrate` sensitivity gate errors po
 `--format json-pretty` / `--pretty`. That restriction is deliberately **not a security barrier** —
 the listing prints to your own terminal, the paths are your own local files, and plain text is as
 machine-readable as JSON, so nothing is being withheld from a program. It exists only to keep the
-versioned `shore.store-status` JSON document a single, uniformly path-free shape, so a tool that
+versioned `pointbreak.store-status` JSON document a single, uniformly path-free shape, so a tool that
 pipes that document into a log, an index, or a relay never depends on a flag to stay path-free. The
 redaction that genuinely matters is on the **stored and forwarded** data — the events written to
-`.git/shore` and the default `shore.store-status` document, which can cross machine, family-store,
+`.git/shore` and the default `pointbreak.store-status` document, which can cross machine, family-store,
 and relay boundaries and would otherwise leak your local filesystem layout to whoever reads the
 store. `--show-paths` never writes to the store or emits JSON, so it sits outside that contract by
 construction: the type that carries the real paths is not serializable, and the paths reach nothing
@@ -421,7 +421,7 @@ names the offending paths, and deletes nothing. A source with no durable files a
 a source holding artifact files but no event files is refused outright. Classification is by file
 counts, never directory existence.
 
-It emits `shore.store-migrate` JSON with `eventsCreated`, `eventsExisting`, `artifactsCreated`,
+It emits `pointbreak.store-migrate` JSON with `eventsCreated`, `eventsExisting`, `artifactsCreated`,
 `artifactsExisting`, `sourceEmpty`, `sourceRetired`, `verifiedEvents`, and `verifiedArtifacts`.
 (This is distinct from the legacy flat `.shore/` layout, a retired pre-1.0 format that is detected
 and refused rather than migrated; see
@@ -446,7 +446,7 @@ clone still resolving its clone-local store. Omitting `<slug>` fails with a sugg
 picking one silently. `--retire-source` deletes the clone-local store only after the fold is
 verified. When the fold carries prior unsigned `shore store remove` events, a diagnostic discloses
 that they lost possession-based suppression and should be re-issued in the family store. It emits
-`shore.store-link` JSON (`familyRef`, `cloneRef`, `createdFamily`, the `folded*` counts,
+`pointbreak.store-link` JSON (`familyRef`, `cloneRef`, `createdFamily`, the `folded*` counts,
 `sourceRetired`, and any warnings). `shore store unlink` detaches this clone (clearing the binding
 and deregistering it) without moving any data, and survives a family store that was already forgotten.
 
@@ -465,7 +465,7 @@ selector to a set of content hashes — `--snapshot <id>` (a snapshot's bound ar
 <id>` (every artifact a revision references), `--ref <name>` / `--range <a>..<b>` (artifacts of
 revisions anchored on the named commit or commit range), or `--orphans` (artifacts of commit-anchored
 revisions whose commits are all unreachable) — and records one removal fact per content hash. It emits
-`shore.store-remove` JSON listing each `contentHash`, whether it was newly `created`, and
+`pointbreak.store-remove` JSON listing each `contentHash`, whether it was newly `created`, and
 `coReferencingUnits` (other revisions that still name the same shared artifact, reported before the
 removal), plus `eventsCreated` and `eventsExisting`. Removal is content-targeted and idempotent:
 re-removing a hash reports `created: false`. Removal is a write, so a signed store stays signed —
@@ -476,7 +476,7 @@ fact; it does not delete bytes — run `shore store gc` / `shore store compact` 
 `shore store gc` and `shore store compact` are the same local sweep: they physically delete the
 content-addressed blobs whose content hash has been removed, reclaiming disk. The sweep records no
 event and is fully re-derivable from the log — re-capturing the same content re-materializes the blob.
-It emits `shore.store-compact` JSON listing each swept blob's `contentHash` and `outcome`
+It emits `pointbreak.store-compact` JSON listing each swept blob's `contentHash` and `outcome`
 (`removed` or `missing`) plus `bytesReclaimed`. Running it again is a no-op (every removed blob is
 already `missing`).
 
@@ -498,11 +498,11 @@ remain internal storage details.
 ## `shore identity`
 
 ```bash
-# Stage a delegation record binding an agent to its responsible principal (shore.identity-enroll).
+# Stage a delegation record binding an agent to its responsible principal (pointbreak.identity-delegate).
 shore identity delegate <agent-actor-id> --principal <principal-actor-id> \
   [--from <RFC3339>] [--until <RFC3339>] [--comment <text>] [--local] [--repo .] [--pretty]
 
-# Stage an actor-attributes entry — kind + roles — for any actor (shore.identity-attest).
+# Stage an actor-attributes entry — kind + roles — for any actor (pointbreak.identity-attest).
 shore identity attest <actor-id> --kind <kind> [--role <role>]... \
   [--comment <text>] [--local] [--repo .] [--pretty]
 ```
@@ -515,13 +515,13 @@ file to apply it (`git log -p` is the audit trail), exactly like `shore key enro
   `actor:agent:<name>` id) to a responsible **non-agent** `--principal` (the human/actor that answers
   for the agent; the depth-0 rule rejects an agent principal). `--from` defaults to now in RFC 3339 UTC;
   `--until` defaults to an open window; `--comment` is free text for diff readers. Emits a
-  `shore.identity-enroll` document and a stderr hint to commit.
+  `pointbreak.identity-delegate` document and a stderr hint to commit.
 - **`attest`** stages an actor-attributes entry into `.shore/actor-attributes.json` for `<actor-id>`
   (any persisted actor id). `--kind` is required — exactly one kind per actor; the reserved well-known
   kinds are `human`, `agent`, `service`, and `reviewer-model`, but any lowercase-kebab token is
   accepted. `--role` is repeatable; kind and roles are normalized to lowercase-kebab and roles are
   deduped + sorted. Re-attesting **replaces** the actor's entry (kind, roles, and comment) — it is not
-  additive. Emits a `shore.identity-attest` document.
+  additive. Emits a `pointbreak.identity-attest` document.
 - **`--local`** writes the private `.local.json` sibling instead of the committed file and git-excludes
   it via the generated, committed `.shore/.gitignore` (its `*.local.json` line covers every private
   override). The layers merge git-config style: a local entry **fully replaces** the
@@ -543,22 +543,22 @@ in the repo `.shore/` or the store. See [storage-model.md](./storage-model.md) f
 allowed-signers format.
 
 ```bash
-# Generate a human signing key and print its did:key (shore.keys-init).
+# Generate a human signing key and print its did:key (pointbreak.key-init).
 shore key init --name default
 
-# List local keys with enrollment status and which is the default (shore.keys-list).
+# List local keys with enrollment status and which is the default (pointbreak.key-list).
 shore key list --repo .
 
-# Print a key's did:key and/or raw public key (shore.keys-show).
+# Print a key's did:key and/or raw public key (pointbreak.key-show).
 shore key show default --did
 shore key show default --pubkey
 
-# Adopt an existing SSH Ed25519 key as an agent-backed signer (shore.keys-use-ssh).
+# Adopt an existing SSH Ed25519 key as an agent-backed signer (pointbreak.key-use-ssh).
 # Reuses ssh-agent custody — no new key material. Parallel to `init`.
 shore key use-ssh ~/.ssh/id_ed25519.pub --name default
 shore key use-ssh 'key::ssh-ed25519 AAAA…'   # git user.signingKey literal form
 
-# Stage an allow-list entry binding a key's did:key to an actor (shore.keys-enroll).
+# Stage an allow-list entry binding a key's did:key to an actor (pointbreak.key-enroll).
 # Possession-style: this stages the working-tree .shore/allowed-signers.json edit only;
 # review and commit it to authorize the binding.
 shore key enroll default --actor actor:agent:claude-code --repo .
@@ -566,7 +566,7 @@ shore key enroll default --actor actor:agent:claude-code --repo .
 
 `init` refuses to overwrite an existing named key. `use-ssh` adopts an existing SSH **public** key as an
 agent-backed `default` signer: it accepts a `*.pub` path or a `key::ssh-ed25519 AAAA…` literal, emits a
-`shore.keys-use-ssh` document with the derived `did:key` (the same `.didKey` field `shore key show
+`pointbreak.key-use-ssh` document with the derived `did:key` (the same `.didKey` field `shore key show
 --did` prints) plus an enrollment hint, and (like `init`) refuses to overwrite. Only plain `ssh-ed25519`
 keys are accepted; `ed25519-sk`/RSA/ECDSA are rejected with a clear error pointing at `shore key init`.
 `list`/`enroll` take `--repo` (default `.`) to resolve the committed `.shore/allowed-signers.json`;
@@ -621,7 +621,7 @@ Observations are append-only review notes for a captured revision.
 - `observation list` replays durable events for the revision and may filter by revision, track,
   file, or tag. It hydrates body text only with `--include-body`.
 
-Output is compact `shore.review-observation-add` or `shore.review-observation-list` JSON by
+Output is compact `pointbreak.review-observation-add` or `pointbreak.review-observation-list` JSON by
 default. `observation list` also accepts `--pretty` and `--compact`.
 
 ## `shore input-request`
@@ -665,9 +665,9 @@ Input requests are durable pause or decision requests for a captured revision.
   wire values are part of the frozen hard core (review-loop drivers branch on them): stable within
   `version:1`, changed only by a coordinated `version` bump.
 
-Output documents are compact `shore.review-input-request-open`,
-`shore.review-input-request-list`, `shore.review-input-request-fetch`, and
-`shore.review-input-request-respond` JSON by default. Read commands also accept `--pretty` and
+Output documents are compact `pointbreak.review-input-request-open`,
+`pointbreak.review-input-request-list`, `pointbreak.review-input-request-show`, and
+`pointbreak.review-input-request-respond` JSON by default. Read commands also accept `--pretty` and
 `--compact`.
 
 V1 is durable and polling-friendly. It does not add a daemon, filesystem watch mode, TUI prompt,
@@ -707,7 +707,7 @@ Assessments record review calls for a captured revision.
   filter by revision or track, include replaced assessments with `--all`, and hydrate summaries
   with `--include-summary`.
 
-Output documents are compact `shore.review-assessment-add` and `shore.review-assessment-show` JSON
+Output documents are compact `pointbreak.review-assessment-add` and `pointbreak.review-assessment-show` JSON
 by default. `assessment show` also accepts `--pretty` and `--compact`.
 
 State-change outcomes such as deferred, split-out, overridden, and superseded are ordinary review
@@ -742,8 +742,8 @@ replace a review assessment.
 - `validation list` replays durable events for the revision and may filter by revision, track,
   or status. It hydrates summaries only with `--include-body`.
 
-Output documents are compact `shore.review-validation-add` and
-`shore.review-validation-list` JSON by default. `validation list` also accepts `--pretty` and
+Output documents are compact `pointbreak.review-validation-add` and
+`pointbreak.review-validation-list` JSON by default. `validation list` also accepts `--pretty` and
 `--compact`.
 
 ## `shore endorse`
@@ -763,7 +763,7 @@ writing identity), never the target's author.
   and writes nothing. Signer precedence otherwise follows the **Signing** rules above.
 - Idempotent: re-endorsing the same target with the same signer is a no-op (`eventsCreated: 0`,
   `eventsExisting: 1`, same carrier `eventId`).
-- The emitted `shore.review-endorse` document reports carrier facts (`eventId`, `targetEventId`,
+- The emitted `pointbreak.review-endorse` document reports carrier facts (`eventId`, `targetEventId`,
   `targetEventRecordHash`, `attestingSigner`, `actorId`, and write counts) — **not** a trust verdict.
   Whether an endorsement classifies as trusted is reader-relative (resolved against the reader's
   allow-list at read time), not stamped at write time.
@@ -802,10 +802,10 @@ revision is tied to the commits and branches that carry it; recording a landed c
 - `--revision <revision-id>` pins the target revision; without it the command defaults to the single
   captured revision and errors if multiple captured revisions exist.
 - **`list`** reports both axes unless `--axis commit|ref` narrows to one, and `--current` excludes
-  withdrawn associations, showing only what currently holds. It emits `shore.review-association-list`
+  withdrawn associations, showing only what currently holds. It emits `pointbreak.review-association-list`
   JSON.
-- The write forms emit `shore.review-association-commit`, `shore.review-association-commit-withdrawn`,
-  `shore.review-association-ref`, and `shore.review-association-ref-withdrawn` JSON with the new
+- The write forms emit `pointbreak.review-association-commit`, `pointbreak.review-association-commit-withdrawn`,
+  `pointbreak.review-association-ref`, and `pointbreak.review-association-ref-withdrawn` JSON with the new
   association id and write counts.
 
 Divergent or dangling associations surface as advisory diagnostics on the read surfaces
@@ -824,7 +824,7 @@ shore history [--repo <path>] [--revision <id>] [--track <track-id>] \
 
 `shore history` reads the chronological ledger of durable Pointbreak events.
 
-- History replays the resolved store's `events/` and emits compact `shore.review-history` v1 JSON by
+- History replays the resolved store's `events/` and emits compact `pointbreak.review-history` v1 JSON by
   default.
 - `eventSetHash` and `eventCount` describe the full validated event set used to build the output,
   even when filters return only a subset of entries.
@@ -903,7 +903,7 @@ shore revision list [--repo <path>] [--object <object-id>] [--ref <name> [--by l
 ```
 
 `shore revision list` is the discovery surface for captured revisions. It emits
-`shore.review-revision-list` JSON with `eventSetHash`, `eventCount`, `revisionCount`, and entries
+`pointbreak.review-revision-list` JSON with `eventSetHash`, `eventCount`, `revisionCount`, and entries
 sorted by capture time. Each entry carries the revision id, the content-only object id, the capture
 endpoints, and `objectArtifactContentHash`.
 
@@ -928,7 +928,7 @@ shore revision show [REVISION] [--repo <path>] [--track <track-id>] \
 ```
 
 `shore revision show` is the composite view for one revision. It emits compact
-`shore.review-revision` v2 JSON by default.
+`pointbreak.review-revision` v2 JSON by default.
 
 - When exactly one revision has been captured, Pointbreak selects it automatically.
 - If multiple revisions exist, pass the `[REVISION]` positional. It is a **head seed**: a current

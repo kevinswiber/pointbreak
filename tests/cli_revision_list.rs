@@ -22,7 +22,7 @@ fn revision_list_runs_at_top_level() {
         String::from_utf8_lossy(&output.stderr)
     );
     let json = parse_json(&output.stdout);
-    assert_eq!(json["schema"], "shore.review-revision-list");
+    assert_eq!(json["schema"], "pointbreak.review-revision-list");
 }
 
 #[test]
@@ -73,7 +73,7 @@ fn revision_list_emits_v1_json_with_freshness_metadata() {
     );
     let json = parse_json(&output.stdout);
 
-    assert_eq!(json["schema"], "shore.review-revision-list");
+    assert_eq!(json["schema"], "pointbreak.review-revision-list");
     assert_eq!(json["version"], 1);
     assert!(
         json["eventSetHash"]

@@ -3,7 +3,7 @@ use crate::documents::{DiagnosticDocument, EventWriteDocument, ObservationViewDo
 use crate::model::ReviewTargetRef;
 use crate::session::{DelegationMap, ObservationAddResult, ObservationListResult};
 
-/// Documented body for `shore.review-observation-add`.
+/// Documented body for `pointbreak.review-observation-add`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ObservationAddBody {
@@ -15,7 +15,7 @@ pub struct ObservationAddBody {
     body_content_hash: Option<String>,
 }
 
-/// Documented body for `shore.review-observation-list`.
+/// Documented body for `pointbreak.review-observation-list`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ObservationListBody {
@@ -36,12 +36,12 @@ struct ObservationListFiltersDocument {
     include_body: bool,
 }
 
-/// Build the `shore.review-observation-add` document from an add result.
+/// Build the `pointbreak.review-observation-add` document from an add result.
 pub fn observation_add_document(
     result: ObservationAddResult,
 ) -> EventWriteDocument<ObservationAddBody> {
     EventWriteDocument::new(
-        "shore.review-observation-add",
+        "pointbreak.review-observation-add",
         ObservationAddBody {
             revision_id: result.revision_id.as_str().to_owned(),
             observation_id: result.observation_id.as_str().to_owned(),
@@ -57,7 +57,7 @@ pub fn observation_add_document(
     )
 }
 
-/// Build the `shore.review-observation-list` document from a list result. The
+/// Build the `pointbreak.review-observation-list` document from a list result. The
 /// optional delegation map enriches agent-written items with a resolved
 /// principal object (reader-supplied config, never store content).
 pub fn observation_list_document(
@@ -65,7 +65,7 @@ pub fn observation_list_document(
     delegation_map: Option<&DelegationMap>,
 ) -> DiagnosticDocument<ObservationListBody> {
     DiagnosticDocument::new(
-        "shore.review-observation-list",
+        "pointbreak.review-observation-list",
         ObservationListBody {
             revision_id: result.revision_id.as_str().to_owned(),
             filters: ObservationListFiltersDocument {

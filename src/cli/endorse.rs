@@ -98,7 +98,7 @@ pub(super) fn run(
         events_created: result.events_created,
         events_existing: result.events_existing,
     };
-    let document = DiagnosticDocument::new("shore.review-endorse", body, Vec::new());
+    let document = DiagnosticDocument::new("pointbreak.review-endorse", body, Vec::new());
     let format = output::resolve_format(
         args.format_args.explicit(args.pretty),
         output::OutputFormat::Json,

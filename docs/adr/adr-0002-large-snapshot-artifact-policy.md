@@ -92,7 +92,7 @@ Rejected. Choosing a threshold without a real workload to anchor it commits Shor
 number (1k? 10k? 50k?) that V2 will almost certainly want to change. Worse, an
 elision-bearing artifact under the current `SNAPSHOT_ARTIFACT_VERSION = 1` and the
 current `contentHash` scope would change what `snapshotArtifactContentHash` means for
-downstream consumers (`shore.review-capture` already exposes it; see
+downstream consumers (`pointbreak.review-capture` already exposes it; see
 `tests/cli_review_capture.rs`). The honest path is to declare the V1 scope explicitly
 and require a versioning decision in V2.
 

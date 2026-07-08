@@ -190,7 +190,7 @@ fn non_forked_revision_omits_fact_supersession() {
 
 #[test]
 fn shared_review_show_document_has_no_fact_supersession() {
-    // The fork lives only on the inspector wire, never in shore.review-revision.
+    // The fork lives only on the inspector wire, never in pointbreak.review-revision.
     let repo = repo_with_change();
     let arg = repo.path().to_str().unwrap();
     let rev = capture(repo.path());

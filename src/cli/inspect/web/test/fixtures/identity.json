@@ -1,5 +1,5 @@
 {
-  "schema": "shore.inspect-identity",
+  "schema": "pointbreak.inspect-identity",
   "repository": "pointbreak",
   "placement": { "tier": "clone", "label": "clone store" }
 }

@@ -69,7 +69,7 @@ fn store_migrate_folds_worktree_local_into_common_dir() {
 
     let stdout = String::from_utf8(migrate.stdout).unwrap();
     let json = parse_json(stdout.as_bytes());
-    assert_eq!(json["schema"], "shore.store-migrate");
+    assert_eq!(json["schema"], "pointbreak.store-migrate");
     // DiagnosticDocument flattens the body to the TOP LEVEL (the `store status`
     // tests assert this shape) — assert top-level fields, NOT json["body"][…].
     assert!(json["eventsCreated"].as_u64().unwrap() >= 1);

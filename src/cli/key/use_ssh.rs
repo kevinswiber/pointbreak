@@ -64,7 +64,7 @@ pub(super) fn run(
         did_key: handle.signer_id().as_str().to_owned(),
         path: handle.private_key_path().to_owned(),
     };
-    let document = json::DiagnosticDocument::new("shore.keys-use-ssh", body, vec![]);
+    let document = json::DiagnosticDocument::new("pointbreak.key-use-ssh", body, vec![]);
     let format =
         output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)?;

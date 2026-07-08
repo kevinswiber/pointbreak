@@ -23,7 +23,8 @@ fn cli_default_logging_has_empty_stderr() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&output.stdout).starts_with("{\"schema\":\"shore.review-history\"")
+        String::from_utf8_lossy(&output.stdout)
+            .starts_with("{\"schema\":\"pointbreak.review-history\"")
     );
     assert!(String::from_utf8_lossy(&output.stderr).is_empty());
 }
@@ -49,7 +50,7 @@ fn cli_log_filter_writes_trace_output_to_stderr_without_polluting_stdout() {
     let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
     let stderr = String::from_utf8(output.stderr).expect("stderr is utf-8");
 
-    assert!(stdout.starts_with("{\"schema\":\"shore.review-history\""));
+    assert!(stdout.starts_with("{\"schema\":\"pointbreak.review-history\""));
     assert!(!stdout.contains("shore::"));
     assert!(stderr.contains("shore") || stderr.contains("event"));
 }
@@ -76,7 +77,8 @@ fn cli_log_file_writes_trace_output_to_file_not_stdout_or_stderr() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&output.stdout).starts_with("{\"schema\":\"shore.review-history\"")
+        String::from_utf8_lossy(&output.stdout)
+            .starts_with("{\"schema\":\"pointbreak.review-history\"")
     );
     assert!(String::from_utf8_lossy(&output.stderr).is_empty());
     assert!(std::fs::read_to_string(log_path).unwrap().contains("shore"));

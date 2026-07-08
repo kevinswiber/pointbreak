@@ -263,7 +263,7 @@ one-line advisory hint to stderr alongside successful JSON stdout
     **retained**, its command builders adopt `--format json` (Decision 8) and the three
     composite-document paths it reads after re-pointing its stale `/reviewUnit/*` pointers
     (`revision.id`, `revision.revisionId`, `summary.observationCount` on
-    `shore.review-revision`) join the hard core; if it is **retired**, `shore.review-revision`
+    `pointbreak.review-revision`) join the hard core; if it is **retired**, `pointbreak.review-revision`
     has zero stdout consumers and evolves in the soft shell behind a re-bless and the `version`
     discipline. The hard core enumerated in Decision 7 is the floor either way.
 
@@ -333,7 +333,7 @@ one-line advisory hint to stderr alongside successful JSON stdout
 - **A second machine format appears** (e.g. JSONL for `--watch` streams) → it joins the
   `--format` enum as a new value; the enum is the extension point.
 - **shoreline-relay#11 resolves** → update the hard-core enumeration (retained: add the three
-  composite paths; retired: record `shore.review-revision` as zero-consumer soft shell).
+  composite paths; retired: record `pointbreak.review-revision` as zero-consumer soft shell).
 - **The first `version` bump on a consumed document** → confirm the coordinated-break path works
   in practice; if it proves unworkable, re-grade the tiered promise.
 - **Evidence of third-party stdout consumers** appearing before the flip lands → re-run the

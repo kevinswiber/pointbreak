@@ -8,7 +8,7 @@ use crate::session::{
     AssessmentAddResult, AssessmentShowFilters, AssessmentShowResult, DelegationMap,
 };
 
-/// Documented body for `shore.review-assessment-add`.
+/// Documented body for `pointbreak.review-assessment-add`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AssessmentAddBody {
@@ -22,7 +22,7 @@ pub struct AssessmentAddBody {
     summary_content_hash: Option<String>,
 }
 
-/// Documented body for `shore.review-assessment-show`.
+/// Documented body for `pointbreak.review-assessment-show`.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AssessmentShowBody {

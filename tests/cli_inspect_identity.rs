@@ -23,7 +23,7 @@ fn identity_reports_clone_placement_and_repo_basename() {
     let inspector = Inspector::spawn(repo.path());
     let id = inspector.get_json("/api/identity");
 
-    assert_eq!(id["schema"], "shore.inspect-identity");
+    assert_eq!(id["schema"], "pointbreak.inspect-identity");
     let expected = repo.path().file_name().unwrap().to_str().unwrap();
     assert_eq!(id["repository"], expected);
     assert_eq!(id["placement"]["tier"], "clone");
