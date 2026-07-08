@@ -198,7 +198,7 @@ from the snapshot wire (there is nothing to redact). Endpoint/target display liv
 ## `shore capture`
 
 ```bash
-shore capture [--repo <path>] [--base <rev> [--target <rev>]] \
+shore capture [--repo <path>] [--base <rev> | --root] [--target <rev>] \
   [--path <pathspec>]... [--supersedes <revision-id>]...
 ```
 
@@ -212,10 +212,17 @@ tree, including untracked files (source `git_worktree`).
   does not name a commit (a blob or tree) is rejected with an error that names the rev. The snapshot
   is the `base..target` tree diff with no working-tree, index, or untracked involvement, so both
   endpoints serialize as `git_commit` and no worktree path appears in the output. `--target`
-  requires `--base`. Re-capturing the same range is idempotent and reports `eventsExisting`, and an
-  equivalent rev spelling (`HEAD~1` versus the resolved OID) captures the same revision because
-  rev spellings are never stored. Like worktree capture, a range capture lands in the shared
-  common-dir store, so it is immediately visible from sibling worktrees (see below).
+  defaults to `HEAD` under `--base`. Re-capturing the same range is idempotent and reports
+  `eventsExisting`, and an equivalent rev spelling (`HEAD~1` versus the resolved OID) captures the
+  same revision because rev spellings are never stored. Like worktree capture, a range capture lands
+  in the shared common-dir store, so it is immediately visible from sibling worktrees (see below).
+- With `--root`, capture records Git's empty tree to `--target` (default `HEAD`) as a
+  `git_root_commit` source. The base endpoint serializes as `git_tree`; the target endpoint
+  serializes as `git_commit`. This is the supported way to review a repository's first commit, or
+  any explicit target commit as "all files added", without creating orphan-branch workarounds.
+  `--root` cannot be combined with `--base`, and `--target` is accepted only with `--base` or
+  `--root`. Like `--base`, root capture reads only committed trees: the working tree, index,
+  untracked files, and command-helper paths do not affect the captured revision.
 - Durable state lands in the shared common-dir store at `.git/shore` under the clone's Git common
   directory (the default for every worktree). An `ephemeral` worktree instead keeps its own
   discardable `.shore/data/` store. A legacy flat `.shore/` store from before the `.shore/data/`
@@ -248,9 +255,10 @@ tree, including untracked files (source `git_worktree`).
   auto-collapsed.
 - With `--path <pathspec>` (repeatable), the capture is scoped to the given git pathspec(s): both
   the tracked diff and untracked-file synthesis include only matching files. This composes with the
-  default worktree capture and with `--base`/`--target`. The syntax is native git pathspec —
-  including magic such as `:(exclude)...` — executed by git itself, and pathspecs are interpreted
-  relative to the repository root regardless of the invoking directory. The recorded set is
+  default worktree capture, with `--base`/`--target`, and with `--root`/`--target`. The syntax is
+  native git pathspec — including magic such as `:(exclude)...` — executed by git itself, and
+  pathspecs are interpreted relative to the repository root regardless of the invoking directory.
+  The recorded set is
   order-independent (sorted, deduped, trailing slashes normalized on plain paths) and is part of
   the captured revision's identity: the same range captured under a different scope is a different
   revision, while identical captured content still shares one content object. A scope that matches
@@ -260,6 +268,9 @@ tree, including untracked files (source `git_worktree`).
   from before the option existed. (This is deliberately git pathspec syntax, not the
   gitignore-style globs of `.shore/sensitivity.json` — capture scoping is executed by git, while
   the sensitivity exclude config is matched by Shore at scan time.)
+- `git_tree` and `git_index` are endpoint states in the recorded model. The only new user-facing
+  source selector here is `--root`; staged or index-specific capture flags are not part of this
+  surface.
 
 V1 storage is local and synchronous. The shared common-dir store may take concurrent writes from
 multiple worktrees of the same clone, kept safe by content-addressed writes and a regenerable

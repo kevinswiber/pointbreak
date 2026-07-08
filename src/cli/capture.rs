@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use clap::Args;
 use pointbreak::documents::capture_document;
 use pointbreak::model::{ReviewEndpoint, RevisionId};
-use pointbreak::session::{CaptureOptions, CaptureResult, CommitRangeSpec, capture_review};
+use pointbreak::session::{
+    CaptureOptions, CaptureResult, CommitRangeSpec, RootCommitSpec, capture_review,
+};
 
 use crate::cli::output;
 use crate::cli_tracing::TracingArgs;
@@ -21,7 +23,11 @@ pub(super) struct CaptureArgs {
     #[arg(long)]
     base: Option<String>,
 
-    /// Range end rev (resolved to a commit). Defaults to HEAD; requires --base.
+    /// Capture the target commit against Git's empty tree.
+    #[arg(long)]
+    root: bool,
+
+    /// Target rev (resolved to a commit). Defaults to HEAD with --base or --root.
     #[arg(long)]
     target: Option<String>,
 
@@ -59,8 +65,11 @@ pub(super) fn run(
     let span = tracing::info_span!("shore.review.capture");
     let _entered = span.enter();
     tracing::debug!(command = "review.capture", "command_start");
-    if args.target.is_some() && args.base.is_none() {
-        return Err("--target requires --base".into());
+    if args.root && args.base.is_some() {
+        return Err("--root cannot be combined with --base".into());
+    }
+    if args.target.is_some() && args.base.is_none() && !args.root {
+        return Err("--target requires --base or --root".into());
     }
     let (options, skip) = capture_options(&args, tracing, stderr)?;
     let capture = capture_review(options)?;
@@ -154,7 +163,9 @@ fn capture_options(
     stderr: &mut dyn Write,
 ) -> Result<(CaptureOptions, crate::cli::common::SigningSkip), Box<dyn std::error::Error>> {
     let mut options = CaptureOptions::new(&args.repo);
-    if let Some(range) = commit_range_spec(args) {
+    if args.root {
+        options = options.with_root_commit(root_commit_spec(args));
+    } else if let Some(range) = commit_range_spec(args) {
         options = options.with_commit_range(range);
     }
     if !args.supersedes.is_empty() {
@@ -183,8 +194,8 @@ fn capture_options(
 }
 
 /// Build the commit-range spec from `--base`/`--target`. `None` keeps the
-/// default worktree capture. `--target` without `--base` is rejected in `run`
-/// before this point.
+/// default worktree capture. `--target` without `--base` or `--root` is rejected
+/// in `run` before this point.
 fn commit_range_spec(args: &CaptureArgs) -> Option<CommitRangeSpec> {
     let base = args.base.as_ref()?;
     let mut range = CommitRangeSpec::new(base.clone());
@@ -192,4 +203,12 @@ fn commit_range_spec(args: &CaptureArgs) -> Option<CommitRangeSpec> {
         range = range.with_target_rev(target.clone());
     }
     Some(range)
+}
+
+fn root_commit_spec(args: &CaptureArgs) -> RootCommitSpec {
+    let mut root = RootCommitSpec::new();
+    if let Some(target) = &args.target {
+        root = root.with_target_rev(target.clone());
+    }
+    root
 }

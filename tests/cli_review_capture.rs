@@ -212,6 +212,111 @@ fn capture_with_base_and_target_pins_both_endpoints() {
 }
 
 #[test]
+fn capture_root_outputs_added_files_for_one_commit_repo() {
+    let repo = GitRepo::new();
+    repo.write("README.md", "hello\n");
+    repo.commit_all("initial");
+
+    let output = shore(["capture", "--repo", repo.path().to_str().unwrap(), "--root"]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    assert_eq!(json["schema"], "pointbreak.review-capture");
+    assert_eq!(json["revision"]["base"]["kind"], "git_tree");
+    assert_eq!(json["revision"]["target"]["kind"], "git_commit");
+    assert_eq!(json["diffstat"]["addedFiles"], 1);
+}
+
+#[test]
+fn capture_root_with_target_pins_target_commit() {
+    let repo = committed_repo();
+    let first_oid = rev(&repo, "HEAD~1");
+
+    let output = shore([
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--root",
+        "--target",
+        "HEAD~1",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    assert_eq!(json["revision"]["base"]["kind"], "git_tree");
+    assert_eq!(json["revision"]["target"]["commitOid"], first_oid);
+}
+
+#[test]
+fn capture_root_with_path_scopes_added_files() {
+    let repo = GitRepo::new();
+    repo.write("a/one.txt", "one\n");
+    repo.write("b/two.txt", "two\n");
+    repo.commit_all("initial");
+
+    let output = shore([
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--root",
+        "--path",
+        "a",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = parse_json(&output.stdout);
+    assert_eq!(json["diffstat"]["addedFiles"], 1);
+    let snapshot_id =
+        pointbreak::model::ObjectId::new(json["revision"]["objectId"].as_str().unwrap());
+    let artifact = pointbreak::session::read_object_artifact(repo.path(), &snapshot_id)
+        .expect("object artifact for the scoped root capture");
+    let paths: Vec<&str> = artifact
+        .snapshot
+        .files
+        .iter()
+        .filter_map(|file| file.new_path.as_deref())
+        .collect();
+    assert_eq!(paths, vec!["a/one.txt"]);
+
+    let revision_id = json["revision"]["id"].as_str().unwrap();
+    let shown = parse_json(
+        &shore([
+            "revision",
+            "show",
+            revision_id,
+            "--repo",
+            repo.path().to_str().unwrap(),
+        ])
+        .stdout,
+    );
+    assert_eq!(shown["revision"]["source"]["pathspecs"][0], "a");
+}
+
+#[test]
+fn capture_root_rejects_base() {
+    let output = shore(["capture", "--root", "--base", "HEAD"]);
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("--root cannot be combined with --base"),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn capture_with_dirty_worktree_and_base_ignores_worktree_state() {
     let repo = committed_repo();
     repo.write("src/lib.rs", "pub fn value() -> u32 { 999 }\n");
@@ -243,7 +348,7 @@ fn capture_with_dirty_worktree_and_base_ignores_worktree_state() {
 }
 
 #[test]
-fn capture_target_without_base_is_rejected() {
+fn capture_target_without_base_or_root_is_rejected() {
     let repo = committed_repo();
 
     let output = shore([
@@ -256,7 +361,7 @@ fn capture_target_without_base_is_rejected() {
 
     assert!(!output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("--target requires --base"),
+        String::from_utf8_lossy(&output.stderr).contains("--target requires --base or --root"),
         "stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );

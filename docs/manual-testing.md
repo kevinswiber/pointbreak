@@ -15,10 +15,11 @@ caller would see them.
   `./target/release/shore`. A debug build works for behavior checks if you prefer.
 - All commands below assume `shore` resolves to that binary. Set `SHORE=$(pwd)/target/release/shore`
   in your shell and substitute `"$SHORE"` if you do not want to install it on `PATH`.
-- Use a fresh temp directory per test so storage state does not bleed across cases. `shore capture`
-  shells out to `git diff … HEAD`, so the repo needs **at least one commit** before
-  capture runs; otherwise the underlying git call fails with `fatal: bad revision 'HEAD'`. Include a
-  baseline commit in the setup:
+- Use a fresh temp directory per test so storage state does not bleed across cases. Default
+  `shore capture` shells out to `git diff … HEAD`, so the repo needs **at least one commit** before
+  default capture runs; otherwise the underlying git call fails with `fatal: bad revision 'HEAD'`.
+  Root capture is the exception: §B uses `shore capture --root` to review the first commit against
+  Git's empty tree. For default worktree capture, include a baseline commit in the setup:
 
   ```bash
   TMP=$(mktemp -d)
@@ -28,7 +29,7 @@ caller would see them.
   git config user.name "Manual Test"
   git config commit.gpgsign false
 
-  # Baseline commit — required so `shore capture` has a HEAD to diff against.
+  # Baseline commit — required so default `shore capture` has a HEAD to diff against.
   echo "placeholder" > README
   git add README && git commit -q -m "baseline"
   ```
@@ -47,7 +48,7 @@ caller would see them.
   - **Ephemeral opt-in — a discardable worktree-local store at `.shore/data/`.** Enabled per
     worktree with `shore store mode ephemeral`; Pointbreak also writes a `.shore/store.json` marker
     and a generated `.shore/.gitignore` (ignoring `data/` and `*.local.json`). Remove the worktree
-    and the review facts vanish with it. §H opts into this mode to poke at the store's files
+    and the review facts vanish with it. §I opts into this mode to poke at the store's files
     directly.
   - **Family opt-in — a machine-wide store at `<shore-home>/stores/<slug>/`.** Enabled per physical
     clone with `shore store link <slug>` so review facts survive removing any one clone and are
@@ -57,11 +58,12 @@ caller would see them.
   ephemeral tiers and [the family-store tier](./storage-model.md#user-level-family-store-tier) for
   depth. After a manual test you can remove the temp directory (and, for the family walkthrough, its
   throwaway `SHORE_HOME`); nothing escapes them.
-- **How to run these.** Sections A and C–G share **one** repo: §A does the single `shore capture`
-  that the later sections annotate, so keep working in the same temp repo through §G. Bare review
+- **How to run these.** Sections A and D–H share **one** repo: §A does the single `shore capture`
+  that the later sections annotate, so keep working in the same temp repo through §H. Bare review
   commands need exactly one captured revision — a second capture triggers
-  `multiple captured revisions; pass --revision` — so §B (untracked files), §H (storage soundness),
-  and the family-store walkthrough each start from their **own** fresh temp repo and say so.
+  `multiple captured revisions; pass --revision` — so §B (root capture), §C (untracked files),
+  §I (storage soundness), and the family-store walkthrough each start from their **own** fresh temp
+  repo and say so.
 
 ## A. Basic capture of tracked changes
 
@@ -93,13 +95,45 @@ ls .git/shore/events/ .git/shore/artifacts/objects/
 - Nothing lands in the working tree: the default store is inside `.git/`, so no `.shore/` directory
   is created, the root `.gitignore` is untouched, and `git status --short` shows only your own
   change (` M src.txt`). (An ephemeral-mode worktree instead materializes `.shore/data/` guarded by
-  a generated `.shore/.gitignore`; see §H.)
+  a generated `.shore/.gitignore`; see §I.)
 
-## B. Capture with untracked files
+## B. Root capture of a one-commit repository
+
+**Goal.** Confirm `shore capture --root` records the first commit as files added from Git's empty
+tree, without needing an orphan-branch workaround.
+
+Run §B in its **own** fresh temp repo:
+
+```bash
+TMP=$(mktemp -d)
+cd "$TMP"
+git init -q
+git config user.email "manual-test@example.com"
+git config user.name "Manual Test"
+git config commit.gpgsign false
+
+mkdir -p src
+echo "hello root" > src/first.txt
+git add src/first.txt && git commit -q -m "initial"
+
+shore capture --root \
+  | jq '{schema, base: .revision.base.kind, target: .revision.target.kind, diffstat}'
+shore revision show --pretty | jq '[.rows[] | select(.kind == "file_header") | .filePath]'
+```
+
+**Expect.**
+
+- The capture JSON has `schema: "pointbreak.review-capture"`, `base: "git_tree"`,
+  `target: "git_commit"`, and `diffstat.addedFiles: 1`.
+- The shown revision has one file header for `src/first.txt`, captured as an added file.
+- `shore capture --root --target <rev>` captures an explicit commit the same way, and
+  `shore capture --root --path src` scopes the root capture through Git pathspecs.
+
+## C. Capture with untracked files
 
 **Goal.** Confirm that untracked files appear as `added` in the captured snapshot.
 
-Run §B in its **own** fresh temp repo (re-run the setup baseline) so its capture is the only
+Run §C in its **own** fresh temp repo (re-run the setup baseline) so its capture is the only
 revision and the later sections' single-revision commands are unaffected:
 
 ```bash
@@ -118,7 +152,7 @@ shore revision show --pretty | jq '[.rows[] | select(.kind == "file_header") | .
   `.git/`, so there is no `.shore/` directory and no store rows in the captured diff, and Pointbreak
   never edits the root `.gitignore` (`git status --short` shows only `?? new-file.txt`).
 
-## C. Observations — add and list
+## D. Observations — add and list
 
 **Goal.** Confirm observations attach to a revision, support review-wide and range targets, and
 can be filtered by track or tag on read.
@@ -151,7 +185,7 @@ shore observation list --pretty --include-body
 - The `--tag correctness` filter returns only observations carrying that exact tag.
 - The default `observation list` omits body text; `--include-body` hydrates it.
 
-## D. Input requests — open, list, fetch, respond
+## E. Input requests — open, list, fetch, respond
 
 **Goal.** Confirm the durable pause/decision lifecycle.
 
@@ -185,7 +219,7 @@ shore input-request list --pretty --status all
   and one entry under `responses`. `input-request list` with the default `--status open` returns
   zero entries.
 
-## E. Assessments — add and show
+## F. Assessments — add and show
 
 **Goal.** Confirm a review assessment lands, and that `--replaces` is the only thing that removes
 an older assessment from the current set.
@@ -220,7 +254,7 @@ shore assessment show --pretty --all
 - After the second `add`, the original assessment is no longer in the current list. It still
   appears under `--all` with `status: "replaced"`.
 
-## F. Review history with filters
+## G. Review history with filters
 
 **Goal.** Confirm `shore history` is chronological, preserves duplicate semantic events,
 and applies filters without changing freshness metadata.
@@ -246,7 +280,7 @@ shore history --pretty --include-body \
   is `.summary.body`, an assessment summary is `.summary.summary`, and an input request response
   reason is on the responded entry's `.summary.reason`.
 
-## G. Review revisions and show with and without `--include-body`
+## H. Review revisions and show with and without `--include-body`
 
 **Goal.** Confirm the discovery surface lists every captured revision, and the composite
 revision view returns narrative facts before the snapshot remainder with body text omitted by
@@ -316,7 +350,7 @@ shore revision show --pretty --track agent:codex \
   the rows for the kept facts remain). `snapshot_remainder_count` is the same as without the
   filter, and the snapshot remainder still includes every captured file.
 
-## H. Storage soundness — events, artifacts, and projection rebuildability
+## I. Storage soundness — events, artifacts, and projection rebuildability
 
 **Goal.** Confirm that `.shore/data/events/` and `.shore/data/artifacts/` together are the authoritative
 durable store, and that `.shore/data/state.json` is a pure projection that can be deleted and
@@ -427,7 +461,7 @@ See [storage-model.md](./storage-model.md#user-level-family-store-tier) for the 
 (ephemeral/sensitivity refusals, sync-managed-path warnings, and the destructive `store forget`
 verb) that this quick loop does not exercise.
 
-## I. Things to glance at after big changes
+## J. Things to glance at after big changes
 
 When refactoring storage, projections, or CLI surfaces, also look at:
 

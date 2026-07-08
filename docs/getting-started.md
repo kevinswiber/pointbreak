@@ -76,6 +76,16 @@ the same store for every worktree of the clone — and an ephemeral worktree kee
 Those files are local storage. Use command output as the integration surface instead of depending
 on internal file paths.
 
+To review a repository's first commit before there is a later baseline, capture the committed tree
+against Git's empty tree:
+
+```bash
+shore capture --root
+```
+
+Add `--target <rev>` to review an older or explicit commit this way; `--path <pathspec>` can scope
+the root capture to selected files.
+
 ## 4. Inspect The Review
 
 ```bash
