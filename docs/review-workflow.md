@@ -222,7 +222,7 @@ time so the newest revision appears last. Pass `--object <object-id>` to list on
 that share one content object — a listing lens that may span threads, never a head selector.
 
 ```bash
-shore revision list --pretty
+shore revision list --format json-pretty
 ```
 
 When a revision supersedes another, the list/read projections build the supersession DAG and surface
@@ -248,7 +248,7 @@ metadata row, hunk header, and diff row. Track filters narrow narrative facts
 without changing snapshot completeness.
 
 ```bash
-shore revision show --pretty
+shore revision show --format json-pretty
 shore revision show <revision-id>
 shore revision show --track agent:codex
 shore revision show --include-body
@@ -265,7 +265,7 @@ It is the place to answer "what happened, in what order?" rather than
 "what does this revision look like right now?".
 
 ```bash
-shore history --pretty
+shore history --format json-pretty
 shore history --event-type review-observation-recorded
 shore history --revision <id> --include-body
 ```
@@ -307,7 +307,7 @@ shore observation add \
   --body-file notes/lib-42.md
 
 # Replay observations for one track
-shore observation list --track agent:codex --pretty
+shore observation list --track agent:codex --format json-pretty
 
 # Include bodies on read
 shore observation list --include-body
@@ -367,7 +367,7 @@ shore assessment add \
   --summary "supersedes earlier needs-changes after offline discussion" \
   --replaces <older-assessment-id>
 
-shore assessment show --pretty
+shore assessment show --format json-pretty
 shore assessment show --all --include-summary
 ```
 
@@ -479,7 +479,7 @@ git status
 shore capture | jq .
 
 # 2. Read the captured revision (composite view, narrative + snapshot).
-shore revision show --pretty | less
+shore revision show --format json-pretty | less
 
 # 3. Record observations as you read the diff.
 shore observation add \
@@ -493,7 +493,7 @@ shore observation add \
   --title "Unit test for the new retry path" \
   --file src/io.rs --start-line 120 --end-line 135
 
-shore observation list --pretty
+shore observation list --format json-pretty
 
 # 4. Open an input request when you need a decision from someone else.
 shore input-request open \
@@ -515,8 +515,8 @@ shore assessment add \
   --summary "ship it; follow up on the retry-path unit test"
 
 # 6. Verify the durable record.
-shore assessment show --pretty
-shore history --pretty | less
+shore assessment show --format json-pretty
+shore history --format json-pretty | less
 ```
 
 That is the full V1 workflow. Anything beyond it — notifications, daemons,

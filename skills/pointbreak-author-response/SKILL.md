@@ -13,7 +13,7 @@ them, and record your response on your author track.
 Do not run `shore assessment add`. The reviewer owns the assessment. Do not run
 `shore capture`; this response attaches to the existing revision with `--revision`.
 
-Do not run `shore revision show --pretty` as a readback surface. Use bounded list commands for the
+Do not run `shore revision show --format json-pretty` as a readback surface. Use bounded list commands for the
 reviewer's observations, input requests, and assessment.
 
 ## Workflow at a glance
@@ -39,7 +39,7 @@ Set the revision ID, reviewer track, and your existing author track. If the revi
 known, list captured units first:
 
 ```bash
-shore revision list --pretty
+shore revision list --format json-pretty
 revision_id="<revision-id>"
 reviewer_track="<reviewer-track>"
 author_track="<author-track>"
@@ -66,23 +66,23 @@ Read the reviewer's durable review facts:
 shore observation list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
-  --include-body --pretty
+  --include-body --format json-pretty
 
 shore validation list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
-  --include-body --pretty
+  --include-body --format json-pretty
 
 shore assessment show \
   --revision "$revision_id" \
   --track "$reviewer_track" \
-  --include-summary --pretty
+  --include-summary --format json-pretty
 
 shore input-request list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --status open \
-  --include-body --pretty
+  --include-body --format json-pretty
 ```
 
 Use the assessment, validation evidence, and open requests to decide what kind of response is needed.
@@ -108,7 +108,7 @@ shore input-request list \
   --track "$reviewer_track" \
   --mode operative \
   --status open \
-  --include-body --pretty
+  --include-body --format json-pretty
 ```
 
 ## Respond to advisory requests
@@ -122,7 +122,7 @@ shore input-request list \
   --track "$reviewer_track" \
   --mode advisory \
   --status open \
-  --include-body --pretty
+  --include-body --format json-pretty
 
 shore input-request respond <input-request-id> \
   --outcome approved \
@@ -252,23 +252,23 @@ Verify the author response with bounded read commands:
 shore observation list \
   --revision "$revision_id" \
   --track "$author_track" \
-  --include-body --pretty
+  --include-body --format json-pretty
 
 shore validation list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
-  --include-body --pretty
+  --include-body --format json-pretty
 
 shore input-request list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --status all \
-  --include-body --pretty
+  --include-body --format json-pretty
 
 shore assessment show \
   --revision "$revision_id" \
   --track "$reviewer_track" \
-  --include-summary --pretty
+  --include-summary --format json-pretty
 ```
 
 Then stop. Report the revision ID, author track, reviewer track, what you changed or deliberately
@@ -288,7 +288,7 @@ did not change, and which input requests you responded to. Leave the assessment 
 - **Recapturing the revision.** Attach to the existing revision with `--revision`; do not run
   `shore capture` for the response leg.
 - **Using full revision show for readback.** Use bounded observation, input-request, and
-  assessment read commands. Do not use `shore revision show --pretty` for this response loop.
+  assessment read commands. Do not use `shore revision show --format json-pretty` for this response loop.
 - **Ignoring reviewer validation evidence.** Read `shore validation list` on the reviewer
   track before deciding what checks to rerun.
 - **Attaching live-code checks to an old snapshot.** If response edits moved the checkout beyond the

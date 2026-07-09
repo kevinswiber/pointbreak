@@ -39,7 +39,7 @@ caller would see them.
   new ones, stage them, leave them unstaged, etc.) so the captured diff is non-empty.
 
 - `shore capture` and the write commands emit **compact JSON only**. Pipe through `jq` or
-  `python3 -m json.tool` if you want to read them. Most read commands accept `--pretty`.
+  `python3 -m json.tool` if you want to read them. Most read commands accept `--format json-pretty`.
 - `shore` resolves one of three durable stores, and every command in this playbook reads and writes
   whichever one is resolved:
   - **Default — the clone's common-dir store at `.git/shore/`.** Automatic, no setup, shared by the
@@ -119,7 +119,7 @@ git add src/first.txt && git commit -q -m "initial"
 
 shore capture --root \
   | jq '{schema, base: .revision.base.kind, target: .revision.target.kind, diffstat}'
-shore revision show --pretty | jq '[.rows[] | select(.kind == "file_header") | .filePath]'
+shore revision show --format json-pretty | jq '[.rows[] | select(.kind == "file_header") | .filePath]'
 ```
 
 **Expect.**
@@ -143,7 +143,7 @@ revision and the later sections' single-revision commands are unaffected:
 echo "fresh content" > new-file.txt
 shore capture 2>&1 || true
 shore capture --include-untracked | jq .diffstat
-shore revision show --pretty | jq '[.rows[] | select(.kind == "file_header") | .filePath]'
+shore revision show --format json-pretty | jq '[.rows[] | select(.kind == "file_header") | .filePath]'
 ```
 
 **Expect.**
@@ -175,10 +175,10 @@ shore observation add \
   --file src.txt --start-line 4 --end-line 4 \
   --body "epsilon line was added in this revision"
 
-shore observation list --pretty
-shore observation list --pretty --track agent:codex
-shore observation list --pretty --tag correctness
-shore observation list --pretty --include-body
+shore observation list --format json-pretty
+shore observation list --format json-pretty --track agent:codex
+shore observation list --format json-pretty --tag correctness
+shore observation list --format json-pretty --include-body
 ```
 
 **Expect.**
@@ -203,15 +203,15 @@ REQUEST_OUT=$(shore input-request open \
 echo "$REQUEST_OUT" | jq .
 INPUT_REQUEST_ID=$(echo "$REQUEST_OUT" | jq -r .inputRequestId)
 
-shore input-request list --pretty
-shore input-request list --pretty --status all
-shore input-request show "$INPUT_REQUEST_ID" --pretty --include-body
+shore input-request list --format json-pretty
+shore input-request list --format json-pretty --status all
+shore input-request show "$INPUT_REQUEST_ID" --format json-pretty --include-body
 
 shore input-request respond "$INPUT_REQUEST_ID" \
   --outcome approved \
   --reason "verified plan with on-call DBA"
 
-shore input-request list --pretty --status all
+shore input-request list --format json-pretty --status all
 ```
 
 **Expect.**
@@ -236,8 +236,8 @@ shore assessment add \
   --assessment accepted \
   --summary "looks good, ship it"
 
-shore assessment show --pretty
-shore assessment show --pretty --include-summary
+shore assessment show --format json-pretty
+shore assessment show --format json-pretty --include-summary
 
 # Replacing example
 ASSESS_OLD=$(shore assessment show | jq -r '.current.assessmentId')
@@ -247,8 +247,8 @@ shore assessment add \
   --summary "second pass; follow-up filed" \
   --replaces "$ASSESS_OLD"
 
-shore assessment show --pretty
-shore assessment show --pretty --all
+shore assessment show --format json-pretty
+shore assessment show --format json-pretty --all
 ```
 
 **Expect.**
@@ -266,12 +266,12 @@ shore assessment show --pretty --all
 and applies filters without changing freshness metadata.
 
 ```bash
-shore history --pretty | jq '.eventCount, .historyCount'
-shore history --pretty --event-type review-observation-recorded \
+shore history --format json-pretty | jq '.eventCount, .historyCount'
+shore history --format json-pretty --event-type review-observation-recorded \
   | jq '.eventCount, .historyCount'
-shore history --pretty --track human:kevin \
+shore history --format json-pretty --track human:kevin \
   | jq '.eventCount, .historyCount'
-shore history --pretty --include-body \
+shore history --format json-pretty --include-body \
   | jq '.entries[] | select(.eventType=="review_observation_recorded") | .summary.body'
 ```
 
@@ -299,8 +299,8 @@ revisions. Reach for it whenever `shore revision show` errors with
 `multiple captured revisions; pass --revision`.
 
 ```bash
-shore revision list --pretty | jq '{eventSetHash, revisionCount, ids: [.entries[].revisionId]}'
-shore revision list --pretty | jq '.entries[] | {revisionId, capturedAt, objectArtifactContentHash}'
+shore revision list --format json-pretty | jq '{eventSetHash, revisionCount, ids: [.entries[].revisionId]}'
+shore revision list --format json-pretty | jq '.entries[] | {revisionId, capturedAt, objectArtifactContentHash}'
 ```
 
 **Expect.**
@@ -323,18 +323,18 @@ shore revision list --pretty | jq '.entries[] | {revisionId, capturedAt, objectA
   or `"snapshot_remainder"`. Body text is **not** carried on rows.
 
 ```bash
-shore revision show --pretty | jq '.eventSetHash, .summary'
-shore revision show --pretty | jq '[.rows[].kind] | unique'
-shore revision show --pretty \
+shore revision show --format json-pretty | jq '.eventSetHash, .summary'
+shore revision show --format json-pretty | jq '[.rows[].kind] | unique'
+shore revision show --format json-pretty \
   | jq '[.rows[] | {kind, projectionPhase}] | group_by(.projectionPhase) | map({phase: .[0].projectionPhase, count: length})'
 
 # Bodies are omitted by default and live on the top-level fact lists when hydrated.
-shore revision show --pretty | jq '.observations[] | {title, body}'
-shore revision show --pretty --include-body | jq '.observations[] | {title, body}'
-shore revision show --pretty --include-body | jq '.assessments[] | {assessment, summary}'
+shore revision show --format json-pretty | jq '.observations[] | {title, body}'
+shore revision show --format json-pretty --include-body | jq '.observations[] | {title, body}'
+shore revision show --format json-pretty --include-body | jq '.assessments[] | {assessment, summary}'
 
 # Track filter narrows narrative material but leaves the snapshot remainder intact.
-shore revision show --pretty --track agent:codex \
+shore revision show --format json-pretty --track agent:codex \
   | jq '{
       observations: [.observations[].trackId] | unique,
       input_requests_count: (.inputRequests | length),
@@ -399,8 +399,8 @@ ls .shore/data/artifacts/notes/        # only populated for large-body events
 # Read commands work without state.json
 HASH_BEFORE=$(jq -r .eventSetHash .shore/data/state.json)
 rm .shore/data/state.json
-shore history --pretty | jq -r .eventSetHash    # same hash
-shore revision show --pretty >/dev/null
+shore history --format json-pretty | jq -r .eventSetHash    # same hash
+shore revision show --format json-pretty >/dev/null
 test -f .shore/data/state.json && echo "rebuilt" || echo "still missing (expected for reads)"
 
 # A write command rebuilds the projection

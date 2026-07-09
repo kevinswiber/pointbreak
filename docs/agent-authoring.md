@@ -151,9 +151,9 @@ shore input-request open \
   --mode advisory \
   --body "The implementation accepts the new form, but I did not update user-facing docs because the prompt did not say whether this behavior should be advertised yet."
 
-shore observation list --revision "$revision_id" --track "$track" --pretty
-shore validation list --revision "$revision_id" --track "$track" --include-body --pretty
-shore input-request list --revision "$revision_id" --track "$track" --status open --pretty
+shore observation list --revision "$revision_id" --track "$track" --format json-pretty
+shore validation list --revision "$revision_id" --track "$track" --include-body --format json-pretty
+shore input-request list --revision "$revision_id" --track "$track" --status open --format json-pretty
 ```
 
 The commands emit compact JSON by default, so piping capture output through `jq` is only for human
@@ -181,10 +181,10 @@ better as observations unless they require a decision.
 After the author stops, a reviewer can read the handoff with:
 
 ```bash
-shore observation list --revision <revision-id> --track <track> --include-body --pretty
-shore validation list --revision <revision-id> --track <track> --include-body --pretty
+shore observation list --revision <revision-id> --track <track> --include-body --format json-pretty
+shore validation list --revision <revision-id> --track <track> --include-body --format json-pretty
 shore input-request list --revision <revision-id> --track <track> --status open \
-  --include-body --pretty
+  --include-body --format json-pretty
 ```
 
 The reviewer then records their own facts on their own track. For example:
@@ -218,11 +218,11 @@ Reviewer readback uses the same bounded surfaces as the author handoff:
 
 ```bash
 shore observation list --revision <revision-id> --track <author-track> \
-  --include-body --pretty
+  --include-body --format json-pretty
 shore validation list --revision <revision-id> --track <author-track> \
-  --include-body --pretty
+  --include-body --format json-pretty
 shore input-request list --revision <revision-id> --track <author-track> \
-  --status open --include-body --pretty
+  --status open --include-body --format json-pretty
 ```
 
 When the reviewer runs checks, it records those concrete results separately from the assessment:
@@ -273,13 +273,13 @@ The author reads the reviewer track with bounded commands:
 
 ```bash
 shore observation list --revision <revision-id> --track <reviewer-track> \
-  --include-body --pretty
+  --include-body --format json-pretty
 shore validation list --revision <revision-id> --track <reviewer-track> \
-  --include-body --pretty
+  --include-body --format json-pretty
 shore assessment show --revision <revision-id> --track <reviewer-track> \
-  --include-summary --pretty
+  --include-summary --format json-pretty
 shore input-request list --revision <revision-id> --track <reviewer-track> \
-  --status open --include-body --pretty
+  --status open --include-body --format json-pretty
 ```
 
 If the assessment is `needs-changes` or `needs-clarification`, or if an open operative input request

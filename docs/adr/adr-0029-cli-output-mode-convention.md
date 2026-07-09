@@ -7,6 +7,9 @@ output; the text lane is opt-in via `--format text` / `SHORE_FORMAT=text`. Decis
 `--format` selector, the disposable-text/stable-json posture, and Decisions 5/7/9/10 stand as
 landed. Read the Amendment first — the original Context/Decision text is retained as the historical
 record.**
+**Amended 2026-07-09 (owner): the pre-1.0 legacy `--pretty` and `--compact` aliases are removed.
+Use `--format json-pretty` for indented JSON and `--format json` for an explicit compact machine
+document.**
 **Date:** 2026-07-02
 **See also:** **ADR-0028** (id-prefix convention — the ids-are-opaque contract and the
 display-truncation precedent this ADR extends to CLI text output), **ADR-0030** (named command
@@ -49,8 +52,8 @@ sequenced.
 **Stands, exactly as landed** (independent of which lane is default):
 - **Decision 2's selector and precedence** — `--format <text|json|json-pretty>`, `SHORE_FORMAT`, and
   `--format` flag > `SHORE_FORMAT` > built-in default — ship as-is; only the built-in default value
-  differs (`json`). Because there is no flip, the legacy `--pretty`/`--compact` flags are **not**
-  retired here; removing them would be a separate decision.
+  differs (`json`). The 2026-07-09 amendment removes the old boolean aliases now that `--format` is
+  the single public selector.
 - **Decision 3** — text is formally disposable, the machine lane is the stability surface, and
   un-digested commands fall back to indented JSON on the text lane — stands. (Its clause requiring
   the consumed commands to ship a bespoke text rendering "at the flip" is moot; those renderers
@@ -60,7 +63,7 @@ sequenced.
   rule** (isatty may govern color/pager/stderr, never data shape) — all stand unchanged.
 
 **Net effect.** ADR-0029 now reads as: *one seam, three lanes, `json` the default and the contract,
-`text` the opt-in human view — no coordinated break.* Wave-1 (plan 0106, Phases 1–5) delivered the
+`text` the opt-in human view, no boolean output aliases — no coordinated break.* Wave-1 (plan 0106, Phases 1–5) delivered the
 `--format text` digests on seven commands and is the complete deliverable; the flip half of the plan
 is retired. Reviving the flip would be a fresh decision (a new ADR or a superseding amendment) that
 re-opens the Decision 8 migration gate.
@@ -73,7 +76,7 @@ JSON document to stdout, single-line compact by default, through one seam (`writ
 `shore inspect`'s startup banner; the only other stdout in the CLI belongs to the `shore show`
 TUI, which owns the terminal interactively (`src/tui/terminal.rs:39`) rather than emitting a
 document. There is no TTY detection, no color, no pager, and no table rendering on document
-stdout; `--pretty` re-indents the same JSON and is eyeball-debugging, not a human view. The
+stdout; `--format json-pretty` re-indents the same JSON and is eyeball-debugging, not a human view. The
 deliberate human surfaces are the `shore inspect` web UI and the `shore show` TUI (which still
 renders the pre-revision working-tree stream).
 
@@ -163,6 +166,8 @@ one-line advisory hint to stderr alongside successful JSON stdout
    - The `--pretty`/`--compact` flags are retired with the flip; their jobs are absorbed
      (`json` is compact; `json-pretty` is indented; `text` is readable). An unknown or invalid
      `SHORE_FORMAT` value is a hard error, not a silent fallback.
+     The 2026-07-09 amendment reaches the same alias-removal endpoint without adopting the text
+     default flip.
    - The convention applies uniformly to reads and write acks. Exit-code semantics are shared
      across lanes and remain contract.
 
@@ -305,7 +310,7 @@ one-line advisory hint to stderr alongside successful JSON stdout
   and the bare command greets a person with a wall of compact JSON. Rejected by owner decision:
   the break is affordable now (first-party-only consumers), and it will never be cheaper.
 - **A boolean `--text` flag as the selector.** A boolean cannot express the machine/pretty/text
-  triage, invites a second axis beside `--pretty`/`--compact` instead of absorbing them, and
+  triage, invites a second axis beside pretty/compact booleans instead of absorbing them, and
   cannot be pinned once per script the way `--format`+`SHORE_FORMAT` can. The enum also leaves
   room for future formats (e.g. JSONL) without a new flag.
 - **TTY-adaptive data shape (the gh model) — rejected, revisit conditions recorded.** The trap

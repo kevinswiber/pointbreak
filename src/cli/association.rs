@@ -115,12 +115,6 @@ struct ListArgs {
     #[arg(long)]
     current: bool,
 
-    #[arg(long, conflicts_with = "compact")]
-    pretty: bool,
-
-    #[arg(long)]
-    compact: bool,
-
     #[command(flatten)]
     format_args: output::FormatArgs,
 }
@@ -204,8 +198,7 @@ fn record_run(
         Some(revision) => Some(ids.rev(revision)?),
         None => None,
     };
-    let format =
-        output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     match record_axis_from_args(&args)? {
         RecordAxis::Commit(commit) => {
             let mut options =
@@ -241,8 +234,7 @@ fn withdraw_run(
         Some(revision) => Some(ids.rev(revision)?),
         None => None,
     };
-    let format =
-        output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     // The resolved prefix selects which axis is withdrawn.
     if association_id.starts_with(&format!("{}:", IdKind::CommitAssociation.prefix())) {
         let mut options =
@@ -266,7 +258,6 @@ fn withdraw_run(
 }
 
 fn list_run(args: ListArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
-    let pretty = args.pretty && !args.compact;
     let mut options = ListAssociationsOptions::new(&args.repo).current_only(args.current);
     if let Some(revision) = &args.revision {
         let ids = IdResolver::new(&args.repo);
@@ -276,10 +267,7 @@ fn list_run(args: ListArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::e
         options = options.with_axis(axis.into());
     }
     let result = list_associations(options)?;
-    let format = output::resolve_format(
-        args.format_args.explicit(pretty),
-        output::OutputFormat::Json,
-    )?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     // `list_associations_document` consumes the result by value; the text digest
     // reads the same data, so clone it only when the text lane will render (the
     // machine lanes never pay for the clone).

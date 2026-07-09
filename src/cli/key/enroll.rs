@@ -34,10 +34,6 @@ pub(super) struct EnrollArgs {
     #[arg(long)]
     actor: Option<String>,
 
-    /// Pretty-print the JSON response.
-    #[arg(long)]
-    pretty: bool,
-
     #[command(flatten)]
     format_args: output::FormatArgs,
 }
@@ -78,10 +74,7 @@ pub(super) fn run(
         added,
     };
     let document = DiagnosticDocument::new("pointbreak.key-enroll", body, Vec::new());
-    let format = output::resolve_format(
-        args.format_args.explicit(args.pretty),
-        output::OutputFormat::Json,
-    )?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
 }
 

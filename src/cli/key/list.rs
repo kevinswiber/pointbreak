@@ -13,9 +13,6 @@ pub(super) struct ListArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
-    #[arg(long)]
-    pretty: bool,
-
     #[command(flatten)]
     format_args: output::FormatArgs,
 }
@@ -74,9 +71,6 @@ pub(super) fn run(
         })
         .collect();
     let document = json::DiagnosticDocument::new("pointbreak.key-list", ListBody { keys }, vec![]);
-    let format = output::resolve_format(
-        args.format_args.explicit(args.pretty),
-        output::OutputFormat::Json,
-    )?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
 }

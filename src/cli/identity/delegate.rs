@@ -36,10 +36,6 @@ pub(super) struct DelegateArgs {
     /// Repository root or a path inside it whose worktree-root `.shore/` receives the entry.
     #[arg(long, default_value = ".")]
     repo: PathBuf,
-    /// Pretty-print the JSON response.
-    #[arg(long)]
-    pretty: bool,
-
     #[command(flatten)]
     format_args: output::FormatArgs,
 }
@@ -126,9 +122,6 @@ pub(super) fn run(
         local_shadows_committed,
     };
     let document = DiagnosticDocument::new("pointbreak.identity-delegate", body, Vec::new());
-    let format = output::resolve_format(
-        args.format_args.explicit(args.pretty),
-        output::OutputFormat::Json,
-    )?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
 }

@@ -218,13 +218,13 @@ are acting as the reviewer, not while authoring the handoff.
 Verify that the handoff is visible before you stop:
 
 ```bash
-shore observation list --revision "$revision_id" --track "$track" --pretty
-shore validation list --revision "$revision_id" --track "$track" --include-body --pretty
-shore input-request list --revision "$revision_id" --track "$track" --status open --pretty
+shore observation list --revision "$revision_id" --track "$track" --format json-pretty
+shore validation list --revision "$revision_id" --track "$track" --include-body --format json-pretty
+shore input-request list --revision "$revision_id" --track "$track" --status open --format json-pretty
 ```
 
 These commands verify the author's writes without replaying the captured snapshot. The
-`shore revision show --pretty` command emits the full integration-JSON document: it includes the
+`shore revision show --format json-pretty` command emits the full integration-JSON document: it includes the
 complete captured snapshot, is large for any real change, and is meant for tooling or the rare case
 where the full snapshot is genuinely needed. It is not the human readback surface.
 
@@ -232,11 +232,11 @@ Then stand down with a concise message:
 
 ```text
 Created the Pointbreak handoff record on `<track>`. Read it with
-`shore observation list --revision <id> --track <track> --include-body --pretty`
+`shore observation list --revision <id> --track <track> --include-body --format json-pretty`
 and
-`shore validation list --revision <id> --track <track> --include-body --pretty`
+`shore validation list --revision <id> --track <track> --include-body --format json-pretty`
 and
-`shore input-request list --revision <id> --track <track> --status open --include-body --pretty`.
+`shore input-request list --revision <id> --track <track> --status open --include-body --format json-pretty`.
 I did not add an assessment; that is for the reviewer.
 ```
 

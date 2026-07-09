@@ -20,10 +20,6 @@ pub(super) struct DiscoverArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
-    /// Pretty-print the JSON response.
-    #[arg(long)]
-    pretty: bool,
-
     #[command(flatten)]
     format_args: output::FormatArgs,
 }
@@ -92,10 +88,7 @@ pub(super) fn run(
         candidates,
         diagnostics: filtered_diagnostics(discovery.diagnostics, has_candidates),
     };
-    let format = output::resolve_format(
-        args.format_args.explicit(args.pretty),
-        output::OutputFormat::Json,
-    )?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
 }
 

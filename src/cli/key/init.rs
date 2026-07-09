@@ -40,7 +40,6 @@ pub(super) fn run(
         path: handle.private_key_path().to_owned(),
     };
     let document = json::DiagnosticDocument::new("pointbreak.key-init", body, vec![]);
-    let format =
-        output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
 }

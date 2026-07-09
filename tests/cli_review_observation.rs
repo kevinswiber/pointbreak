@@ -582,7 +582,7 @@ fn observation_list_include_body_hydrates_body() {
 }
 
 #[test]
-fn observation_list_pretty_prints_when_requested() {
+fn observation_list_json_pretty_prints_when_requested() {
     let repo = modified_repo();
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
@@ -591,7 +591,8 @@ fn observation_list_pretty_prints_when_requested() {
         "list",
         "--repo",
         repo.path().to_str().unwrap(),
-        "--pretty",
+        "--format",
+        "json-pretty",
     ]);
 
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("{\n"));

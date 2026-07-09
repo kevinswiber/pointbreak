@@ -108,8 +108,7 @@ pub(super) fn run(
     // `capture_document` consumes the result by value; keep a clone for the text lane.
     let text_source = capture.clone();
     let document = capture_document(capture);
-    let format =
-        output::resolve_format(args.format_args.explicit(false), output::OutputFormat::Json)?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     output::write_document(stdout, format, &document, || {
         render_capture_text(&text_source)
     })

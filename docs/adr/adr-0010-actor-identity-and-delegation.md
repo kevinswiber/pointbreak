@@ -521,7 +521,7 @@ the "Key Custody Landing" amendment supersedes the older `.shoreline/` path refe
 ```
 shore identity enroll <agent-actor-id> --principal <principal-actor-id>
                       [--from <RFC3339>] [--until <RFC3339>] [--comment <text>]
-                      [--local] [--repo <path>] [--pretty]
+                      [--local] [--repo <path>] [--format <fmt>]
 ```
 
 - **Stages a delegation record** into the working-tree `.shore/delegates.json` (the shared default) or,

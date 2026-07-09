@@ -57,14 +57,6 @@ pub(super) struct HistoryArgs {
     #[arg(long)]
     cursor: Option<String>,
 
-    /// Pretty-print the JSON response.
-    #[arg(long, conflicts_with = "compact")]
-    pretty: bool,
-
-    /// Emit compact JSON explicitly.
-    #[arg(long)]
-    compact: bool,
-
     /// Re-render whenever the store's liveness changes, polling client-side.
     /// Pull-only: no daemon and no filesystem watch. Cancel with Ctrl-C.
     #[arg(long)]
@@ -130,10 +122,7 @@ fn render_once(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let result = review_history(history_options(args)?);
     let document = history_document(result?);
-    let format = output::resolve_format(
-        args.format_args.explicit(args.pretty),
-        output::OutputFormat::Json,
-    )?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
 }
 

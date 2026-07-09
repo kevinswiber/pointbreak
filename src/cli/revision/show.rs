@@ -35,14 +35,6 @@ pub(super) struct ShowArgs {
     #[arg(long)]
     include_body: bool,
 
-    /// Pretty-print the JSON response.
-    #[arg(long, conflicts_with = "compact")]
-    pretty: bool,
-
-    /// Emit compact JSON explicitly.
-    #[arg(long)]
-    compact: bool,
-
     #[command(flatten)]
     format_args: output::FormatArgs,
 }
@@ -62,10 +54,7 @@ pub(super) fn run(
     };
     args.revision = resolved;
 
-    let format = output::resolve_format(
-        args.format_args.explicit(args.pretty),
-        output::OutputFormat::Json,
-    )?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     let result = show_revision(show_options(&args))?;
 
     // Liveness (merged/live/orphaned per OID + headline) is layered here, outside

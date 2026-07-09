@@ -12,7 +12,7 @@ answer, and make the review call.
 Record exactly one assessment with `shore assessment add`. The assessment is the reviewer's
 call, so this role owns it. Never write to the author's track.
 
-Do not run `shore revision show --pretty` as a readback surface. It includes the full captured
+Do not run `shore revision show --format json-pretty` as a readback surface. It includes the full captured
 snapshot and can emit megabytes for a real change. Use bounded list commands for the author's
 handoff, your reviewer notes, input requests, and assessment.
 
@@ -39,7 +39,7 @@ If the revision ID is not already known, list captured units and pick the one yo
 review:
 
 ```bash
-shore revision list --pretty
+shore revision list --format json-pretty
 revision_id="<revision-id>"
 author_track="<author-track>"
 ```
@@ -48,9 +48,9 @@ If the author track is not supplied, use the bounded read surfaces to find the t
 the authored handoff:
 
 ```bash
-shore observation list --revision "$revision_id" --pretty
-shore validation list --revision "$revision_id" --include-body --pretty
-shore input-request list --revision "$revision_id" --status open --pretty
+shore observation list --revision "$revision_id" --format json-pretty
+shore validation list --revision "$revision_id" --include-body --format json-pretty
+shore input-request list --revision "$revision_id" --status open --format json-pretty
 ```
 
 ## Read the author's handoff
@@ -61,18 +61,18 @@ Read only the author's track. Include bodies so you can see the substance of the
 shore observation list \
   --revision "$revision_id" \
   --track "$author_track" \
-  --include-body --pretty
+  --include-body --format json-pretty
 
 shore validation list \
   --revision "$revision_id" \
   --track "$author_track" \
-  --include-body --pretty
+  --include-body --format json-pretty
 
 shore input-request list \
   --revision "$revision_id" \
   --track "$author_track" \
   --status open \
-  --include-body --pretty
+  --include-body --format json-pretty
 ```
 
 Use those observations and validation checks to orient yourself, then form your own judgment.
@@ -119,7 +119,7 @@ tests, full tests or checks when appropriate, lint, formatting, documentation ch
 status when the project uses it.
 
 The revision snapshot is frozen at the author's capture moment, while your checkout may have moved
-since then. Compare the captured unit's endpoints from `shore revision list --pretty` with the
+since then. Compare the captured unit's endpoints from `shore revision list --format json-pretty` with the
 commit or branch head you actually review. If they diverge or you cannot prove they match, record a
 reviewer observation that names the live commit and the possible snapshot mismatch.
 
@@ -200,7 +200,7 @@ shore input-request list \
   --track "$author_track" \
   --mode operative \
   --status open \
-  --include-body --pretty
+  --include-body --format json-pretty
 
 shore input-request respond <input-request-id> \
   --outcome approved \
@@ -255,23 +255,23 @@ Verify the reviewer record with bounded read commands:
 shore observation list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
-  --include-body --pretty
+  --include-body --format json-pretty
 
 shore validation list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
-  --include-body --pretty
+  --include-body --format json-pretty
 
 shore input-request list \
   --revision "$revision_id" \
   --track "$reviewer_track" \
   --status all \
-  --include-body --pretty
+  --include-body --format json-pretty
 
 shore assessment show \
   --revision "$revision_id" \
   --track "$reviewer_track" \
-  --include-summary --pretty
+  --include-summary --format json-pretty
 ```
 
 Then stop. Report the revision ID, reviewer track, assessment value, and any open input requests.
@@ -281,7 +281,7 @@ an implementation role.
 ## Common errors
 
 - **Using full revision show for readback.** Use bounded observation, input-request, and
-  assessment read commands. Do not use `shore revision show --pretty` for this review loop.
+  assessment read commands. Do not use `shore revision show --format json-pretty` for this review loop.
 - **Writing on the author's track.** The reviewer uses a separate reviewer track for every write.
 - **Rubber-stamping the handoff.** The author's observations are context. Verify claims yourself.
 - **Treating validation evidence as an assessment.** Check records are advisory context. The

@@ -103,7 +103,7 @@ fn history_entries_serialize_writer_without_role() {
 }
 
 #[test]
-fn review_history_pretty_prints() {
+fn review_history_json_pretty_prints() {
     let repo = modified_repo();
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
@@ -111,7 +111,8 @@ fn review_history_pretty_prints() {
         "history",
         "--repo",
         repo.path().to_str().unwrap(),
-        "--pretty",
+        "--format",
+        "json-pretty",
     ]);
 
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("{\n"));
@@ -524,11 +525,11 @@ fn review_history_limit_windows_and_emits_next_cursor() {
     add_observation(&repo, "agent:codex", "first");
     add_observation(&repo, "agent:codex", "second");
 
-    let full = parse_json(&shore(["history", "--repo", path, "--compact"]).stdout);
+    let full = parse_json(&shore(["history", "--repo", path]).stdout);
     let total = full["entries"].as_array().unwrap().len();
     assert!(total >= 3, "expected several history entries, got {total}");
 
-    let page = parse_json(&shore(["history", "--repo", path, "--limit", "2", "--compact"]).stdout);
+    let page = parse_json(&shore(["history", "--repo", path, "--limit", "2"]).stdout);
     assert_eq!(page["entries"].as_array().unwrap().len(), 2);
     assert!(page["nextCursor"].is_string());
     // Identity stays the full set, never the window.
@@ -543,21 +544,10 @@ fn review_history_cursor_continues_without_overlap() {
     add_observation(&repo, "agent:codex", "first");
     add_observation(&repo, "agent:codex", "second");
 
-    let page1 = parse_json(&shore(["history", "--repo", path, "--limit", "2", "--compact"]).stdout);
+    let page1 = parse_json(&shore(["history", "--repo", path, "--limit", "2"]).stdout);
     let token = page1["nextCursor"].as_str().expect("a continuation token");
-    let page2 = parse_json(
-        &shore([
-            "history",
-            "--repo",
-            path,
-            "--limit",
-            "2",
-            "--cursor",
-            token,
-            "--compact",
-        ])
-        .stdout,
-    );
+    let page2 =
+        parse_json(&shore(["history", "--repo", path, "--limit", "2", "--cursor", token]).stdout);
 
     // Page two continues strictly after page one — no overlap.
     assert_ne!(
@@ -572,7 +562,7 @@ fn review_history_unparamd_carries_null_next_cursor() {
     let path = repo.path().to_str().unwrap();
     shore(["capture", "--repo", path]);
 
-    let doc = parse_json(&shore(["history", "--repo", path, "--compact"]).stdout);
+    let doc = parse_json(&shore(["history", "--repo", path]).stdout);
     // Additive and backward-compatible: the field is always present, null when
     // no window was requested.
     let obj = doc.as_object().expect("document is an object");

@@ -87,8 +87,7 @@ fn cli_reference_exists_and_covers_current_commands() {
         &[
             "--revision <revision-id>",
             "--include-body",
-            "--pretty",
-            "--compact",
+            "--format <fmt>",
         ],
     );
     assert_markdown_section_contains(
@@ -100,8 +99,7 @@ fn cli_reference_exists_and_covers_current_commands() {
             "--mode operative|advisory",
             "--file <path>",
             "--include-body",
-            "--pretty",
-            "--compact",
+            "--format <fmt>",
         ],
     );
     assert_markdown_section_contains(
@@ -110,8 +108,7 @@ fn cli_reference_exists_and_covers_current_commands() {
         &[
             "--revision <revision-id>",
             "--include-summary",
-            "--pretty",
-            "--compact",
+            "--format <fmt>",
         ],
     );
 }

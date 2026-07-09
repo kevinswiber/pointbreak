@@ -17,7 +17,7 @@ Shoreline's early product vocabulary named a six-command human surface — `shor
 show`, `shore up`, `shore notes`, `shore session`, `shore dump` — but the surface was never
 defined, and the ground has moved under it. The README was repositioned around the durable review
 record (`57ace44`) and now names none of `diff`/`show`/`up`/`session`/`dump`; onboarding
-(`docs/getting-started.md`) runs through `shore review capture`, `shore review show --pretty`, and
+(`docs/getting-started.md`) runs through `shore review capture`, `shore review show --format json-pretty`, and
 `shore inspect`. Meanwhile the revision ledger shipped: capture, observations, input requests,
 assessments, validation, and associations are live, and the captured revision — not the working
 tree — is what the product is about.

@@ -5,12 +5,33 @@
 mod support;
 
 #[test]
-fn format_json_pretty_matches_legacy_pretty() {
+fn format_json_pretty_preserves_the_document_shape() {
     let repo = support::dump_repo();
     let path = repo.path().to_str().unwrap();
     let via_format = support::shore(["history", "--repo", path, "--format", "json-pretty"]);
-    let via_legacy = support::shore(["history", "--repo", path, "--pretty"]);
-    assert_eq!(via_format.stdout, via_legacy.stdout);
+    let via_json = support::shore(["history", "--repo", path, "--format", "json"]);
+    let pretty: serde_json::Value =
+        serde_json::from_slice(&via_format.stdout).expect("pretty JSON parses");
+    let compact: serde_json::Value =
+        serde_json::from_slice(&via_json.stdout).expect("compact JSON parses");
+    assert_eq!(pretty, compact);
+    assert!(String::from_utf8_lossy(&via_format.stdout).starts_with("{\n"));
+}
+
+#[test]
+fn legacy_pretty_and_compact_flags_are_removed() {
+    let repo = support::dump_repo();
+    let path = repo.path().to_str().unwrap();
+
+    for flag in ["--pretty", "--compact"] {
+        let output = support::shore(["history", "--repo", path, flag]);
+        assert!(!output.status.success(), "{flag} should be rejected");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(flag),
+            "stderr should name {flag}:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
 
 #[test]

@@ -47,14 +47,6 @@ pub(super) struct RevisionListArgs {
     #[arg(long)]
     worktree: Option<PathBuf>,
 
-    /// Pretty-print the JSON response.
-    #[arg(long, conflicts_with = "compact")]
-    pretty: bool,
-
-    /// Emit compact JSON explicitly.
-    #[arg(long)]
-    compact: bool,
-
     #[command(flatten)]
     format_args: output::FormatArgs,
 }
@@ -90,7 +82,6 @@ pub(super) fn run(
         None => None,
     };
 
-    let pretty = args.pretty;
     let mut options = RevisionListOptions::new(&args.repo).with_read_for_display(true);
     if let Some(ref_name) = args.ref_name {
         options = options.with_ref_filter(ref_name, args.by.into());
@@ -122,9 +113,6 @@ pub(super) fn run(
     }
 
     let document = revision_list_document(result);
-    let format = output::resolve_format(
-        args.format_args.explicit(pretty),
-        output::OutputFormat::Json,
-    )?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
 }

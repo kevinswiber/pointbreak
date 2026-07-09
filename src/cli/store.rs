@@ -48,9 +48,6 @@ struct StoreStatusArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
-    #[arg(long)]
-    pretty: bool,
-
     /// Also list the real worktree paths each sensitivity finding matched, so an
     /// excludeGlobs decision is actionable. Local-only, printed to your terminal.
     /// Text-only — it keeps the `pointbreak.store-status` JSON document uniformly
@@ -71,9 +68,6 @@ struct StoreModeArgs {
 
     #[arg(long, default_value = ".")]
     repo: PathBuf,
-
-    #[arg(long)]
-    pretty: bool,
 
     #[command(flatten)]
     format_args: output::FormatArgs,
@@ -96,9 +90,6 @@ struct StoreMigrateArgs {
     /// discarded before the migration is confirmed.
     #[arg(long)]
     retire_source: bool,
-
-    #[arg(long)]
-    pretty: bool,
 
     #[command(flatten)]
     format_args: output::FormatArgs,
@@ -133,9 +124,6 @@ struct StoreLinkArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
-    #[arg(long)]
-    pretty: bool,
-
     #[command(flatten)]
     format_args: output::FormatArgs,
 }
@@ -145,9 +133,6 @@ struct StoreLinkArgs {
 struct StoreUnlinkArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
-
-    #[arg(long)]
-    pretty: bool,
 
     #[command(flatten)]
     format_args: output::FormatArgs,
@@ -167,9 +152,6 @@ struct StoreForgetArgs {
     #[arg(long)]
     force: bool,
 
-    #[arg(long)]
-    pretty: bool,
-
     #[command(flatten)]
     format_args: output::FormatArgs,
 }
@@ -178,9 +160,6 @@ struct StoreForgetArgs {
 /// `--repo` flag, and it never resolves a git repo or a per-clone store.
 #[derive(Debug, Args)]
 struct StoreListArgs {
-    #[arg(long)]
-    pretty: bool,
-
     #[command(flatten)]
     format_args: output::FormatArgs,
 }
@@ -219,9 +198,6 @@ struct StoreRemoveArgs {
     #[arg(long, group = "selector")]
     orphans: bool,
 
-    #[arg(long)]
-    pretty: bool,
-
     /// Sign this write with a specific key: a keystore key name or a path to a
     /// key file. Removal is a write, so a signed store stays signed.
     #[arg(long)]
@@ -245,9 +221,6 @@ struct StoreCompactArgs {
     /// previews and refuses — physical erasure is the point of no return.
     #[arg(long)]
     yes: bool,
-
-    #[arg(long)]
-    pretty: bool,
 
     #[command(flatten)]
     format_args: output::FormatArgs,
@@ -463,7 +436,7 @@ fn status(args: StoreStatusArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn s
     let span = tracing::info_span!("shore.store.status");
     let _entered = span.enter();
 
-    let explicit = args.format_args.explicit(args.pretty);
+    let explicit = args.format_args.explicit();
     if args.show_paths {
         // `--show-paths` is text-only, but NOT as a security barrier: the listing
         // goes to the operator's own terminal, the paths are their own local
@@ -635,10 +608,7 @@ fn mode(args: StoreModeArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::
         source: outcome.source,
     };
     let document = json::DiagnosticDocument::new("pointbreak.store-mode", body, vec![]);
-    let format = output::resolve_format(
-        args.format_args.explicit(args.pretty),
-        output::OutputFormat::Json,
-    )?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
 }
 
@@ -666,10 +636,7 @@ fn migrate(
         });
     }
     let document = json::DiagnosticDocument::new("pointbreak.store-migrate", body, diagnostics);
-    let format = output::resolve_format(
-        args.format_args.explicit(args.pretty),
-        output::OutputFormat::Json,
-    )?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
 }
 
@@ -683,10 +650,7 @@ fn link(args: StoreLinkArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::
         .with_retire_source(args.retire_source)
         .with_trust_set(trust);
 
-    let format = output::resolve_format(
-        args.format_args.explicit(args.pretty),
-        output::OutputFormat::Json,
-    )?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
 
     if args.dry_run {
         // Preview only: gates + fold preflight, zero writes. A blocking gate or a
@@ -803,10 +767,7 @@ fn unlink(args: StoreUnlinkArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn s
         StoreUnlinkBody::from(result),
         vec![],
     );
-    let format = output::resolve_format(
-        args.format_args.explicit(args.pretty),
-        output::OutputFormat::Json,
-    )?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
 }
 
@@ -819,10 +780,7 @@ fn forget(args: StoreForgetArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn s
             .with_force(args.force),
     )?;
     let body = StoreForgetBody::from(result);
-    let format = output::resolve_format(
-        args.format_args.explicit(args.pretty),
-        output::OutputFormat::Json,
-    )?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     let digest = matches!(format.format, output::OutputFormat::Text)
         .then(|| render_store_forget_text(&body));
     let document = json::DiagnosticDocument::new("pointbreak.store-forget", body, vec![]);
@@ -852,10 +810,7 @@ fn list(args: StoreListArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::
     let result = list_family_stores()?;
     let body = StoreListBody::from(result);
     let document = json::DiagnosticDocument::new("pointbreak.store-list", body, vec![]);
-    let format = output::resolve_format(
-        args.format_args.explicit(args.pretty),
-        output::OutputFormat::Json,
-    )?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
 }
 
@@ -884,10 +839,7 @@ fn remove(
         StoreRemoveBody::from(result),
         vec![],
     );
-    let format = output::resolve_format(
-        args.format_args.explicit(args.pretty),
-        output::OutputFormat::Json,
-    )?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
 }
 
@@ -957,10 +909,7 @@ fn compact(
         StoreCompactBody::from(result),
         diagnostics,
     );
-    let format = output::resolve_format(
-        args.format_args.explicit(args.pretty),
-        output::OutputFormat::Json,
-    )?;
+    let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     output::write_document_json_fallback(stdout, format, &document)
 }
 

@@ -94,7 +94,7 @@ the root capture to selected files.
 ## 4. Inspect The Review
 
 ```bash
-shore revision show --pretty
+shore revision show --format json-pretty
 ```
 
 This shows the composite revision view: captured files and rows, plus any observations, input
@@ -103,7 +103,7 @@ requests, assessments, and imported notes already recorded for the same revision
 For a chronological event log, use:
 
 ```bash
-shore history --pretty
+shore history --format json-pretty
 ```
 
 ## 5. Record Review Facts
@@ -145,7 +145,7 @@ shore assessment add \
 Read the updated revision:
 
 ```bash
-shore revision show --pretty --include-body
+shore revision show --format json-pretty --include-body
 ```
 
 ## 6. Where To Go Next

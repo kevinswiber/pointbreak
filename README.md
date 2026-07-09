@@ -44,7 +44,7 @@ The short path is:
 ```bash
 cd path/to/git-worktree
 shore capture
-shore revision show --pretty
+shore revision show --format json-pretty
 ```
 
 Then record what you learn:

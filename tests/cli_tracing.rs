@@ -10,12 +10,7 @@ use support::git_repo::GitRepo;
 fn cli_default_logging_has_empty_stderr() {
     let repo = dump_repo();
 
-    let output = shore_without_log_env([
-        "history",
-        "--repo",
-        repo.path().to_str().unwrap(),
-        "--compact",
-    ]);
+    let output = shore_without_log_env(["history", "--repo", repo.path().to_str().unwrap()]);
 
     assert!(
         output.status.success(),
@@ -39,7 +34,6 @@ fn cli_log_filter_writes_trace_output_to_stderr_without_polluting_stdout() {
         "history",
         "--repo",
         repo.path().to_str().unwrap(),
-        "--compact",
     ]);
 
     assert!(
@@ -68,7 +62,6 @@ fn cli_log_file_writes_trace_output_to_file_not_stdout_or_stderr() {
         "history",
         "--repo",
         repo.path().to_str().unwrap(),
-        "--compact",
     ]);
 
     assert!(
@@ -99,7 +92,6 @@ fn cli_log_json_format_writes_parseable_json_lines() {
         "history",
         "--repo",
         repo.path().to_str().unwrap(),
-        "--compact",
     ]);
 
     assert!(

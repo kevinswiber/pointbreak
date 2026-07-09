@@ -59,11 +59,9 @@ pub(crate) const FORMAT_ARGS_ABOUT: &str =
     "Shared `--format` argument, flattened into every document-emitting command";
 
 impl FormatArgs {
-    /// `--format` wins; otherwise fold the command's legacy `--pretty` selection.
-    pub(super) fn explicit(&self, legacy_pretty: bool) -> Option<OutputFormat> {
-        self.format
-            .map(OutputFormat::from)
-            .or_else(|| legacy_pretty.then_some(OutputFormat::JsonPretty))
+    /// Return the explicitly selected output format, if any.
+    pub(super) fn explicit(&self) -> Option<OutputFormat> {
+        self.format.map(OutputFormat::from)
     }
 }
 

@@ -117,7 +117,7 @@ fn revision_list_does_not_expose_storage_paths() {
 }
 
 #[test]
-fn revision_list_pretty_prints() {
+fn revision_list_json_pretty_prints() {
     let repo = modified_repo();
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
@@ -126,7 +126,8 @@ fn revision_list_pretty_prints() {
         "list",
         "--repo",
         repo.path().to_str().unwrap(),
-        "--pretty",
+        "--format",
+        "json-pretty",
     ]);
 
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("{\n"));

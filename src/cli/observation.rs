@@ -112,12 +112,6 @@ struct ObservationListArgs {
     #[arg(long)]
     include_body: bool,
 
-    #[arg(long, conflicts_with = "compact")]
-    pretty: bool,
-
-    #[arg(long)]
-    compact: bool,
-
     #[command(flatten)]
     format_args: output::FormatArgs,
 }
@@ -156,7 +150,7 @@ fn review_observation_add(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let format_explicit = args.format_args.explicit(false);
+    let format_explicit = args.format_args.explicit();
     let (options, skip) = observation_add_options(args, stderr)?;
     let result = record_observation(options)?;
     crate::cli::common::surface_best_effort_skip(&skip, stderr);
@@ -169,8 +163,7 @@ fn review_observation_list(
     args: ObservationListArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let pretty = args.pretty && !args.compact;
-    let format_explicit = args.format_args.explicit(pretty);
+    let format_explicit = args.format_args.explicit();
     let repo = args.repo.clone();
     let result = list_observations(observation_list_options(args)?);
     let delegation_map = crate::cli::common::discover_delegation_map(&repo);

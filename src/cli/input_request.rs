@@ -122,12 +122,6 @@ struct InputRequestListArgs {
     #[arg(long)]
     include_body: bool,
 
-    #[arg(long, conflicts_with = "compact")]
-    pretty: bool,
-
-    #[arg(long)]
-    compact: bool,
-
     #[command(flatten)]
     format_args: output::FormatArgs,
 }
@@ -142,12 +136,6 @@ struct InputRequestShowArgs {
 
     #[arg(long)]
     include_body: bool,
-
-    #[arg(long, conflicts_with = "compact")]
-    pretty: bool,
-
-    #[arg(long)]
-    compact: bool,
 
     #[command(flatten)]
     format_args: output::FormatArgs,
@@ -267,7 +255,7 @@ fn review_input_request_open(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let format_explicit = args.format_args.explicit(false);
+    let format_explicit = args.format_args.explicit();
     let (options, skip) = input_request_open_options(args, stderr)?;
     let result = open_input_request(options)?;
     crate::cli::common::surface_best_effort_skip(&skip, stderr);
@@ -280,8 +268,7 @@ fn review_input_request_list(
     args: InputRequestListArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let pretty = args.pretty && !args.compact;
-    let format_explicit = args.format_args.explicit(pretty);
+    let format_explicit = args.format_args.explicit();
     let repo = args.repo.clone();
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
     let result = list_input_requests(input_request_list_options(args)?)?;
@@ -303,8 +290,7 @@ fn input_request_show(
     args: InputRequestShowArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let pretty = args.pretty && !args.compact;
-    let format_explicit = args.format_args.explicit(pretty);
+    let format_explicit = args.format_args.explicit();
     let delegation_map = crate::cli::common::discover_delegation_map(&args.repo);
     let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
     let input_request_id = ids.input_request(&args.input_request_id)?;
@@ -323,7 +309,7 @@ fn review_input_request_respond(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let format_explicit = args.format_args.explicit(false);
+    let format_explicit = args.format_args.explicit();
     let (options, skip) = input_request_respond_options(args, stderr)?;
     let result = respond_input_request(options)?;
     crate::cli::common::surface_best_effort_skip(&skip, stderr);

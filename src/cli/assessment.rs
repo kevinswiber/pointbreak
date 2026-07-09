@@ -137,14 +137,6 @@ pub(super) struct AssessmentShowArgs {
     #[arg(long)]
     include_summary: bool,
 
-    /// Pretty-print JSON output.
-    #[arg(long, conflicts_with = "compact")]
-    pretty: bool,
-
-    /// Force compact JSON output.
-    #[arg(long)]
-    compact: bool,
-
     #[command(flatten)]
     format_args: output::FormatArgs,
 }
@@ -184,7 +176,7 @@ fn review_assessment_add(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let format_explicit = args.format_args.explicit(false);
+    let format_explicit = args.format_args.explicit();
     let (options, skip) = assessment_add_options(args, stderr)?;
     let result = record_assessment(options)?;
     crate::cli::common::surface_best_effort_skip(&skip, stderr);
@@ -197,8 +189,7 @@ fn review_assessment_show(
     args: AssessmentShowArgs,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let pretty = args.pretty && !args.compact;
-    let format_explicit = args.format_args.explicit(pretty);
+    let format_explicit = args.format_args.explicit();
     let repo = args.repo.clone();
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
     let result = show_assessments(assessment_show_options(args)?)?;

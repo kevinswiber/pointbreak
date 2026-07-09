@@ -181,7 +181,7 @@ fn input_request_open_accepts_advisory_and_rejects_blocking() {
 }
 
 #[test]
-fn input_request_list_emits_v1_json_and_pretty_prints() {
+fn input_request_list_emits_v1_json_and_json_pretty_prints() {
     let repo = modified_repo();
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);
     request(&repo, "First");
@@ -191,7 +191,8 @@ fn input_request_list_emits_v1_json_and_pretty_prints() {
         "list",
         "--repo",
         repo.path().to_str().unwrap(),
-        "--pretty",
+        "--format",
+        "json-pretty",
     ]);
     assert!(
         output.status.success(),
@@ -362,7 +363,8 @@ fn input_request_fetch_include_body_emits_v1_json_and_hydrates_body() {
         "--repo",
         repo.path().to_str().unwrap(),
         "--include-body",
-        "--pretty",
+        "--format",
+        "json-pretty",
     ]);
     assert!(
         output.status.success(),

@@ -58,7 +58,7 @@ requests.
 Use `shore assessment show` to read the current assessment projection:
 
 ```bash
-shore assessment show --pretty
+shore assessment show --format json-pretty
 shore assessment show --all --include-summary
 shore assessment show --track human:kevin
 ```

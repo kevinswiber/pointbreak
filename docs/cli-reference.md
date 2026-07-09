@@ -21,6 +21,10 @@ and removing, renaming, or reshaping an existing field bumps the `version`. Raw 
 artifact paths, event filenames, and the store's `state.json` are internal storage details unless a
 command explicitly returns them.
 
+Document-emitting commands accept `--format <fmt>`, where `<fmt>` is `json`, `json-pretty`, or
+`text`. Compact `json` is the default and the machine contract; `json-pretty` is the same document
+indented for manual inspection; `text` is a disposable human rendering that scripts should not parse.
+
 ## Global Tracing Flags
 
 Most commands accept optional tracing flags:
@@ -327,16 +331,16 @@ worktree, and the fact lands directly in that shared store, visible to every wor
 ## `shore store`
 
 ```bash
-shore store status [--repo <path>] [--pretty] [--show-paths]
-shore store mode (shared | ephemeral | show) [--repo <path>] [--pretty]
-shore store migrate [--repo <path>] [--include-ephemeral] [--retire-source] [--pretty]
-shore store link [<slug>] [--repo <path>] [--include-ephemeral] [--include-sensitive] [--retire-source] [--pretty]
-shore store unlink [--repo <path>] [--pretty]
-shore store forget <slug> [--yes] [--force] [--pretty]
-shore store list [--pretty]
-shore store remove [--repo <path>] (--snapshot <id> | --revision <id> | --ref <name> | --range <a>..<b> | --orphans) [--sign-key <key>] [--pretty]
-shore store gc [--repo <path>] [--pretty]
-shore store compact [--repo <path>] [--pretty]
+shore store status [--repo <path>] [--format <fmt>] [--show-paths]
+shore store mode (shared | ephemeral | show) [--repo <path>] [--format <fmt>]
+shore store migrate [--repo <path>] [--include-ephemeral] [--retire-source] [--format <fmt>]
+shore store link [<slug>] [--repo <path>] [--include-ephemeral] [--include-sensitive] [--retire-source] [--format <fmt>]
+shore store unlink [--repo <path>] [--format <fmt>]
+shore store forget <slug> [--yes] [--force] [--format <fmt>]
+shore store list [--format <fmt>]
+shore store remove [--repo <path>] (--snapshot <id> | --revision <id> | --ref <name> | --range <a>..<b> | --orphans) [--sign-key <key>] [--format <fmt>]
+shore store gc [--repo <path>] [--format <fmt>]
+shore store compact [--repo <path>] [--format <fmt>]
 ```
 
 `shore store` commands inspect, configure, and maintain the review store the current Git worktree
@@ -433,7 +437,7 @@ globs) locally and lists the real matched worktree paths grouped by finding kind
 a targeted `excludeGlobs` entry. The `link`/`migrate` sensitivity gate errors point at this command.
 
 `--show-paths` is **text-only**: it forces the text lane and refuses an explicit `--format json` /
-`--format json-pretty` / `--pretty`. That restriction is deliberately **not a security barrier** —
+`--format json-pretty`. That restriction is deliberately **not a security barrier** —
 the listing prints to your own terminal, the paths are your own local files, and plain text is as
 machine-readable as JSON, so nothing is being withheld from a program. It exists only to keep the
 versioned `pointbreak.store-status` JSON document a single, uniformly path-free shape, so a tool that
@@ -545,11 +549,11 @@ remain internal storage details.
 ```bash
 # Stage a delegation record binding an agent to its responsible principal (pointbreak.identity-delegate).
 shore identity delegate <agent-actor-id> --principal <principal-actor-id> \
-  [--from <RFC3339>] [--until <RFC3339>] [--comment <text>] [--local] [--repo .] [--pretty]
+  [--from <RFC3339>] [--until <RFC3339>] [--comment <text>] [--local] [--repo .] [--format <fmt>]
 
 # Stage an actor-attributes entry — kind + roles — for any actor (pointbreak.identity-attest).
 shore identity attest <actor-id> --kind <kind> [--role <role>]... \
-  [--comment <text>] [--local] [--repo .] [--pretty]
+  [--comment <text>] [--local] [--repo .] [--format <fmt>]
 ```
 
 `shore identity` writes the actor/principal config the read side (above) resolves. Both subcommands are
@@ -631,7 +635,7 @@ stage `.shore/allowed-signers.json`. Review a candidate, optionally adopt public
 <actor> --repo .`.
 
 `list`/`enroll`/`discover` take `--repo` (default `.`) to resolve the committed
-`.shore/allowed-signers.json` or local Git/OpenSSH evidence; every subcommand accepts `--pretty`.
+`.shore/allowed-signers.json` or local Git/OpenSSH evidence.
 Enrollment never commits — the human's commit is the authorization.
 
 Each **write** subcommand (`capture`, `observation add`, `assessment add`,
@@ -655,7 +659,7 @@ shore observation add --track <track-id> --title <title> \
   [--tag <tag>]... [--confidence low|medium|high] [--supersedes <observation-id>]... \
   [--responds-to <observation-id>]...
 shore observation list [--revision <revision-id>] [--track <track-id>] \
-  [--file <path>] [--tag <tag>] [--include-body] [--pretty|--compact]
+  [--file <path>] [--tag <tag>] [--include-body] [--format <fmt>]
 ```
 
 Observations are append-only review notes for a captured revision.
@@ -684,7 +688,7 @@ Observations are append-only review notes for a captured revision.
   file, or tag. It hydrates body text only with `--include-body`.
 
 Output is compact `pointbreak.review-observation-add` or `pointbreak.review-observation-list` JSON by
-default. `observation list` also accepts `--pretty` and `--compact`.
+default.
 
 ## `shore input-request`
 
@@ -694,7 +698,7 @@ shore input-request open --track <track-id> --title <title> --reason <reason> \
   [--body-content-type text/plain|text/markdown]
 shore input-request list [--revision <revision-id>] [--track <track-id>] \
   [--mode operative|advisory] [--file <path>] [--status open|responded|ambiguous|all] \
-  [--include-body] [--pretty|--compact]
+  [--include-body] [--format <fmt>]
 shore input-request show <input-request-id> [--include-body]
 shore input-request respond <input-request-id> --outcome <outcome> [reason options] \
   [--reason-content-type text/plain|text/markdown]
@@ -729,8 +733,7 @@ Input requests are durable pause or decision requests for a captured revision.
 
 Output documents are compact `pointbreak.review-input-request-open`,
 `pointbreak.review-input-request-list`, `pointbreak.review-input-request-show`, and
-`pointbreak.review-input-request-respond` JSON by default. Read commands also accept `--pretty` and
-`--compact`.
+`pointbreak.review-input-request-respond` JSON by default.
 
 V1 is durable and polling-friendly. It does not add a daemon, filesystem watch mode, TUI prompt,
 notification transport, or cancellation/escalation event.
@@ -741,7 +744,7 @@ notification transport, or cancellation/escalation event.
 shore assessment add --track <track-id> --assessment <assessment> \
   [--revision <revision-id>] [target options] [--summary-content-type text/plain|text/markdown]
 shore assessment show [--revision <revision-id>] [--all] [--track <track-id>] \
-  [--include-summary] [--pretty|--compact]
+  [--include-summary] [--format <fmt>]
 ```
 
 Assessments record review calls for a captured revision.
@@ -770,7 +773,7 @@ Assessments record review calls for a captured revision.
   with `--include-summary`.
 
 Output documents are compact `pointbreak.review-assessment-add` and `pointbreak.review-assessment-show` JSON
-by default. `assessment show` also accepts `--pretty` and `--compact`.
+by default.
 
 State-change outcomes such as deferred, split-out, overridden, and superseded are ordinary review
 observations when needed.
@@ -781,7 +784,7 @@ observations when needed.
 shore validation add --track <track-id> --check-name <name> --status <status> \
   [--revision <revision-id>] [validation options] [--summary-content-type text/plain|text/markdown]
 shore validation list [--revision <revision-id>] \
-  [--track <track-id>] [--status <status>] [--include-body] [--pretty | --compact]
+  [--track <track-id>] [--status <status>] [--include-body] [--format <fmt>]
 ```
 
 Validation checks record local test, lint, build, or other verification evidence for a captured
@@ -805,13 +808,12 @@ replace a review assessment.
   or status. It hydrates summaries only with `--include-body`.
 
 Output documents are compact `pointbreak.review-validation-add` and
-`pointbreak.review-validation-list` JSON by default. `validation list` also accepts `--pretty` and
-`--compact`.
+`pointbreak.review-validation-list` JSON by default.
 
 ## `shore endorse`
 
 ```bash
-shore endorse <target-event-id> [--sign-key <name|path>] [--actor <id>] [--repo .] [--pretty]
+shore endorse <target-event-id> [--sign-key <name|path>] [--actor <id>] [--repo .] [--format <fmt>]
 ```
 
 `shore endorse` records a detached co-signature (an endorsement) over an existing target event —
@@ -841,7 +843,7 @@ shore association record --track <track-id> (--commit <rev> | --ref <name> --hea
 shore association withdraw <association-id> --track <track-id> \
   [--revision <revision-id>] [--sign-key <name|path>] [--repo <path>]
 shore association list [--revision <revision-id>] [--axis commit|ref] [--current] \
-  [--repo <path>] [--pretty | --compact]
+  [--repo <path>] [--format <fmt>]
 ```
 
 `shore association` records and withdraws the commit-graph associations of a captured
@@ -881,7 +883,7 @@ render-only and never gate a write.
 shore history [--repo <path>] [--revision <id>] [--track <track-id>] \
   [--event-type <event-type>]... [--ref <name> [--by label|liveness]] \
   [--limit <n>] [--cursor <cursor>] [--watch [--poll-ms <ms>]] \
-  [--include-body] [--pretty | --compact]
+  [--include-body] [--format <fmt>]
 ```
 
 `shore history` reads the chronological ledger of durable Pointbreak events.
@@ -961,7 +963,7 @@ narrative-first plus snapshot-complete view of one captured revision.
 
 ```bash
 shore revision list [--repo <path>] [--object <object-id>] [--ref <name> [--by label|liveness]] \
-  [--integration-ref <name>] [--worktree <path>] [--all | --orphans] [--pretty | --compact]
+  [--integration-ref <name>] [--worktree <path>] [--all | --orphans] [--format <fmt>]
 ```
 
 `shore revision list` is the discovery surface for captured revisions. It emits
@@ -986,7 +988,7 @@ endpoints, and `objectArtifactContentHash`.
 
 ```bash
 shore revision show [REVISION] [--repo <path>] [--track <track-id>] \
-  [--include-body] [--pretty | --compact]
+  [--include-body] [--format <fmt>]
 ```
 
 `shore revision show` is the composite view for one revision. It emits compact

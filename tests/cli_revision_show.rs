@@ -112,7 +112,7 @@ fn revision_show_rejects_invalid_track_before_json_output() {
 }
 
 #[test]
-fn revision_show_pretty_prints() {
+fn revision_show_json_pretty_prints() {
     let repo = modified_repo();
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
@@ -121,14 +121,15 @@ fn revision_show_pretty_prints() {
         "show",
         "--repo",
         repo.path().to_str().unwrap(),
-        "--pretty",
+        "--format",
+        "json-pretty",
     ]);
 
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("{\n"));
 }
 
 #[test]
-fn revision_show_rejects_pretty_and_compact_together() {
+fn revision_show_rejects_removed_pretty_flag() {
     let repo = modified_repo();
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);
 
@@ -138,12 +139,11 @@ fn revision_show_rejects_pretty_and_compact_together() {
         "--repo",
         repo.path().to_str().unwrap(),
         "--pretty",
-        "--compact",
     ]);
 
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot be used with"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--pretty"));
 }
 
 #[test]
