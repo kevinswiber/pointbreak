@@ -10,6 +10,13 @@ record.**
 **Amended 2026-07-09 (owner): the pre-1.0 legacy `--pretty` and `--compact` aliases are removed.
 Use `--format json-pretty` for indented JSON and `--format json` for an explicit compact machine
 document.**
+**Amended 2026-07-09 (owner): Decision 7's hard core admits ADDITIVE growth of the wire-value
+vocabularies within a document's `version`. Appending a new value to the input-request `reasonCode`
+set (or another additive-only vocabulary) does not bump `version`, because a soft-shell consumer
+selects the values it knows and tolerates the rest; a value that is not on any consumed field-path
+is only reachable by a consumer that already opted into reading it. Removing or renaming an existing
+value is still a coordinated break that bumps that document's `version`. See the Amendment (Decision
+7) block below.**
 **Date:** 2026-07-02
 **See also:** **ADR-0028** (id-prefix convention — the ids-are-opaque contract and the
 display-truncation precedent this ADR extends to CLI text output), **ADR-0030** (named command
@@ -67,6 +74,26 @@ sequenced.
 `--format text` digests on seven commands and is the complete deliverable; the flip half of the plan
 is retired. Reviving the flip would be a fresh decision (a new ADR or a superseding amendment) that
 re-opens the Decision 8 migration gate.
+
+## Amendment (2026-07-09, Decision 7): wire-value vocabularies grow additively within a `version`
+
+**Owner decision (2026-07-09): Decision 7's hard core is refined — the wire-value vocabularies it
+freezes (assessment values, input-request response outcomes, and the input-request `mode`/`reasonCode`
+value sets) may gain ADDITIVE values within a document's `version`. Removing or renaming an existing
+value remains a coordinated break that bumps `version`.**
+
+**Why.** Freezing the *shape* of a hard-core field-path — that `reasonCode` is present, is a string,
+and rides `inputRequests[].reasonCode` — is what a machine consumer depends on. The *set* of values
+that field can take is open at the low end: a soft-shell consumer selects the values it recognizes
+and tolerates the rest, so appending a value it has never seen cannot break it. A consumer that must
+branch on a specific new value has, by definition, already opted into reading it. This mirrors serde
+enum evolution: adding a variant is source-compatible for readers that match a subset. Bumping the
+whole input-request document family to `version:2` for a zero-shape, append-only change was weighed
+and rejected as a break with no consumer to protect.
+
+**Consequence.** The first exercise of this rule is the `insufficient_evidence` input-request
+`reasonCode` value, added under `version:1`. The `docs/cli-reference.md` hard-core wording follows
+this amendment: hard core = the field-paths and value *shapes*; additive value growth is soft-shell.
 
 ## Context
 

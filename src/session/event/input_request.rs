@@ -20,6 +20,44 @@ pub enum InputRequestReasonCode {
     ConflictingEvent,
     MissingPermission,
     ManualDecisionRequired,
+    InsufficientEvidence,
+}
+
+/// Every `InputRequestReasonCode` variant, in declaration order. Mirrors
+/// `EventType::ALL`: the vocabulary round-trips are pinned in one place and a new
+/// variant fails compilation until it is appended here and to the exhaustive match
+/// below. Test-only, so the guard never ships in the production binary.
+#[cfg(test)]
+impl InputRequestReasonCode {
+    pub(crate) const ALL: [InputRequestReasonCode; 9] = [
+        Self::AmbiguousState,
+        Self::UnsafeAction,
+        Self::StaleRevision,
+        Self::FailedGate,
+        Self::ExternalSideEffect,
+        Self::ConflictingEvent,
+        Self::MissingPermission,
+        Self::ManualDecisionRequired,
+        Self::InsufficientEvidence,
+    ];
+}
+
+/// Adding an `InputRequestReasonCode` variant breaks this match until the variant
+/// is also appended to [`InputRequestReasonCode::ALL`]. Invoked from the tests so
+/// it carries no runtime cost and trips no dead-code lint.
+#[cfg(test)]
+fn assert_reason_code_all_is_exhaustive(code: InputRequestReasonCode) {
+    match code {
+        InputRequestReasonCode::AmbiguousState
+        | InputRequestReasonCode::UnsafeAction
+        | InputRequestReasonCode::StaleRevision
+        | InputRequestReasonCode::FailedGate
+        | InputRequestReasonCode::ExternalSideEffect
+        | InputRequestReasonCode::ConflictingEvent
+        | InputRequestReasonCode::MissingPermission
+        | InputRequestReasonCode::ManualDecisionRequired
+        | InputRequestReasonCode::InsufficientEvidence => {}
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -179,6 +217,39 @@ mod tests {
     use crate::canonical_hash::{sha256_bytes_hex, sha256_json_prefixed};
     use crate::model::{JournalId, WorkObjectId, WorkObjectType};
     use crate::session::event::{EventTarget, ShoreEvent, Writer};
+
+    #[test]
+    fn reason_code_all_is_exhaustive_and_round_trips() {
+        // Nine variants after the insufficient-evidence addition.
+        assert_eq!(InputRequestReasonCode::ALL.len(), 9);
+        // Uniqueness: a duplicated ALL entry must not hide an omitted variant.
+        let unique: std::collections::BTreeSet<String> = InputRequestReasonCode::ALL
+            .iter()
+            .map(|code| serde_json::to_string(code).expect("serialize"))
+            .collect();
+        assert_eq!(unique.len(), InputRequestReasonCode::ALL.len());
+        for code in InputRequestReasonCode::ALL {
+            // Invoking the helper here is what keeps it exercised (no dead-code lint)
+            // and makes a new variant fail compilation until both ALL and the match grow.
+            assert_reason_code_all_is_exhaustive(code);
+            let value = serde_json::to_value(code).expect("serialize");
+            let parsed: InputRequestReasonCode =
+                serde_json::from_value(value).expect("deserialize");
+            assert_eq!(parsed, code);
+        }
+    }
+
+    #[test]
+    fn insufficient_evidence_reason_code_round_trips_on_the_wire() {
+        let value = serde_json::to_value(InputRequestReasonCode::InsufficientEvidence)
+            .expect("serialize reason code");
+        assert_eq!(value, serde_json::json!("insufficient_evidence"));
+
+        let parsed: InputRequestReasonCode =
+            serde_json::from_value(serde_json::json!("insufficient_evidence"))
+                .expect("deserialize reason code");
+        assert_eq!(parsed, InputRequestReasonCode::InsufficientEvidence);
+    }
 
     #[test]
     fn input_request_opened_idempotency_key_uses_new_review_domain_prefix() {

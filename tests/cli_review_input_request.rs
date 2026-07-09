@@ -89,6 +89,54 @@ fn input_request_show_accepts_a_prefixed_short_id() {
 }
 
 #[test]
+fn open_accepts_insufficient_evidence_reason() {
+    let repo = modified_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+    shore(["capture", "--repo", repo_arg]);
+
+    let opened = shore([
+        "input-request",
+        "open",
+        "--repo",
+        repo_arg,
+        "--track",
+        "agent:reviewer",
+        "--title",
+        "Runtime trace required",
+        "--reason",
+        "insufficient-evidence",
+        "--format",
+        "json",
+    ]);
+    assert!(
+        opened.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&opened.stderr)
+    );
+    let opened_json = parse_json(&opened.stdout);
+    assert_eq!(opened_json["reasonCode"], "insufficient_evidence");
+
+    let listed = shore([
+        "input-request",
+        "list",
+        "--repo",
+        repo_arg,
+        "--format",
+        "json",
+    ]);
+    assert!(
+        listed.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    let listed_json = parse_json(&listed.stdout);
+    assert_eq!(
+        listed_json["inputRequests"][0]["reasonCode"],
+        "insufficient_evidence"
+    );
+}
+
+#[test]
 fn input_request_open_defaults_to_operative_mode_and_emits_v1_json() {
     let repo = modified_repo();
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);

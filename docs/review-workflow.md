@@ -340,8 +340,9 @@ shore input-request respond <input-request-id> \
 ```
 
 `--reason` on the request is the classification axis (`manual-decision-required`,
-`ambiguous-state`, `unsafe-action`, etc.). `--outcome` on the response is a
-separate axis (`approved`, `rejected`, `dismissed`, `superseded`, `abandoned`).
+`ambiguous-state`, `unsafe-action`, `insufficient-evidence`, etc.). `--outcome` on
+the response is a separate axis (`approved`, `rejected`, `dismissed`, `superseded`,
+`abandoned`).
 
 Multiple different response events are preserved as append-only facts and
 make the input request `ambiguous` rather than picking a timestamp winner.

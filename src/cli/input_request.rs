@@ -196,6 +196,7 @@ enum InputRequestReasonArg {
     ConflictingEvent,
     MissingPermission,
     ManualDecisionRequired,
+    InsufficientEvidence,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -539,6 +540,9 @@ impl From<InputRequestReasonArg> for InputRequestReasonCode {
             InputRequestReasonArg::MissingPermission => InputRequestReasonCode::MissingPermission,
             InputRequestReasonArg::ManualDecisionRequired => {
                 InputRequestReasonCode::ManualDecisionRequired
+            }
+            InputRequestReasonArg::InsufficientEvidence => {
+                InputRequestReasonCode::InsufficientEvidence
             }
         }
     }

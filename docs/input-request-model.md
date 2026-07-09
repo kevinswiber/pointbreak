@@ -43,6 +43,11 @@ target reference, a required track, a public request mode derived from the event
 `assertionMode` (`operative` or `advisory`), a short title, an optional body, and a structured
 `reasonCode`.
 
+A `reasonCode` of `insufficient_evidence` is one reason for a judgment request, not a separate
+object: it types an ask for more evidence about the change. A debugger or CI run can satisfy it by
+recording validation evidence on the same revision, and the request clears through the ordinary
+`input_request_responded` path once the evidence is in hand.
+
 `input_request_responded` records a durable answer. The response has a stable
 `inputRequestResponseId`, targets the input request, and carries an `outcome` such as `approved`,
 `rejected`, `dismissed`, `superseded`, or `abandoned`. Response `outcome` is intentionally separate

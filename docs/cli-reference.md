@@ -12,10 +12,13 @@ narrow **hard core** is frozen within each document's `version`:
 - the wire-value vocabularies — the assessment values, the input-request response outcomes, and the
   input-request `mode` (`operative`/`advisory`) and `reasonCode` value sets that ride the consumed
   `input-request list` field-paths (see the [`assessment`](#shore-assessment) and
-  [`input-request`](#shore-input-request) sections).
+  [`input-request`](#shore-input-request) sections). These vocabularies grow **additively** within a
+  `version`: a new value may be appended (a soft-shell consumer selects the values it knows and
+  tolerates the rest), but removing or renaming an existing value is a coordinated break (ADR-0029,
+  Decision 7 amendment 2026-07-09).
 
-Changing any hard-core value is a coordinated break: bump that document's `version` and migrate
-consumers. Everything else in the documents is **soft shell** — stable but additive-evolvable within
+Removing or renaming a hard-core field-path or value is a coordinated break: bump that document's
+`version` and migrate consumers. Everything else in the documents is **soft shell** — stable but additive-evolvable within
 a `version`: fields may be added, consumers must select by field name and tolerate unknown fields,
 and removing, renaming, or reshaping an existing field bumps the `version`. Raw event files,
 artifact paths, event filenames, and the store's `state.json` are internal storage details unless a
@@ -707,6 +710,11 @@ shore input-request respond <input-request-id> --outcome <outcome> [reason optio
 Input requests are durable pause or decision requests for a captured revision.
 
 - `input-request open` requires `--track`, `--title`, and `--reason`.
+- `--reason` classifies the ask. Values: `ambiguous-state`, `unsafe-action`, `stale-revision`,
+  `failed-gate`, `external-side-effect`, `conflicting-event`, `missing-permission`,
+  `manual-decision-required`, `insufficient-evidence`. `insufficient-evidence` types an ask for more
+  evidence — a debugger or CI run can satisfy it with validation evidence. The set grows additively
+  within `version:1` (a new value is appended, not a `version` bump); see the hard-core note above.
 - `--revision` pins the request to one captured revision. Without either, the command defaults to the single captured revision and errors if
   multiple captured revisions exist.
 - `--mode` defaults to `operative`; `advisory` requests are durable and visible but do not imply a
