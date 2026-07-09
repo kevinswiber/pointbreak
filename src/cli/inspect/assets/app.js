@@ -3674,6 +3674,7 @@
 
   // src/keyboard.ts
   var lastTimelineViewportRows = 10;
+  var lastRevisionViewportRows = 10;
   function isTypingTarget(el) {
     if (!el) return false;
     return el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el instanceof HTMLElement && el.isContentEditable;
@@ -3689,10 +3690,26 @@
     $("#timeline")?.focus({ preventScroll: true });
   }
   __name(focusTimelineTabStop, "focusTimelineTabStop");
+  function isTimelineSearchInput(target) {
+    return target instanceof HTMLInputElement && target.id === "filter-text";
+  }
+  __name(isTimelineSearchInput, "isTimelineSearchInput");
+  function focusTimelineAfterSearch() {
+    const state2 = getState();
+    if (state2.lens !== "timeline") navigate({ lens: "timeline" });
+    if (state2.reading) commit({ reading: false });
+    focusTimelineTabStop();
+  }
+  __name(focusTimelineAfterSearch, "focusTimelineAfterSearch");
   function timelineIsActive() {
     return getState().lens === "timeline";
   }
   __name(timelineIsActive, "timelineIsActive");
+  function revisionLensIsActive() {
+    const lens = getState().lens;
+    return lens === "list" || lens === "threads";
+  }
+  __name(revisionLensIsActive, "revisionLensIsActive");
   function timelineViewportRows() {
     const list = $("#timeline");
     const viewportH = list?.clientHeight ?? 0;
@@ -3709,15 +3726,55 @@
     );
   }
   __name(timelineViewportRows, "timelineViewportRows");
-  function stepList(delta) {
+  function revisionLensViewportRows() {
+    const selector = getState().lens === "threads" ? "#revisions" : "#units";
+    const list = $(selector);
+    const item = list?.querySelector(".unit-card");
+    const viewportH = list?.clientHeight ?? 0;
+    const itemH = item?.getBoundingClientRect().height ?? 0;
+    const measured = viewportH > 0 && itemH > 0 ? Math.floor(viewportH / itemH) : 0;
+    if (measured > 0) {
+      lastRevisionViewportRows = Math.max(1, measured);
+      return lastRevisionViewportRows;
+    }
+    const count = lensEntryIds().length;
+    return Math.max(
+      1,
+      Math.min(count || lastRevisionViewportRows, lastRevisionViewportRows)
+    );
+  }
+  __name(revisionLensViewportRows, "revisionLensViewportRows");
+  function loadedLensIndex(delta) {
     const ids = lensEntryIds();
-    if (!ids.length) return;
+    if (!ids.length) return null;
     let idx = ids.findIndex((x) => x.id === getState().selected.id);
     if (idx < 0) idx = delta > 0 ? -1 : 0;
-    const next = Math.max(0, Math.min(ids.length - 1, idx + delta));
-    navigate({ selected: ids[next] }, { replace: true });
+    return Math.max(0, Math.min(ids.length - 1, idx + delta));
+  }
+  __name(loadedLensIndex, "loadedLensIndex");
+  function selectLoadedLensIndex(index) {
+    const ids = lensEntryIds();
+    if (!ids.length) return;
+    const target = Math.max(0, Math.min(ids.length - 1, index));
+    navigate({ selected: ids[target] }, { replace: true });
+  }
+  __name(selectLoadedLensIndex, "selectLoadedLensIndex");
+  function stepList(delta) {
+    const next = loadedLensIndex(delta);
+    if (next !== null) selectLoadedLensIndex(next);
   }
   __name(stepList, "stepList");
+  function jumpLoadedLensBoundary(target) {
+    const ids = lensEntryIds();
+    if (!ids.length) return;
+    selectLoadedLensIndex(target === "first" ? 0 : ids.length - 1);
+  }
+  __name(jumpLoadedLensBoundary, "jumpLoadedLensBoundary");
+  function pageLoadedLens(deltaRows) {
+    const next = loadedLensIndex(deltaRows);
+    if (next !== null) selectLoadedLensIndex(next);
+  }
+  __name(pageLoadedLens, "pageLoadedLens");
   async function stepTimeline(delta) {
     const state2 = getState();
     const { offset, count, matchCount } = loadedWindow(state2);
@@ -3794,6 +3851,43 @@
     await selectTimelineIndex(cur + deltaRows);
   }
   __name(pageTimeline, "pageTimeline");
+  function jumpLensBoundary(target) {
+    if (timelineIsActive()) void jumpTimelineBoundary(target);
+    else if (revisionLensIsActive()) jumpLoadedLensBoundary(target);
+  }
+  __name(jumpLensBoundary, "jumpLensBoundary");
+  function pageLensRows(deltaRows) {
+    if (timelineIsActive()) {
+      void pageTimeline(deltaRows);
+      return;
+    }
+    if (revisionLensIsActive()) pageLoadedLens(deltaRows);
+  }
+  __name(pageLensRows, "pageLensRows");
+  function pageLensFullPage(direction) {
+    if (timelineIsActive()) {
+      pageLensRows(direction * timelineViewportRows());
+      return;
+    }
+    if (revisionLensIsActive()) {
+      pageLensRows(direction * revisionLensViewportRows());
+    }
+  }
+  __name(pageLensFullPage, "pageLensFullPage");
+  function pageLensHalfPage(direction) {
+    if (timelineIsActive()) {
+      pageLensRows(
+        direction * Math.max(1, Math.floor(timelineViewportRows() / 2))
+      );
+      return;
+    }
+    if (revisionLensIsActive()) {
+      pageLensRows(
+        direction * Math.max(1, Math.floor(revisionLensViewportRows() / 2))
+      );
+    }
+  }
+  __name(pageLensHalfPage, "pageLensHalfPage");
   async function stepSelectionAsync(delta) {
     if (getState().lens === "timeline") {
       await stepTimeline(delta);
@@ -3880,6 +3974,11 @@
       handleEscape();
       return;
     }
+    if (ev.key === "Enter" && isTimelineSearchInput(ev.target)) {
+      ev.preventDefault();
+      focusTimelineAfterSearch();
+      return;
+    }
     if (isTypingTarget(document.activeElement)) return;
     if (getState().diff) {
       if (ev.key === "]") {
@@ -3917,15 +4016,15 @@
         navigate({ lens: "threads" });
         return;
       case "g":
-        if (timelineIsActive()) {
+        if (timelineIsActive() || revisionLensIsActive()) {
           ev.preventDefault();
-          void jumpTimelineBoundary("first");
+          jumpLensBoundary("first");
         }
         return;
       case "G":
-        if (timelineIsActive()) {
+        if (timelineIsActive() || revisionLensIsActive()) {
           ev.preventDefault();
-          void jumpTimelineBoundary("last");
+          jumpLensBoundary("last");
         }
         return;
       case "/":
@@ -3933,27 +4032,27 @@
         focusSearch();
         return;
       case "f":
-        if (timelineIsActive()) {
+        if (timelineIsActive() || revisionLensIsActive()) {
           ev.preventDefault();
-          void pageTimeline(timelineViewportRows());
+          pageLensFullPage(1);
         }
         return;
       case "b":
-        if (timelineIsActive()) {
+        if (timelineIsActive() || revisionLensIsActive()) {
           ev.preventDefault();
-          void pageTimeline(-timelineViewportRows());
+          pageLensFullPage(-1);
         }
         return;
       case "d":
-        if (timelineIsActive()) {
+        if (timelineIsActive() || revisionLensIsActive()) {
           ev.preventDefault();
-          void pageTimeline(Math.max(1, Math.floor(timelineViewportRows() / 2)));
+          pageLensHalfPage(1);
         }
         return;
       case "u":
-        if (timelineIsActive()) {
+        if (timelineIsActive() || revisionLensIsActive()) {
           ev.preventDefault();
-          void pageTimeline(-Math.max(1, Math.floor(timelineViewportRows() / 2)));
+          pageLensHalfPage(-1);
         }
         return;
       case "j":

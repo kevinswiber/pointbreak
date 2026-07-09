@@ -157,6 +157,26 @@ describe("selection stepping / activation / search", () => {
     expect(store.getState().lens).toBe("timeline");
     expect(document.activeElement).toBe(document.querySelector("#filter-text"));
   });
+
+  it("Enter in search focuses the timeline without activating the selection", async () => {
+    const render = await import("../src/render");
+    store.subscribe(render.render);
+    render.render();
+    store.commit({
+      selected: { kind: "revision", id: REV },
+      open: false,
+      reading: true,
+    });
+    const box = document.querySelector<HTMLInputElement>("#filter-text");
+    box?.focus();
+    key({ key: "Enter" }, box ?? document);
+    expect(store.getState().open).toBe(false);
+    expect(store.getState().reading).toBe(false);
+    expect(document.activeElement).toBe(document.querySelector("#timeline"));
+    key({ key: "j" });
+    await settleKeyboard();
+    expect(store.getState().selected.kind).toBe("event");
+  });
 });
 
 describe("lens switching shortcuts", () => {
@@ -581,6 +601,105 @@ describe("keyboard stepping visits only the filtered revision set", () => {
         model.threadRevisionOrder(FILTERED_THREAD),
       ),
     );
+  });
+});
+
+function revisionIds(count: number): string[] {
+  return Array.from({ length: count }, (_, i) => `rev:${i}`);
+}
+
+function revisionDoc(ids: string[]): RevisionsDoc {
+  return {
+    entries: ids.map((id, i) => ({
+      revisionId: id,
+      snapshotId: `obj:${i}`,
+      capturedAt: `unix-ms:${1000 + i}`,
+    })),
+  };
+}
+
+function seedRevisionNavigationLens(lens: "list" | "threads"): string[] {
+  const ids = revisionIds(8);
+  store.commit({
+    revisions: revisionDoc(ids),
+    threads: {
+      threads: [
+        {
+          revisions: ids,
+          heads: [ids[ids.length - 1]],
+          superseded: ids.slice(0, -1),
+        },
+      ],
+      revisionClassification: {},
+    } as unknown as ThreadsDoc,
+    lens,
+    order: "asc",
+    selected: { kind: "revision", id: ids[1] },
+  });
+  return ids;
+}
+
+function mountRevisionViewport(
+  lens: "list" | "threads",
+  visibleRows: number,
+): void {
+  const master = document.querySelector<HTMLElement>("#master");
+  if (!master) throw new Error("#master not mounted");
+  const id = lens === "threads" ? "revisions" : "units";
+  master.innerHTML = `<div id="${id}" class="units"><div class="unit-card"></div></div>`;
+  const list = document.querySelector<HTMLElement>(`#${id}`);
+  const card = list?.querySelector<HTMLElement>(".unit-card");
+  if (!list || !card) throw new Error(`${id} viewport not mounted`);
+  Object.defineProperty(list, "clientHeight", {
+    configurable: true,
+    value: visibleRows * 52,
+  });
+  vi.spyOn(card, "getBoundingClientRect").mockReturnValue({
+    height: 52,
+  } as DOMRect);
+}
+
+describe("revision-centric timeline navigation", () => {
+  it("g/G jump to the revision-list bounds", () => {
+    const ids = seedRevisionNavigationLens("list");
+    key({ key: "g" });
+    expect(store.getState().selected.id).toBe(ids[0]);
+    key({ key: "G" });
+    expect(store.getState().selected.id).toBe(ids[ids.length - 1]);
+  });
+
+  it("f/b and u/d page through the revision list", () => {
+    const ids = seedRevisionNavigationLens("list");
+    mountRevisionViewport("list", 4);
+    key({ key: "f" });
+    expect(store.getState().selected.id).toBe(ids[5]);
+    key({ key: "b" });
+    expect(store.getState().selected.id).toBe(ids[1]);
+    key({ key: "d" });
+    expect(store.getState().selected.id).toBe(ids[3]);
+    key({ key: "u" });
+    expect(store.getState().selected.id).toBe(ids[1]);
+  });
+
+  it("g/G jump through the threads revision order", () => {
+    const ids = seedRevisionNavigationLens("threads");
+    key({ key: "g" });
+    expect(store.getState().selected.id).toBe(ids[0]);
+    key({ key: "G" });
+    expect(store.getState().selected.id).toBe(ids[ids.length - 1]);
+  });
+
+  it("f/b and u/d page through the threads revision order", () => {
+    const ids = seedRevisionNavigationLens("threads");
+    mountRevisionViewport("threads", 4);
+    key({ key: "f" });
+    expect(store.getState().selected.id).toBe(ids[5]);
+    key({ key: "b" });
+    expect(store.getState().selected.id).toBe(ids[1]);
+    key({ key: "d" });
+    expect(store.getState().selected.id).toBe(ids[3]);
+    key({ key: "u" });
+    expect(store.getState().selected.id).toBe(ids[1]);
   });
 });
 

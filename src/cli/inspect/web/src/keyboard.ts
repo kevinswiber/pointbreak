@@ -29,6 +29,7 @@ import { stepSplit } from "./split";
 import { commit, getState } from "./store";
 
 let lastTimelineViewportRows = 10;
+let lastRevisionViewportRows = 10;
 
 /** Whether the element is a text-input context that should swallow shortcuts. */
 function isTypingTarget(el: Element | null): boolean {
@@ -53,8 +54,24 @@ function focusTimelineTabStop(): void {
   $<HTMLElement>("#timeline")?.focus({ preventScroll: true });
 }
 
+function isTimelineSearchInput(target: EventTarget | null): boolean {
+  return target instanceof HTMLInputElement && target.id === "filter-text";
+}
+
+function focusTimelineAfterSearch(): void {
+  const state = getState();
+  if (state.lens !== "timeline") navigate({ lens: "timeline" });
+  if (state.reading) commit({ reading: false });
+  focusTimelineTabStop();
+}
+
 function timelineIsActive(): boolean {
   return getState().lens === "timeline";
+}
+
+function revisionLensIsActive(): boolean {
+  const lens = getState().lens;
+  return lens === "list" || lens === "threads";
 }
 
 function timelineViewportRows(): number {
@@ -73,14 +90,55 @@ function timelineViewportRows(): number {
   );
 }
 
-// Step the fully-loaded revisions/threads lenses over their in-memory entries.
-function stepList(delta: number): void {
+function revisionLensViewportRows(): number {
+  const selector = getState().lens === "threads" ? "#revisions" : "#units";
+  const list = $<HTMLElement>(selector);
+  const item = list?.querySelector<HTMLElement>(".unit-card");
+  const viewportH = list?.clientHeight ?? 0;
+  const itemH = item?.getBoundingClientRect().height ?? 0;
+  const measured =
+    viewportH > 0 && itemH > 0 ? Math.floor(viewportH / itemH) : 0;
+  if (measured > 0) {
+    lastRevisionViewportRows = Math.max(1, measured);
+    return lastRevisionViewportRows;
+  }
+  const count = lensEntryIds().length;
+  return Math.max(
+    1,
+    Math.min(count || lastRevisionViewportRows, lastRevisionViewportRows),
+  );
+}
+
+function loadedLensIndex(delta: number): number | null {
   const ids = lensEntryIds();
-  if (!ids.length) return;
+  if (!ids.length) return null;
   let idx = ids.findIndex((x) => x.id === getState().selected.id);
   if (idx < 0) idx = delta > 0 ? -1 : 0;
-  const next = Math.max(0, Math.min(ids.length - 1, idx + delta));
-  navigate({ selected: ids[next] }, { replace: true });
+  return Math.max(0, Math.min(ids.length - 1, idx + delta));
+}
+
+function selectLoadedLensIndex(index: number): void {
+  const ids = lensEntryIds();
+  if (!ids.length) return;
+  const target = Math.max(0, Math.min(ids.length - 1, index));
+  navigate({ selected: ids[target] }, { replace: true });
+}
+
+// Step the fully-loaded revisions/threads lenses over their in-memory entries.
+function stepList(delta: number): void {
+  const next = loadedLensIndex(delta);
+  if (next !== null) selectLoadedLensIndex(next);
+}
+
+function jumpLoadedLensBoundary(target: "first" | "last"): void {
+  const ids = lensEntryIds();
+  if (!ids.length) return;
+  selectLoadedLensIndex(target === "first" ? 0 : ids.length - 1);
+}
+
+function pageLoadedLens(deltaRows: number): void {
+  const next = loadedLensIndex(deltaRows);
+  if (next !== null) selectLoadedLensIndex(next);
 }
 
 // Step the server-paged timeline. `lensEntryIds()` is only the loaded window, so a
@@ -164,6 +222,43 @@ async function pageTimeline(deltaRows: number): Promise<void> {
   const local = ids.findIndex((x) => x.id === state.selected.id);
   const cur = local < 0 ? offset : offset + local;
   await selectTimelineIndex(cur + deltaRows);
+}
+
+function jumpLensBoundary(target: "first" | "last"): void {
+  if (timelineIsActive()) void jumpTimelineBoundary(target);
+  else if (revisionLensIsActive()) jumpLoadedLensBoundary(target);
+}
+
+function pageLensRows(deltaRows: number): void {
+  if (timelineIsActive()) {
+    void pageTimeline(deltaRows);
+    return;
+  }
+  if (revisionLensIsActive()) pageLoadedLens(deltaRows);
+}
+
+function pageLensFullPage(direction: 1 | -1): void {
+  if (timelineIsActive()) {
+    pageLensRows(direction * timelineViewportRows());
+    return;
+  }
+  if (revisionLensIsActive()) {
+    pageLensRows(direction * revisionLensViewportRows());
+  }
+}
+
+function pageLensHalfPage(direction: 1 | -1): void {
+  if (timelineIsActive()) {
+    pageLensRows(
+      direction * Math.max(1, Math.floor(timelineViewportRows() / 2)),
+    );
+    return;
+  }
+  if (revisionLensIsActive()) {
+    pageLensRows(
+      direction * Math.max(1, Math.floor(revisionLensViewportRows() / 2)),
+    );
+  }
 }
 
 /** Step the selection by delta, paging the timeline past its loaded edges. */
@@ -265,10 +360,16 @@ export function onKey(ev: KeyboardEvent): void {
     return;
   }
   if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
-  // Escape is global (it fires even while typing); everything else yields to a
-  // focused text field.
+  // Escape is global (it fires even while typing). Search Enter is an explicit
+  // "done searching" action that moves focus back to the timeline; everything
+  // else yields to a focused text field.
   if (ev.key === "Escape") {
     handleEscape();
+    return;
+  }
+  if (ev.key === "Enter" && isTimelineSearchInput(ev.target)) {
+    ev.preventDefault();
+    focusTimelineAfterSearch();
     return;
   }
   if (isTypingTarget(document.activeElement)) return;
@@ -312,15 +413,15 @@ export function onKey(ev: KeyboardEvent): void {
       navigate({ lens: "threads" });
       return;
     case "g":
-      if (timelineIsActive()) {
+      if (timelineIsActive() || revisionLensIsActive()) {
         ev.preventDefault();
-        void jumpTimelineBoundary("first");
+        jumpLensBoundary("first");
       }
       return;
     case "G":
-      if (timelineIsActive()) {
+      if (timelineIsActive() || revisionLensIsActive()) {
         ev.preventDefault();
-        void jumpTimelineBoundary("last");
+        jumpLensBoundary("last");
       }
       return;
     case "/":
@@ -328,27 +429,27 @@ export function onKey(ev: KeyboardEvent): void {
       focusSearch();
       return;
     case "f":
-      if (timelineIsActive()) {
+      if (timelineIsActive() || revisionLensIsActive()) {
         ev.preventDefault();
-        void pageTimeline(timelineViewportRows());
+        pageLensFullPage(1);
       }
       return;
     case "b":
-      if (timelineIsActive()) {
+      if (timelineIsActive() || revisionLensIsActive()) {
         ev.preventDefault();
-        void pageTimeline(-timelineViewportRows());
+        pageLensFullPage(-1);
       }
       return;
     case "d":
-      if (timelineIsActive()) {
+      if (timelineIsActive() || revisionLensIsActive()) {
         ev.preventDefault();
-        void pageTimeline(Math.max(1, Math.floor(timelineViewportRows() / 2)));
+        pageLensHalfPage(1);
       }
       return;
     case "u":
-      if (timelineIsActive()) {
+      if (timelineIsActive() || revisionLensIsActive()) {
         ev.preventDefault();
-        void pageTimeline(-Math.max(1, Math.floor(timelineViewportRows() / 2)));
+        pageLensHalfPage(-1);
       }
       return;
     case "j":
