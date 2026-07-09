@@ -384,6 +384,26 @@ are recorded as observations tagged with `state-change:*`. Use
 with a concrete tag such as `--tag state-change:deferred` for state-change
 evidence.
 
+### Attention
+
+`shore attention list` is the read that surfaces what still needs an actor's
+judgment across the review record: open asks (including evidence requests),
+ambiguous assessments, competing supersession heads, stale decisions on
+superseded revisions, failed checks on current heads, and outstanding
+follow-ups. It is a projection over the same durable facts the commands above
+record — nothing new is written by reading it.
+
+```bash
+shore attention list
+shore attention list --revision <revision-id>
+```
+
+Attention *guides, never gates* (ADR-0019): the list is derived attention
+state, never a write precondition; a cooperative actor uses it to decide where
+to look next, and Pointbreak never blocks a write on it. "Attention" is
+promoted here from internal substrate vocabulary (ADR-0019's notification
+seam) to a product-level term for this surface.
+
 ## 5. Concepts you need to know
 
 ### Durable event facts vs. rebuildable projections

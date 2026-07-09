@@ -786,6 +786,35 @@ by default.
 State-change outcomes such as deferred, split-out, overridden, and superseded are ordinary review
 observations when needed.
 
+## `shore attention`
+
+```bash
+shore attention list [--repo <path>] [--revision <revision-id>] [--format <fmt>]
+```
+
+`attention list` is a read-only projection of the review record's outstanding, judgment-needing
+state — the first product surface of "Pointbreak surfaces the moments that need judgment." It
+guides, never gates (ADR-0019): nothing here is a write precondition. The emitted document is
+`pointbreak.attention-list`, version 1.
+
+- `--repo` defaults to `.`; `--revision` scopes the read to one revision — its anchored items plus
+  the competing-heads thread that covers it (a short id resolves via the shared id resolver).
+- Each item carries a kind-qualified `id`, a `tier` (`primary` or `secondary`), the anchoring
+  `revisionId` (absent only for thread-scoped `competing_heads`), a supersession-derived
+  `freshness` block, an `observedAt` stamp, and a `kind`-tagged detail. Items sort by tier, then
+  oldest `observedAt` first, then `id`.
+- Item kinds:
+  - `open_input_request` — an open ask (operative → `primary`, advisory → `secondary`).
+  - `ambiguous_assessment` — more than one current assessment on a revision, carried as peers.
+  - `competing_heads` — a supersession thread with two or more current heads. `headRevisionIds` is
+    sorted for determinism, **not** a priority ranking.
+  - `stale_assessment` — a current assessment anchored to a superseded revision.
+  - `failed_validation` — the latest failed/errored check per `(revision, track, checkName)` on a
+    current head; a passing rerun clears it.
+  - `follow_up_outstanding` — an accepted-with-follow-up assessment whose linked requests are still
+    open.
+- This document is entirely soft shell: no field-path here joins the ADR-0029 hard core.
+
 ## `shore validation`
 
 ```bash

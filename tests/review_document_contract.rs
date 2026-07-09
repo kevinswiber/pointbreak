@@ -444,4 +444,32 @@ fn review_documents_are_byte_stable() {
         &["validation", "list", "--repo", &repo_path, "--include-body"],
     );
     assert_snapshot("validation_list", &validation_list);
+
+    // 15. attention list — a fresh open input request surfaces as an attention
+    //     item, so the snapshot exercises the full item wire shape.
+    let attention_open = shore([
+        "input-request",
+        "open",
+        "--repo",
+        &repo_path,
+        "--track",
+        "human:kevin",
+        "--title",
+        "Runtime trace required",
+        "--reason",
+        "insufficient-evidence",
+    ]);
+    assert!(attention_open.status.success());
+    let attention_list = run_command(
+        &repo,
+        &[
+            "attention",
+            "list",
+            "--repo",
+            &repo_path,
+            "--format",
+            "json",
+        ],
+    );
+    assert_snapshot("attention_list", &attention_list);
 }

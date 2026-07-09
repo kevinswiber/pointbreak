@@ -20,6 +20,7 @@ use crate::session::ProjectionDiagnostic;
 
 mod assessment;
 mod association;
+mod attention;
 mod capture;
 mod history;
 mod input_request;
@@ -36,6 +37,7 @@ pub use association::{
     WithdrawRefBody, associate_commit_document, associate_ref_document, list_associations_document,
     withdraw_commit_document, withdraw_ref_document,
 };
+pub use attention::{ATTENTION_LIST_SCHEMA, AttentionListBody, attention_list_document};
 pub use capture::{CaptureBody, capture_document};
 pub use history::{HistoryBody, history_document};
 pub use input_request::{

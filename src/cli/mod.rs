@@ -9,6 +9,7 @@ use crate::cli_tracing::TracingArgs;
 
 mod assessment;
 mod association;
+mod attention;
 mod capture;
 pub(crate) mod common;
 mod diff;
@@ -55,6 +56,7 @@ struct Cli {
 enum Command {
     Assessment(Box<assessment::AssessmentArgs>),
     Association(Box<association::AssociationArgs>),
+    Attention(attention::AttentionArgs),
     Capture(capture::CaptureArgs),
     Diff(diff::DiffArgs),
     Endorse(endorse::EndorseArgs),
@@ -281,6 +283,7 @@ fn run_cli(
     match cli.command {
         Command::Assessment(args) => assessment::run(*args, stdout, stderr),
         Command::Association(args) => association::run(*args, stdout, stderr),
+        Command::Attention(args) => attention::run(args, stdout),
         Command::Capture(args) => capture::run(args, &cli.tracing, stdout, stderr),
         Command::Diff(args) => diff::run(args, stdout),
         Command::Endorse(args) => endorse::run(args, stdout, stderr),

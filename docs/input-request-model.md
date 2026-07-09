@@ -91,6 +91,10 @@ The V1 read surface is polling-oriented. `list` and `fetch` replay `.shore/data/
 depend on `state.json` as authority. Bodies and response reasons may use internal
 `shore.note-body` artifacts, but command output does not expose artifact paths.
 
+Open input requests also surface in `shore attention list` — operative requests as primary
+attention items, advisory requests as secondary — alongside the other review state that needs an
+actor's judgment. That surface guides, never gates (ADR-0019): it never blocks a write.
+
 `list` and `fetch` project semantic IDs, not raw event count. `idempotencyKey` decides whether a
 write is the same event-file retry; `inputRequestId` and `inputRequestResponseId` decide whether
 read output represents one logical request or response. Duplicate semantic IDs are preserved in
