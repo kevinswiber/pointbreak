@@ -152,3 +152,62 @@ notification.
 - Relates to ADR-0017 §A5 (advisory-generative), ADR-0018 (competing-heads attention).
 - External: the `shoreline-relay` bridge (`crates/shoreline-relay/src/{actor.rs,reviewer.rs}`) — where push
   lives, composed over an unmodified core.
+
+## Amendment: Judgment Subsumes Evidence — Attention Clearing Rules (2026-07-09)
+
+The attention projection (`shore attention list`, `/api/attention`, the inspector Attention lens)
+needs a clearing model: without one the queue accumulates items whose moment of judgment has
+already passed. Live-store verification found the dominant noise was failed-validation evidence
+(one-time red-proofs and repros) on revisions a reviewer had *subsequently accepted with the
+failure in evidence* — 30 of 43 live items.
+
+### Principle
+
+**A fact claims attention until a later judgment is rendered with that fact in evidence.** The
+fact stays in the record forever; only its claim on attention clears. Two projection rules encode
+it — both pure functions of the event log; no new events, no git reads, no wire-shape change:
+
+- **Assessment-subsumed validation (Rule B).** A failing validation record on a current head is
+  suppressed when the revision's current assessment set is non-empty, **every** current
+  assessment is accepting (`accepted` / `accepted_with_follow_up`), and **at least one
+  revision-scoped** current assessment was recorded strictly later than the failure. Timestamp
+  comparison is instant-parsed (`unix-ms:` or RFC 3339), never lexical; ties and unparseable
+  timestamps keep the card; a failure recorded after acceptance re-raises attention; any current
+  non-accepting assessment keeps everything visible; an assessment scoped to a file, range,
+  observation, or request is not a revision-wide judgment and cannot subsume.
+- **Successor-resolved staleness (Rule A).** A stale assessment — and an ambiguity on a
+  superseded revision — is suppressed when the thread is cycle-free and every current head
+  carries at least one revision-scoped current assessment. Any assessment value counts as
+  re-judged (attention flows through the head's own items). A fork with an unjudged head keeps
+  the item; a thread containing a supersession cycle never suppresses. Ambiguity on a *current*
+  head always emits.
+
+Why heads persist: per the ADR-0014 amendment, landings *associate* commits to the reviewed
+revision and never supersede it — an accepted revision stays a supersession head by design.
+Landing and continued head status therefore never clear a failure item on their own; a
+strictly-later *passing* rerun of the same check clears it (`skipped` never reports and never
+clears), and judgment subsumption supplies the missing path for the common case where no rerun
+will ever happen.
+
+### Rejected: a queue-level dismissal event
+
+No `attention dismiss` verb, and no event family keyed to attention item ids:
+
+- Events feed projections, never the reverse. Item ids (`{kind}:{anchor-id}`) are a derived
+  namespace; durable facts keyed to them orphan silently as projection rules evolve.
+- The queue's credibility is that absence is always derivable from work-state. A mute overlay
+  makes two readers unable to reconcile why an item is missing.
+- ADR-0018 §C5 keeps the three retraction verbs (supersede, withdraw, remove) distinct; a
+  dismiss verb would be a fourth with no workload — every item kind has a fact-layer clearing
+  verb about the *work*: `input-request respond` (including the `dismissed` outcome), a
+  replacing assessment, a strictly-later passing check, supersession.
+- If real usage ever surfaces truly abandoned lines of work (unjudged heads nobody will
+  supersede), the honest primitive is a work-object *disposition*, deferred until then — the
+  same discipline as the deferred broad `follow_up_outstanding` form.
+
+`open_input_request` and `follow_up_outstanding` items are never auto-suppressed: an ask can
+transcend its anchor revision, and responding is the honest one-command clear.
+
+Out of scope, noted for the record: liveness scoping (falsified on the live store — zero
+attention anchors were git-orphaned) and expectation-typed validation (`--expect fail`, a
+forward-looking follow-up for red-proof hygiene on not-yet-assessed captures).

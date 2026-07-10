@@ -805,12 +805,16 @@ guides, never gates (ADR-0019): nothing here is a write precondition. The emitte
   oldest `observedAt` first, then `id`.
 - Item kinds:
   - `open_input_request` — an open ask (operative → `primary`, advisory → `secondary`).
-  - `ambiguous_assessment` — more than one current assessment on a revision, carried as peers.
+  - `ambiguous_assessment` — more than one current assessment on a revision, carried as peers;
+    on a superseded revision the item resolves once every successor head has been re-judged.
   - `competing_heads` — a supersession thread with two or more current heads. `headRevisionIds` is
     sorted for determinism, **not** a priority ranking.
-  - `stale_assessment` — a current assessment anchored to a superseded revision.
+  - `stale_assessment` — a current assessment anchored to a superseded revision, until every
+    current head of the thread has been re-judged.
   - `failed_validation` — the latest failed/errored check per `(revision, track, checkName)` on a
-    current head; a passing rerun clears it.
+    current head; a strictly-later passing rerun clears it (`skipped` never clears), and so does
+    a later, unanimously accepting judgment on the revision (ADR-0019's judgment-subsumption
+    amendment).
   - `follow_up_outstanding` — an accepted-with-follow-up assessment whose linked requests are still
     open.
 - This document is entirely soft shell: no field-path here joins the ADR-0029 hard core.

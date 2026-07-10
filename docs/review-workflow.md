@@ -404,6 +404,24 @@ to look next, and Pointbreak never blocks a write on it. "Attention" is
 promoted here from internal substrate vocabulary (ADR-0019's notification
 seam) to a product-level term for this surface.
 
+How items clear — every clearing action is a durable fact about the work,
+never a fact about the queue (ADR-0019's judgment-subsumption amendment):
+
+- `open_input_request` / `follow_up_outstanding` — respond with
+  `shore input-request respond` (the `dismissed` outcome closes a moot ask).
+- `ambiguous_assessment` — record an assessment that `--replaces` the
+  competing records; a superseded revision's ambiguity also resolves once
+  every successor head has been re-judged.
+- `stale_assessment` — replace the assessment, or re-judge every successor
+  head (any assessment value counts as re-judged).
+- `failed_validation` — record a strictly-later passing run of the same
+  check (`skipped` never clears), supersede the revision, or record a later,
+  unanimously accepting judgment on it: a reviewer who accepts a revision
+  with the failure in evidence has rendered the judgment the item was
+  waiting for.
+- `competing_heads` — consolidate the fork with a capture that supersedes
+  the competing heads.
+
 ## 5. Concepts you need to know
 
 ### Durable event facts vs. rebuildable projections
