@@ -298,3 +298,88 @@ fn accepted_after_failed_validation_clears_the_attention_item() {
     let after = parse_json(&shore(["attention", "list", "--repo", &repo_arg]).stdout);
     assert_eq!(after["items"].as_array().unwrap().len(), 0);
 }
+
+#[test]
+fn assessed_successor_clears_the_stale_assessment_item() {
+    let repo = modified_repo();
+    let repo_arg = repo.path().to_str().unwrap().to_owned();
+    let first = shore(["capture", "--repo", &repo_arg]);
+    assert!(
+        first.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let first_revision = parse_json(&first.stdout)["revision"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let accepted = shore([
+        "assessment",
+        "add",
+        "--repo",
+        &repo_arg,
+        "--track",
+        "agent:codex",
+        "--assessment",
+        "accepted",
+        "--revision",
+        &first_revision,
+    ]);
+    assert!(
+        accepted.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&accepted.stderr)
+    );
+
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+    let second = shore([
+        "capture",
+        "--repo",
+        &repo_arg,
+        "--supersedes",
+        &first_revision,
+    ]);
+    assert!(
+        second.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let second_revision = parse_json(&second.stdout)["revision"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    // The accepted decision now anchors to a superseded revision whose
+    // successor is unjudged: the stale_assessment item claims attention.
+    let before = parse_json(&shore(["attention", "list", "--repo", &repo_arg]).stdout);
+    let kinds: Vec<String> = before["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["kind"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(kinds, vec!["stale_assessment".to_owned()]);
+
+    let re_judged = shore([
+        "assessment",
+        "add",
+        "--repo",
+        &repo_arg,
+        "--track",
+        "agent:codex",
+        "--assessment",
+        "accepted",
+        "--revision",
+        &second_revision,
+    ]);
+    assert!(
+        re_judged.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&re_judged.stderr)
+    );
+
+    // The successor has been re-judged: the stale decision is resolved.
+    let after = parse_json(&shore(["attention", "list", "--repo", &repo_arg]).stdout);
+    assert_eq!(after["items"].as_array().unwrap().len(), 0);
+}

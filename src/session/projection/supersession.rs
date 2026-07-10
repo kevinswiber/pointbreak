@@ -38,6 +38,11 @@ pub struct SupersessionView {
     /// Connected components of the undirected supersession graph (restricted to
     /// known revisions). A component is one thread; head-selection scopes to it.
     pub components: Vec<BTreeSet<RevisionId>>,
+    /// Every revision participating in a directed supersession cycle, flattened
+    /// across cycles. Suppression guards consult this to refuse
+    /// judgment-subsumption inside a cycled thread; never serialized.
+    #[serde(skip)]
+    pub cycle_revisions: BTreeSet<RevisionId>,
     pub diagnostics: Vec<ProjectionDiagnostic>,
 }
 
@@ -88,6 +93,7 @@ impl SupersessionView {
         let heads: BTreeSet<RevisionId> = known.difference(&superseded).cloned().collect();
         let components = connected_components(&known, &declared);
 
+        let mut cycle_revisions: BTreeSet<RevisionId> = BTreeSet::new();
         for cycle in directed_cycles(&known, &declared) {
             let members = cycle
                 .iter()
@@ -98,6 +104,7 @@ impl SupersessionView {
                 code: SUPERSESSION_CYCLE_CODE.to_owned(),
                 message: format!("revisions form a supersession cycle: {members}"),
             });
+            cycle_revisions.extend(cycle);
         }
 
         Self {
@@ -106,6 +113,7 @@ impl SupersessionView {
             supersedes,
             superseded_by,
             components,
+            cycle_revisions,
             diagnostics,
         }
     }
@@ -351,6 +359,23 @@ mod tests {
             v.supersedes.get(&rev("C")),
             Some(&set([rev("A"), rev("B")]))
         );
+    }
+
+    #[test]
+    fn cycle_members_are_exposed_for_suppression_guards() {
+        // a <-> b cycle plus an unrelated acyclic thread: cycle_revisions names
+        // exactly the cycle's members, never the healthy thread.
+        let v = SupersessionView::from_edges([
+            (rev("A"), vec![rev("B")]),
+            (rev("B"), vec![rev("A")]),
+            (rev("X"), vec![]),
+            (rev("Y"), vec![rev("X")]),
+        ]);
+        assert_eq!(v.cycle_revisions, set([rev("A"), rev("B")]));
+
+        let acyclic =
+            SupersessionView::from_edges([(rev("X"), vec![]), (rev("Y"), vec![rev("X")])]);
+        assert!(acyclic.cycle_revisions.is_empty());
     }
 
     #[test]

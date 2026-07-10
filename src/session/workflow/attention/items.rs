@@ -495,6 +495,10 @@ fn failed_validation_items(
 
 /// One `stale_assessment` item per current (un-replaced) assessment anchored to
 /// a superseded revision — a decision made about state the work has moved past.
+/// Suppressed once every thread head has been re-judged
+/// (`thread_heads_all_assessed`): a successor still unjudged keeps the
+/// moved-on-without-re-deciding nudge; a re-judged successor makes the old
+/// decision noise.
 /// A superseded revision that is also ambiguous therefore emits both its one
 /// `ambiguous_assessment` item and one `stale_assessment` item per current record
 /// (multiple simultaneous items per revision is invariant 2 working as intended).
@@ -506,6 +510,9 @@ fn stale_assessment_items(
     for (revision_id, peers) in current_by_revision {
         let freshness = freshness_for(supersession, revision_id);
         if freshness.state != AttentionFreshnessState::Superseded {
+            continue;
+        }
+        if thread_heads_all_assessed(supersession, current_by_revision, revision_id) {
             continue;
         }
         for record in peers {
@@ -672,6 +679,34 @@ fn assessment_subsumes_failure(peers: &[AttentionAssessmentRecord], failure_time
             && parse_event_instant(&record.recorded_at)
                 .is_some_and(|instant| instant > failure_instant)
     })
+}
+
+/// Whether every current head of the revision's supersession thread carries at
+/// least one revision-scoped current assessment — the successor set has been
+/// re-judged (Rule A of the judgment-subsumption amendment to ADR-0019). Any
+/// assessment value counts as re-judged; attention then flows through the
+/// head's own items. Returns false for an empty head set and for any thread
+/// containing a supersession cycle: never suppress under a cycle diagnostic.
+fn thread_heads_all_assessed(
+    supersession: &SupersessionView,
+    current_by_revision: &BTreeMap<RevisionId, Vec<AttentionAssessmentRecord>>,
+    revision: &RevisionId,
+) -> bool {
+    if supersession.component_of(revision).is_none_or(|component| {
+        component
+            .intersection(&supersession.cycle_revisions)
+            .count()
+            > 0
+    }) {
+        return false;
+    }
+    let heads = supersession.heads_for(revision);
+    !heads.is_empty()
+        && heads.iter().all(|head| {
+            current_by_revision
+                .get(head)
+                .is_some_and(|peers| peers.iter().any(|record| record.revision_scoped))
+        })
 }
 
 /// Supersession-derived freshness for a revision: current when the revision is a
@@ -2586,6 +2621,265 @@ mod tests {
         assert!(
             no_failed_validation_items(&projection),
             "a strictly-later pass clears the card",
+        );
+    }
+
+    fn no_stale_assessment_items(projection: &AttentionProjection) -> bool {
+        projection
+            .items
+            .iter()
+            .all(|item| !item.id.starts_with("stale_assessment:"))
+    }
+
+    fn has_stale_assessment_item(projection: &AttentionProjection, assess_id: &str) -> bool {
+        projection
+            .items
+            .iter()
+            .any(|item| item.id == format!("stale_assessment:assess:sha256:{assess_id}"))
+    }
+
+    #[test]
+    fn stale_assessment_clears_when_every_successor_head_is_assessed() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:01Z",
+            ),
+            revision_event("b", vec![rev("a")], "2026-06-04T00:00:02Z"),
+            assessment_event(
+                &rev("b"),
+                "agent:codex",
+                "actor:agent:codex",
+                "s2",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:03Z",
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            no_stale_assessment_items(&projection),
+            "a re-judged successor resolves the stale decision",
+        );
+    }
+
+    #[test]
+    fn stale_assessment_stays_when_the_successor_head_is_unassessed() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:01Z",
+            ),
+            revision_event("b", vec![rev("a")], "2026-06-04T00:00:02Z"),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            has_stale_assessment_item(&projection, "s1"),
+            "an unjudged successor keeps the moved-on-without-re-deciding nudge",
+        );
+    }
+
+    #[test]
+    fn stale_assessment_stays_while_any_fork_head_is_unassessed() {
+        let a = rev("a");
+        let base = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:01Z",
+            ),
+            revision_event("b", vec![rev("a")], "2026-06-04T00:00:02Z"),
+            revision_event("c", vec![rev("a")], "2026-06-04T00:00:03Z"),
+            assessment_event(
+                &rev("b"),
+                "agent:codex",
+                "actor:agent:codex",
+                "s2",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:04Z",
+            ),
+        ];
+        let projection = attention_from_events(&base, None).expect("projects");
+        assert!(
+            has_stale_assessment_item(&projection, "s1"),
+            "one unassessed fork head keeps the item",
+        );
+
+        let mut all_assessed = base;
+        all_assessed.push(assessment_event(
+            &rev("c"),
+            "agent:codex",
+            "actor:agent:codex",
+            "s3",
+            ReviewAssessment::Accepted,
+            vec![],
+            vec![],
+            "2026-06-04T00:00:05Z",
+        ));
+        let projection = attention_from_events(&all_assessed, None).expect("projects");
+        assert!(
+            no_stale_assessment_items(&projection),
+            "every fork head re-judged resolves the stale decision",
+        );
+    }
+
+    #[test]
+    fn successor_assessed_needs_changes_still_resolves() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:01Z",
+            ),
+            revision_event("b", vec![rev("a")], "2026-06-04T00:00:02Z"),
+            assessment_event(
+                &rev("b"),
+                "agent:codex",
+                "actor:agent:codex",
+                "s2",
+                ReviewAssessment::NeedsChanges,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:03Z",
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            no_stale_assessment_items(&projection),
+            "re-judged is re-judged, whatever the verdict",
+        );
+    }
+
+    #[test]
+    fn file_scoped_head_assessment_does_not_resolve() {
+        let a = rev("a");
+        let b = rev("b");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:01Z",
+            ),
+            revision_event("b", vec![a.clone()], "2026-06-04T00:00:02Z"),
+            assessment_event_with_target(
+                &b,
+                "agent:codex",
+                "actor:agent:codex",
+                "s2",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:03Z",
+                ReviewTargetRef::File {
+                    revision_id: b.clone(),
+                    file_path: "src/lib.rs".to_owned(),
+                },
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            has_stale_assessment_item(&projection, "s1"),
+            "a file-scoped judgment on the head is not a revision-scoped re-decision",
+        );
+    }
+
+    #[test]
+    fn stale_assessment_stays_inside_a_zero_head_cycle() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![rev("b")], "2026-06-04T00:00:00Z"),
+            revision_event("b", vec![rev("a")], "2026-06-04T00:00:01Z"),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:02Z",
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            has_stale_assessment_item(&projection, "s1"),
+            "a zero-head cycle never suppresses",
+        );
+    }
+
+    #[test]
+    fn stale_assessment_stays_in_a_cycle_with_an_external_head() {
+        // a <-> b cycle plus c superseding b: c is a genuine current head of the
+        // component, but the thread contains a cycle, so suppression must refuse
+        // even once c is assessed.
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![rev("b")], "2026-06-04T00:00:00Z"),
+            revision_event("b", vec![rev("a")], "2026-06-04T00:00:01Z"),
+            revision_event("c", vec![rev("b")], "2026-06-04T00:00:02Z"),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:03Z",
+            ),
+            assessment_event(
+                &rev("c"),
+                "agent:codex",
+                "actor:agent:codex",
+                "s2",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:04Z",
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            has_stale_assessment_item(&projection, "s1"),
+            "a cycled thread never suppresses, even with an assessed external head",
         );
     }
 }
