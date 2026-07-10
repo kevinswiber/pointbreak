@@ -124,8 +124,17 @@ function validateRelativePath(value, label) {
 function validateLock(lock) {
   assert(lock?.schema === LOCK_SCHEMA, `lock: expected schema ${LOCK_SCHEMA}`);
   assert(
-    lock?.source?.repository === "https://github.com/kevinswiber/pointbreak-brand",
+    lock?.source?.repository === "https://github.com/withpointbreak/brand",
     "lock: unexpected source repository",
+  );
+  assert(
+    lock?.source?.commit === "45f3bc61a00535f5f7b59bf04dc6391a1153f31c",
+    "lock: unexpected source commit",
+  );
+  assert(
+    lock?.source?.manifestSha256 ===
+      "a6d36770cd2e9db2951c45835c7739fbb6d89ad45e959c50fe2bbe2e7a76eabe",
+    "lock: unexpected manifestSha256",
   );
   assert(/^[0-9a-f]{40}$/.test(lock?.source?.commit ?? ""), "lock: invalid source commit");
   assert(

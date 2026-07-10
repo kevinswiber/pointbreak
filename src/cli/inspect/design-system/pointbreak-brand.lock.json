@@ -1,8 +1,8 @@
 {
   "schema": "com.withpointbreak.brand-lock/v1",
   "source": {
-    "repository": "https://github.com/kevinswiber/pointbreak-brand",
-    "commit": "6d0bab7987b96d82eefe9b8d92a084cfe69d200c",
+    "repository": "https://github.com/withpointbreak/brand",
+    "commit": "45f3bc61a00535f5f7b59bf04dc6391a1153f31c",
     "manifestSha256": "a6d36770cd2e9db2951c45835c7739fbb6d89ad45e959c50fe2bbe2e7a76eabe"
   },
   "artifacts": [

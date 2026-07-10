@@ -610,7 +610,15 @@ fn design_system_brand_assets_are_locked_and_verified_offline() {
     assert_eq!(lock["schema"], "com.withpointbreak.brand-lock/v1");
     assert_eq!(
         lock["source"]["repository"],
-        "https://github.com/kevinswiber/pointbreak-brand"
+        "https://github.com/withpointbreak/brand"
+    );
+    assert_eq!(
+        lock["source"]["commit"],
+        "45f3bc61a00535f5f7b59bf04dc6391a1153f31c"
+    );
+    assert_eq!(
+        lock["source"]["manifestSha256"],
+        "a6d36770cd2e9db2951c45835c7739fbb6d89ad45e959c50fe2bbe2e7a76eabe"
     );
     for field in ["commit", "manifestSha256"] {
         let value = lock["source"][field]
