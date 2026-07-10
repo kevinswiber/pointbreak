@@ -168,6 +168,12 @@ export interface State {
   // `open: false` (lens-primary `?sel=` URL form); `open: true` is the
   // entity-primary form. The router derives and re-emits it (I1).
   open: boolean;
+  // The attention lens's lens-local cursor: the kind-qualified id of the focused
+  // card, or null. Session-only (never serialized to the URL) and NOT a typed
+  // `Selection` — it drives a DOM focus class the lens re-applies on every render,
+  // so the cursor survives a repaint (a freshness reload, an Enter that opens the
+  // detail) instead of vanishing with the innerHTML.
+  attentionFocus: string | null;
   // Reading mode: the master pane collapses to a rail and the detail takes the
   // split. Session-only — never serialized to the URL (the router ignores it)
   // and never persisted; a fresh load always opens in the split. Toggled via
@@ -203,6 +209,7 @@ const state: State = {
   lens: "timeline",
   selected: { kind: null, id: null },
   open: false,
+  attentionFocus: null,
   reading: false,
   enabledTypes: new Set(TYPES.map((t) => t.id)),
   seenTypes: new Set(TYPES.map((t) => t.id)),

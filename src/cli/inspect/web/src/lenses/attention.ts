@@ -28,15 +28,22 @@ export function renderAttention(): void {
   }
   const primary = items.filter((item) => item.tier !== "secondary");
   const secondary = items.filter((item) => item.tier === "secondary");
+  // Re-apply the lens-local cursor from state so it survives this repaint.
+  const focus = getState().attentionFocus;
   el.innerHTML =
-    renderTier("Needs input", primary) + renderTier("Advisory", secondary);
+    renderTier("Needs input", primary, focus) +
+    renderTier("Advisory", secondary, focus);
 }
 
 /** A tier section: a heading and its cards, or nothing when the tier is empty. */
-function renderTier(label: string, items: AttentionItem[]): string {
+function renderTier(
+  label: string,
+  items: AttentionItem[],
+  focus: string | null,
+): string {
   if (!items.length) return "";
   return `<h3 class="${CLASS.attentionTier}">${escapeHtml(label)} (${items.length})</h3>${items
-    .map(renderAttentionCard)
+    .map((item) => renderAttentionCard(item, focus))
     .join("")}`;
 }
 
@@ -48,8 +55,12 @@ function anchorRevision(item: AttentionItem): string {
 }
 
 /** One attention card: kind chip, subject short-ref, ask, reason, actor. */
-function renderAttentionCard(item: AttentionItem): string {
+function renderAttentionCard(
+  item: AttentionItem,
+  focus: string | null,
+): string {
   const anchor = anchorRevision(item);
+  const focusClass = item.id === focus ? ` ${CLASS.attentionFocus}` : "";
   const kind = escapeHtml(item.kind.replace(/_/g, "-"));
   const subject = anchor ? shortRef(anchor) : "thread";
   const freshness =
@@ -68,7 +79,7 @@ function renderAttentionCard(item: AttentionItem): string {
   for (const [k, v] of detailRows(item)) push(k, v);
   push("observed", escapeHtml(fmtDateTime(item.observedAt ?? "")));
 
-  return `<div class="${CLASS.unitCard} ${CLASS.attentionCard}" data-entry-id="${escapeHtml(item.id)}" data-revision-id="${escapeHtml(anchor)}" title="${escapeHtml(item.id)}">
+  return `<div class="${CLASS.unitCard} ${CLASS.attentionCard}${focusClass}" data-entry-id="${escapeHtml(item.id)}" data-revision-id="${escapeHtml(anchor)}" title="${escapeHtml(item.id)}">
       <h3><span class="${CLASS.attentionKind}">${kind}</span> ${escapeHtml(askLabel(item))}</h3>
       ${freshness}
       <div class="${CLASS.kv}">${rows.join("")}</div>

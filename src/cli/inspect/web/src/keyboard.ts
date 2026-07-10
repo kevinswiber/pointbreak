@@ -10,7 +10,6 @@
 // (palette / diff / help are mutually exclusive), and the help toggle opens/closes
 // `help` through the manager — so keyboard imports no sibling overlay module.
 
-import { CLASS } from "./classNames";
 import { fetchHistoryPage, HISTORY_PAGE } from "./data";
 import { jumpChange, jumpFact, openRevisionDiff } from "./diff/controller";
 import { $ } from "./dom";
@@ -79,24 +78,17 @@ function attentionLensIsActive(): boolean {
   return getState().lens === "attention";
 }
 
-// The attention lens keeps a lens-local focus cursor (a DOM focus class), never a
-// typed `Selection` — so it does not go through `lensEntryIds`/`LensEntry`. The
-// focus key persists between steps; a repaint that drops it re-seeds from the top.
-let attentionFocusKey: string | null = null;
-
-// Apply the focus class to the card matching `key`, clear it from the rest, and
-// scroll it into view. The keys are the kind-qualified item ids on `data-entry-id`.
+// The attention lens keeps a lens-local focus cursor in `state.attentionFocus`
+// (a kind-qualified item id), never a typed `Selection` — so it does not go
+// through `lensEntryIds`/`LensEntry`. Committing it triggers a render; the lens
+// re-applies the `.attention-focus` class from state, so the cursor survives a
+// repaint (a freshness reload, an Enter that opens the detail).
 function setAttentionFocus(key: string): void {
-  attentionFocusKey = key;
-  const master = $<HTMLElement>("#master");
-  if (!master) return;
-  for (const card of Array.from(
-    master.querySelectorAll<HTMLElement>(".attention-card"),
-  )) {
-    const on = card.dataset.entryId === key;
-    card.classList.toggle(CLASS.attentionFocus, on);
-    if (on) card.scrollIntoView({ block: "nearest" });
-  }
+  commit({ attentionFocus: key });
+  // The commit repainted the lens with the focus class; scroll it into view.
+  $<HTMLElement>("#master")
+    ?.querySelector<HTMLElement>(".attention-card.attention-focus")
+    ?.scrollIntoView({ block: "nearest" });
 }
 
 // Step the lens-local focus cursor by `delta`, clamped to the loaded item keys.
@@ -105,7 +97,8 @@ function setAttentionFocus(key: string): void {
 function stepAttention(delta: number): void {
   const keys = attentionEntryKeys(getState());
   if (!keys.length) return;
-  let idx = attentionFocusKey ? keys.indexOf(attentionFocusKey) : -1;
+  const current = getState().attentionFocus;
+  let idx = current ? keys.indexOf(current) : -1;
   if (idx < 0) idx = delta > 0 ? -1 : 0;
   const next = Math.max(0, Math.min(keys.length - 1, idx + delta));
   setAttentionFocus(keys[next]);
@@ -132,12 +125,9 @@ function attentionViewportRows(): number {
 // click path's target: the focused card's `data-revision-id`. This writes a
 // revision `Selection` (an existing kind), never a new attention selection kind.
 function activateAttentionFocus(): void {
-  if (!attentionFocusKey) return;
-  const master = $<HTMLElement>("#master");
-  const card = Array.from(
-    master?.querySelectorAll<HTMLElement>(".attention-card") ?? [],
-  ).find((c) => c.dataset.entryId === attentionFocusKey);
-  const revisionId = card?.dataset.revisionId;
+  const revisionId = $<HTMLElement>("#master")
+    ?.querySelector<HTMLElement>(".attention-card.attention-focus")
+    ?.getAttribute("data-revision-id");
   if (revisionId)
     navigate({ selected: { kind: "revision", id: revisionId }, open: true });
 }

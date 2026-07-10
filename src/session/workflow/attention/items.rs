@@ -393,59 +393,81 @@ fn failed_validation_items(
         }
     }
 
-    // Latest per (revision, track, check_name), by sort_time then event id.
-    let mut latest: BTreeMap<(RevisionId, TrackId, String), ValidationRecord<'_>> = BTreeMap::new();
+    // Group by (revision, track, check_name), then decide per group. A single
+    // "latest" winner cannot be chosen when two records tie on sort_time: an event
+    // id is a content address, not causal order, so letting it break the tie could
+    // silently hide a failure behind an equal-time pass. Instead emit every failing
+    // record whose sort_time is the group's max — a strictly-later pass clears the
+    // card, but a simultaneous pass never does.
+    let mut groups: BTreeMap<(RevisionId, TrackId, String), Vec<ValidationRecord<'_>>> =
+        BTreeMap::new();
     for record in records.into_values() {
         let ValidationTarget::Revision { revision_id } = &record.payload.target;
-        let key = (
-            revision_id.clone(),
-            record.track_id.clone(),
-            record.payload.check_name.clone(),
-        );
-        let is_later = latest.get(&key).is_none_or(|existing| {
-            (record.sort_time(), record.event.event_id.as_str())
-                > (existing.sort_time(), existing.event.event_id.as_str())
-        });
-        if is_later {
-            latest.insert(key, record);
-        }
+        groups
+            .entry((
+                revision_id.clone(),
+                record.track_id.clone(),
+                record.payload.check_name.clone(),
+            ))
+            .or_default()
+            .push(record);
     }
 
-    for ((revision_id, track_id, _check_name), record) in latest {
-        if !matches!(
-            record.payload.status,
-            ValidationStatus::Failed | ValidationStatus::Errored
-        ) {
-            continue;
-        }
+    for ((revision_id, _track_id, _check_name), mut group) in groups {
         if !supersession.heads.contains(&revision_id) {
             continue;
         }
-        let observed_at = record
-            .payload
-            .completed_at
-            .clone()
-            .unwrap_or_else(|| record.event.occurred_at.clone());
-        let detail = AttentionDetail::FailedValidation {
-            validation_check_id: record.payload.validation_check_id.clone(),
-            check_name: record.payload.check_name.clone(),
-            status: record.payload.status,
-            exit_code: record.payload.exit_code,
-            track_id,
-            recorded_by: record.event.writer.actor_id.clone(),
-            log_artifact_content_hashes: record.payload.log_artifact_content_hashes.clone(),
+        let Some(max_time) = group
+            .iter()
+            .map(|record| record.sort_time().to_owned())
+            .max()
+        else {
+            continue;
         };
-        items.push(AttentionItem {
-            id: format!(
-                "failed_validation:{}",
-                record.payload.validation_check_id.as_str()
-            ),
-            tier: tier_for(&detail),
-            revision_id: Some(revision_id.clone()),
-            freshness: freshness_for(supersession, &revision_id),
-            observed_at,
-            detail,
+        // Deterministic order among tied failing records (the final sort re-orders
+        // across kinds, but keep this stable so ties never reorder run to run).
+        group.sort_by(|left, right| {
+            left.payload
+                .validation_check_id
+                .as_str()
+                .cmp(right.payload.validation_check_id.as_str())
         });
+        for record in group {
+            if record.sort_time() != max_time {
+                continue;
+            }
+            if !matches!(
+                record.payload.status,
+                ValidationStatus::Failed | ValidationStatus::Errored
+            ) {
+                continue;
+            }
+            let observed_at = record
+                .payload
+                .completed_at
+                .clone()
+                .unwrap_or_else(|| record.event.occurred_at.clone());
+            let detail = AttentionDetail::FailedValidation {
+                validation_check_id: record.payload.validation_check_id.clone(),
+                check_name: record.payload.check_name.clone(),
+                status: record.payload.status,
+                exit_code: record.payload.exit_code,
+                track_id: record.track_id.clone(),
+                recorded_by: record.event.writer.actor_id.clone(),
+                log_artifact_content_hashes: record.payload.log_artifact_content_hashes.clone(),
+            };
+            items.push(AttentionItem {
+                id: format!(
+                    "failed_validation:{}",
+                    record.payload.validation_check_id.as_str()
+                ),
+                tier: tier_for(&detail),
+                revision_id: Some(revision_id.clone()),
+                freshness: freshness_for(supersession, &revision_id),
+                observed_at,
+                detail,
+            });
+        }
     }
     Ok(())
 }
@@ -1544,6 +1566,96 @@ mod tests {
                 .iter()
                 .any(|item| matches!(item.detail, AttentionDetail::FailedValidation { .. })),
             "passing rerun clears, superseded does not report, skipped never reports"
+        );
+    }
+
+    #[test]
+    fn equal_time_pass_never_hides_a_simultaneous_fail() {
+        let a = rev("a");
+        // A pass and a fail for the same (revision, track, check_name) at the SAME
+        // completed_at: the pass must not clear the fail (no strictly-later result),
+        // and the outcome must not depend on event-id hash order.
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "passing",
+                "cargo test",
+                ValidationStatus::Passed,
+                Some(0),
+                Some("2026-06-04T00:01:00Z"),
+                "2026-06-04T00:01:00Z",
+                vec![],
+            ),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "failing",
+                "cargo test",
+                ValidationStatus::Failed,
+                Some(101),
+                Some("2026-06-04T00:01:00Z"),
+                "2026-06-04T00:01:00Z",
+                vec![],
+            ),
+        ];
+
+        let projection = attention_from_events(&events, None).expect("projects");
+        let failed: Vec<&str> = projection
+            .items
+            .iter()
+            .filter_map(|item| match &item.detail {
+                AttentionDetail::FailedValidation {
+                    validation_check_id,
+                    ..
+                } => Some(validation_check_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(failed, vec!["validation:sha256:failing"]);
+    }
+
+    #[test]
+    fn a_strictly_later_pass_clears_the_fail() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "failing",
+                "cargo test",
+                ValidationStatus::Failed,
+                Some(101),
+                Some("2026-06-04T00:01:00Z"),
+                "2026-06-04T00:01:00Z",
+                vec![],
+            ),
+            validation_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "passing",
+                "cargo test",
+                ValidationStatus::Passed,
+                Some(0),
+                Some("2026-06-04T00:02:00Z"),
+                "2026-06-04T00:02:00Z",
+                vec![],
+            ),
+        ];
+
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            !projection
+                .items
+                .iter()
+                .any(|item| matches!(item.detail, AttentionDetail::FailedValidation { .. })),
+            "a strictly-later pass clears the card"
         );
     }
 

@@ -790,6 +790,7 @@
     lens: "timeline",
     selected: { kind: null, id: null },
     open: false,
+    attentionFocus: null,
     reading: false,
     enabledTypes: new Set(TYPES.map((t) => t.id)),
     seenTypes: new Set(TYPES.map((t) => t.id)),
@@ -3956,24 +3957,16 @@
     return getState().lens === "attention";
   }
   __name(attentionLensIsActive, "attentionLensIsActive");
-  var attentionFocusKey = null;
   function setAttentionFocus(key) {
-    attentionFocusKey = key;
-    const master = $("#master");
-    if (!master) return;
-    for (const card of Array.from(
-      master.querySelectorAll(".attention-card")
-    )) {
-      const on = card.dataset.entryId === key;
-      card.classList.toggle(CLASS.attentionFocus, on);
-      if (on) card.scrollIntoView({ block: "nearest" });
-    }
+    commit({ attentionFocus: key });
+    $("#master")?.querySelector(".attention-card.attention-focus")?.scrollIntoView({ block: "nearest" });
   }
   __name(setAttentionFocus, "setAttentionFocus");
   function stepAttention(delta) {
     const keys = attentionEntryKeys(getState());
     if (!keys.length) return;
-    let idx = attentionFocusKey ? keys.indexOf(attentionFocusKey) : -1;
+    const current = getState().attentionFocus;
+    let idx = current ? keys.indexOf(current) : -1;
     if (idx < 0) idx = delta > 0 ? -1 : 0;
     const next = Math.max(0, Math.min(keys.length - 1, idx + delta));
     setAttentionFocus(keys[next]);
@@ -3995,12 +3988,7 @@
   }
   __name(attentionViewportRows, "attentionViewportRows");
   function activateAttentionFocus() {
-    if (!attentionFocusKey) return;
-    const master = $("#master");
-    const card = Array.from(
-      master?.querySelectorAll(".attention-card") ?? []
-    ).find((c) => c.dataset.entryId === attentionFocusKey);
-    const revisionId = card?.dataset.revisionId;
+    const revisionId = $("#master")?.querySelector(".attention-card.attention-focus")?.getAttribute("data-revision-id");
     if (revisionId)
       navigate({ selected: { kind: "revision", id: revisionId }, open: true });
   }
@@ -4433,12 +4421,13 @@
     }
     const primary = items.filter((item) => item.tier !== "secondary");
     const secondary = items.filter((item) => item.tier === "secondary");
-    el.innerHTML = renderTier("Needs input", primary) + renderTier("Advisory", secondary);
+    const focus = getState().attentionFocus;
+    el.innerHTML = renderTier("Needs input", primary, focus) + renderTier("Advisory", secondary, focus);
   }
   __name(renderAttention, "renderAttention");
-  function renderTier(label, items) {
+  function renderTier(label, items, focus) {
     if (!items.length) return "";
-    return `<h3 class="${CLASS.attentionTier}">${escapeHtml(label)} (${items.length})</h3>${items.map(renderAttentionCard).join("")}`;
+    return `<h3 class="${CLASS.attentionTier}">${escapeHtml(label)} (${items.length})</h3>${items.map((item) => renderAttentionCard(item, focus)).join("")}`;
   }
   __name(renderTier, "renderTier");
   function anchorRevision(item) {
@@ -4446,8 +4435,9 @@
     return item.headRevisionIds?.[0] ?? "";
   }
   __name(anchorRevision, "anchorRevision");
-  function renderAttentionCard(item) {
+  function renderAttentionCard(item, focus) {
     const anchor = anchorRevision(item);
+    const focusClass = item.id === focus ? ` ${CLASS.attentionFocus}` : "";
     const kind = escapeHtml(item.kind.replace(/_/g, "-"));
     const subject = anchor ? shortRef(anchor) : "thread";
     const freshness = item.freshness?.state === "superseded" ? `<span class="${CLASS.attentionFreshness}">superseded${item.freshness.supersededBy?.length ? ` by ${item.freshness.supersededBy.map((id) => linkify(id)).join(", ")}` : ""}</span>` : "";
@@ -4458,7 +4448,7 @@
     push("subject", escapeHtml(subject));
     for (const [k, v] of detailRows(item)) push(k, v);
     push("observed", escapeHtml(fmtDateTime(item.observedAt ?? "")));
-    return `<div class="${CLASS.unitCard} ${CLASS.attentionCard}" data-entry-id="${escapeHtml(item.id)}" data-revision-id="${escapeHtml(anchor)}" title="${escapeHtml(item.id)}">
+    return `<div class="${CLASS.unitCard} ${CLASS.attentionCard}${focusClass}" data-entry-id="${escapeHtml(item.id)}" data-revision-id="${escapeHtml(anchor)}" title="${escapeHtml(item.id)}">
       <h3><span class="${CLASS.attentionKind}">${kind}</span> ${escapeHtml(askLabel(item))}</h3>
       ${freshness}
       <div class="${CLASS.kv}">${rows.join("")}</div>

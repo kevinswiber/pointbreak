@@ -915,18 +915,19 @@ describe("the attention lens has a lens-local cursor", () => {
     },
   ];
 
-  function seedAttentionLens(): void {
+  // Drive the real render pipeline: the lens paints `#attention` from the fixture
+  // and applies the `.attention-focus` class from `state.attentionFocus`, so the
+  // cursor is renderable state that survives a repaint (the reviewer's fix).
+  async function seedAttentionLens(): Promise<void> {
+    const render = await import("../src/render");
+    store.subscribe(render.render);
     store.commit({
       attention: { items: ITEMS } as unknown as AttentionDoc,
       lens: "attention",
       selected: { kind: null, id: null },
+      attentionFocus: null,
     });
-    const master = document.querySelector<HTMLElement>("#master");
-    if (!master) throw new Error("#master not mounted");
-    master.innerHTML = ITEMS.map(
-      (item) =>
-        `<div class="unit-card attention-card" data-entry-id="${item.id}" data-revision-id="${item.revisionId}"></div>`,
-    ).join("");
+    render.render();
   }
 
   function focusedEntryId(): string | null {
@@ -943,15 +944,15 @@ describe("the attention lens has a lens-local cursor", () => {
     expect(store.getState().lens).toBe("attention");
   });
 
-  it("attentionEntryKeys returns the kind-qualified ids in render order", () => {
-    seedAttentionLens();
+  it("attentionEntryKeys returns the kind-qualified ids in render order", async () => {
+    await seedAttentionLens();
     expect(model.attentionEntryKeys(store.getState())).toEqual(
       ITEMS.map((i) => i.id),
     );
   });
 
   it("j/k step the lens-local focus without writing a Selection", async () => {
-    seedAttentionLens();
+    await seedAttentionLens();
     key({ key: "j" });
     await settleKeyboard();
     expect(focusedEntryId()).toBe(ITEMS[0].id);
@@ -978,18 +979,31 @@ describe("the attention lens has a lens-local cursor", () => {
     ).toBe(true);
   });
 
+  it("the focus cursor survives a repaint (freshness reload / Enter)", async () => {
+    await seedAttentionLens();
+    key({ key: "j" });
+    await settleKeyboard();
+    expect(focusedEntryId()).toBe(ITEMS[0].id);
+    // A render-triggering commit (a freshness reload re-commits the docs) repaints
+    // #attention; the focus class must be re-applied from state, not lost.
+    store.commit({ attention: { items: ITEMS } as unknown as AttentionDoc });
+    expect(focusedEntryId()).toBe(ITEMS[0].id);
+  });
+
   it("Enter activates the focused card to its anchored revision", async () => {
-    seedAttentionLens();
+    await seedAttentionLens();
     key({ key: "j" });
     await settleKeyboard();
     key({ key: "Enter" });
     await settleKeyboard();
     expect(store.getState().selected).toEqual({ kind: "revision", id: R1 });
     expect(store.getState().open).toBe(true);
+    // The cursor survives the Enter repaint.
+    expect(focusedEntryId()).toBe(ITEMS[0].id);
   });
 
   it("overlapping-anchor cards are distinct stops that activate to the same revision", async () => {
-    seedAttentionLens();
+    await seedAttentionLens();
     key({ key: "j" });
     await settleKeyboard();
     key({ key: "j" });
