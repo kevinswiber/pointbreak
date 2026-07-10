@@ -80,7 +80,11 @@ Pointbreak's internal architecture language treats revisions, task attempts, and
 software work objects coordinated through an append-only event log and purpose-built projections.
 A revision is the captured review work object (observations, assessments, and validation evidence
 attach to it); succession between revisions is a fork-tolerant supersession DAG, not a scalar lineage,
-and content identity is a separate object layer beneath the revision. Read
+and content identity is a separate object layer beneath the revision. Supersession is only for a new
+content state replacing the reviewed one — a commit that lands the already-captured change (even
+after an assessment) is recorded as a commit association on the *same* revision
+(`shore association record --commit`), never a new capture; successive landed commits accreting on
+one revision are the expected multi-pass shape (ADR-0014). Read
 `docs/substrate-language.md`, `docs/substrate-thesis-summary.md`,
 `docs/adr/adr-0003-agent-resource-claims-advisory-first.md`,
 `docs/adr/adr-0017-eventtarget-identity-layering-and-engagement-naming.md`, and

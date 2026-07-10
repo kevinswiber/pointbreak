@@ -218,11 +218,13 @@ Pick the landed commit deliberately:
 - A **worktree-captured** unit is born floating (no commit OID); `association record --commit` is its
   canonical landing record — the event the capture left it waiting for.
 - A **commit-range-captured** unit is already anchored at its captured target commit. If the work
-  landed as that same commit (rebase or fast-forward), associate it — same OID, nothing diverges. If
-  landing produced a **new** commit (a squash or merge commit), associating it adds a second current
-  OID and the projection surfaces a `divergent_commit_association` diagnostic. That is correct — the
-  reviewed content is at the captured target and the work also landed as the squash commit — so leave
-  both, or `shore association withdraw` whichever edge you do not want to keep current.
+  landed as that same commit (rebase or fast-forward), associate it — same OID, nothing changes. If
+  landing produced a **new** commit (a squash or merge commit), associate it too: the capture target
+  is provenance, not a landing claim, so the second OID is the expected shape and raises no
+  diagnostic. Successive passes landing more commits on the same revision accrete the same way —
+  that is history, not divergence. `divergent_commit_association` appears only when two genuinely
+  forked commits (neither an ancestor of the other, different content) both claim the landing;
+  resolve that by withdrawing the wrong edge with `shore association withdraw`.
 
 Optionally also record a human-readable companion for readers scanning observations:
 

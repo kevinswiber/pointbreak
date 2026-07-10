@@ -254,6 +254,12 @@ capture a separate handoff when that task reaches its own end.
 - **Faking a worktree diff after a commit.** Committing first is not an error: capture the landed
   change with `shore capture --base <commit-before-task>`. The error is rewriting history —
   for example `git reset --soft` — to manufacture a worktree diff. Never do that; use `--base`.
+- **Recapturing because a commit landed.** A commit that lands the already-captured change — during
+  review or after an assessment — is recorded with
+  `shore association record --commit <sha> --revision <id> --track <track>` on the same revision,
+  never with a new capture. Successive landed commits accreting on one revision are the expected
+  multi-pass shape. `shore capture --supersedes` is only for a genuinely new content state
+  replacing the reviewed one.
 - **Claiming verification you did not run.** Record only checks you actually performed, including
   failures or skipped checks when they matter.
 - **Putting check results only in observations.** Record concrete command results with

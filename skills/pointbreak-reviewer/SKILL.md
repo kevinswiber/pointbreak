@@ -123,6 +123,13 @@ since then. Compare the captured unit's endpoints from `shore revision list --fo
 commit or branch head you actually review. If they diverge or you cannot prove they match, record a
 reviewer observation that names the live commit and the possible snapshot mismatch.
 
+A moved HEAD or a commit landing after the capture does **not** invalidate the revision and is
+never grounds to recapture or mint a superseding revision: the author bridges a landed commit with
+`shore association record --commit` on the same revision, and successive landed commits accreting
+on one revision are the expected multi-pass shape. Supersession (`shore capture --supersedes`) is
+only for a genuinely new content state replacing the reviewed one. Review the live worktree, note
+any snapshot mismatch as an observation, and still record your assessment on the existing revision.
+
 ```bash
 git status --short --branch
 git diff --stat
@@ -290,6 +297,9 @@ an implementation role.
   command results, and observations for interpretation or risks.
 - **Skipping the live commit check.** If your checkout differs from the captured snapshot, say so in
   a reviewer observation.
+- **Superseding instead of assessing.** A commit that landed after the capture or assessment is
+  recorded by the author as a commit association on the same revision; it never requires a new
+  revision, and it is not a reason to withhold or re-route your assessment.
 - **Recording author-decision follow-ups as observations.** Use an advisory input request when the
   author should answer.
 - **Adding multiple assessments.** The reviewer records exactly one assessment for the review pass.
