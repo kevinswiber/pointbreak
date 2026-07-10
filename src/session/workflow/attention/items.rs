@@ -622,6 +622,9 @@ fn current_assessment_records_by_revision(
 /// One `ambiguous_assessment` item per revision whose current set has more than
 /// one record — including when the values agree (each track is an independent
 /// assertion). The peers are carried verbatim; no winner is chosen.
+/// Freshness-independent on current heads; on a superseded revision the item is
+/// suppressed once every thread head has been re-judged
+/// (`thread_heads_all_assessed`).
 fn ambiguous_assessment_items(
     current_by_revision: &BTreeMap<RevisionId, Vec<AttentionAssessmentRecord>>,
     supersession: &SupersessionView,
@@ -629,6 +632,12 @@ fn ambiguous_assessment_items(
 ) {
     for (revision_id, peers) in current_by_revision {
         if peers.len() < 2 {
+            continue;
+        }
+        let freshness = freshness_for(supersession, revision_id);
+        if freshness.state == AttentionFreshnessState::Superseded
+            && thread_heads_all_assessed(supersession, current_by_revision, revision_id)
+        {
             continue;
         }
         let observed_at = peers
@@ -643,7 +652,7 @@ fn ambiguous_assessment_items(
             id: format!("ambiguous_assessment:{}", revision_id.as_str()),
             tier: tier_for(&detail),
             revision_id: Some(revision_id.clone()),
-            freshness: freshness_for(supersession, revision_id),
+            freshness,
             observed_at,
             detail,
         });
@@ -2880,6 +2889,112 @@ mod tests {
         assert!(
             has_stale_assessment_item(&projection, "s1"),
             "a cycled thread never suppresses, even with an assessed external head",
+        );
+    }
+
+    fn superseded_ambiguity_fixture(assess_successor: bool) -> Vec<ShoreEvent> {
+        let a = rev("a");
+        let mut events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            assessment_event(
+                &a,
+                "human:kevin",
+                "actor:human:kevin",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:01Z",
+            ),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s2",
+                ReviewAssessment::NeedsChanges,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:02Z",
+            ),
+            revision_event("b", vec![rev("a")], "2026-06-04T00:00:03Z"),
+        ];
+        if assess_successor {
+            events.push(assessment_event(
+                &rev("b"),
+                "agent:codex",
+                "actor:agent:codex",
+                "s3",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:04Z",
+            ));
+        }
+        events
+    }
+
+    #[test]
+    fn superseded_ambiguity_clears_when_every_successor_head_is_assessed() {
+        let events = superseded_ambiguity_fixture(true);
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            projection
+                .items
+                .iter()
+                .all(|item| !item.id.starts_with("ambiguous_assessment:")),
+            "a re-judged successor resolves the superseded ambiguity",
+        );
+        // Rule A also clears a's two stale_assessment items here (same
+        // predicate), so the composed queue is fully empty.
+        assert!(projection.items.is_empty());
+    }
+
+    #[test]
+    fn superseded_ambiguity_stays_when_the_successor_head_is_unassessed() {
+        let events = superseded_ambiguity_fixture(false);
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            projection
+                .items
+                .iter()
+                .any(|item| item.id == "ambiguous_assessment:rev:sha256:a"),
+            "an unjudged successor keeps the superseded ambiguity",
+        );
+    }
+
+    #[test]
+    fn current_head_ambiguity_always_emits() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            assessment_event(
+                &a,
+                "human:kevin",
+                "actor:human:kevin",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:01Z",
+            ),
+            assessment_event(
+                &a,
+                "agent:codex",
+                "actor:agent:codex",
+                "s2",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:02Z",
+            ),
+        ];
+        let projection = attention_from_events(&events, None).expect("projects");
+        assert!(
+            projection
+                .items
+                .iter()
+                .any(|item| item.id == "ambiguous_assessment:rev:sha256:a"),
+            "ambiguity on a current head is always judgment-worthy",
         );
     }
 }
