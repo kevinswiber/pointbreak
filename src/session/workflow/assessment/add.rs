@@ -370,11 +370,15 @@ fn competing_candidates_diagnostic(
     })
 }
 
-/// The distinct assessments still current on the revision once this write
-/// lands: every recorded assessment id, minus those replaced by any record or
-/// by the new assessment, minus the new assessment itself. An event set the
-/// shared collector cannot decode yields no candidates — the nudge is advisory
-/// and must never turn a malformed sibling event into a write failure.
+/// The assessments competing with the new one once this write lands, derived
+/// from the post-write current set: every recorded assessment id plus the new
+/// assessment, minus everything replaced by any record or by the new
+/// assessment. The new id joins the candidate set before the current filter so
+/// an idempotent rerun of an already-replaced assessment reads as replaced,
+/// not as a fresh competitor. A current set with fewer than two members is
+/// resolved, so nothing competes. An event set the shared collector cannot
+/// decode yields no candidates — the nudge is advisory and must never turn a
+/// malformed sibling event into a write failure.
 fn unreplaced_assessment_candidates(
     events: &[ShoreEvent],
     revision_id: &RevisionId,
@@ -389,11 +393,18 @@ fn unreplaced_assessment_candidates(
     for record in records.values() {
         replaced.extend(record.payload.replaces_assessment_ids.iter().cloned());
     }
-    records
-        .into_keys()
-        .filter(|assessment_id| {
-            assessment_id != new_assessment_id && !replaced.contains(assessment_id)
-        })
+    let mut candidates: BTreeSet<AssessmentId> = records.into_keys().collect();
+    candidates.insert(new_assessment_id.clone());
+    let current = candidates
+        .into_iter()
+        .filter(|assessment_id| !replaced.contains(assessment_id))
+        .collect::<Vec<_>>();
+    if current.len() < 2 {
+        return Vec::new();
+    }
+    current
+        .into_iter()
+        .filter(|assessment_id| assessment_id != new_assessment_id)
         .collect()
 }
 

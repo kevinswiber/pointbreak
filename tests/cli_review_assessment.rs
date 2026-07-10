@@ -413,6 +413,55 @@ fn shore_review_assessment_add_replacing_every_candidate_stays_quiet() {
 }
 
 #[test]
+fn shore_review_assessment_add_idempotent_rerun_of_replaced_assessment_stays_quiet() {
+    let repo = support::dump_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+    shore(["capture", "--repo", repo_arg]);
+    let first = add_assessment(repo_arg, "human:kevin", "needs-changes", "fix it");
+
+    let second = shore([
+        "assessment",
+        "add",
+        "--repo",
+        repo_arg,
+        "--track",
+        "human:kevin",
+        "--assessment",
+        "accepted",
+        "--summary",
+        "fixed",
+        "--replaces",
+        first["assessmentId"].as_str().unwrap(),
+    ]);
+    assert!(
+        second.status.success(),
+        "assessment add failed: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+
+    // A byte-identical rerun of the replaced assessment records no new event
+    // and leaves the revision resolved on the replacement, so it must not
+    // read as a fresh competitor.
+    let rerun = add_assessment(repo_arg, "human:kevin", "needs-changes", "fix it");
+    assert_eq!(
+        rerun["eventsCreated"], 0,
+        "rerun must be idempotent: {rerun}"
+    );
+    assert_eq!(
+        rerun["eventsExisting"], 1,
+        "rerun must be idempotent: {rerun}"
+    );
+    assert!(
+        rerun["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|diagnostic| diagnostic["code"] != "assessment_competing_candidates"),
+        "an idempotent rerun of a replaced assessment must stay quiet: {rerun}"
+    );
+}
+
+#[test]
 fn shore_review_assessment_add_flags_only_candidates_left_unreplaced() {
     let repo = support::dump_repo();
     let repo_arg = repo.path().to_str().unwrap();
