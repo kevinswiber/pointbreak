@@ -22,6 +22,7 @@ stays in the live inspector.
 | `pointbreak-brand.lock.json` | Immutable source commit, manifest digest, and local destinations for vendored brand assets. |
 | `brand-check.mjs` | Offline verification of every locked local byte digest and SVG geometry digest. |
 | `logo/pointbreak-logo.svg` | Original multiband logo for gallery identity evidence only; live compact chrome remains mono. |
+| `comparisons/*.html` | **Generated, git-ignored.** Matched baseline/candidate cards for the Review visual study. |
 | `_bodies/bake.sh` | Verifies brand and contrast contracts, then bakes self-contained cards from a fragment + tokens + `styles.css`. |
 
 Each baked card is self-contained: the baker prepends the
@@ -35,6 +36,20 @@ The Data group includes a static mirror of the shipped Attention lens. The
 `instrument-neutral` foundations pair is an explicitly unshipped comparison
 artifact: the baker composes it after live tokens, but no inspector asset or
 route loads the variant.
+
+The comparison matrix covers foundations, wide/narrow navigation, timeline,
+Attention, review facts, annotated diff, compact density, and large identity in
+both themes. Run the audit against the current product or the isolated candidate
+with:
+
+```sh
+node contrast-check.mjs
+node contrast-check.mjs --variant variants/instrument-neutral.css
+```
+
+Both commands keep the live token file read-only. The expanded light-theme
+syntax-on-tinted-row matrix is reported separately as decision evidence rather
+than silently changing the product palette during a gallery comparison.
 
 ## Workflow
 

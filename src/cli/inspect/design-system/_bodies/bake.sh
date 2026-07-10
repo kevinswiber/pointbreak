@@ -10,6 +10,7 @@ STYLES="$DS/styles.css"
 # gallery files. Both checks are repository-local and network-free.
 node "$DS/brand-check.mjs"
 node "$DS/contrast-check.mjs"
+node "$DS/contrast-check.mjs" --variant variants/instrument-neutral.css
 
 # Publish a token file for the synced design-system project: the shared product
 # tokens plus the self-hosted JetBrains Mono @font-face block (fonts.css). The
@@ -67,6 +68,18 @@ bake_variant() {
   VISUAL_VARIANT="$variant" VARIANT_CSS="$DS/variants/$variant.css" bake "$@"
 }
 
+bake_comparison() {
+  local body="$1" baseline_out="$2" candidate_out="$3" scenario="$4" theme="$5"
+  local theme_label
+  case "$theme" in
+    dark) theme_label="Dark theme" ;;
+    light) theme_label="Light theme" ;;
+    *) echo "unsupported comparison theme: $theme" >&2; return 1 ;;
+  esac
+  bake "$body" "$baseline_out" "Review comparison" "$scenario — baseline — $theme" "" "$theme" "$scenario — baseline — $theme" "$theme_label · current Review"
+  bake_variant instrument-neutral "$body" "$candidate_out" "Review comparison" "$scenario — instrument-neutral — $theme" "" "$theme" "$scenario — candidate — $theme" "$theme_label · unshipped candidate"
+}
+
 # Dark cards. Every card has a light twin, so each dark card carries an explicit
 # name and each light card carries a matching "— light" name plus subtitle.
 bake foundations.body.html         foundations/foundations.html Foundations "Foundations — tokens"                with-fonts "" "Foundations — dark" "Dark theme"
@@ -98,3 +111,25 @@ bake data-diff.body.html           data/diff-light.html               Data      
 bake data-attention.body.html      data/attention-light.html          Data        "Data — Attention lens, light"  "" light "Attention — light"       "Light theme"
 bake feedback-diagnostics.body.html feedback/diagnostics-light.html   Feedback    "Feedback — light theme"       "" light "Feedback — light"        "Light theme"
 bake_variant instrument-neutral foundations.body.html foundations/foundations-instrument-neutral-light.html Foundations "Foundations — instrument-neutral candidate, light" with-fonts light "Foundations — instrument-neutral light" "Light theme · unshipped candidate"
+
+# Matched baseline/candidate comparison matrix. Every pair shares body markup,
+# component styles, theme, and viewport; only the candidate token scope (and
+# the sanctioned large-identity treatment) differs.
+bake_comparison foundations.body.html comparisons/foundations-baseline-dark.html comparisons/foundations-candidate-dark.html foundations dark
+bake_comparison foundations.body.html comparisons/foundations-baseline-light.html comparisons/foundations-candidate-light.html foundations light
+bake_comparison navigation-topbar.body.html comparisons/navigation-wide-baseline-dark.html comparisons/navigation-wide-candidate-dark.html navigation-wide dark
+bake_comparison navigation-topbar.body.html comparisons/navigation-wide-baseline-light.html comparisons/navigation-wide-candidate-light.html navigation-wide light
+bake_comparison comparison-navigation-narrow.body.html comparisons/navigation-narrow-baseline-dark.html comparisons/navigation-narrow-candidate-dark.html navigation-narrow dark
+bake_comparison comparison-navigation-narrow.body.html comparisons/navigation-narrow-baseline-light.html comparisons/navigation-narrow-candidate-light.html navigation-narrow light
+bake_comparison data-timeline.body.html comparisons/timeline-wide-baseline-dark.html comparisons/timeline-wide-candidate-dark.html timeline-wide dark
+bake_comparison data-timeline.body.html comparisons/timeline-wide-baseline-light.html comparisons/timeline-wide-candidate-light.html timeline-wide light
+bake_comparison data-attention.body.html comparisons/attention-baseline-dark.html comparisons/attention-candidate-dark.html attention dark
+bake_comparison data-attention.body.html comparisons/attention-baseline-light.html comparisons/attention-candidate-light.html attention light
+bake_comparison data-review-facts.body.html comparisons/review-facts-baseline-dark.html comparisons/review-facts-candidate-dark.html review-facts dark
+bake_comparison data-review-facts.body.html comparisons/review-facts-baseline-light.html comparisons/review-facts-candidate-light.html review-facts light
+bake_comparison data-diff.body.html comparisons/annotated-diff-baseline-dark.html comparisons/annotated-diff-candidate-dark.html annotated-diff dark
+bake_comparison data-diff.body.html comparisons/annotated-diff-baseline-light.html comparisons/annotated-diff-candidate-light.html annotated-diff light
+bake_comparison comparison-compact-density.body.html comparisons/compact-density-baseline-dark.html comparisons/compact-density-candidate-dark.html compact-density dark
+bake_comparison comparison-compact-density.body.html comparisons/compact-density-baseline-light.html comparisons/compact-density-candidate-light.html compact-density light
+bake_comparison comparison-large-identity.body.html comparisons/large-identity-baseline-dark.html comparisons/large-identity-candidate-dark.html large-identity dark
+bake_comparison comparison-large-identity.body.html comparisons/large-identity-baseline-light.html comparisons/large-identity-candidate-light.html large-identity light

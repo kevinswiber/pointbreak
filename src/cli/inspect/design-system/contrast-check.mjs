@@ -6,6 +6,23 @@ import { fileURLToPath } from "node:url";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const tokenPath = path.resolve(scriptDirectory, "../assets/tokens.css");
+const variantDirectory = path.resolve(scriptDirectory, "variants");
+
+const allowedVariantTokens = new Set([
+  "--bg",
+  "--bg-elev",
+  "--bg-row",
+  "--bg-row-sel",
+  "--bg-topbar",
+  "--sel-bg",
+  "--bg-code",
+  "--border",
+  "--fg",
+  "--fg-dim",
+  "--accent",
+  "--accent-strong",
+  "--on-accent",
+]);
 
 const requiredTokens = [
   "--bg",
@@ -93,6 +110,58 @@ function themeBlocks(css) {
   ]);
 }
 
+function parseVariantPath(argumentsList) {
+  if (argumentsList.length === 0) return null;
+  assert(
+    argumentsList.length === 2 && argumentsList[0] === "--variant",
+    "usage: node contrast-check.mjs [--variant variants/instrument-neutral.css]",
+  );
+  const variantPath = path.resolve(scriptDirectory, argumentsList[1]);
+  assert(
+    variantPath.startsWith(`${variantDirectory}${path.sep}`),
+    `variant path must stay inside ${variantDirectory}`,
+  );
+  return variantPath;
+}
+
+function variantThemeBlocks(css, variantPath) {
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const match of withoutComments.matchAll(/(--[a-z0-9-]+)\s*:/gi)) {
+    assert(
+      allowedVariantTokens.has(match[1]),
+      `${variantPath}: candidate must not override ${match[1]}`,
+    );
+  }
+
+  const dark = withoutComments.match(
+    /\[data-visual-variant\s*=\s*["']instrument-neutral["']\]\s*,\s*\[data-visual-variant\s*=\s*["']instrument-neutral["']\]\[data-theme\s*=\s*["']dark["']\]\s*\{([\s\S]*?)\}/i,
+  );
+  const light = withoutComments.match(
+    /\[data-visual-variant\s*=\s*["']instrument-neutral["']\]\[data-theme\s*=\s*["']light["']\]\s*\{([\s\S]*?)\}/i,
+  );
+  assert(dark, `${variantPath}: missing instrument-neutral dark block`);
+  assert(light, `${variantPath}: missing instrument-neutral light block`);
+
+  const darkOverrides = declarations(dark[1], "instrument-neutral dark variant");
+  const lightOverrides = new Map([
+    ...darkOverrides,
+    ...declarations(light[1], "instrument-neutral light variant"),
+  ]);
+  return new Map([
+    ["dark", darkOverrides],
+    ["light", lightOverrides],
+  ]);
+}
+
+function composeThemes(baseThemes, variantThemes) {
+  return new Map(
+    [...baseThemes].map(([theme, tokens]) => [
+      theme,
+      new Map([...tokens, ...(variantThemes.get(theme) ?? [])]),
+    ]),
+  );
+}
+
 function resolvedValue(tokens, name, stack = []) {
   assert(tokens.has(name), `missing required token ${name}`);
   assert(!stack.includes(name), `token alias cycle: ${[...stack, name].join(" -> ")}`);
@@ -162,9 +231,9 @@ function auditTheme(theme, tokens) {
   for (const name of requiredTokens) resolvedValue(tokens, name);
 
   const checks = [];
-  const add = (label, foreground, background, minimum = 4.5) => {
+  const add = (label, foreground, background, minimum = 4.5, diagnostic = false) => {
     const ratio = contrast(foreground, background);
-    checks.push({ label, minimum, ratio, passed: ratio >= minimum });
+    checks.push({ diagnostic, label, minimum, ratio, passed: ratio >= minimum });
   };
   const addTokens = (label, foreground, background) =>
     add(label, tokenColor(tokens, foreground), tokenColor(tokens, background));
@@ -245,7 +314,7 @@ function auditTheme(theme, tokens) {
   add("diff-add-fg on emphasized add", tokenColor(tokens, "--diff-add-fg"), emphasizedAdd);
   add("diff-del-fg on emphasized delete", tokenColor(tokens, "--diff-del-fg"), emphasizedDelete);
 
-  for (const foreground of [
+  const syntaxTokens = [
     "--tok-keyword",
     "--tok-string",
     "--tok-comment",
@@ -256,26 +325,65 @@ function auditTheme(theme, tokens) {
     "--tok-operator",
     "--tok-punctuation",
     "--tok-variable",
-  ]) {
+  ];
+  for (const foreground of syntaxTokens) {
     add(`${foreground} on diff body`, tokenColor(tokens, foreground), page);
+  }
+
+  // Diagnostic-only decision input. These combinations exist in the live
+  // syntax layer but were outside the Phase 1 gating matrix. Keep them visible
+  // without making a gallery-only comparison task silently change live values.
+  if (theme === "light") {
+    for (const foreground of syntaxTokens) {
+      for (const [surface, background] of [
+        ["add row", addRow],
+        ["delete row", deleteRow],
+        ["emphasized add", emphasizedAdd],
+        ["emphasized delete", emphasizedDelete],
+      ]) {
+        add(
+          `${foreground} on ${surface}`,
+          tokenColor(tokens, foreground),
+          background,
+          4.5,
+          true,
+        );
+      }
+    }
   }
 
   return checks.map((check) => ({ theme, ...check }));
 }
 
 async function main() {
-  const themes = themeBlocks(await readFile(tokenPath, "utf8"));
+  const variantPath = parseVariantPath(process.argv.slice(2));
+  const baseThemes = themeBlocks(await readFile(tokenPath, "utf8"));
+  const themes = variantPath
+    ? composeThemes(
+        baseThemes,
+        variantThemeBlocks(await readFile(variantPath, "utf8"), variantPath),
+      )
+    : baseThemes;
+  const treatment = variantPath ? "instrument-neutral" : "baseline";
   const results = [...themes].flatMap(([theme, tokens]) => auditTheme(theme, tokens));
-  const failures = results.filter((result) => !result.passed);
+  const gatingResults = results.filter((result) => !result.diagnostic);
+  const diagnosticResults = results.filter((result) => result.diagnostic);
+  const failures = gatingResults.filter((result) => !result.passed);
+  const diagnosticFailures = diagnosticResults.filter((result) => !result.passed);
 
-  console.log("theme | ratio | check");
-  console.log("------|-------|------");
+  console.log(`treatment: ${treatment}`);
+  console.log("kind       | theme | ratio | check");
+  console.log("-----------|-------|-------|------");
   for (const result of results) {
     console.log(
-      `${result.theme.padEnd(5)} | ${result.ratio.toFixed(2).padStart(5)} | ${result.label}`,
+      `${(result.diagnostic ? "diagnostic" : "gate").padEnd(10)} | ${result.theme.padEnd(5)} | ${result.ratio.toFixed(2).padStart(5)} | ${result.label}`,
     );
   }
-  console.log(`\n${results.length} text contrast checks; ${failures.length} failures.`);
+  console.log(
+    `\n${gatingResults.length} gating checks; ${failures.length} failures. ` +
+      `${diagnosticResults.length} syntax/tinted-row diagnostics; ` +
+      `${diagnosticFailures.length} below AA.`,
+  );
   if (failures.length > 0) process.exitCode = 1;
 }
 

@@ -867,6 +867,74 @@ fn design_system_visual_variant_is_gallery_only() {
 }
 
 #[test]
+fn design_system_gallery_bakes_matched_review_comparison_matrix() {
+    let bake = include_str!("../src/cli/inspect/design-system/_bodies/bake.sh");
+    for scenario in [
+        "foundations",
+        "navigation-wide",
+        "navigation-narrow",
+        "timeline-wide",
+        "attention",
+        "review-facts",
+        "annotated-diff",
+        "compact-density",
+        "large-identity",
+    ] {
+        for treatment in ["baseline", "candidate"] {
+            for theme in ["dark", "light"] {
+                let output = format!("comparisons/{scenario}-{treatment}-{theme}.html");
+                assert!(bake.contains(&output), "bake matrix must include {output}");
+            }
+        }
+    }
+
+    let review_facts =
+        include_str!("../src/cli/inspect/design-system/_bodies/data-review-facts.body.html");
+    for marker in ["replaced", "current", "signature valid"] {
+        assert!(
+            review_facts.contains(marker),
+            "review-facts comparison preserves {marker}"
+        );
+    }
+    let attention =
+        include_str!("../src/cli/inspect/design-system/_bodies/data-attention.body.html");
+    assert!(attention.contains("stale-assessment"));
+    assert!(attention.contains("accepted · current"));
+
+    let large_identity = include_str!(
+        "../src/cli/inspect/design-system/_bodies/comparison-large-identity.body.html"
+    );
+    assert!(large_identity.contains("../logo/pointbreak-logo.svg"));
+    let narrow = include_str!(
+        "../src/cli/inspect/design-system/_bodies/comparison-navigation-narrow.body.html"
+    );
+    assert!(
+        narrow.contains("class=\"brand-mark\""),
+        "compact comparison chrome keeps the mono brand-mark treatment"
+    );
+}
+
+#[test]
+fn design_system_contrast_audit_composes_only_an_explicit_gallery_variant() {
+    let audit = include_str!("../src/cli/inspect/design-system/contrast-check.mjs");
+    for marker in [
+        "--variant",
+        "allowedVariantTokens",
+        "variantPath",
+        "instrument-neutral",
+    ] {
+        assert!(
+            audit.contains(marker),
+            "variant audit must contain {marker}"
+        );
+    }
+    assert!(
+        !audit.contains("writeFile"),
+        "the contrast audit must never rewrite live tokens"
+    );
+}
+
+#[test]
 fn design_system_gallery_keeps_dag_edges_and_current_copy_in_sync() {
     let styles = include_str!("../src/cli/inspect/design-system/styles.css");
     let data_cards = include_str!("../src/cli/inspect/design-system/_bodies/data-cards.body.html");

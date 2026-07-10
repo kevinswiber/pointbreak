@@ -31,7 +31,7 @@ body {
 .ds-card {
   background: var(--bg);
   color: var(--fg);
-  font: 14px/1.45 var(--sans);
+  font: 14px/var(--line) var(--sans);
 }
 
 /* ---- Navigation / live shell ----------------------------------------- */
@@ -389,7 +389,7 @@ body {
   grid-template-columns: 96px 14px 1fr;
   gap: 10px;
   align-items: baseline;
-  padding: 8px 14px;
+  padding: var(--row-pad);
   border-bottom: 1px solid var(--border);
   cursor: pointer;
 }
@@ -505,6 +505,48 @@ body {
   font-size: var(--fs-sm);
   font-family: var(--mono);
   color: var(--warning);
+}
+
+/* ---- Comparison-only large identity --------------------------------- */
+.large-identity {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 28px;
+  align-items: center;
+  max-width: 880px;
+  padding: 34px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--bg-elev);
+}
+.large-identity-mark {
+  width: 180px;
+  height: 180px;
+}
+.large-identity-mark-mono {
+  display: block;
+  background: var(--accent);
+  -webkit-mask: url("../../assets/pointbreak-logo-mono.svg") center / contain no-repeat;
+  mask: url("../../assets/pointbreak-logo-mono.svg") center / contain no-repeat;
+}
+.large-identity-mark-multiband { display: none; object-fit: contain; }
+.large-identity p {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-weight: 600;
+}
+.large-identity h1 {
+  max-width: 14ch;
+  margin: 0 0 16px;
+  font-size: clamp(34px, 5vw, 64px);
+  line-height: 0.95;
+  letter-spacing: -0.045em;
+}
+.large-identity > div > span { color: var(--fg-dim); }
+@media (max-width: 640px) {
+  .large-identity { grid-template-columns: 1fr; }
+  .large-identity-mark { width: 120px; height: 120px; }
 }
 
 /* ---- Badges & chips --------------------------------------------------- */

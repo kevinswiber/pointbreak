@@ -17,17 +17,25 @@
 }
 
 [data-visual-variant="instrument-neutral"][data-theme="light"] {
-  --bg: #f4f0e6;
-  --bg-elev: #fdfbf5;
-  --bg-row: #eee8dc;
+  --bg: #fdfbf5;
+  --bg-elev: #fffefa;
+  --bg-row: #f7f3e9;
   --bg-row-sel: #e2dbce;
-  --bg-topbar: #e9e3d7;
-  --sel-bg: #eee8dc;
-  --bg-code: #fdfbf5;
+  --bg-topbar: #f4f0e6;
+  --sel-bg: #f7f3e9;
+  --bg-code: #fffefa;
   --border: #9eaaa4;
   --fg: #1b1d1c;
   --fg-dim: #4e5853;
   --accent: #006875;
   --accent-strong: #007885;
   --on-accent: #ffffff;
+}
+
+[data-visual-variant="instrument-neutral"] .large-identity-mark-mono {
+  display: none;
+}
+
+[data-visual-variant="instrument-neutral"] .large-identity-mark-multiband {
+  display: block;
 }
