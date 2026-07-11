@@ -3,13 +3,13 @@
   "producer": {
     "name": "shore",
     "version": "0.5.0",
-    "commit": "14913c83c8ae10ce933315c3d337c47bfc5a2a50"
+    "commit": "0c139ee1eaec196a7e1079f68bda3c893112f558"
   },
   "example": {
     "name": "checkout-refactor",
     "classification": "reproducible_sample_record",
     "manifestPath": "examples/review/checkout-refactor/manifest.json",
-    "manifestSha256": "a63e1ba5bbe3451e719ef97ed9b66ee178bbc8b0d606685bdbbe42cd7b877645"
+    "manifestSha256": "73f6aa276b2c4f27c9d1e26843c6225845b5b56d29a1fefdcad07106d3f528c1"
   },
   "record": {
     "revision": "rev:sha256:fa6981d38de12a850da707b69657e7a9153120c92a0dd08f534fbb40394d885f",
