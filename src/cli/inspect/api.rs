@@ -1069,13 +1069,18 @@ fn thread_document(
 /// The attention projection served to the web client. Re-derives per request from
 /// `repo` like its neighbors — no caching, pull-only. The library `AttentionItem`
 /// serializes directly (same single-spelling reuse as `RevisionListEntry`), so
-/// there is no parallel DTO.
-pub(super) fn attention_json(repo: &Path) -> Result<String, String> {
+/// there is no parallel DTO. An optional revision scope narrows the items to the
+/// headless `item_covers_scope` semantics: the revision's anchored items plus
+/// thread-scoped items whose component covers it. `None` is unchanged.
+pub(super) fn attention_json(repo: &Path, revision: Option<&str>) -> Result<String, String> {
     let span = tracing::debug_span!("shore.inspect.api.attention_json");
     let _guard = span.enter();
 
-    let result =
-        list_attention(AttentionListOptions::new(repo)).map_err(|error| error.to_string())?;
+    let mut options = AttentionListOptions::new(repo);
+    if let Some(revision) = revision {
+        options = options.with_revision(RevisionId::new(revision.to_owned()));
+    }
+    let result = list_attention(options).map_err(|error| error.to_string())?;
     let payload = AttentionPayload {
         schema: "pointbreak.inspect-attention",
         event_set_hash: result.event_set_hash,
@@ -2052,6 +2057,93 @@ mod tests {
         let payload: serde_json::Value =
             serde_json::from_str(&threads_json(repo.path()).unwrap()).unwrap();
         assert_eq!(payload["schema"], "pointbreak.inspect-threads");
+    }
+
+    #[test]
+    fn attention_json_scopes_items_to_a_revision() {
+        // Two independent revisions, one open (operative) input request each.
+        let root = tempfile::tempdir().expect("create temp repo");
+        let path = root.path();
+        git(path, &["init"]);
+        git(path, &["config", "user.name", "Shore Tests"]);
+        git(path, &["config", "user.email", "shore-tests@example.com"]);
+        git(path, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(path.join("src.txt"), "base\n").unwrap();
+        git(path, &["add", "--all"]);
+        git(path, &["commit", "-m", "base"]);
+        std::fs::write(path.join("src.txt"), "change a\n").unwrap();
+        let rev_a = pointbreak::session::capture_worktree_review(
+            pointbreak::session::CaptureOptions::new(path),
+        )
+        .expect("capture revision a")
+        .revision_id;
+        std::fs::write(path.join("src.txt"), "change b\n").unwrap();
+        let rev_b = pointbreak::session::capture_worktree_review(
+            pointbreak::session::CaptureOptions::new(path),
+        )
+        .expect("capture revision b")
+        .revision_id;
+        assert_ne!(rev_a, rev_b);
+        for revision in [&rev_a, &rev_b] {
+            pointbreak::session::open_input_request(
+                pointbreak::session::InputRequestOpenOptions::new(path)
+                    .with_revision_id(revision.clone())
+                    .with_track("agent:tests")
+                    .with_title(format!("decide for {}", revision.as_str()))
+                    .with_reason_code(
+                        pointbreak::session::event::InputRequestReasonCode::ManualDecisionRequired,
+                    ),
+            )
+            .expect("open input request");
+        }
+
+        let scoped: serde_json::Value =
+            serde_json::from_str(&attention_json(path, Some(rev_a.as_str())).unwrap()).unwrap();
+        let scoped_items = scoped["items"].as_array().unwrap();
+        assert!(!scoped_items.is_empty(), "revision a's ask is in scope");
+        for item in scoped_items {
+            assert_eq!(item["revisionId"], serde_json::json!(rev_a.as_str()));
+        }
+
+        // The unscoped read is untouched by the new parameter: a superset that
+        // still carries the other revision's item.
+        let unscoped: serde_json::Value =
+            serde_json::from_str(&attention_json(path, None).unwrap()).unwrap();
+        let unscoped_items = unscoped["items"].as_array().unwrap();
+        for item in scoped_items {
+            assert!(unscoped_items.contains(item), "unscoped is a superset");
+        }
+        assert!(
+            unscoped_items
+                .iter()
+                .any(|item| item["revisionId"] == serde_json::json!(rev_b.as_str())),
+            "unscoped still surfaces revision b's ask"
+        );
+    }
+
+    #[test]
+    fn attention_json_scoped_to_a_fork_member_includes_competing_heads() {
+        let (repo, _root_id, head_b, head_c) = captured_fork_repo();
+
+        let scoped: serde_json::Value =
+            serde_json::from_str(&attention_json(repo.path(), Some(&head_b)).unwrap()).unwrap();
+        let items = scoped["items"].as_array().unwrap();
+
+        // competing_heads anchors to the thread (no revisionId); the scoped read
+        // returns it through component coverage — the case a client-side
+        // revisionId filter cannot honestly reproduce.
+        let competing = items
+            .iter()
+            .find(|item| item["kind"] == "competing_heads")
+            .expect("scoped fork member surfaces the competing_heads item");
+        assert!(competing.get("revisionId").is_none());
+        let heads: Vec<&str> = competing["headRevisionIds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|head| head.as_str().unwrap())
+            .collect();
+        assert!(heads.contains(&head_b.as_str()) && heads.contains(&head_c.as_str()));
     }
 
     #[test]
