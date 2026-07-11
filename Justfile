@@ -109,3 +109,8 @@ web-build:
 # Rebuilds the bundle and fails if it differs from the committed artifact.
 web-verify:
     cd src/cli/inspect/web && npm run build && git diff --exit-code ../assets/app.js
+
+# Refresh the dark/light Pointbreak Review screenshots embedded in README.md.
+# Requires a running inspector; pass --url/--revision/--track to override the checked-in framing.
+capture-inspector-screenshots *args:
+    ./scripts/capture-inspector-screenshots.sh {{ args }}
