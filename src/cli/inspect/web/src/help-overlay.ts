@@ -36,7 +36,19 @@ export function toggleKeyHelp(): void {
 export function initControls(): void {
   const node = $<HTMLElement>("#key-help");
   if (!node) return;
-  register("help", { node, onClose });
+  register("help", {
+    node,
+    onClose,
+    // ? toggles the cheat sheet, so the open sheet owns the key: pressing it
+    // again closes. Every other key is the manager's business (Tab trap,
+    // Escape, deliberate inertness).
+    onKey: (ev) => {
+      if (ev.key !== "?") return false;
+      ev.preventDefault();
+      closeKeyHelp();
+      return true;
+    },
+  });
   $("#key-help-close")?.addEventListener("click", () => closeKeyHelp());
   node.addEventListener("click", (ev) => {
     if (ev.target === node) closeKeyHelp();

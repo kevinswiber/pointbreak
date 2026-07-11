@@ -1795,6 +1795,22 @@
     return false;
   }
   __name(trapFocus, "trapFocus");
+  function handleOverlayKey(ev) {
+    if (!activeOverlay) return false;
+    if (ev.key === "Tab") {
+      trapFocus(ev);
+      return true;
+    }
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      closeActive();
+      return true;
+    }
+    const reg = registry.get(activeOverlay.name);
+    reg?.onKey?.(ev);
+    return true;
+  }
+  __name(handleOverlayKey, "handleOverlayKey");
   function noop() {
   }
   __name(noop, "noop");
@@ -3111,7 +3127,19 @@
   function initControls3() {
     const node = $("#key-help");
     if (!node) return;
-    register("help", { node, onClose });
+    register("help", {
+      node,
+      onClose,
+      // ? toggles the cheat sheet, so the open sheet owns the key: pressing it
+      // again closes. Every other key is the manager's business (Tab trap,
+      // Escape, deliberate inertness).
+      onKey: /* @__PURE__ */ __name((ev) => {
+        if (ev.key !== "?") return false;
+        ev.preventDefault();
+        closeKeyHelp();
+        return true;
+      }, "onKey")
+    });
     $("#key-help-close")?.addEventListener("click", () => closeKeyHelp());
     node.addEventListener("click", (ev) => {
       if (ev.target === node) closeKeyHelp();
@@ -4257,7 +4285,6 @@
   }
   __name(handleEscape, "handleEscape");
   function onKey(ev) {
-    if (trapFocus(ev)) return;
     const target = ev.target;
     const chip = target instanceof Element ? target.closest("[data-ref-kind]") : null;
     if (chip && (ev.key === "Enter" || ev.key === " ")) {
@@ -4273,6 +4300,10 @@
     if (ev.ctrlKey && ev.shiftKey && ev.key.toLowerCase() === "p") {
       ev.preventDefault();
       toggle();
+      return;
+    }
+    if (activeName() !== null) {
+      handleOverlayKey(ev);
       return;
     }
     if (ev.metaKey || ev.ctrlKey || ev.altKey) return;

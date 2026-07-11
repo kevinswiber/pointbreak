@@ -7,11 +7,14 @@ import { mountInspectorDom, resetDom } from "./support/dom";
 // manager's mutual exclusion is what tears the other overlays down. The module
 // state lives behind the manager (module-local), so reset the registry per test.
 type HelpOverlay = typeof import("../src/help-overlay");
+type Overlay = typeof import("../src/overlay");
 let help: HelpOverlay;
+let overlay: Overlay;
 
 beforeEach(async () => {
   vi.resetModules();
   help = await import("../src/help-overlay");
+  overlay = await import("../src/overlay");
   mountInspectorDom();
 });
 
@@ -63,6 +66,32 @@ describe("open / close / toggle", () => {
 });
 
 describe("initControls wiring", () => {
+  it("registers ? as its own key: the manager's delegation closes the sheet", () => {
+    // ? toggles the cheat sheet (its own documented affordance), so the overlay
+    // owns the key: the manager's key delegation must close it, and any other
+    // key must stay inert.
+    help.initControls();
+    help.openKeyHelp();
+    const toggle = new KeyboardEvent("keydown", {
+      key: "?",
+      bubbles: true,
+      cancelable: true,
+    });
+    expect(overlay.handleOverlayKey(toggle)).toBe(true);
+    expect(toggle.defaultPrevented).toBe(true);
+    expect(isOpen()).toBe(false);
+
+    help.openKeyHelp();
+    const other = new KeyboardEvent("keydown", {
+      key: "j",
+      bubbles: true,
+      cancelable: true,
+    });
+    expect(overlay.handleOverlayKey(other)).toBe(true);
+    expect(other.defaultPrevented).toBe(false);
+    expect(isOpen()).toBe(true);
+  });
+
   it("closes the cheat sheet when its close button is clicked", () => {
     help.initControls();
     help.openKeyHelp();

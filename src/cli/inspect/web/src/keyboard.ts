@@ -6,9 +6,11 @@
 // `keyboard` is top-of-graph — nothing imports it; the composition root wires
 // `onKey` to `document.keydown`. Every state change routes through `router.navigate`
 // (commit → the store subscriber repaints); it never calls render. Overlay handling
-// goes through the manager: `handleEscape` closes whichever overlay is active
-// (palette / diff / help are mutually exclusive), and the help toggle opens/closes
-// `help` through the manager — so keyboard imports no sibling overlay module.
+// goes through the manager: while an overlay is active, `onKey` runs only the
+// ref-chip activation and the palette chord before handing the event to the
+// manager's `handleOverlayKey` (Tab trap, Escape-to-close, the overlay's own
+// registered keys, deliberate inertness for the rest) — so every lens key is
+// scoped to the record, and keyboard imports no sibling overlay module.
 
 import { fetchHistoryPage, HISTORY_PAGE } from "./data";
 import { jumpChange, jumpFact, openRevisionDiff } from "./diff/controller";
@@ -19,8 +21,8 @@ import { resolveRef } from "./navigation";
 import {
   activeName,
   closeActive,
+  handleOverlayKey,
   open as openOverlay,
-  trapFocus,
 } from "./overlay";
 import { toggle as togglePalette } from "./palette";
 import { entryRevisionId } from "./projection";
@@ -413,9 +415,10 @@ function handleEscape(): void {
 
 /** The single `document` keydown handler (wired once by the composition root). */
 export function onKey(ev: KeyboardEvent): void {
-  if (trapFocus(ev)) return;
   // A focused reference chip activates on Enter/Space (it carries role=link +
   // tabindex=0 but had no key handler), resolving the reference like a click.
+  // This runs even under an active overlay: focus is trapped inside it, so a
+  // focused chip there is an in-overlay action.
   const target = ev.target;
   const chip =
     target instanceof Element
@@ -435,6 +438,13 @@ export function onKey(ev: KeyboardEvent): void {
   if (ev.ctrlKey && ev.shiftKey && ev.key.toLowerCase() === "p") {
     ev.preventDefault();
     togglePalette();
+    return;
+  }
+  // While an overlay owns focus, the manager owns the keyboard: Tab (trap),
+  // Escape (close), and the overlay's own registered keys run; every lens,
+  // selection, paging, and lens-switch key below is inert until it closes.
+  if (activeName() !== null) {
+    handleOverlayKey(ev);
     return;
   }
   if (ev.metaKey || ev.ctrlKey || ev.altKey) return;

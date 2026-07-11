@@ -213,7 +213,11 @@ describe("overlays via the keyboard", () => {
     expect(overlay.activeName()).toBe("palette");
   });
 
-  it("? toggles the keyboard help overlay", () => {
+  it("? toggles the keyboard help overlay", async () => {
+    // Register help the way the composition root does: the second ? reaches the
+    // open sheet through the manager's delegation to help's own key map.
+    const help = await import("../src/help-overlay");
+    help.initControls();
     key({ key: "?" });
     expect(overlay.activeName()).toBe("help");
     key({ key: "?" });
@@ -462,16 +466,104 @@ describe("a focused ref chip activates on Enter", () => {
   });
 });
 
-describe("diff-local jump keys (only while the diff overlay is open)", () => {
-  it("n jumps to the next review fact, syncing the focus route", async () => {
+// While an overlay owns focus, the global keyboard layer runs only that
+// overlay's registered keys, Escape, and the palette chord; every lens,
+// selection, paging, and lens-switch key is inert (issue #455 — the diff
+// overlay leaked j/k to the record underneath, and the help overlay had the
+// identical leak).
+describe("overlay keyboard scope (#455)", () => {
+  const LEAKY_KEYS = [
+    "j",
+    "k",
+    "1",
+    "2",
+    "3",
+    "4",
+    "g",
+    "G",
+    "Enter",
+    " ",
+    "n",
+    "p",
+    "]",
+    "[",
+  ];
+
+  // Register + open the help overlay the way the composition root does: the
+  // overlay focuses its close <button> — the historically leaking case.
+  async function openHelp(): Promise<void> {
+    const help = await import("../src/help-overlay");
+    help.initControls();
+    key({ key: "?" });
+    expect(overlay.activeName()).toBe("help");
+    expect(document.activeElement).toBe(
+      document.querySelector("#key-help-close"),
+    );
+  }
+
+  async function assertKeysInert(keys: string[]): Promise<void> {
+    const before = structuredClone(store.getState());
+    const pushSpy = vi.spyOn(history, "pushState");
+    const replaceSpy = vi.spyOn(history, "replaceState");
+    try {
+      for (const k of keys) {
+        key({ key: k });
+        await settleKeyboard();
+      }
+      expect(store.getState()).toEqual(before); // no store commit
+      expect(pushSpy).not.toHaveBeenCalled(); // no navigate...
+      expect(replaceSpy).not.toHaveBeenCalled(); // ...not even a refinement
+    } finally {
+      pushSpy.mockRestore();
+      replaceSpy.mockRestore();
+    }
+  }
+
+  it("runs no store commit and no navigate for non-owned keys while help is active", async () => {
+    store.commit({ selected: { kind: "revision", id: REV }, open: false });
+    await openHelp();
+    await assertKeysInert(LEAKY_KEYS);
+  });
+
+  it("runs no store commit and no navigate for lens keys while the diff overlay is active", async () => {
     controller.initControls();
+    store.commit({ selected: { kind: "revision", id: REV }, open: true });
     store.commit({ diff: OBJ, diffHash: ARTIFACT, focus: null });
     await controller.renderDiffOverlay();
-    key({ key: "n" });
-    const firstAnno = document.querySelector<HTMLElement>(
-      "#diff-body .anno[data-anno]",
-    );
-    expect(store.getState().focus).toBe(firstAnno?.dataset.anno);
+    expect(overlay.activeName()).toBe("diff");
+    // The diff's own jump keys (]/[/n/p) are asserted with its registered key
+    // map, not here — this table is the lens family only.
+    await assertKeysInert(["j", "k", "1", "2", "3", "4", "g", "G", "Enter"]);
+  });
+
+  it("keeps Escape closing the active overlay", async () => {
+    await openHelp();
+    key({ key: "Escape" });
+    expect(overlay.activeName()).toBe(null);
+  });
+
+  it("keeps the palette chord global while another overlay is active", async () => {
+    await openHelp();
+    key({ key: "k", metaKey: true });
+    expect(overlay.activeName()).toBe("palette");
+  });
+
+  it("still types into the palette input (no swallowed text keys)", async () => {
+    const palette = await import("../src/palette");
+    palette.initControls();
+    key({ key: "k", metaKey: true });
+    expect(overlay.activeName()).toBe("palette");
+    const input = document.querySelector<HTMLInputElement>("#cmd-input");
+    expect(document.activeElement).toBe(input);
+    // The character key's default action (inserting the character) must
+    // survive the keyboard layer — inert keys are never preventDefault-ed.
+    const ev = new KeyboardEvent("keydown", {
+      key: "a",
+      bubbles: true,
+      cancelable: true,
+    });
+    input?.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
   });
 });
 
