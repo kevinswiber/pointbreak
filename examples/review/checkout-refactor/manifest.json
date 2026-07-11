@@ -6,7 +6,7 @@
   "producer": {
     "name": "shore",
     "version": "0.5.0",
-    "commit": "0c139ee1eaec196a7e1079f68bda3c893112f558"
+    "commit": "44487f285053f53e02c9f61ce1eac1ac92cf1a47"
   },
   "record": {
     "revision": "rev:sha256:fa6981d38de12a850da707b69657e7a9153120c92a0dd08f534fbb40394d885f",
