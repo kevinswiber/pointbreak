@@ -459,3 +459,27 @@ describe("scrollSelectionIntoView materializes an off-screen virtual row", () =>
     expect($(`#timeline li[data-event-id="${targetId}"]`)).not.toBeNull();
   });
 });
+
+describe("the diff page branch (no lens renders underneath)", () => {
+  it("shows the page and hides the lens layout while diffPage is set", () => {
+    render.render();
+    expect($("#diff-page")?.classList.contains("hidden")).toBe(true);
+
+    store.commit({ diffPage: true, diffRevision: REV });
+    render.render();
+    expect($("#diff-page")?.classList.contains("hidden")).toBe(false);
+    expect($("#master")?.classList.contains("hidden")).toBe(true);
+    expect($("#detail")?.classList.contains("hidden")).toBe(true);
+    expect($("#toolbar")?.classList.contains("hidden")).toBe(true);
+  });
+
+  it("restores the lens layout when the page exits", () => {
+    store.commit({ diffPage: true, diffRevision: REV });
+    render.render();
+    store.commit({ diffPage: false, diffRevision: null });
+    render.render();
+    expect($("#diff-page")?.classList.contains("hidden")).toBe(true);
+    expect($("#master")?.classList.contains("hidden")).toBe(false);
+    expect($("#detail")?.classList.contains("hidden")).toBe(false);
+  });
+});

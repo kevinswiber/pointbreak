@@ -79,6 +79,16 @@ const INDEX_BODY = `
       </div>
     </aside>
   </div>
+  <section id="diff-page" class="diff-page hidden" aria-label="annotated diff">
+    <header class="diff-page-head">
+      <span id="diff-page-title" class="mono"></span>
+      <button id="diff-page-close" class="ghost" aria-label="Back to the record">‹ back</button>
+    </header>
+    <div class="diff-layout">
+      <nav id="diff-page-nav" class="diff-nav" aria-label="diff files"></nav>
+      <div id="diff-page-body" class="diff-body"></div>
+    </div>
+  </section>
 </main>
 
 <div id="error" class="error hidden"></div>

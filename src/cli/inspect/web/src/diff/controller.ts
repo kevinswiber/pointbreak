@@ -1,23 +1,32 @@
-// The diff overlay controller: the lifecycle, lazy file bodies, navigator, and
-// jump keys over the route-preserving diff overlay. Ported from the served app.js
-// diff cluster (`openDiff` / `openRevisionDiff` / `closeDiff` / `renderDiffOverlay`
-// / `applyDiffFocus` / `scrollToAnno` / lazy bodies / navigator / `jump*`).
+// The diff controller: the lifecycle, lazy file bodies, navigator, and jump keys
+// over the two diff surfaces — the route-preserving overlay (legacy, reconciled
+// from `state.diff`) and the routed diff page (reconciled from `state.diffPage`/
+// `diffRevision`). Ported from the served app.js diff cluster (`openDiff` /
+// `openRevisionDiff` / `closeDiff` / `renderDiffOverlay` / `applyDiffFocus` /
+// `scrollToAnno` / lazy bodies / navigator / `jump*`).
 //
-// Two structural moves make this the cycle-cutting controller:
-//   - It opens through the overlay teardown manager (`overlay.register("diff", …)`
-//     + `overlay.open("diff")`) and imports NO sibling overlay (palette / help).
-//     The manager's mutual exclusion tears down whatever overlay was open, so the
-//     explicit `closePalette` / `closeKeyHelp` calls the served code made are gone.
-//   - It clears the route through `router.navigate` and never calls render: the
-//     store subscriber repaints, so `closeDiff` only changes route state and the
-//     reconciler (`renderDiffOverlay`, run by render) opens/closes the modal.
+// Structural moves:
+//   - The overlay opens through the overlay teardown manager (`register("diff", …)`
+//     + `open("diff")`) and imports NO sibling overlay (palette / help). The page
+//     never touches the manager — it is a route surface (`activeName()` stays
+//     null on it), so palette/help can still open above it.
+//   - Route changes go through `router.navigate` and never call render: the
+//     store subscriber repaints, and the reconcilers (`renderDiffOverlay` /
+//     `renderDiffPage`, run by render) open/close/paint their surfaces.
+//   - The page's payload comes from the composite revision document (the
+//     detail module's exported `ensureRevisionComposite` seam): annotations AND
+//     snapshot identity derive from it, so cold and grouped-away deep links
+//     paint annotated with nothing loaded. Bytes come from `/api/snapshots/{id}`
+//     on both surfaces.
 //
 // It consumes the pure `diff/render.renderDiff(snapshotId, artifact, annotations) →
 // { html, ctx }`, assigning the returned `ctx` (and resetting the cursors/filter
 // the pure renderer no longer writes) to module-local state. The diff cursors /
-// `diffCtx` / `shownDiff*` / nav filter stay module-local — never on the store.
+// `diffCtx` / `shownDiff*` / the overlay's nav filter stay module-local — never on
+// the store; the page's nav filter is route state (`state.diffNav`).
 
 import { CLASS, diffStatusClass } from "../classNames";
+import { compositeAnnotations, ensureRevisionComposite } from "../detail";
 import { $ } from "../dom";
 import { escapeHtml } from "../escape";
 import { fetchJSON } from "../http";
@@ -32,6 +41,7 @@ import { shortId } from "../refs";
 import { navigate } from "../router";
 import { getState } from "../store";
 import {
+  type Annotation,
   type DiffArtifact,
   type DiffCtx,
   type DiffNavFilter,
@@ -46,20 +56,63 @@ import {
   unanchoredReason,
 } from "./render";
 
-// The snapshot artifact currently painted in the modal, so a re-render with an
-// unchanged overlay does not re-fetch.
-let shownDiffSnapshot: string | null = null;
-let shownDiffHash: string | null = null;
+// The two diff surfaces' fixed-id hosts. Only one surface paints at a time (the
+// page owns the frame while `state.diffPage` is set; render never runs the
+// overlay reconciler then), and every shared helper resolves its container
+// through the active surface.
+interface DiffSurface {
+  title: string;
+  nav: string;
+  body: string;
+}
+const MODAL_SURFACE: DiffSurface = {
+  title: "#diff-title",
+  nav: "#diff-nav",
+  body: "#diff-body",
+};
+const PAGE_SURFACE: DiffSurface = {
+  title: "#diff-page-title",
+  nav: "#diff-page-nav",
+  body: "#diff-page-body",
+};
+
+function activeSurface(): DiffSurface {
+  return getState().diffPage ? PAGE_SURFACE : MODAL_SURFACE;
+}
+
+function surfaceBody(): HTMLElement | null {
+  return $(activeSurface().body);
+}
+
+function surfaceNav(): HTMLElement | null {
+  return $(activeSurface().nav);
+}
+
+// The identity of the diff currently painted — surface plus payload address —
+// so a re-render with an unchanged route does not re-fetch. Set before the
+// fetch, so repaints landing while it is in flight fall into the cheap
+// reconcile branch instead of stacking fetches.
+let shownDiffKey: string | null = null;
 // Module-local render context for the open diff: the files + anchored facts the
-// delegated #diff-body / #diff-nav listeners read to lazily fill a collapsed file
-// body or expand-then-scroll to a fact. Set when renderDiff paints, cleared when
-// the overlay closes. NOT route state (state.diff stays the snapshot-id string|null).
+// delegated body / nav listeners read to lazily fill a collapsed file body or
+// expand-then-scroll to a fact. Set when renderDiff paints, cleared when the
+// surface closes. NOT route state (state.diff stays the snapshot-id string|null).
 let diffCtx: DiffCtx | null = null;
-// Cursors for the diff-local jump keys (next/prev fact, next/prev change) and the
-// navigator filter, reset each time a new diff renders.
+// Cursors for the diff-local jump keys (next/prev fact, next/prev change),
+// reset each time a new diff renders. `diffNavFilter` is the OVERLAY's
+// navigator filter; the page reads `state.diffNav` instead (route state).
 let diffFactCursor = -1;
 let diffChangeCursor = -1;
 let diffNavFilter: DiffNavFilter = "all";
+// The page's last-painted navigator filter and `?file=` target, so a repaint
+// only re-renders the navigator / re-scrolls when the route actually moved.
+let shownDiffNavFilter: DiffNavFilter = "all";
+let shownDiffFile: string | null = null;
+
+/** The navigator filter the active surface renders under. */
+function activeNavFilter(): DiffNavFilter {
+  return getState().diffPage ? getState().diffNav : diffNavFilter;
+}
 
 // ---------------------------------------------------------------------------
 // Route-only open / close (the open/close DOM is the reconciler's job)
@@ -102,6 +155,65 @@ export function closeDiff(): void {
 // The reconciler (run by render): open/close the modal from the route + fetch
 // ---------------------------------------------------------------------------
 
+// The shared fetch-and-paint body both reconcilers use: paint the loading
+// state, fetch the snapshot bytes, render them with the given annotations into
+// the surface, and reset the jump cursors. Resolves true when it painted (the
+// callers run their surface-specific post-paint steps), false when a later
+// route change superseded the fetch.
+async function paintDiffSurface(
+  s: DiffSurface,
+  opts: {
+    snapshotId: string;
+    contentHash: string | null;
+    annotations: Annotation[];
+    title: string;
+    stillCurrent: () => boolean;
+    // A quiet note painted above the bytes when the surface has no facts to
+    // offer (the snapshot-only page); null renders nothing.
+    factsNote: string | null;
+  },
+): Promise<boolean> {
+  const title = $(s.title);
+  if (title) title.textContent = opts.title;
+  const body = $(s.body);
+  if (body) body.innerHTML = `<p class="${CLASS.empty}">loading snapshot…</p>`;
+  const nav = $(s.nav);
+  if (nav) nav.innerHTML = "";
+  let snapshotUrl = `/api/snapshots/${encodeURIComponent(opts.snapshotId)}`;
+  if (opts.contentHash)
+    snapshotUrl += `?contentHash=${encodeURIComponent(opts.contentHash)}`;
+  try {
+    const artifact = await fetchJSON(snapshotUrl);
+    // A later route change may have superseded this fetch.
+    if (!opts.stillCurrent()) return false;
+    const { html, ctx } = renderDiff(
+      opts.snapshotId,
+      artifact as DiffArtifact,
+      opts.annotations,
+    );
+    const note = opts.factsNote
+      ? `<p class="${CLASS.empty}">${escapeHtml(opts.factsNote)}</p>`
+      : "";
+    const liveBody = $(s.body);
+    if (liveBody) liveBody.innerHTML = note + html;
+    diffCtx = ctx;
+    diffFactCursor = -1;
+    diffChangeCursor = -1;
+    const liveNav = $(s.nav);
+    if (liveNav) liveNav.innerHTML = renderDiffNav();
+    applyDiffFocus();
+    return true;
+  } catch (err: unknown) {
+    if (!opts.stillCurrent()) return false;
+    const liveBody = $(s.body);
+    if (liveBody)
+      liveBody.innerHTML = `<p class="${CLASS.empty}">error: ${escapeHtml(
+        err instanceof Error ? err.message : String(err),
+      )}</p>`;
+    return false;
+  }
+}
+
 /**
  * Reconcile the diff modal DOM with `state.diff`/`state.focus`. Part of the render
  * path (the store subscriber calls it): it both opens (user action, deep link,
@@ -110,71 +222,172 @@ export function closeDiff(): void {
  */
 export function renderDiffOverlay(): Promise<void> {
   const state = getState();
+  // While the page owns the frame, the overlay reconciler must not run: a null
+  // `state.diff` there would tear down the page's render context.
+  if (state.diffPage) return Promise.resolve();
   if (!state.diff) {
     close("diff");
-    shownDiffSnapshot = null;
-    shownDiffHash = null;
+    shownDiffKey = null;
     diffCtx = null;
     return Promise.resolve();
   }
-  if (state.diff === shownDiffSnapshot && state.diffHash === shownDiffHash) {
+  const snapshotId = state.diff;
+  const contentHash = state.diffHash;
+  const key = `modal:${snapshotId}|${contentHash ?? ""}`;
+  if (key === shownDiffKey) {
     // Re-show only if the diff is not already the active overlay, so an unrelated
     // repaint while the diff is open never re-steals focus to the close button.
     if (activeName() !== "diff") open("diff", "#diff-close");
     applyDiffFocus();
     return Promise.resolve();
   }
-  shownDiffSnapshot = state.diff;
-  shownDiffHash = state.diffHash;
-  const snapshotId = state.diff;
-  const contentHash = state.diffHash;
+  shownDiffKey = key;
+  // The snapshot endpoint is snapshot-scoped (no revision id on the wire); the
+  // revision id is recovered from the revisions list for annotation lookup.
   const revisionId = revisionIdForSnapshot(snapshotId, contentHash);
   const label = revisionId ? shortId(revisionId) : "";
-  const title = $("#diff-title");
-  if (title)
-    title.textContent = label
-      ? `${label} · snapshot ${shortId(snapshotId)}`
-      : shortId(snapshotId);
-  const body = $("#diff-body");
-  if (body) body.innerHTML = `<p class="${CLASS.empty}">loading snapshot…</p>`;
-  const nav = $("#diff-nav");
-  if (nav) nav.innerHTML = "";
+  // A fresh overlay starts at the unfiltered navigator (module-local state; the
+  // page's filter is route state and never resets here).
+  diffNavFilter = "all";
   // Opening through the manager tears down any prior overlay (palette/help) with
   // no focus restore — the indirection that replaces the served explicit closes.
   open("diff", "#diff-close");
-  // The snapshot endpoint is snapshot-scoped (no revision id on the wire); the revision
-  // id is recovered from the revisions list for annotation lookup.
-  let snapshotUrl = `/api/snapshots/${encodeURIComponent(snapshotId)}`;
-  if (contentHash)
-    snapshotUrl += `?contentHash=${encodeURIComponent(contentHash)}`;
-  return fetchJSON(snapshotUrl)
-    .then((artifact) => {
-      // A later overlay change may have superseded this fetch.
-      if (state.diff !== snapshotId || state.diffHash !== contentHash) return;
-      const annotations = revisionId ? annotationsForRevision(revisionId) : [];
-      const { html, ctx } = renderDiff(
-        snapshotId,
-        artifact as DiffArtifact,
-        annotations,
-      );
-      const liveBody = $("#diff-body");
-      if (liveBody) liveBody.innerHTML = html;
-      diffCtx = ctx;
-      diffFactCursor = -1;
-      diffChangeCursor = -1;
-      diffNavFilter = "all";
-      const liveNav = $("#diff-nav");
-      if (liveNav) liveNav.innerHTML = renderDiffNav();
-      applyDiffFocus();
-    })
-    .catch((err: unknown) => {
-      if (state.diff !== snapshotId || state.diffHash !== contentHash) return;
-      const liveBody = $("#diff-body");
-      if (liveBody)
-        liveBody.innerHTML = `<p class="${CLASS.empty}">error: ${escapeHtml(
-          err instanceof Error ? err.message : String(err),
-        )}</p>`;
-    });
+  return paintDiffSurface(MODAL_SURFACE, {
+    snapshotId,
+    contentHash,
+    annotations: revisionId ? annotationsForRevision(revisionId) : [],
+    title: label
+      ? `${label} · snapshot ${shortId(snapshotId)}`
+      : shortId(snapshotId),
+    stillCurrent: () =>
+      getState().diff === snapshotId && getState().diffHash === contentHash,
+    factsNote: null,
+  }).then(() => {});
+}
+
+// Expand (rendering on first expand) and scroll the `?file=` target into view.
+// An unknown or absent path is ignored quietly; the marker keeps a repaint from
+// re-scrolling until the route names a different file.
+function applyDiffFileScroll(): void {
+  const path = getState().diffFile;
+  shownDiffFile = path;
+  if (!path || !diffCtx) return;
+  const idx = diffCtx.files.findIndex(
+    (f) => f.new_path === path || f.old_path === path,
+  );
+  if (idx < 0) return;
+  const section = surfaceBody()?.querySelector<HTMLElement>(
+    `.dfile[data-dfile="${idx}"]`,
+  );
+  if (section) {
+    expandDiffFile(section);
+    section.scrollIntoView({ block: "start" });
+  }
+}
+
+// Paint the page for a revision-primary route: annotations AND snapshot
+// identity derive from the composite document (never the paged history or the
+// list document, which miss cold and grouped-away revisions).
+async function renderDiffPageFromRevision(revisionId: string): Promise<void> {
+  const stillCurrent = () =>
+    getState().diffPage && getState().diffRevision === revisionId;
+  const doc = await ensureRevisionComposite(revisionId);
+  if (!stillCurrent()) return;
+  if (!doc) {
+    const body = $(PAGE_SURFACE.body);
+    if (body)
+      body.innerHTML = `<p class="${CLASS.empty}">error: revision ${escapeHtml(
+        shortId(revisionId),
+      )} could not be loaded</p>`;
+    return;
+  }
+  const revision = doc.revision ?? {};
+  const snapshotId = revision.objectId;
+  if (!snapshotId) {
+    const body = $(PAGE_SURFACE.body);
+    if (body)
+      body.innerHTML = `<p class="${CLASS.empty}">this revision names no captured snapshot</p>`;
+    return;
+  }
+  const painted = await paintDiffSurface(PAGE_SURFACE, {
+    snapshotId,
+    contentHash: revision.objectArtifactContentHash ?? null,
+    annotations: compositeAnnotations(doc),
+    title: `${shortId(revisionId)} · snapshot ${shortId(snapshotId)}`,
+    stillCurrent,
+    factsNote: null,
+  });
+  if (painted) {
+    shownDiffNavFilter = activeNavFilter();
+    applyDiffFileScroll();
+  }
+}
+
+// Paint the page for a snapshot-only route (an unmappable legacy link): the
+// bytes render best-effort with blank facts and a quiet note.
+async function renderDiffPageFromSnapshot(
+  snapshotId: string,
+  contentHash: string | null,
+): Promise<void> {
+  const stillCurrent = () =>
+    getState().diffPage &&
+    !getState().diffRevision &&
+    getState().diff === snapshotId &&
+    getState().diffHash === contentHash;
+  const painted = await paintDiffSurface(PAGE_SURFACE, {
+    snapshotId,
+    contentHash,
+    annotations: [],
+    title: `snapshot ${shortId(snapshotId)}`,
+    stillCurrent,
+    factsNote:
+      "no review facts — this link names a snapshot the record cannot map to a revision",
+  });
+  if (painted) {
+    shownDiffNavFilter = activeNavFilter();
+    applyDiffFileScroll();
+  }
+}
+
+/**
+ * Reconcile the routed diff page with `state.diffPage`/`diffRevision`/`diff`.
+ * Part of the render path while the page owns the frame. An unchanged route
+ * reconciles cheaply: the navigator re-renders only when the route filter
+ * moved, the `?file=` scroll re-applies only when the route names a new file,
+ * and the focus route re-applies (the n/p jump path). Returns the in-flight
+ * work so a caller can await the paint; render ignores the return.
+ */
+export function renderDiffPage(): Promise<void> {
+  const state = getState();
+  if (!state.diffPage) return Promise.resolve();
+  const key = state.diffRevision
+    ? `page:rev:${state.diffRevision}`
+    : state.diff
+      ? `page:snap:${state.diff}|${state.diffHash ?? ""}`
+      : null;
+  if (!key) {
+    // Unaddressable page state (no revision, no snapshot) — nothing to paint.
+    const body = $(PAGE_SURFACE.body);
+    if (body)
+      body.innerHTML = `<p class="${CLASS.empty}">nothing to diff — this link names no snapshot</p>`;
+    return Promise.resolve();
+  }
+  if (key === shownDiffKey) {
+    if (activeNavFilter() !== shownDiffNavFilter) {
+      shownDiffNavFilter = activeNavFilter();
+      const nav = $(PAGE_SURFACE.nav);
+      if (nav) nav.innerHTML = renderDiffNav();
+    }
+    if (getState().diffFile !== shownDiffFile) applyDiffFileScroll();
+    applyDiffFocus();
+    return Promise.resolve();
+  }
+  shownDiffKey = key;
+  if (state.diffRevision) return renderDiffPageFromRevision(state.diffRevision);
+  return renderDiffPageFromSnapshot(
+    state.diff as string,
+    state.diffHash ?? null,
+  );
 }
 
 function applyDiffFocus(): void {
@@ -202,7 +415,7 @@ export function scrollToAnno(
 ): void {
   if (opts.updateRoute && focusDiffFactRoute(id)) return;
   const sel = `.anno[data-anno="${id}"]`;
-  const body = $("#diff-body");
+  const body = surfaceBody();
   let target = body?.querySelector<HTMLElement>(sel) ?? null;
   if (!target && diffCtx) {
     const fact = diffCtx.anchored.find((a) => a.id === id);
@@ -293,12 +506,13 @@ export function toggleDiffFile(section: HTMLElement): void {
 // a captured diff line — is reachable on a large changeset.
 function renderDiffNav(): string {
   if (!diffCtx) return "";
+  const navFilter = activeNavFilter();
   const { files, anchored, unanchored, filePaths } = diffCtx;
   const visibleFiles = files
     .map((f, i) => ({ f, i, factCount: fileFactCount(f, anchored) }))
     .filter((item) => {
-      if (diffNavFilter === "with-facts") return item.factCount > 0;
-      if (diffNavFilter === "unanchored") return false;
+      if (navFilter === "with-facts") return item.factCount > 0;
+      if (navFilter === "unanchored") return false;
       return true;
     });
   const fileItems = visibleFiles
@@ -310,12 +524,11 @@ function renderDiffNav(): string {
     })
     .join("");
   let html =
-    renderDiffNavSummary(diffNavSummary()) +
-    renderDiffNavFilters(diffNavFilter);
-  if (diffNavFilter !== "unanchored") {
+    renderDiffNavSummary(diffNavSummary()) + renderDiffNavFilters(navFilter);
+  if (navFilter !== "unanchored") {
     html += `<ol class="${CLASS.diffNavFiles}">${fileItems}</ol>`;
   }
-  if (unanchored.length && diffNavFilter !== "with-facts") {
+  if (unanchored.length && navFilter !== "with-facts") {
     const entries = unanchored
       .map(
         (a) =>
@@ -338,11 +551,20 @@ function diffNavSummary(): DiffNavSummary {
   };
 }
 
-/** Set the navigator's file/fact filter and re-render the nav (no route state). */
+/**
+ * Set the navigator's file/fact filter. On the page the filter is route state
+ * (`?nav=`, a shareable refinement — replace, not push; the store subscriber's
+ * repaint re-renders the navigator). On the overlay it stays module-local and
+ * re-renders directly.
+ */
 export function setDiffNavFilter(filter: string): void {
   if (!isDiffNavFilter(filter)) return;
+  if (getState().diffPage) {
+    navigate({ diffNav: filter }, { replace: true });
+    return;
+  }
   diffNavFilter = filter;
-  const nav = $("#diff-nav");
+  const nav = surfaceNav();
   if (nav) nav.innerHTML = renderDiffNav();
 }
 
@@ -354,7 +576,7 @@ export function setDiffNavFilter(filter: string): void {
 // bodies) — the ordering n/p cycles through.
 function diffFactTargets(): HTMLElement[] {
   return Array.from(
-    $("#diff-body")?.querySelectorAll<HTMLElement>(".anno[data-anno]") ?? [],
+    surfaceBody()?.querySelectorAll<HTMLElement>(".anno[data-anno]") ?? [],
   );
 }
 
@@ -362,7 +584,7 @@ function diffFactTargets(): HTMLElement[] {
 // cycles through.
 function diffChangeTargets(): HTMLElement[] {
   return Array.from(
-    $("#diff-body")?.querySelectorAll<HTMLElement>(".dhunk") ?? [],
+    surfaceBody()?.querySelectorAll<HTMLElement>(".dhunk") ?? [],
   );
 }
 
@@ -405,10 +627,89 @@ export function jumpChange(dir: number): void {
 // Fixed-id controls (wired once by the composition root)
 // ---------------------------------------------------------------------------
 
+// The delegated body handlers, shared by both surfaces: a file header toggles
+// its section; a render-all button hydrates a fact-vicinity body; an annotated
+// row's gutter scrolls to its annotation.
+function onDiffBodyClick(ev: Event): void {
+  const t = ev.target;
+  if (!(t instanceof Element)) return;
+  const renderAll = t.closest("[data-render-diff-file]");
+  if (renderAll) {
+    const section = renderAll.closest<HTMLElement>(".dfile");
+    if (section) {
+      ensureDiffFileBody(section);
+      setDiffFileExpanded(section, true);
+    }
+    return;
+  }
+  const head = t.closest(".dfile-head");
+  if (head) {
+    const section = head.closest<HTMLElement>(".dfile");
+    if (section) toggleDiffFile(section);
+    return;
+  }
+  const noted = t.closest<HTMLElement>(".drow-noted[data-anno]");
+  if (noted) {
+    const id = noted.dataset.anno;
+    if (id) scrollToAnno(id, { updateRoute: true });
+  }
+}
+
+function onDiffBodyKeydown(ev: KeyboardEvent): void {
+  if (ev.key !== "Enter" && ev.key !== " ") return;
+  const t = ev.target;
+  if (!(t instanceof Element)) return;
+  const head = t.closest(".dfile-head");
+  if (head) {
+    ev.preventDefault();
+    const section = head.closest<HTMLElement>(".dfile");
+    if (section) toggleDiffFile(section);
+    return;
+  }
+  const noted = t.closest<HTMLElement>(".drow-noted[data-anno]");
+  if (noted) {
+    ev.preventDefault();
+    const id = noted.dataset.anno;
+    if (id) scrollToAnno(id, { updateRoute: true });
+  }
+}
+
+// The navigator sidebar delegate, shared by both surfaces: a filter button
+// re-renders the nav; a file entry expands + scrolls its section; an
+// unanchored-fact entry scrolls to its body.
+function onDiffNavClick(ev: Event): void {
+  const t = ev.target;
+  if (!(t instanceof Element)) return;
+  const filterBtn = t.closest<HTMLElement>("[data-diff-nav-filter]");
+  if (filterBtn) {
+    const filter = filterBtn.dataset.diffNavFilter;
+    if (filter) setDiffNavFilter(filter);
+    return;
+  }
+  const fileBtn = t.closest<HTMLElement>("[data-nav-file]");
+  if (fileBtn) {
+    const idx = Number(fileBtn.dataset.navFile);
+    const section = surfaceBody()?.querySelector<HTMLElement>(
+      `.dfile[data-dfile="${idx}"]`,
+    );
+    if (section) {
+      expandDiffFile(section);
+      section.scrollIntoView({ block: "start" });
+    }
+    return;
+  }
+  const factBtn = t.closest<HTMLElement>(".diff-nav-fact[data-anno]");
+  if (factBtn) {
+    const id = factBtn.dataset.anno;
+    if (id) scrollToAnno(id, { updateRoute: true });
+  }
+}
+
 /**
- * Wire the diff overlay's fixed-id controls and register its teardown with the
- * overlay manager. The delegated #diff-body / #diff-nav listeners read the
- * module-local `diffCtx`; they are installed once here, never at the open call site.
+ * Wire the diff surfaces' fixed-id controls and register the overlay's teardown
+ * with the overlay manager (the page registers nothing — it is a route surface).
+ * The delegated body / nav listeners read the module-local `diffCtx`; they are
+ * installed once here, never at the open call site.
  */
 export function initControls(): void {
   const modal = $<HTMLElement>("#diff-modal");
@@ -443,83 +744,17 @@ export function initControls(): void {
       },
     });
   $("#diff-close")?.addEventListener("click", () => closeDiff());
+  $("#diff-page-close")?.addEventListener("click", () => closeDiff());
   modal?.addEventListener("click", (ev) => {
     if (ev.target === modal) closeDiff();
   });
-  // A file header toggles its section; a render-all button hydrates a fact-vicinity
-  // body; an annotated row's gutter scrolls to its annotation. Typed HTMLElement so
-  // the keydown listener narrows to KeyboardEvent.
-  const body = $<HTMLElement>("#diff-body");
-  body?.addEventListener("click", (ev) => {
-    const t = ev.target;
-    if (!(t instanceof Element)) return;
-    const renderAll = t.closest("[data-render-diff-file]");
-    if (renderAll) {
-      const section = renderAll.closest<HTMLElement>(".dfile");
-      if (section) {
-        ensureDiffFileBody(section);
-        setDiffFileExpanded(section, true);
-      }
-      return;
-    }
-    const head = t.closest(".dfile-head");
-    if (head) {
-      const section = head.closest<HTMLElement>(".dfile");
-      if (section) toggleDiffFile(section);
-      return;
-    }
-    const noted = t.closest<HTMLElement>(".drow-noted[data-anno]");
-    if (noted) {
-      const id = noted.dataset.anno;
-      if (id) scrollToAnno(id, { updateRoute: true });
-    }
-  });
-  body?.addEventListener("keydown", (ev) => {
-    if (ev.key !== "Enter" && ev.key !== " ") return;
-    const t = ev.target;
-    if (!(t instanceof Element)) return;
-    const head = t.closest(".dfile-head");
-    if (head) {
-      ev.preventDefault();
-      const section = head.closest<HTMLElement>(".dfile");
-      if (section) toggleDiffFile(section);
-      return;
-    }
-    const noted = t.closest<HTMLElement>(".drow-noted[data-anno]");
-    if (noted) {
-      ev.preventDefault();
-      const id = noted.dataset.anno;
-      if (id) scrollToAnno(id, { updateRoute: true });
-    }
-  });
-  // The navigator sidebar: a filter button re-renders the nav; a file entry
-  // expands + scrolls its section; an unanchored-fact entry scrolls to its body.
-  const nav = $("#diff-nav");
-  nav?.addEventListener("click", (ev) => {
-    const t = ev.target;
-    if (!(t instanceof Element)) return;
-    const filterBtn = t.closest<HTMLElement>("[data-diff-nav-filter]");
-    if (filterBtn) {
-      const filter = filterBtn.dataset.diffNavFilter;
-      if (filter) setDiffNavFilter(filter);
-      return;
-    }
-    const fileBtn = t.closest<HTMLElement>("[data-nav-file]");
-    if (fileBtn) {
-      const idx = Number(fileBtn.dataset.navFile);
-      const section = $("#diff-body")?.querySelector<HTMLElement>(
-        `.dfile[data-dfile="${idx}"]`,
-      );
-      if (section) {
-        expandDiffFile(section);
-        section.scrollIntoView({ block: "start" });
-      }
-      return;
-    }
-    const factBtn = t.closest<HTMLElement>(".diff-nav-fact[data-anno]");
-    if (factBtn) {
-      const id = factBtn.dataset.anno;
-      if (id) scrollToAnno(id, { updateRoute: true });
-    }
-  });
+  // Typed HTMLElement so the keydown listener narrows to KeyboardEvent.
+  for (const sel of [MODAL_SURFACE.body, PAGE_SURFACE.body]) {
+    const body = $<HTMLElement>(sel);
+    body?.addEventListener("click", onDiffBodyClick);
+    body?.addEventListener("keydown", onDiffBodyKeydown);
+  }
+  for (const sel of [MODAL_SURFACE.nav, PAGE_SURFACE.nav]) {
+    $(sel)?.addEventListener("click", onDiffNavClick);
+  }
 }

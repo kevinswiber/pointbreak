@@ -15,7 +15,7 @@
 
 import { CLASS } from "./classNames";
 import { renderDetail, showComposite } from "./detail";
-import { openDiff, renderDiffOverlay } from "./diff/controller";
+import { openDiff, renderDiffOverlay, renderDiffPage } from "./diff/controller";
 import { $ } from "./dom";
 import { escapeHtml } from "./escape";
 import { partitionAttentionTiers, renderAttention } from "./lenses/attention";
@@ -309,17 +309,42 @@ function scrollSelectionIntoView(): void {
 // The single render entry (the store subscriber)
 // ---------------------------------------------------------------------------
 
+// Project the routed diff page's frame ownership: while `diffPage` is set the
+// page shows and the lens layout (toolbar + master-detail split) hides — no
+// lens renders underneath. Off the page every piece is restored (syncControls
+// then re-owns the toolbar's lens-conditional visibility). Returns whether the
+// page owns this frame.
+function applyDiffPageMode(): boolean {
+  const onPage = getState().diffPage;
+  $("#diff-page")?.classList.toggle("hidden", !onPage);
+  for (const sel of [
+    "#toolbar",
+    "#master",
+    "#detail",
+    "#master-rail",
+    ".divider",
+  ]) {
+    $(sel)?.classList.toggle("hidden", onPage);
+  }
+  return onPage;
+}
+
 /**
  * The single render entry: project the whole view from state. Registered once in
  * the composition root as the only `subscribe()` callback, so every `commit`
- * (navigate, load, freshness poll) repaints through here. It calls the diff
- * reconciler and ignores its returned promise (app.js parity).
+ * (navigate, load, freshness poll) repaints through here. While the diff page
+ * owns the frame only the topbar surfaces repaint above it; otherwise it calls
+ * the overlay reconciler and ignores its returned promise (app.js parity).
  */
 export function render(): void {
   renderIdentity();
   renderStats();
   renderDiagnostics();
   renderLensSwitcher();
+  if (applyDiffPageMode()) {
+    void renderDiffPage();
+    return;
+  }
   syncControls();
   renderTypeToggles();
   applySplitMode();

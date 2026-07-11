@@ -60,6 +60,7 @@ export interface VerdictAssessment {
 
 /** A recorded observation fact. */
 export interface Observation {
+  id?: string;
   trackId?: string;
   title?: string;
   status?: string;
@@ -86,6 +87,7 @@ export interface InputRequestResponse {
 
 /** A recorded input-request fact. */
 export interface InputRequest {
+  id?: string;
   trackId?: string;
   title?: string;
   status?: string;

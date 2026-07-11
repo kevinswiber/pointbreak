@@ -2314,12 +2314,39 @@
   __name(clearRouteDiagnostic, "clearRouteDiagnostic");
 
   // src/diff/controller.ts
-  var shownDiffSnapshot = null;
-  var shownDiffHash = null;
+  var MODAL_SURFACE = {
+    title: "#diff-title",
+    nav: "#diff-nav",
+    body: "#diff-body"
+  };
+  var PAGE_SURFACE = {
+    title: "#diff-page-title",
+    nav: "#diff-page-nav",
+    body: "#diff-page-body"
+  };
+  function activeSurface() {
+    return getState().diffPage ? PAGE_SURFACE : MODAL_SURFACE;
+  }
+  __name(activeSurface, "activeSurface");
+  function surfaceBody() {
+    return $(activeSurface().body);
+  }
+  __name(surfaceBody, "surfaceBody");
+  function surfaceNav() {
+    return $(activeSurface().nav);
+  }
+  __name(surfaceNav, "surfaceNav");
+  var shownDiffKey = null;
   var diffCtx = null;
   var diffFactCursor = -1;
   var diffChangeCursor = -1;
   var diffNavFilter = "all";
+  var shownDiffNavFilter = "all";
+  var shownDiffFile = null;
+  function activeNavFilter() {
+    return getState().diffPage ? getState().diffNav : diffNavFilter;
+  }
+  __name(activeNavFilter, "activeNavFilter");
   function openDiff(snapshotId, focusId = null, contentHash = null) {
     navigate({
       diff: snapshotId,
@@ -2340,64 +2367,173 @@
     navigate({ diff: null, diffHash: null, focus: null }, { replace: true });
   }
   __name(closeDiff, "closeDiff");
-  function renderDiffOverlay() {
-    const state2 = getState();
-    if (!state2.diff) {
-      close("diff");
-      shownDiffSnapshot = null;
-      shownDiffHash = null;
-      diffCtx = null;
-      return Promise.resolve();
-    }
-    if (state2.diff === shownDiffSnapshot && state2.diffHash === shownDiffHash) {
-      if (activeName() !== "diff") open("diff", "#diff-close");
-      applyDiffFocus();
-      return Promise.resolve();
-    }
-    shownDiffSnapshot = state2.diff;
-    shownDiffHash = state2.diffHash;
-    const snapshotId = state2.diff;
-    const contentHash = state2.diffHash;
-    const revisionId = revisionIdForSnapshot(snapshotId, contentHash);
-    const label = revisionId ? shortId(revisionId) : "";
-    const title = $("#diff-title");
-    if (title)
-      title.textContent = label ? `${label} · snapshot ${shortId(snapshotId)}` : shortId(snapshotId);
-    const body = $("#diff-body");
+  async function paintDiffSurface(s, opts) {
+    const title = $(s.title);
+    if (title) title.textContent = opts.title;
+    const body = $(s.body);
     if (body) body.innerHTML = `<p class="${CLASS.empty}">loading snapshot…</p>`;
-    const nav = $("#diff-nav");
+    const nav = $(s.nav);
     if (nav) nav.innerHTML = "";
-    open("diff", "#diff-close");
-    let snapshotUrl = `/api/snapshots/${encodeURIComponent(snapshotId)}`;
-    if (contentHash)
-      snapshotUrl += `?contentHash=${encodeURIComponent(contentHash)}`;
-    return fetchJSON(snapshotUrl).then((artifact) => {
-      if (state2.diff !== snapshotId || state2.diffHash !== contentHash) return;
-      const annotations = revisionId ? annotationsForRevision(revisionId) : [];
+    let snapshotUrl = `/api/snapshots/${encodeURIComponent(opts.snapshotId)}`;
+    if (opts.contentHash)
+      snapshotUrl += `?contentHash=${encodeURIComponent(opts.contentHash)}`;
+    try {
+      const artifact = await fetchJSON(snapshotUrl);
+      if (!opts.stillCurrent()) return false;
       const { html, ctx } = renderDiff(
-        snapshotId,
+        opts.snapshotId,
         artifact,
-        annotations
+        opts.annotations
       );
-      const liveBody = $("#diff-body");
-      if (liveBody) liveBody.innerHTML = html;
+      const note = opts.factsNote ? `<p class="${CLASS.empty}">${escapeHtml(opts.factsNote)}</p>` : "";
+      const liveBody = $(s.body);
+      if (liveBody) liveBody.innerHTML = note + html;
       diffCtx = ctx;
       diffFactCursor = -1;
       diffChangeCursor = -1;
-      diffNavFilter = "all";
-      const liveNav = $("#diff-nav");
+      const liveNav = $(s.nav);
       if (liveNav) liveNav.innerHTML = renderDiffNav();
       applyDiffFocus();
-    }).catch((err) => {
-      if (state2.diff !== snapshotId || state2.diffHash !== contentHash) return;
-      const liveBody = $("#diff-body");
+      return true;
+    } catch (err) {
+      if (!opts.stillCurrent()) return false;
+      const liveBody = $(s.body);
       if (liveBody)
         liveBody.innerHTML = `<p class="${CLASS.empty}">error: ${escapeHtml(
           err instanceof Error ? err.message : String(err)
         )}</p>`;
+      return false;
+    }
+  }
+  __name(paintDiffSurface, "paintDiffSurface");
+  function renderDiffOverlay() {
+    const state2 = getState();
+    if (state2.diffPage) return Promise.resolve();
+    if (!state2.diff) {
+      close("diff");
+      shownDiffKey = null;
+      diffCtx = null;
+      return Promise.resolve();
+    }
+    const snapshotId = state2.diff;
+    const contentHash = state2.diffHash;
+    const key = `modal:${snapshotId}|${contentHash ?? ""}`;
+    if (key === shownDiffKey) {
+      if (activeName() !== "diff") open("diff", "#diff-close");
+      applyDiffFocus();
+      return Promise.resolve();
+    }
+    shownDiffKey = key;
+    const revisionId = revisionIdForSnapshot(snapshotId, contentHash);
+    const label = revisionId ? shortId(revisionId) : "";
+    diffNavFilter = "all";
+    open("diff", "#diff-close");
+    return paintDiffSurface(MODAL_SURFACE, {
+      snapshotId,
+      contentHash,
+      annotations: revisionId ? annotationsForRevision(revisionId) : [],
+      title: label ? `${label} · snapshot ${shortId(snapshotId)}` : shortId(snapshotId),
+      stillCurrent: /* @__PURE__ */ __name(() => getState().diff === snapshotId && getState().diffHash === contentHash, "stillCurrent"),
+      factsNote: null
+    }).then(() => {
     });
   }
   __name(renderDiffOverlay, "renderDiffOverlay");
+  function applyDiffFileScroll() {
+    const path = getState().diffFile;
+    shownDiffFile = path;
+    if (!path || !diffCtx) return;
+    const idx = diffCtx.files.findIndex(
+      (f) => f.new_path === path || f.old_path === path
+    );
+    if (idx < 0) return;
+    const section = surfaceBody()?.querySelector(
+      `.dfile[data-dfile="${idx}"]`
+    );
+    if (section) {
+      expandDiffFile(section);
+      section.scrollIntoView({ block: "start" });
+    }
+  }
+  __name(applyDiffFileScroll, "applyDiffFileScroll");
+  async function renderDiffPageFromRevision(revisionId) {
+    const stillCurrent = /* @__PURE__ */ __name(() => getState().diffPage && getState().diffRevision === revisionId, "stillCurrent");
+    const doc = await ensureRevisionComposite(revisionId);
+    if (!stillCurrent()) return;
+    if (!doc) {
+      const body = $(PAGE_SURFACE.body);
+      if (body)
+        body.innerHTML = `<p class="${CLASS.empty}">error: revision ${escapeHtml(
+          shortId(revisionId)
+        )} could not be loaded</p>`;
+      return;
+    }
+    const revision = doc.revision ?? {};
+    const snapshotId = revision.objectId;
+    if (!snapshotId) {
+      const body = $(PAGE_SURFACE.body);
+      if (body)
+        body.innerHTML = `<p class="${CLASS.empty}">this revision names no captured snapshot</p>`;
+      return;
+    }
+    const painted = await paintDiffSurface(PAGE_SURFACE, {
+      snapshotId,
+      contentHash: revision.objectArtifactContentHash ?? null,
+      annotations: compositeAnnotations(doc),
+      title: `${shortId(revisionId)} · snapshot ${shortId(snapshotId)}`,
+      stillCurrent,
+      factsNote: null
+    });
+    if (painted) {
+      shownDiffNavFilter = activeNavFilter();
+      applyDiffFileScroll();
+    }
+  }
+  __name(renderDiffPageFromRevision, "renderDiffPageFromRevision");
+  async function renderDiffPageFromSnapshot(snapshotId, contentHash) {
+    const stillCurrent = /* @__PURE__ */ __name(() => getState().diffPage && !getState().diffRevision && getState().diff === snapshotId && getState().diffHash === contentHash, "stillCurrent");
+    const painted = await paintDiffSurface(PAGE_SURFACE, {
+      snapshotId,
+      contentHash,
+      annotations: [],
+      title: `snapshot ${shortId(snapshotId)}`,
+      stillCurrent,
+      factsNote: "no review facts — this link names a snapshot the record cannot map to a revision"
+    });
+    if (painted) {
+      shownDiffNavFilter = activeNavFilter();
+      applyDiffFileScroll();
+    }
+  }
+  __name(renderDiffPageFromSnapshot, "renderDiffPageFromSnapshot");
+  function renderDiffPage() {
+    const state2 = getState();
+    if (!state2.diffPage) return Promise.resolve();
+    const key = state2.diffRevision ? `page:rev:${state2.diffRevision}` : state2.diff ? `page:snap:${state2.diff}|${state2.diffHash ?? ""}` : null;
+    if (!key) {
+      const body = $(PAGE_SURFACE.body);
+      if (body)
+        body.innerHTML = `<p class="${CLASS.empty}">nothing to diff — this link names no snapshot</p>`;
+      return Promise.resolve();
+    }
+    if (key === shownDiffKey) {
+      if (activeNavFilter() !== shownDiffNavFilter) {
+        shownDiffNavFilter = activeNavFilter();
+        const nav = $(PAGE_SURFACE.nav);
+        if (nav) nav.innerHTML = renderDiffNav();
+      }
+      if (getState().diffFile !== shownDiffFile) applyDiffFileScroll();
+      applyDiffFocus();
+      return Promise.resolve();
+    }
+    shownDiffKey = key;
+    if (state2.diffRevision) return renderDiffPageFromRevision(state2.diffRevision);
+    return renderDiffPageFromSnapshot(
+      state2.diff,
+      state2.diffHash ?? null
+    );
+  }
+  __name(renderDiffPage, "renderDiffPage");
   function applyDiffFocus() {
     const focusId = getState().focus;
     if (focusId) scrollToAnno(focusId);
@@ -2412,7 +2548,7 @@
   function scrollToAnno(id, opts = {}) {
     if (opts.updateRoute && focusDiffFactRoute(id)) return;
     const sel = `.anno[data-anno="${id}"]`;
-    const body = $("#diff-body");
+    const body = surfaceBody();
     let target = body?.querySelector(sel) ?? null;
     if (!target && diffCtx) {
       const fact = diffCtx.anchored.find((a) => a.id === id);
@@ -2483,10 +2619,11 @@
   __name(toggleDiffFile, "toggleDiffFile");
   function renderDiffNav() {
     if (!diffCtx) return "";
+    const navFilter = activeNavFilter();
     const { files, anchored, unanchored, filePaths } = diffCtx;
     const visibleFiles = files.map((f, i) => ({ f, i, factCount: fileFactCount(f, anchored) })).filter((item) => {
-      if (diffNavFilter === "with-facts") return item.factCount > 0;
-      if (diffNavFilter === "unanchored") return false;
+      if (navFilter === "with-facts") return item.factCount > 0;
+      if (navFilter === "unanchored") return false;
       return true;
     });
     const fileItems = visibleFiles.map(({ f, i, factCount: n }) => {
@@ -2495,11 +2632,11 @@
         <span class="${diffStatusClass(escapeHtml(f.status ?? ""))}">${escapeHtml(f.status ?? "")}</span>
         <span class="${CLASS.dpath}">${escapeHtml(filePathLabel(f))}</span>${badge}</button></li>`;
     }).join("");
-    let html = renderDiffNavSummary(diffNavSummary()) + renderDiffNavFilters(diffNavFilter);
-    if (diffNavFilter !== "unanchored") {
+    let html = renderDiffNavSummary(diffNavSummary()) + renderDiffNavFilters(navFilter);
+    if (navFilter !== "unanchored") {
       html += `<ol class="${CLASS.diffNavFiles}">${fileItems}</ol>`;
     }
-    if (unanchored.length && diffNavFilter !== "with-facts") {
+    if (unanchored.length && navFilter !== "with-facts") {
       const entries = unanchored.map(
         (a) => `<li><button class="${CLASS.diffNavFact}" data-anno="${escapeHtml(a.id)}"><span>${escapeHtml(a.title)}</span><span class="${CLASS.diffNavReason}">${escapeHtml(unanchoredReason(a, filePaths))}</span></button></li>`
       ).join("");
@@ -2521,20 +2658,24 @@
   __name(diffNavSummary, "diffNavSummary");
   function setDiffNavFilter(filter) {
     if (!isDiffNavFilter(filter)) return;
+    if (getState().diffPage) {
+      navigate({ diffNav: filter }, { replace: true });
+      return;
+    }
     diffNavFilter = filter;
-    const nav = $("#diff-nav");
+    const nav = surfaceNav();
     if (nav) nav.innerHTML = renderDiffNav();
   }
   __name(setDiffNavFilter, "setDiffNavFilter");
   function diffFactTargets() {
     return Array.from(
-      $("#diff-body")?.querySelectorAll(".anno[data-anno]") ?? []
+      surfaceBody()?.querySelectorAll(".anno[data-anno]") ?? []
     );
   }
   __name(diffFactTargets, "diffFactTargets");
   function diffChangeTargets() {
     return Array.from(
-      $("#diff-body")?.querySelectorAll(".dhunk") ?? []
+      surfaceBody()?.querySelectorAll(".dhunk") ?? []
     );
   }
   __name(diffChangeTargets, "diffChangeTargets");
@@ -2567,6 +2708,78 @@
     diffChangeCursor = jumpToTarget(diffChangeTargets(), diffChangeCursor, dir);
   }
   __name(jumpChange, "jumpChange");
+  function onDiffBodyClick(ev) {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const renderAll = t.closest("[data-render-diff-file]");
+    if (renderAll) {
+      const section = renderAll.closest(".dfile");
+      if (section) {
+        ensureDiffFileBody(section);
+        setDiffFileExpanded(section, true);
+      }
+      return;
+    }
+    const head = t.closest(".dfile-head");
+    if (head) {
+      const section = head.closest(".dfile");
+      if (section) toggleDiffFile(section);
+      return;
+    }
+    const noted = t.closest(".drow-noted[data-anno]");
+    if (noted) {
+      const id = noted.dataset.anno;
+      if (id) scrollToAnno(id, { updateRoute: true });
+    }
+  }
+  __name(onDiffBodyClick, "onDiffBodyClick");
+  function onDiffBodyKeydown(ev) {
+    if (ev.key !== "Enter" && ev.key !== " ") return;
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const head = t.closest(".dfile-head");
+    if (head) {
+      ev.preventDefault();
+      const section = head.closest(".dfile");
+      if (section) toggleDiffFile(section);
+      return;
+    }
+    const noted = t.closest(".drow-noted[data-anno]");
+    if (noted) {
+      ev.preventDefault();
+      const id = noted.dataset.anno;
+      if (id) scrollToAnno(id, { updateRoute: true });
+    }
+  }
+  __name(onDiffBodyKeydown, "onDiffBodyKeydown");
+  function onDiffNavClick(ev) {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const filterBtn = t.closest("[data-diff-nav-filter]");
+    if (filterBtn) {
+      const filter = filterBtn.dataset.diffNavFilter;
+      if (filter) setDiffNavFilter(filter);
+      return;
+    }
+    const fileBtn = t.closest("[data-nav-file]");
+    if (fileBtn) {
+      const idx = Number(fileBtn.dataset.navFile);
+      const section = surfaceBody()?.querySelector(
+        `.dfile[data-dfile="${idx}"]`
+      );
+      if (section) {
+        expandDiffFile(section);
+        section.scrollIntoView({ block: "start" });
+      }
+      return;
+    }
+    const factBtn = t.closest(".diff-nav-fact[data-anno]");
+    if (factBtn) {
+      const id = factBtn.dataset.anno;
+      if (id) scrollToAnno(id, { updateRoute: true });
+    }
+  }
+  __name(onDiffNavClick, "onDiffNavClick");
   function initControls() {
     const modal = $("#diff-modal");
     if (modal)
@@ -2600,80 +2813,18 @@
         }, "onKey")
       });
     $("#diff-close")?.addEventListener("click", () => closeDiff());
+    $("#diff-page-close")?.addEventListener("click", () => closeDiff());
     modal?.addEventListener("click", (ev) => {
       if (ev.target === modal) closeDiff();
     });
-    const body = $("#diff-body");
-    body?.addEventListener("click", (ev) => {
-      const t = ev.target;
-      if (!(t instanceof Element)) return;
-      const renderAll = t.closest("[data-render-diff-file]");
-      if (renderAll) {
-        const section = renderAll.closest(".dfile");
-        if (section) {
-          ensureDiffFileBody(section);
-          setDiffFileExpanded(section, true);
-        }
-        return;
-      }
-      const head = t.closest(".dfile-head");
-      if (head) {
-        const section = head.closest(".dfile");
-        if (section) toggleDiffFile(section);
-        return;
-      }
-      const noted = t.closest(".drow-noted[data-anno]");
-      if (noted) {
-        const id = noted.dataset.anno;
-        if (id) scrollToAnno(id, { updateRoute: true });
-      }
-    });
-    body?.addEventListener("keydown", (ev) => {
-      if (ev.key !== "Enter" && ev.key !== " ") return;
-      const t = ev.target;
-      if (!(t instanceof Element)) return;
-      const head = t.closest(".dfile-head");
-      if (head) {
-        ev.preventDefault();
-        const section = head.closest(".dfile");
-        if (section) toggleDiffFile(section);
-        return;
-      }
-      const noted = t.closest(".drow-noted[data-anno]");
-      if (noted) {
-        ev.preventDefault();
-        const id = noted.dataset.anno;
-        if (id) scrollToAnno(id, { updateRoute: true });
-      }
-    });
-    const nav = $("#diff-nav");
-    nav?.addEventListener("click", (ev) => {
-      const t = ev.target;
-      if (!(t instanceof Element)) return;
-      const filterBtn = t.closest("[data-diff-nav-filter]");
-      if (filterBtn) {
-        const filter = filterBtn.dataset.diffNavFilter;
-        if (filter) setDiffNavFilter(filter);
-        return;
-      }
-      const fileBtn = t.closest("[data-nav-file]");
-      if (fileBtn) {
-        const idx = Number(fileBtn.dataset.navFile);
-        const section = $("#diff-body")?.querySelector(
-          `.dfile[data-dfile="${idx}"]`
-        );
-        if (section) {
-          expandDiffFile(section);
-          section.scrollIntoView({ block: "start" });
-        }
-        return;
-      }
-      const factBtn = t.closest(".diff-nav-fact[data-anno]");
-      if (factBtn) {
-        const id = factBtn.dataset.anno;
-        if (id) scrollToAnno(id, { updateRoute: true });
-      }
-    });
+    for (const sel of [MODAL_SURFACE.body, PAGE_SURFACE.body]) {
+      const body = $(sel);
+      body?.addEventListener("click", onDiffBodyClick);
+      body?.addEventListener("keydown", onDiffBodyKeydown);
+    }
+    for (const sel of [MODAL_SURFACE.nav, PAGE_SURFACE.nav]) {
+      $(sel)?.addEventListener("click", onDiffNavClick);
+    }
   }
   __name(initControls, "initControls");
 
@@ -2783,6 +2934,69 @@
 
   // src/detail.ts
   var shownCompositeId = null;
+  var compositeCache = /* @__PURE__ */ new Map();
+  var compositeInFlight = /* @__PURE__ */ new Map();
+  function ensureRevisionComposite(revisionId) {
+    const eventSetHash = getState().history?.eventSetHash;
+    const cached = compositeCache.get(revisionId);
+    if (cached && cached.eventSetHash === eventSetHash)
+      return Promise.resolve(cached.doc);
+    const pending = compositeInFlight.get(revisionId);
+    if (pending) return pending;
+    const read = fetchJSON(`/api/revisions/${encodeURIComponent(revisionId)}`).then((d) => {
+      const doc = d;
+      compositeCache.set(revisionId, { doc, eventSetHash });
+      return doc;
+    }).catch(() => null).finally(() => {
+      compositeInFlight.delete(revisionId);
+    });
+    compositeInFlight.set(revisionId, read);
+    return read;
+  }
+  __name(ensureRevisionComposite, "ensureRevisionComposite");
+  function compositeAnnotations(doc) {
+    const out = [];
+    for (const o of doc.observations ?? []) {
+      out.push({
+        kind: "observation",
+        id: o.id ?? "",
+        title: o.title ?? "(observation)",
+        body: o.body ?? "",
+        bodyContentType: o.bodyContentType,
+        track: o.trackId ?? "",
+        tags: Array.isArray(o.tags) ? o.tags : [],
+        target: o.target ?? {}
+      });
+    }
+    for (const r of doc.inputRequests ?? []) {
+      const meta = [r.mode, r.reasonCode].filter(Boolean).join(" · ");
+      out.push({
+        kind: "input-request",
+        id: r.id ?? "",
+        title: r.title ?? "(input request)",
+        body: r.body ?? "",
+        bodyContentType: r.bodyContentType,
+        track: r.trackId ?? "",
+        tags: meta ? [meta] : [],
+        target: r.target ?? {}
+      });
+    }
+    for (const a of doc.assessments ?? []) {
+      const label = assessmentDisplayLabel(a.assessment ?? "");
+      out.push({
+        kind: "assessment",
+        id: a.id ?? "",
+        title: `assessment: ${label || "?"}`,
+        body: a.summary ?? "",
+        bodyContentType: a.summaryContentType,
+        track: a.trackId ?? "",
+        tags: [],
+        target: a.target ?? {}
+      });
+    }
+    return out;
+  }
+  __name(compositeAnnotations, "compositeAnnotations");
   var SCROLL_MEMORY_CAP = 50;
   var scrollMemory = /* @__PURE__ */ new Map();
   var shownDetailKey = null;
@@ -3275,24 +3489,21 @@
     const el = $("#detail-body");
     rememberScroll();
     if (el) el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
-    try {
-      const [d] = await Promise.all([
-        fetchJSON(`/api/revisions/${encodeURIComponent(revisionId)}`),
-        fetchScopedAttention(revisionId)
-      ]);
-      const sel = getState().selected;
-      if (sel.kind !== "revision" || sel.id !== revisionId) return;
-      renderRevisionPage(d);
-    } catch (err) {
-      const sel = getState().selected;
-      if (sel.kind === "revision" && sel.id === revisionId) {
-        const live = $("#detail-body");
-        if (live)
-          live.innerHTML = `<p class="${CLASS.upEmpty}">error: ${escapeHtml(
-            err instanceof Error ? err.message : String(err)
-          )}</p>`;
-      }
+    const [d] = await Promise.all([
+      ensureRevisionComposite(revisionId),
+      fetchScopedAttention(revisionId)
+    ]);
+    const sel = getState().selected;
+    if (sel.kind !== "revision" || sel.id !== revisionId) return;
+    if (!d) {
+      const live = $("#detail-body");
+      if (live)
+        live.innerHTML = `<p class="${CLASS.upEmpty}">error: revision ${escapeHtml(
+          shortRef(revisionId)
+        )} could not be loaded</p>`;
+      return;
     }
+    renderRevisionPage(d);
   }
   __name(openRevision, "openRevision");
   function showComposite(revisionId) {
@@ -4865,11 +5076,30 @@ click to open the revision page">
     if (el) el.scrollIntoView({ block: "center" });
   }
   __name(scrollSelectionIntoView, "scrollSelectionIntoView");
+  function applyDiffPageMode() {
+    const onPage = getState().diffPage;
+    $("#diff-page")?.classList.toggle("hidden", !onPage);
+    for (const sel of [
+      "#toolbar",
+      "#master",
+      "#detail",
+      "#master-rail",
+      ".divider"
+    ]) {
+      $(sel)?.classList.toggle("hidden", onPage);
+    }
+    return onPage;
+  }
+  __name(applyDiffPageMode, "applyDiffPageMode");
   function render() {
     renderIdentity();
     renderStats();
     renderDiagnostics();
     renderLensSwitcher();
+    if (applyDiffPageMode()) {
+      void renderDiffPage();
+      return;
+    }
     syncControls();
     renderTypeToggles();
     applySplitMode();

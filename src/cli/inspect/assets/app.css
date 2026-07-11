@@ -735,6 +735,19 @@ main { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-directio
   margin: 8px 6px 4px;
 }
 .diff-body { flex: 1; min-width: 0; overflow: auto; padding: 12px 14px; }
+
+/* Routed diff page: the annotated diff as a route surface replacing the
+   master-detail split while it owns the frame — no backdrop, no dialog chrome.
+   The navigator/body internals reuse the shared .diff-layout classes above. */
+.diff-page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.diff-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+}
 .diff-fact-vicinity {
   display: grid;
   gap: 8px;

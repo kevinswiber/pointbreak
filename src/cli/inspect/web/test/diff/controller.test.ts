@@ -347,3 +347,119 @@ describe("fact / change jump keys", () => {
     expect(store.getState().focus).toBe(noted?.dataset.anno);
   });
 });
+
+// The routed diff page: a route surface (never an overlay — activeName() stays
+// null) painted from `state.diffPage`/`diffRevision`. Facts AND snapshot identity
+// come from the composite revision document, so cold and grouped-away deep links
+// paint annotated; an unmappable snapshot-only link paints bytes with blank facts.
+describe("renderDiffPage (the routed page surface)", () => {
+  function pageBody(): HTMLElement | null {
+    return document.querySelector<HTMLElement>("#diff-page-body");
+  }
+
+  it("paints facts on a cold revision-primary deep link (no history, no list)", async () => {
+    // Cold: nothing loaded — only the composite + snapshot endpoints answer.
+    store.commit({
+      history: { entries: [], diagnostics: [] } as unknown as HistoryDoc,
+      revisions: { entries: [] } as unknown as RevisionsDoc,
+      diffPage: true,
+      diffRevision: REV,
+    });
+    await controller.renderDiffPage();
+    expect(pageBody()?.innerHTML).toContain("dfile");
+    // The annotated half of "annotated diff": fact markers render from the
+    // composite document, never the paged history or the list document.
+    expect(
+      pageBody()?.querySelectorAll(".anno[data-anno]").length,
+    ).toBeGreaterThan(0);
+    expect(document.querySelector("#diff-page-title")?.textContent).toContain(
+      "snapshot",
+    );
+    // A route surface, not an overlay: the manager never owns the page.
+    expect(overlay.activeName()).toBe(null);
+  });
+
+  it("paints facts for a grouped-away revision absent from the loaded list", async () => {
+    store.commit({
+      revisions: { entries: [] } as unknown as RevisionsDoc, // grouped away
+      diffPage: true,
+      diffRevision: REV,
+    });
+    await controller.renderDiffPage();
+    expect(pageBody()?.innerHTML).toContain("dfile");
+    expect(
+      pageBody()?.querySelectorAll(".anno[data-anno]").length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("paints best-effort blank for an unmappable snapshot-only link", async () => {
+    store.commit({
+      diffPage: true,
+      diffRevision: null,
+      diff: OBJ,
+      diffHash: ARTIFACT,
+    });
+    await controller.renderDiffPage();
+    expect(pageBody()?.innerHTML).toContain("dfile"); // the bytes render
+    expect(pageBody()?.querySelectorAll(".anno[data-anno]").length).toBe(0);
+    expect(pageBody()?.textContent).toContain("no review facts");
+  });
+
+  it("applies ?nav= from route state and expands the ?file= target", async () => {
+    setSnapshotResponse(syntheticArtifact(12));
+    store.commit({
+      diffPage: true,
+      diffRevision: REV,
+      diffNav: "with-facts",
+      diffFile: "src/f11.rs",
+    });
+    await controller.renderDiffPage();
+    const nav = document.querySelector("#diff-page-nav");
+    expect(
+      nav
+        ?.querySelector('[data-diff-nav-filter="with-facts"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    // The ?file= target's body is ensured and its section expanded.
+    const section = pageBody()?.querySelector('.dfile[data-dfile="11"]');
+    expect(
+      section?.querySelector(".dfile-head")?.getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(
+      section?.querySelector<HTMLElement>("[data-dfile-body]")?.innerHTML,
+    ).toContain("dhunk");
+  });
+
+  it("promotes the navigator filter to route state on the page", async () => {
+    store.commit({ diffPage: true, diffRevision: REV });
+    await controller.renderDiffPage();
+    controller.setDiffNavFilter("unanchored");
+    expect(store.getState().diffNav).toBe("unanchored");
+    // The repaint (the store subscriber in production) re-renders the navigator.
+    await controller.renderDiffPage();
+    expect(
+      document
+        .querySelector('#diff-page-nav [data-diff-nav-filter="unanchored"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  it("re-paints idempotently on a freshness-poll repaint", async () => {
+    store.commit({ diffPage: true, diffRevision: REV });
+    await controller.renderDiffPage();
+    expect(pageBody()?.innerHTML).toContain("dfile");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const scrollSpy = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    try {
+      await controller.renderDiffPage(); // unchanged state — the poll repaint
+      expect(fetchSpy).not.toHaveBeenCalled(); // no duplicate fetch
+      expect(scrollSpy).not.toHaveBeenCalled(); // no scroll reset
+      expect(pageBody()?.innerHTML).toContain("dfile"); // still painted
+    } finally {
+      fetchSpy.mockRestore();
+      scrollSpy.mockRestore();
+    }
+  });
+});

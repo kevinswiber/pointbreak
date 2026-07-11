@@ -20,8 +20,11 @@
 //   - The per-render diff-button listeners become one delegated `#detail` click
 //     handler (installed once by the composition root): the buttons carry
 //     `data-open-diff` / `data-diff-hash` / `data-diff-focus`, and the delegate
-//     opens the diff through `diff/controller.openDiff` (import direction
-//     detail → diff/controller, never the reverse).
+//     opens the diff through `diff/controller.openDiff`. That import is met by
+//     one deliberate counter-edge: the diff page consumes this module's exported
+//     `ensureRevisionComposite`/`compositeAnnotations` (the shared composite
+//     payload seam), so detail and diff/controller reference each other — safe
+//     because both edges are called-at-event-time, never at module init.
 
 import {
   currentAssessmentSummary,
@@ -40,6 +43,7 @@ import {
 } from "./cards";
 import { CLASS } from "./classNames";
 import { openDiff } from "./diff/controller";
+import type { Annotation } from "./diff/render";
 import { $ } from "./dom";
 import { escapeHtml } from "./escape";
 import { fmtDateTime } from "./format";
@@ -56,6 +60,7 @@ import {
   type Thread,
 } from "./model";
 import {
+  assessmentDisplayLabel,
   endorsementsBlock,
   entryRevisionId,
   entryTitle,
@@ -110,7 +115,7 @@ interface RevisionPageSummary {
 }
 
 /** The `/api/revisions/{id}` composite document the revision page projects. */
-interface RevisionPageDoc extends RevisionDetail {
+export interface RevisionPageDoc extends RevisionDetail {
   revision?: RevisionPageRevision;
   summary?: RevisionPageSummary;
   observations?: Observation[];
@@ -126,6 +131,97 @@ interface RevisionPageDoc extends RevisionDetail {
 // unchanged revision selection does not re-fetch. Transient view-cache — never on
 // the store.
 let shownCompositeId: string | null = null;
+
+// The composite documents fetched this session, keyed by revision id and stamped
+// with the history event-set hash they were fetched under: a freshness reload
+// that moves the hash invalidates the entry, so revisiting a revision after the
+// record moved re-fetches instead of serving a pinned document. Failures are
+// never cached. Transient view-cache — never on the store.
+interface CompositeCacheEntry {
+  doc: RevisionPageDoc;
+  eventSetHash: string | undefined;
+}
+const compositeCache = new Map<string, CompositeCacheEntry>();
+const compositeInFlight = new Map<string, Promise<RevisionPageDoc | null>>();
+
+/**
+ * The one composite fetch path (the detail page and the diff page both consume
+ * it): fetch `/api/revisions/{id}` — the entity-primary read that resolves
+ * grouped-away and cold ids exactly — deduplicating in-flight calls and caching
+ * per revision id. Never throws: a failed read resolves null and the caller
+ * degrades (the cache stays empty, so a retry can succeed).
+ */
+export function ensureRevisionComposite(
+  revisionId: string,
+): Promise<RevisionPageDoc | null> {
+  const eventSetHash = getState().history?.eventSetHash;
+  const cached = compositeCache.get(revisionId);
+  if (cached && cached.eventSetHash === eventSetHash)
+    return Promise.resolve(cached.doc);
+  const pending = compositeInFlight.get(revisionId);
+  if (pending) return pending;
+  const read = fetchJSON(`/api/revisions/${encodeURIComponent(revisionId)}`)
+    .then((d) => {
+      const doc = d as RevisionPageDoc;
+      compositeCache.set(revisionId, { doc, eventSetHash });
+      return doc;
+    })
+    .catch(() => null)
+    .finally(() => {
+      compositeInFlight.delete(revisionId);
+    });
+  compositeInFlight.set(revisionId, read);
+  return read;
+}
+
+/**
+ * The composite document's review facts as diff annotations — the cold-path
+ * twin of `model.annotationsForRevision`, which reads the loaded history window
+ * and therefore misses cold and grouped-away revisions. The diff page derives
+ * its annotations here so a deep link paints annotated with nothing loaded.
+ */
+export function compositeAnnotations(doc: RevisionPageDoc): Annotation[] {
+  const out: Annotation[] = [];
+  for (const o of doc.observations ?? []) {
+    out.push({
+      kind: "observation",
+      id: o.id ?? "",
+      title: o.title ?? "(observation)",
+      body: o.body ?? "",
+      bodyContentType: o.bodyContentType,
+      track: o.trackId ?? "",
+      tags: Array.isArray(o.tags) ? o.tags : [],
+      target: o.target ?? {},
+    });
+  }
+  for (const r of doc.inputRequests ?? []) {
+    const meta = [r.mode, r.reasonCode].filter(Boolean).join(" · ");
+    out.push({
+      kind: "input-request",
+      id: r.id ?? "",
+      title: r.title ?? "(input request)",
+      body: r.body ?? "",
+      bodyContentType: r.bodyContentType,
+      track: r.trackId ?? "",
+      tags: meta ? [meta] : [],
+      target: r.target ?? {},
+    });
+  }
+  for (const a of doc.assessments ?? []) {
+    const label = assessmentDisplayLabel(a.assessment ?? "");
+    out.push({
+      kind: "assessment",
+      id: a.id ?? "",
+      title: `assessment: ${label || "?"}`,
+      body: a.summary ?? "",
+      bodyContentType: a.summaryContentType,
+      track: a.trackId ?? "",
+      tags: [],
+      target: a.target ?? {},
+    });
+  }
+  return out;
+}
 
 // Reading-position memory for the detail pane, keyed by the painted entity
 // (event or revision id). Session-only transient view-cache, like
@@ -792,27 +888,25 @@ export async function openRevision(revisionId: string): Promise<void> {
   const el = $("#detail-body");
   rememberScroll();
   if (el) el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
-  try {
-    // The scoped attention set rides the same paint (fetchScopedAttention never
-    // throws, so only a composite failure reaches the error paint below).
-    const [d] = await Promise.all([
-      fetchJSON(`/api/revisions/${encodeURIComponent(revisionId)}`),
-      fetchScopedAttention(revisionId),
-    ]);
-    // A later selection change may have superseded this fetch.
-    const sel = getState().selected;
-    if (sel.kind !== "revision" || sel.id !== revisionId) return;
-    renderRevisionPage(d as RevisionPageDoc);
-  } catch (err: unknown) {
-    const sel = getState().selected;
-    if (sel.kind === "revision" && sel.id === revisionId) {
-      const live = $("#detail-body");
-      if (live)
-        live.innerHTML = `<p class="${CLASS.upEmpty}">error: ${escapeHtml(
-          err instanceof Error ? err.message : String(err),
-        )}</p>`;
-    }
+  // The scoped attention set rides the same paint; neither read throws
+  // (fetchScopedAttention degrades to omission, ensureRevisionComposite
+  // resolves null), so a failed composite reaches the error paint below.
+  const [d] = await Promise.all([
+    ensureRevisionComposite(revisionId),
+    fetchScopedAttention(revisionId),
+  ]);
+  // A later selection change may have superseded this fetch.
+  const sel = getState().selected;
+  if (sel.kind !== "revision" || sel.id !== revisionId) return;
+  if (!d) {
+    const live = $("#detail-body");
+    if (live)
+      live.innerHTML = `<p class="${CLASS.upEmpty}">error: revision ${escapeHtml(
+        shortRef(revisionId),
+      )} could not be loaded</p>`;
+    return;
   }
+  renderRevisionPage(d);
 }
 
 /**
