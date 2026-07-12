@@ -74,8 +74,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-          # macos-15 images ship rustup state that collides with cached
-          # ~/.cargo/bin contents, leaving `cargo` as the rustup-init installer.
+          # GitHub-hosted macOS images have shipped rustup state that collides
+          # with cached ~/.cargo/bin contents, leaving `cargo` as rustup-init.
           # See Swatinem/rust-cache#341, actions/runner-images#14099.
           cache-bin: false
       - name: Install cargo-zigbuild
@@ -99,7 +99,7 @@ jobs:
             "$VERSION" \
             "${{ matrix.archive }}" \
             "target/${{ matrix.rust-target }}/release"
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: bin-${{ matrix.target }}
           path: pointbreak-*
@@ -110,7 +110,7 @@ jobs:
     needs: [prepare, build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: bin-*
@@ -126,7 +126,7 @@ jobs:
           fi
           sha256sum "${archives[@]}" > checksums.txt
           sha256sum -c checksums.txt
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
           draft: ${{ github.event_name == 'workflow_dispatch' }}

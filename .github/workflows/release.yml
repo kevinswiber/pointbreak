@@ -64,7 +64,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Set up Node (app.js verify)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: src/cli/inspect/web/.nvmrc
           cache: npm
@@ -115,7 +115,7 @@ jobs:
           exit 1
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: pointbreak ${{ steps.meta.outputs.tag }}

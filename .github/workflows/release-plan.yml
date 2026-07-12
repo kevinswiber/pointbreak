@@ -205,7 +205,7 @@ jobs:
           fi
 
       - name: Upload release plan
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: release-plan
           path: ${{ runner.temp }}/release-plan.md
@@ -279,7 +279,7 @@ jobs:
 
       - name: Upload release report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: release-plan
           path: ${{ runner.temp }}/release-plan.md
