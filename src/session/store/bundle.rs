@@ -1473,7 +1473,8 @@ mod tests {
                 .as_ref()
                 .expect("every bundle-applied event is stamped");
             assert_eq!(stamp.via, IngestVia::BundleApply);
-            assert!(stamp.received_at.starts_with("unix-ms:"));
+            assert!(stamp.received_at.ends_with('Z'));
+            assert!(stamp.received_at.contains('.'));
         }
         // The source store is never modified.
         let source = EventStore::open(resolved_store_dir(repo.path()))

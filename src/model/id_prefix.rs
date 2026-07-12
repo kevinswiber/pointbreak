@@ -1,5 +1,5 @@
-//! Internal registry of the prefix strings Pointbreak mints into ids, artifact
-//! references, and reserved tokens.
+//! Internal registry of the prefix strings Pointbreak mints into ids and
+//! artifact references.
 //!
 //! Prefixes are opaque to consumers (see "IDs are opaque" in
 //! `docs/review-workflow.md`); this registry exists for internal consistency
@@ -72,9 +72,6 @@ pub(crate) const NOTE_BODY: &str = "note-body";
 /// Redacted sensitive-path reference: `file:sha256:<hex>` (hash of the relative
 /// path). Distinct from `FileId`, which is path-based and carries no prefix.
 pub(crate) const REDACTED_FILE: &str = "file";
-/// Event `occurredAt` wall-clock token: `unix-ms:<millis>`. Not an id.
-pub(crate) const UNIX_MS: &str = "unix-ms";
-
 /// What kind of string a registered prefix opens.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -85,8 +82,6 @@ pub(crate) enum PrefixKind {
     StructuralId,
     /// Content-addressed artifact reference in export bundles and inventories.
     ArtifactRef,
-    /// Reserved non-id token.
-    Token,
 }
 
 /// One registered prefix: the enumerable row the registry tests check.
@@ -102,9 +97,9 @@ pub(crate) struct IdPrefix {
     pub(crate) linkified: bool,
 }
 
-/// Every prefix Pointbreak has ever put in front of an id, artifact reference,
-/// or reserved token — the single enumerable source. Content-id entries first,
-/// then structural, artifact references, and tokens. The legacy `review-unit`
+/// Every prefix Pointbreak has ever put in front of an id or artifact reference
+/// — the single enumerable source. Content-id entries first, then structural
+/// and artifact references. The legacy `review-unit`
 /// and `snap` display entries were retired in #344 (no production path minted
 /// them and the inspector no longer linkifies them).
 #[cfg(test)]
@@ -253,12 +248,6 @@ pub(crate) const ID_PREFIXES: &[IdPrefix] = &[
         minted: true,
         linkified: false,
     },
-    IdPrefix {
-        prefix: UNIX_MS,
-        kind: PrefixKind::Token,
-        minted: true,
-        linkified: false,
-    },
 ];
 
 #[cfg(test)]
@@ -294,7 +283,6 @@ mod tests {
         assert_eq!(ARTIFACT_BODY, "body");
         assert_eq!(NOTE_BODY, "note-body");
         assert_eq!(REDACTED_FILE, "file");
-        assert_eq!(UNIX_MS, "unix-ms");
     }
 
     #[test]
@@ -359,10 +347,7 @@ mod tests {
             ARTIFACT_BODY,
             NOTE_BODY,
             REDACTED_FILE,
-            UNIX_MS,
         ];
-        // Every registered prefix is now a production-minted constant (the legacy
-        // review-unit/snap display entries were retired in #344).
         assert_eq!(ID_PREFIXES.len(), minted.len());
         for prefix in minted {
             let entry = ID_PREFIXES
@@ -388,7 +373,6 @@ mod tests {
         assert_eq!(count(PrefixKind::ContentId), 16);
         assert_eq!(count(PrefixKind::StructuralId), 4);
         assert_eq!(count(PrefixKind::ArtifactRef), 4);
-        assert_eq!(count(PrefixKind::Token), 1);
     }
 
     #[test]

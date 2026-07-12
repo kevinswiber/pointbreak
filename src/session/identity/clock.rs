@@ -1,20 +1,12 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::instant::format_rfc3339_utc_millis;
-use crate::model::id_prefix;
 
 pub(crate) fn current_timestamp() -> String {
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    format!("{}:{millis}", id_prefix::UNIX_MS)
+    now_rfc3339_utc()
 }
 
-/// "Now" as an RFC 3339 UTC instant — the only new wall-clock boundary this plan
-/// adds. Unlike `current_timestamp` (which mints `unix-ms:` for event `occurredAt`),
-/// delegation `validFrom`/`validUntil` must be RFC 3339 UTC (INV-C), the form the
-/// delegates reader parses.
+/// "Now" as an RFC 3339 UTC instant with millisecond precision.
 pub fn now_rfc3339_utc() -> String {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -26,14 +18,19 @@ pub fn now_rfc3339_utc() -> String {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn current_timestamp_uses_unix_ms_prefix() {
+    fn current_timestamp_uses_rfc3339_utc_with_millisecond_precision() {
+        use crate::session::identity::instant::parse_rfc3339_utc_millis;
+
         let value = super::current_timestamp();
-        let millis = value
-            .strip_prefix("unix-ms:")
-            .expect("timestamp has prefix")
-            .parse::<u128>()
-            .expect("timestamp suffix is millis");
-        assert!(millis > 0);
+        let fraction = value
+            .strip_suffix('Z')
+            .and_then(|without_z| without_z.rsplit_once('.'))
+            .map(|(_, fraction)| fraction)
+            .expect("timestamp has fractional seconds");
+
+        assert_eq!(fraction.len(), 3, "timestamp has millisecond precision");
+        assert!(fraction.bytes().all(|byte| byte.is_ascii_digit()));
+        assert!(parse_rfc3339_utc_millis(&value).is_some());
     }
 
     #[test]

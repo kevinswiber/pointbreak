@@ -1,16 +1,15 @@
 //! Minimal instant handling for delegation windows. The crate carries no time
 //! dependency, so this hand-rolls an RFC 3339 UTC (`Z`-offset only) parser to
 //! epoch milliseconds, plus `parse_event_instant`, which normalizes both
-//! `occurredAt` forms the store mints — `unix-ms:<millis>` from the local clock
-//! and the RFC 3339 instants adapters ingest — to one comparable instant.
+//! legal `occurredAt` forms — legacy `unix-ms:<millis>` values and RFC 3339 UTC
+//! values — to one comparable instant.
 
 use std::cmp::Ordering;
 
-/// Normalize an event `occurredAt` to epoch milliseconds. The store mints two
-/// forms in practice — `unix-ms:<millis>` (the local clock) and RFC 3339 UTC
-/// (adapter-ingested and signature events) — and this collapses both to one
-/// comparable instant. Returns `None` for any other shape so resolution can
-/// report `UnparseableTimestamp` rather than guess.
+/// Normalize an event `occurredAt` to epoch milliseconds. Two legal forms exist
+/// in practice — legacy `unix-ms:<millis>` values and RFC 3339 UTC — and this
+/// collapses both to one comparable instant. Returns `None` for any other shape
+/// so resolution can report `UnparseableTimestamp` rather than guess.
 pub fn parse_event_instant(value: &str) -> Option<i64> {
     if let Some(millis) = value.strip_prefix("unix-ms:") {
         if millis.is_empty() {
@@ -74,19 +73,21 @@ pub(crate) fn parse_rfc3339_utc_millis(value: &str) -> Option<i64> {
     Some(seconds * 1_000 + fraction_millis)
 }
 
-/// Format epoch milliseconds as an RFC 3339 UTC instant `YYYY-MM-DDTHH:MM:SSZ`
-/// (whole-second precision; the exact inverse of `parse_rfc3339_utc_millis`). The
-/// crate carries no time dependency, so this hand-rolls the civil-date math,
-/// symmetric to the parser above.
+/// Format epoch milliseconds as an RFC 3339 UTC instant
+/// `YYYY-MM-DDTHH:MM:SS.mmmZ`. The crate carries no time dependency, so this
+/// hand-rolls the civil-date math symmetric to the parser above.
 pub fn format_rfc3339_utc_millis(millis: i64) -> String {
     let total_seconds = millis.div_euclid(1000);
+    let millis_of_second = millis.rem_euclid(1000);
     let days = total_seconds.div_euclid(86_400);
     let secs_of_day = total_seconds.rem_euclid(86_400);
     let (year, month, day) = civil_from_days(days);
     let hour = secs_of_day / 3_600;
     let minute = (secs_of_day % 3_600) / 60;
     let second = secs_of_day % 60;
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+    format!(
+        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis_of_second:03}Z"
+    )
 }
 
 /// Inverse of `days_from_civil`: epoch-day count → (year, month, day). Hinnant's
@@ -165,28 +166,27 @@ mod tests {
     }
 
     #[test]
-    fn formats_epoch_millis_as_rfc3339_utc() {
-        // 2026-06-10T00:00:00Z — a value used throughout the delegates fixtures.
-        let millis = parse_rfc3339_utc_millis("2026-06-10T00:00:00Z").unwrap();
-        assert_eq!(format_rfc3339_utc_millis(millis), "2026-06-10T00:00:00Z");
+    fn formats_epoch_millis_as_rfc3339_utc_with_millisecond_precision() {
+        let millis = parse_rfc3339_utc_millis("2026-06-10T00:00:00.123Z").unwrap();
+        assert_eq!(
+            format_rfc3339_utc_millis(millis),
+            "2026-06-10T00:00:00.123Z"
+        );
+        assert_eq!(format_rfc3339_utc_millis(0), "1970-01-01T00:00:00.000Z");
     }
 
     #[test]
-    fn format_then_parse_round_trips_at_second_precision() {
-        for s in [
-            "1970-01-01T00:00:00Z",
-            "2000-02-29T12:34:56Z", // leap-year day
-            "2026-06-18T06:09:41Z",
-            "2099-12-31T23:59:59Z",
+    fn format_then_parse_round_trips_at_millisecond_precision() {
+        for millis in [
+            0,
+            parse_rfc3339_utc_millis("2000-02-29T12:34:56.001Z").unwrap(),
+            parse_rfc3339_utc_millis("2026-06-18T06:09:41.123Z").unwrap(),
+            parse_rfc3339_utc_millis("2099-12-31T23:59:59.999Z").unwrap(),
+            -1,
         ] {
-            let millis = parse_rfc3339_utc_millis(s).unwrap();
-            // Truncate to whole seconds: the formatter emits no fractional part.
-            let secs_millis = (millis / 1000) * 1000;
-            assert_eq!(format_rfc3339_utc_millis(secs_millis), s);
-            // And the emitted string re-parses to the same instant.
             assert_eq!(
-                parse_rfc3339_utc_millis(&format_rfc3339_utc_millis(secs_millis)),
-                Some(secs_millis)
+                parse_rfc3339_utc_millis(&format_rfc3339_utc_millis(millis)),
+                Some(millis)
             );
         }
     }

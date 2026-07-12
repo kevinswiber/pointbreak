@@ -22,16 +22,13 @@ fn captured_event_id(repo: &std::path::Path) -> String {
         .to_owned()
 }
 
-/// Trailing-millisecond stamp from an `occurredAt` string (e.g. `unix-ms:1234`),
-/// for asserting chronological ordering without depending on the prefix shape.
-fn occurred_ms(entry: &Value) -> u64 {
+/// Parsed instant from either legal `occurredAt` form.
+fn occurred_instant(entry: &Value) -> i64 {
     let raw = entry["occurredAt"]
         .as_str()
         .expect("occurredAt is a string");
-    raw.rsplit(|c: char| !c.is_ascii_digit())
-        .find(|chunk| !chunk.is_empty())
-        .and_then(|digits| digits.parse().ok())
-        .unwrap_or_else(|| panic!("occurredAt carries no trailing ms: {raw}"))
+    pointbreak::session::parse_event_instant(raw)
+        .unwrap_or_else(|| panic!("occurredAt is not a legal instant: {raw}"))
 }
 
 fn entries_of_type<'a>(history: &'a Value, event_type: &str) -> Vec<&'a Value> {
@@ -183,7 +180,7 @@ fn api_history_returns_chronological_typed_summaries() {
     assert_eq!(entries.len(), 8, "one entry per recorded event");
 
     // Entries are chronological (occurredAt ascending).
-    let stamps: Vec<u64> = entries.iter().map(occurred_ms).collect();
+    let stamps: Vec<i64> = entries.iter().map(occurred_instant).collect();
     assert!(
         stamps.windows(2).all(|w| w[0] <= w[1]),
         "entries must be sorted by occurredAt asc: {stamps:?}"

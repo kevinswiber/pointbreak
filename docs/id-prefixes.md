@@ -48,7 +48,6 @@ Ratified by [ADR-0028](./adr/adr-0028-id-prefix-convention.md):
 | `body` | artifact ref | `body:sha256:<hex>` | export | no |
 | `note-body` | artifact ref | `note-body:sha256:<hex>` | export/inventory | no |
 | `file` | artifact ref | `file:sha256:<hex>` (hash of a redacted relative path) | sensitivity scan | no |
-| `unix-ms` | token | `unix-ms:<millis>` | event `occurredAt` clock | no |
 
 "Linkified" means the inspector's reference regex turns the token into a chip; a `(non-clickable)`
 note marks a chip that is styled with a tooltip but has no navigation route (it never renders a dead
@@ -58,6 +57,10 @@ resolved in [#344](https://github.com/kevinswiber/pointbreak/issues/344) (see th
 Membership Resolved* amendment in ADR-0028): the eight production-minted content ids above linkify as
 non-clickable chips, the `rev:worktree:` shape now linkifies, and the legacy `review-unit`/`snap`
 display entries were retired.
+
+The legacy event-clock token `unix-ms:<millis>` is not an ID prefix and is no longer minted.
+Readers continue to accept it for existing stores; new local `occurredAt` values use RFC 3339 UTC
+with millisecond precision (`YYYY-MM-DDTHH:MM:SS.mmmZ`).
 
 ## Shape notes
 

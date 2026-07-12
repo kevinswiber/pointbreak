@@ -55,12 +55,37 @@ fn normalize_hashes(text: &str) -> String {
     })
 }
 
-/// Replace every `unix-ms:<digits>` with `unix-ms:<t>`.
+/// Replace locally minted timestamp fields with the snapshot's stable token.
 fn normalize_timestamps(text: &str) -> String {
-    replace_prefixed(text, "unix-ms:", "unix-ms:<t>", |rest| {
-        let digits = rest.chars().take_while(|c| c.is_ascii_digit()).count();
-        if digits > 0 { Some(digits) } else { None }
-    })
+    ["occurredAt", "createdAt", "observedAt", "capturedAt"]
+        .into_iter()
+        .fold(text.to_owned(), |text, key| {
+            normalize_timestamp_field(&text, key)
+        })
+}
+
+fn normalize_timestamp_field(text: &str, key: &str) -> String {
+    let prefix = format!("\"{key}\":\"");
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(&prefix) {
+        let value_start = start + prefix.len();
+        out.push_str(&rest[..value_start]);
+        let value_and_rest = &rest[value_start..];
+        let Some(end) = value_and_rest.find('"') else {
+            out.push_str(value_and_rest);
+            return out;
+        };
+        let value = &value_and_rest[..end];
+        if pointbreak::session::parse_event_instant(value).is_some() {
+            out.push_str("unix-ms:<t>");
+        } else {
+            out.push_str(value);
+        }
+        rest = &value_and_rest[end..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Scan `text` for occurrences of `prefix`; when `match_len` accepts the suffix

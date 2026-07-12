@@ -611,13 +611,13 @@ sibling stamped by the local importer
 ([ADR-0009](adr/adr-0009-resumption-binding-trust-source.md)):
 
 ```json
-"ingest": { "via": "ingest-events", "receivedAt": "unix-ms:1760000000000" }
+"ingest": { "via": "ingest-events", "receivedAt": "2026-06-10T00:00:00.000Z" }
 ```
 
 `via` is a bounded vocabulary naming the seam: `ingest-events` (the `ingest_events` /
-`import_event` workflow) or `bundle-apply` (store bundle import). `receivedAt` uses the store's
-`unix-ms:` timestamp format. Consumers read presence; `via` and `receivedAt` are operator-facing
-detail.
+`import_event` workflow) or `bundle-apply` (store bundle import). New `receivedAt` values use RFC
+3339 UTC with millisecond precision. Readers continue to accept legacy `unix-ms:<millis>` values
+from existing stores. Consumers read presence; `via` and `receivedAt` are operator-facing detail.
 
 Both import seams stamp unconditionally and **overwrite** any inbound stamp. A stamp in arriving
 bytes is some other store's bookkeeping — the same honesty rule that applies to `sourceRef`: hop

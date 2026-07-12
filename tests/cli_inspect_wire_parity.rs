@@ -8,7 +8,7 @@
 //! Rust side, not an assertion on front-end source text.
 //!
 //! Many payload fields are environment- or time-derived and differ on every run:
-//! content-addressed event/revision/fact ids, `unix-ms:` timestamps, the
+//! content-addressed event/revision/fact ids, event timestamps, the
 //! per-test tempdir worktree path and its display label, the base git object
 //! ids, the rolling `eventSetHash`/`payloadHash`, and the text-metric'd DAG node
 //! geometry (which further differs across platforms, so it must not be pinned on
@@ -28,6 +28,7 @@ mod support;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use pointbreak::session::parse_event_instant;
 use serde_json::Value;
 use support::inspect::{Inspector, representative_store, urlencode};
 
@@ -61,11 +62,9 @@ fn is_opaque_id(value: &str) -> bool {
     false
 }
 
-/// A `unix-ms:<millis>` wall-clock timestamp.
+/// Either legal event wall-clock timestamp form.
 fn is_timestamp(value: &str) -> bool {
-    value
-        .strip_prefix("unix-ms:")
-        .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit()))
+    parse_event_instant(value).is_some()
 }
 
 /// Server-laid DAG geometry: text-metric'd, so environment- and platform-derived.

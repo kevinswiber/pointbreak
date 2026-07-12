@@ -1481,7 +1481,8 @@ mod tests {
                 .as_ref()
                 .expect("every ingested event is stamped");
             assert_eq!(stamp.via, IngestVia::IngestEvents);
-            assert!(stamp.received_at.starts_with("unix-ms:"));
+            assert!(stamp.received_at.ends_with('Z'));
+            assert!(stamp.received_at.contains('.'));
         }
     }
 
