@@ -231,7 +231,7 @@ jobs:
         run: cargo binstall --no-confirm cocogitto@6.5.0 cargo-edit
 
       - name: Import GPG key
-        uses: crazy-max/ghaction-import-gpg@v6
+        uses: crazy-max/ghaction-import-gpg@v7
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           git_user_signingkey: true
