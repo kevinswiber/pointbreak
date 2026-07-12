@@ -144,6 +144,25 @@ describe("filter / move / run", () => {
     expect(overlay.activeName()).toBeNull();
   });
 
+  it("a lens command exits the diff page onto the lens", () => {
+    store.commit({ diffPage: true, diffRevision: "rev:sha256:page" });
+    palette.open();
+    palette.filterPalette("Switch to list lens");
+    palette.run();
+    expect(store.getState().lens).toBe("list");
+    expect(store.getState().diffPage).toBe(false);
+    expect(store.getState().diffRevision).toBeNull();
+  });
+
+  it("a track command exits the diff page and scopes the timeline", () => {
+    store.commit({ diffPage: true, diffRevision: "rev:sha256:page" });
+    palette.open();
+    palette.filterPalette("human:kevin");
+    palette.run();
+    expect(store.getState().filterTrack).toBe("human:kevin");
+    expect(store.getState().diffPage).toBe(false);
+  });
+
   it("an empty filter shows the no-matches row", () => {
     palette.open();
     palette.filterPalette("zzz-no-such-command");

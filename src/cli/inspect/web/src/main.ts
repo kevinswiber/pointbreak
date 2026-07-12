@@ -19,7 +19,10 @@ import {
   setLiveness,
 } from "./data";
 import { initControls as initDetail } from "./detail";
-import { initControls as initDiff } from "./diff/controller";
+import {
+  DIFF_ROUTE_CLEARED,
+  initControls as initDiff,
+} from "./diff/controller";
 import { $ } from "./dom";
 import { initControls as initHelp } from "./help-overlay";
 import { onKey } from "./keyboard";
@@ -41,7 +44,12 @@ function wireToolbar(): void {
   for (const tab of document.querySelectorAll<HTMLElement>(".lens-tab")) {
     tab.addEventListener("click", () => {
       const lens = tab.dataset.lens;
-      navigate({ lens: lens && LENSES.includes(lens) ? lens : DEFAULT_LENS });
+      // A lens tab names a record destination: from the diff page it exits the
+      // page onto that lens instead of changing hidden state underneath.
+      navigate({
+        lens: lens && LENSES.includes(lens) ? lens : DEFAULT_LENS,
+        ...DIFF_ROUTE_CLEARED,
+      });
     });
   }
   const filterText = $<HTMLInputElement>("#filter-text");

@@ -93,7 +93,6 @@ describe("shared constants", () => {
 
   it("maps overlay names to their root selectors", () => {
     expect(OVERLAY_SELECTORS).toEqual({
-      diff: "#diff-modal",
       palette: "#cmd-palette",
       help: "#key-help",
     });

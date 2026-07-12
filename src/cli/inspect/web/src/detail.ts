@@ -42,7 +42,7 @@ import {
   verdictBadge,
 } from "./cards";
 import { CLASS } from "./classNames";
-import { openDiff } from "./diff/controller";
+import { DIFF_ROUTE_CLEARED, openDiff } from "./diff/controller";
 import type { Annotation } from "./diff/render";
 import { $ } from "./dom";
 import { escapeHtml } from "./escape";
@@ -646,9 +646,7 @@ function wireDagInteractions(scope: HTMLElement): void {
     if (id)
       navigate({
         selected: { kind: "revision", id },
-        diff: null,
-        diffHash: null,
-        focus: null,
+        ...DIFF_ROUTE_CLEARED,
       });
   };
   for (const node of Array.from(

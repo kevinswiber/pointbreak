@@ -492,7 +492,6 @@
   var DEFAULT_OPEN_FILES = 10;
   var LARGE_FILE_ROWS = 500;
   var OVERLAY_SELECTORS = {
-    diff: "#diff-modal",
     palette: "#cmd-palette",
     help: "#key-help"
   };
@@ -970,51 +969,6 @@
     return "";
   }
   __name(supersessionBadge, "supersessionBadge");
-  function annotationsForRevision(revisionId) {
-    const out = [];
-    for (const e of getState().history?.entries ?? []) {
-      if (entryRevisionId(e) !== revisionId) continue;
-      const s = e.summary ?? {};
-      if (e.eventType === "review_observation_recorded") {
-        out.push({
-          kind: "observation",
-          id: s.observationId ?? e.eventId ?? "",
-          title: s.title ?? "(observation)",
-          body: s.body ?? "",
-          bodyContentType: s.bodyContentType,
-          track: e.trackId ?? "",
-          tags: Array.isArray(s.tags) ? s.tags : [],
-          target: s.target ?? {}
-        });
-      } else if (e.eventType === "input_request_opened") {
-        const meta = [s.mode, s.reasonCode].filter(Boolean).join(" · ");
-        out.push({
-          kind: "input-request",
-          id: s.inputRequestId ?? e.eventId ?? "",
-          title: s.title ?? "(input request)",
-          body: s.body ?? "",
-          bodyContentType: s.bodyContentType,
-          track: e.trackId ?? "",
-          tags: meta ? [meta] : [],
-          target: s.target ?? {}
-        });
-      } else if (e.eventType === "review_assessment_recorded") {
-        const label = assessmentDisplayLabel(s.assessment ?? "");
-        out.push({
-          kind: "assessment",
-          id: s.assessmentId ?? e.eventId ?? "",
-          title: `assessment: ${label || "?"}`,
-          body: s.summary ?? "",
-          bodyContentType: s.summaryContentType,
-          track: e.trackId ?? "",
-          tags: [],
-          target: s.target ?? {}
-        });
-      }
-    }
-    return out;
-  }
-  __name(annotationsForRevision, "annotationsForRevision");
   function matchesRevisionFilters(r) {
     const s = getState();
     if (s.filterSnapshot && r.snapshotId !== s.filterSnapshot) return false;
@@ -1644,115 +1598,6 @@
   }
   __name(renderFactSupersessionBlock, "renderFactSupersessionBlock");
 
-  // src/overlay.ts
-  var registry = /* @__PURE__ */ new Map();
-  var activeOverlay = null;
-  function activeName() {
-    return activeOverlay?.name ?? null;
-  }
-  __name(activeName, "activeName");
-  function register(name, registration) {
-    registry.set(name, registration);
-  }
-  __name(register, "register");
-  function overlayNode(name) {
-    const registered = registry.get(name);
-    if (registered) return registered.node;
-    const selector = OVERLAY_SELECTORS[name];
-    return selector ? $(selector) : null;
-  }
-  __name(overlayNode, "overlayNode");
-  function overlayFocusable(node) {
-    return Array.from(
-      node.querySelectorAll(
-        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      )
-    ).filter(
-      (el) => el.getClientRects().length > 0 || el === document.activeElement
-    );
-  }
-  __name(overlayFocusable, "overlayFocusable");
-  function open(name, initialSelector) {
-    const node = overlayNode(name);
-    if (!node) return;
-    if (activeOverlay && activeOverlay.name !== name) {
-      closeActive({ restoreFocus: false });
-    }
-    const priorFocus = activeOverlay?.name === name ? activeOverlay.priorFocus : document.activeElement;
-    const onClose2 = registry.get(name)?.onClose ?? noop;
-    activeOverlay = { name, node, onClose: onClose2, priorFocus };
-    node.classList.remove("hidden");
-    const target = initialSelector ? node.querySelector(initialSelector) : overlayFocusable(node)[0];
-    target?.focus();
-  }
-  __name(open, "open");
-  function closeActive(opts = {}) {
-    if (!activeOverlay) return;
-    const current = activeOverlay;
-    current.node.classList.add("hidden");
-    activeOverlay = null;
-    current.onClose();
-    if (opts.restoreFocus !== false && current.priorFocus instanceof HTMLElement && document.contains(current.priorFocus)) {
-      current.priorFocus.focus();
-    }
-  }
-  __name(closeActive, "closeActive");
-  function close(name, opts = {}) {
-    if (activeOverlay?.name === name) {
-      closeActive(opts);
-      return;
-    }
-    const node = overlayNode(name);
-    if (node) node.classList.add("hidden");
-  }
-  __name(close, "close");
-  function trapFocus(ev) {
-    if (ev.key !== "Tab" || !activeOverlay) return false;
-    const focusable = overlayFocusable(activeOverlay.node);
-    if (!focusable.length) {
-      ev.preventDefault();
-      return true;
-    }
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (!activeOverlay.node.contains(document.activeElement)) {
-      ev.preventDefault();
-      first.focus();
-      return true;
-    }
-    if (ev.shiftKey && document.activeElement === first) {
-      ev.preventDefault();
-      last.focus();
-      return true;
-    }
-    if (!ev.shiftKey && document.activeElement === last) {
-      ev.preventDefault();
-      first.focus();
-      return true;
-    }
-    return false;
-  }
-  __name(trapFocus, "trapFocus");
-  function handleOverlayKey(ev) {
-    if (!activeOverlay) return false;
-    if (ev.key === "Tab") {
-      trapFocus(ev);
-      return true;
-    }
-    if (ev.key === "Escape") {
-      ev.preventDefault();
-      closeActive();
-      return true;
-    }
-    const reg = registry.get(activeOverlay.name);
-    reg?.onKey?.(ev);
-    return true;
-  }
-  __name(handleOverlayKey, "handleOverlayKey");
-  function noop() {
-  }
-  __name(noop, "noop");
-
   // src/diff/highlight.ts
   function validChannel(spans, len) {
     let cursor = 0;
@@ -2314,41 +2159,38 @@
   __name(clearRouteDiagnostic, "clearRouteDiagnostic");
 
   // src/diff/controller.ts
-  var MODAL_SURFACE = {
-    title: "#diff-title",
-    nav: "#diff-nav",
-    body: "#diff-body"
-  };
   var PAGE_SURFACE = {
     title: "#diff-page-title",
     nav: "#diff-page-nav",
     body: "#diff-page-body"
   };
-  function activeSurface() {
-    return getState().diffPage ? PAGE_SURFACE : MODAL_SURFACE;
-  }
-  __name(activeSurface, "activeSurface");
   function surfaceBody() {
-    return $(activeSurface().body);
+    return $(PAGE_SURFACE.body);
   }
   __name(surfaceBody, "surfaceBody");
   function surfaceNav() {
-    return $(activeSurface().nav);
+    return $(PAGE_SURFACE.nav);
   }
   __name(surfaceNav, "surfaceNav");
   var shownDiffKey = null;
   var diffCtx = null;
   var diffFactCursor = -1;
   var diffChangeCursor = -1;
-  var diffNavFilter = "all";
   var shownDiffNavFilter = "all";
   var shownDiffFile = null;
-  function activeNavFilter() {
-    return getState().diffPage ? getState().diffNav : diffNavFilter;
-  }
-  __name(activeNavFilter, "activeNavFilter");
+  var DIFF_ROUTE_CLEARED = {
+    diff: null,
+    diffHash: null,
+    focus: null,
+    diffPage: false,
+    diffRevision: null,
+    diffFile: null,
+    diffNav: "all"
+  };
   function openDiff(snapshotId, focusId = null, contentHash = null) {
     navigate({
+      diffPage: true,
+      diffRevision: revisionIdForSnapshot(snapshotId, contentHash),
       diff: snapshotId,
       diffHash: contentHash || null,
       focus: focusId || null
@@ -2356,23 +2198,27 @@
   }
   __name(openDiff, "openDiff");
   function openRevisionDiff(revisionId, focusId = null) {
-    const snapshotId = snapshotIdForRevision(revisionId);
-    if (snapshotId)
-      openDiff(snapshotId, focusId, snapshotContentHashForRevision(revisionId));
+    navigate({
+      diffPage: true,
+      diffRevision: revisionId,
+      diff: null,
+      diffHash: null,
+      focus: focusId || null
+    });
   }
   __name(openRevisionDiff, "openRevisionDiff");
   function closeDiff() {
-    const modal = $("#diff-modal");
-    if (!getState().diff && modal?.classList.contains("hidden")) return;
-    navigate({ diff: null, diffHash: null, focus: null }, { replace: true });
+    const state2 = getState();
+    if (!state2.diffPage && !state2.diff) return;
+    navigate({ ...DIFF_ROUTE_CLEARED });
   }
   __name(closeDiff, "closeDiff");
-  async function paintDiffSurface(s, opts) {
-    const title = $(s.title);
+  async function paintDiffPage(opts) {
+    const title = $(PAGE_SURFACE.title);
     if (title) title.textContent = opts.title;
-    const body = $(s.body);
+    const body = surfaceBody();
     if (body) body.innerHTML = `<p class="${CLASS.empty}">loading snapshot…</p>`;
-    const nav = $(s.nav);
+    const nav = surfaceNav();
     if (nav) nav.innerHTML = "";
     let snapshotUrl = `/api/snapshots/${encodeURIComponent(opts.snapshotId)}`;
     if (opts.contentHash)
@@ -2386,18 +2232,18 @@
         opts.annotations
       );
       const note = opts.factsNote ? `<p class="${CLASS.empty}">${escapeHtml(opts.factsNote)}</p>` : "";
-      const liveBody = $(s.body);
+      const liveBody = surfaceBody();
       if (liveBody) liveBody.innerHTML = note + html;
       diffCtx = ctx;
       diffFactCursor = -1;
       diffChangeCursor = -1;
-      const liveNav = $(s.nav);
+      const liveNav = surfaceNav();
       if (liveNav) liveNav.innerHTML = renderDiffNav();
       applyDiffFocus();
       return true;
     } catch (err) {
       if (!opts.stillCurrent()) return false;
-      const liveBody = $(s.body);
+      const liveBody = surfaceBody();
       if (liveBody)
         liveBody.innerHTML = `<p class="${CLASS.empty}">error: ${escapeHtml(
           err instanceof Error ? err.message : String(err)
@@ -2405,40 +2251,7 @@
       return false;
     }
   }
-  __name(paintDiffSurface, "paintDiffSurface");
-  function renderDiffOverlay() {
-    const state2 = getState();
-    if (state2.diffPage) return Promise.resolve();
-    if (!state2.diff) {
-      close("diff");
-      shownDiffKey = null;
-      diffCtx = null;
-      return Promise.resolve();
-    }
-    const snapshotId = state2.diff;
-    const contentHash = state2.diffHash;
-    const key = `modal:${snapshotId}|${contentHash ?? ""}`;
-    if (key === shownDiffKey) {
-      if (activeName() !== "diff") open("diff", "#diff-close");
-      applyDiffFocus();
-      return Promise.resolve();
-    }
-    shownDiffKey = key;
-    const revisionId = revisionIdForSnapshot(snapshotId, contentHash);
-    const label = revisionId ? shortId(revisionId) : "";
-    diffNavFilter = "all";
-    open("diff", "#diff-close");
-    return paintDiffSurface(MODAL_SURFACE, {
-      snapshotId,
-      contentHash,
-      annotations: revisionId ? annotationsForRevision(revisionId) : [],
-      title: label ? `${label} · snapshot ${shortId(snapshotId)}` : shortId(snapshotId),
-      stillCurrent: /* @__PURE__ */ __name(() => getState().diff === snapshotId && getState().diffHash === contentHash, "stillCurrent"),
-      factsNote: null
-    }).then(() => {
-    });
-  }
-  __name(renderDiffOverlay, "renderDiffOverlay");
+  __name(paintDiffPage, "paintDiffPage");
   function applyDiffFileScroll() {
     const path = getState().diffFile;
     shownDiffFile = path;
@@ -2476,7 +2289,7 @@
         body.innerHTML = `<p class="${CLASS.empty}">this revision names no captured snapshot</p>`;
       return;
     }
-    const painted = await paintDiffSurface(PAGE_SURFACE, {
+    const painted = await paintDiffPage({
       snapshotId,
       contentHash: revision.objectArtifactContentHash ?? null,
       annotations: compositeAnnotations(doc),
@@ -2485,14 +2298,14 @@
       factsNote: null
     });
     if (painted) {
-      shownDiffNavFilter = activeNavFilter();
+      shownDiffNavFilter = getState().diffNav;
       applyDiffFileScroll();
     }
   }
   __name(renderDiffPageFromRevision, "renderDiffPageFromRevision");
   async function renderDiffPageFromSnapshot(snapshotId, contentHash) {
     const stillCurrent = /* @__PURE__ */ __name(() => getState().diffPage && !getState().diffRevision && getState().diff === snapshotId && getState().diffHash === contentHash, "stillCurrent");
-    const painted = await paintDiffSurface(PAGE_SURFACE, {
+    const painted = await paintDiffPage({
       snapshotId,
       contentHash,
       annotations: [],
@@ -2501,14 +2314,18 @@
       factsNote: "no review facts — this link names a snapshot the record cannot map to a revision"
     });
     if (painted) {
-      shownDiffNavFilter = activeNavFilter();
+      shownDiffNavFilter = getState().diffNav;
       applyDiffFileScroll();
     }
   }
   __name(renderDiffPageFromSnapshot, "renderDiffPageFromSnapshot");
   function renderDiffPage() {
     const state2 = getState();
-    if (!state2.diffPage) return Promise.resolve();
+    if (!state2.diffPage) {
+      shownDiffKey = null;
+      diffCtx = null;
+      return Promise.resolve();
+    }
     const key = state2.diffRevision ? `page:rev:${state2.diffRevision}` : state2.diff ? `page:snap:${state2.diff}|${state2.diffHash ?? ""}` : null;
     if (!key) {
       const body = $(PAGE_SURFACE.body);
@@ -2517,9 +2334,9 @@
       return Promise.resolve();
     }
     if (key === shownDiffKey) {
-      if (activeNavFilter() !== shownDiffNavFilter) {
-        shownDiffNavFilter = activeNavFilter();
-        const nav = $(PAGE_SURFACE.nav);
+      if (getState().diffNav !== shownDiffNavFilter) {
+        shownDiffNavFilter = getState().diffNav;
+        const nav = surfaceNav();
         if (nav) nav.innerHTML = renderDiffNav();
       }
       if (getState().diffFile !== shownDiffFile) applyDiffFileScroll();
@@ -2619,7 +2436,7 @@
   __name(toggleDiffFile, "toggleDiffFile");
   function renderDiffNav() {
     if (!diffCtx) return "";
-    const navFilter = activeNavFilter();
+    const navFilter = getState().diffNav;
     const { files, anchored, unanchored, filePaths } = diffCtx;
     const visibleFiles = files.map((f, i) => ({ f, i, factCount: fileFactCount(f, anchored) })).filter((item) => {
       if (navFilter === "with-facts") return item.factCount > 0;
@@ -2658,13 +2475,7 @@
   __name(diffNavSummary, "diffNavSummary");
   function setDiffNavFilter(filter) {
     if (!isDiffNavFilter(filter)) return;
-    if (getState().diffPage) {
-      navigate({ diffNav: filter }, { replace: true });
-      return;
-    }
-    diffNavFilter = filter;
-    const nav = surfaceNav();
-    if (nav) nav.innerHTML = renderDiffNav();
+    navigate({ diffNav: filter }, { replace: true });
   }
   __name(setDiffNavFilter, "setDiffNavFilter");
   function diffFactTargets() {
@@ -2781,50 +2592,11 @@
   }
   __name(onDiffNavClick, "onDiffNavClick");
   function initControls() {
-    const modal = $("#diff-modal");
-    if (modal)
-      register("diff", {
-        node: modal,
-        onClose: closeDiff,
-        // The diff's own jump keys, run through the overlay manager's delegation:
-        // ]/[ step changes, n/p step review facts. Escape is not here — the
-        // manager owns it universally.
-        onKey: /* @__PURE__ */ __name((ev) => {
-          switch (ev.key) {
-            case "]":
-              ev.preventDefault();
-              jumpChange(1);
-              return true;
-            case "[":
-              ev.preventDefault();
-              jumpChange(-1);
-              return true;
-            case "n":
-              ev.preventDefault();
-              jumpFact(1);
-              return true;
-            case "p":
-              ev.preventDefault();
-              jumpFact(-1);
-              return true;
-            default:
-              return false;
-          }
-        }, "onKey")
-      });
-    $("#diff-close")?.addEventListener("click", () => closeDiff());
     $("#diff-page-close")?.addEventListener("click", () => closeDiff());
-    modal?.addEventListener("click", (ev) => {
-      if (ev.target === modal) closeDiff();
-    });
-    for (const sel of [MODAL_SURFACE.body, PAGE_SURFACE.body]) {
-      const body = $(sel);
-      body?.addEventListener("click", onDiffBodyClick);
-      body?.addEventListener("keydown", onDiffBodyKeydown);
-    }
-    for (const sel of [MODAL_SURFACE.nav, PAGE_SURFACE.nav]) {
-      $(sel)?.addEventListener("click", onDiffNavClick);
-    }
+    const body = $(PAGE_SURFACE.body);
+    body?.addEventListener("click", onDiffBodyClick);
+    body?.addEventListener("keydown", onDiffBodyKeydown);
+    $(PAGE_SURFACE.nav)?.addEventListener("click", onDiffNavClick);
   }
   __name(initControls, "initControls");
 
@@ -3317,9 +3089,7 @@
       if (id)
         navigate({
           selected: { kind: "revision", id },
-          diff: null,
-          diffHash: null,
-          focus: null
+          ...DIFF_ROUTE_CLEARED
         });
     }, "nav");
     for (const node of Array.from(
@@ -3556,6 +3326,115 @@
   }
   __name(initControls2, "initControls");
 
+  // src/overlay.ts
+  var registry = /* @__PURE__ */ new Map();
+  var activeOverlay = null;
+  function activeName() {
+    return activeOverlay?.name ?? null;
+  }
+  __name(activeName, "activeName");
+  function register(name, registration) {
+    registry.set(name, registration);
+  }
+  __name(register, "register");
+  function overlayNode(name) {
+    const registered = registry.get(name);
+    if (registered) return registered.node;
+    const selector = OVERLAY_SELECTORS[name];
+    return selector ? $(selector) : null;
+  }
+  __name(overlayNode, "overlayNode");
+  function overlayFocusable(node) {
+    return Array.from(
+      node.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter(
+      (el) => el.getClientRects().length > 0 || el === document.activeElement
+    );
+  }
+  __name(overlayFocusable, "overlayFocusable");
+  function open(name, initialSelector) {
+    const node = overlayNode(name);
+    if (!node) return;
+    if (activeOverlay && activeOverlay.name !== name) {
+      closeActive({ restoreFocus: false });
+    }
+    const priorFocus = activeOverlay?.name === name ? activeOverlay.priorFocus : document.activeElement;
+    const onClose2 = registry.get(name)?.onClose ?? noop;
+    activeOverlay = { name, node, onClose: onClose2, priorFocus };
+    node.classList.remove("hidden");
+    const target = initialSelector ? node.querySelector(initialSelector) : overlayFocusable(node)[0];
+    target?.focus();
+  }
+  __name(open, "open");
+  function closeActive(opts = {}) {
+    if (!activeOverlay) return;
+    const current = activeOverlay;
+    current.node.classList.add("hidden");
+    activeOverlay = null;
+    current.onClose();
+    if (opts.restoreFocus !== false && current.priorFocus instanceof HTMLElement && document.contains(current.priorFocus)) {
+      current.priorFocus.focus();
+    }
+  }
+  __name(closeActive, "closeActive");
+  function close(name, opts = {}) {
+    if (activeOverlay?.name === name) {
+      closeActive(opts);
+      return;
+    }
+    const node = overlayNode(name);
+    if (node) node.classList.add("hidden");
+  }
+  __name(close, "close");
+  function trapFocus(ev) {
+    if (ev.key !== "Tab" || !activeOverlay) return false;
+    const focusable = overlayFocusable(activeOverlay.node);
+    if (!focusable.length) {
+      ev.preventDefault();
+      return true;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!activeOverlay.node.contains(document.activeElement)) {
+      ev.preventDefault();
+      first.focus();
+      return true;
+    }
+    if (ev.shiftKey && document.activeElement === first) {
+      ev.preventDefault();
+      last.focus();
+      return true;
+    }
+    if (!ev.shiftKey && document.activeElement === last) {
+      ev.preventDefault();
+      first.focus();
+      return true;
+    }
+    return false;
+  }
+  __name(trapFocus, "trapFocus");
+  function handleOverlayKey(ev) {
+    if (!activeOverlay) return false;
+    if (ev.key === "Tab") {
+      trapFocus(ev);
+      return true;
+    }
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      closeActive();
+      return true;
+    }
+    const reg = registry.get(activeOverlay.name);
+    reg?.onKey?.(ev);
+    return true;
+  }
+  __name(handleOverlayKey, "handleOverlayKey");
+  function noop() {
+  }
+  __name(noop, "noop");
+
   // src/help-overlay.ts
   function onClose() {
   }
@@ -3773,16 +3652,14 @@
     navigate({
       lens: "timeline",
       filterTrack: id,
-      diff: null,
-      diffHash: null,
-      focus: null
+      ...DIFF_ROUTE_CLEARED
     });
   }
   __name(navigateToTrack, "navigateToTrack");
   async function revealEvent(eventId) {
     const page = await fetchRevealPage(eventId);
     if (!page?.present) return;
-    navigate(revealPatch(page, eventId));
+    navigate({ ...revealPatch(page, eventId), ...DIFF_ROUTE_CLEARED });
   }
   __name(revealEvent, "revealEvent");
   async function revealByQuery(id) {
@@ -3802,9 +3679,7 @@
       case "review-unit":
         navigate({
           selected: { kind: "revision", id },
-          diff: null,
-          diffHash: null,
-          focus: null
+          ...DIFF_ROUTE_CLEARED
         });
         break;
       case "track":
@@ -4112,9 +3987,7 @@
         hint: unit ? revisionCommandLabel(unit) : shortRef(sel.id),
         run: /* @__PURE__ */ __name(() => navigate({
           selected: { kind: "revision", id: sel.id },
-          diff: null,
-          diffHash: null,
-          focus: null
+          ...DIFF_ROUTE_CLEARED
         }), "run")
       };
     }
@@ -4128,9 +4001,7 @@
         hint: event ? entryTitle(event) : shortRef(sel.id),
         run: /* @__PURE__ */ __name(() => navigate({
           selected: { kind: "event", id: sel.id },
-          diff: null,
-          diffHash: null,
-          focus: null
+          ...DIFF_ROUTE_CLEARED
         }), "run")
       };
     }
@@ -4175,19 +4046,19 @@
       kind: "Actions",
       label: "Switch to timeline lens",
       hint: "lens",
-      run: /* @__PURE__ */ __name(() => navigate({ lens: "timeline" }), "run")
+      run: /* @__PURE__ */ __name(() => navigate({ lens: "timeline", ...DIFF_ROUTE_CLEARED }), "run")
     });
     cmds.push({
       kind: "Actions",
       label: "Switch to list lens",
       hint: "lens",
-      run: /* @__PURE__ */ __name(() => navigate({ lens: "list" }), "run")
+      run: /* @__PURE__ */ __name(() => navigate({ lens: "list", ...DIFF_ROUTE_CLEARED }), "run")
     });
     cmds.push({
       kind: "Actions",
       label: "Switch to attention lens",
       hint: "lens",
-      run: /* @__PURE__ */ __name(() => navigate({ lens: "attention" }), "run")
+      run: /* @__PURE__ */ __name(() => navigate({ lens: "attention", ...DIFF_ROUTE_CLEARED }), "run")
     });
     cmds.push({
       kind: "Actions",
@@ -4232,9 +4103,7 @@
         hint: revisionCommandHint(u),
         run: /* @__PURE__ */ __name(() => navigate({
           selected: { kind: "revision", id: u.revisionId ?? "" },
-          diff: null,
-          diffHash: null,
-          focus: null
+          ...DIFF_ROUTE_CLEARED
         }), "run")
       });
     }
@@ -4257,7 +4126,7 @@
         kind: "Tracks",
         label: t,
         hint: "filter timeline",
-        run: /* @__PURE__ */ __name(() => navigate({ lens: "timeline", filterTrack: t }), "run")
+        run: /* @__PURE__ */ __name(() => navigate({ lens: "timeline", filterTrack: t, ...DIFF_ROUTE_CLEARED }), "run")
       });
     }
     for (const e of state2.history?.entries ?? []) {
@@ -4267,9 +4136,7 @@
         hint: typeLabel(e.eventType),
         run: /* @__PURE__ */ __name(() => navigate({
           selected: { kind: "event", id: e.eventId ?? "" },
-          diff: null,
-          diffHash: null,
-          focus: null
+          ...DIFF_ROUTE_CLEARED
         }), "run")
       });
     }
@@ -4738,6 +4605,32 @@
       handleOverlayKey(ev);
       return;
     }
+    if (getState().diffPage) {
+      switch (ev.key) {
+        case "Escape":
+          ev.preventDefault();
+          closeDiff();
+          return;
+        case "]":
+          ev.preventDefault();
+          jumpChange(1);
+          return;
+        case "[":
+          ev.preventDefault();
+          jumpChange(-1);
+          return;
+        case "n":
+          ev.preventDefault();
+          jumpFact(1);
+          return;
+        case "p":
+          ev.preventDefault();
+          jumpFact(-1);
+          return;
+        default:
+          return;
+      }
+    }
     if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
     if (ev.key === "Escape") {
       handleEscape();
@@ -5106,7 +4999,7 @@ click to open the revision page">
     renderMaster();
     renderSelected();
     scrollSelectionIntoView();
-    void renderDiffOverlay();
+    void renderDiffPage();
   }
   __name(render, "render");
   function onTypeToggleClick(ev) {
@@ -5178,7 +5071,10 @@ click to open the revision page">
     for (const tab of document.querySelectorAll(".lens-tab")) {
       tab.addEventListener("click", () => {
         const lens = tab.dataset.lens;
-        navigate({ lens: lens && LENSES.includes(lens) ? lens : DEFAULT_LENS });
+        navigate({
+          lens: lens && LENSES.includes(lens) ? lens : DEFAULT_LENS,
+          ...DIFF_ROUTE_CLEARED
+        });
       });
     }
     const filterText = $("#filter-text");

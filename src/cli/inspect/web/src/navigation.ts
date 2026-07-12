@@ -17,7 +17,7 @@
 // delegate also resolves the `data-reveal-revision` "show in timeline" button.
 
 import { fetchEventIdForQuery, fetchRevealPage, revealPatch } from "./data";
-import { openDiff } from "./diff/controller";
+import { DIFF_ROUTE_CLEARED, openDiff } from "./diff/controller";
 import { navigate } from "./router";
 
 /** Scope the timeline to a single revision via the shareable `revision:<id>` query. */
@@ -35,9 +35,7 @@ export function navigateToTrack(id: string): void {
   navigate({
     lens: "timeline",
     filterTrack: id,
-    diff: null,
-    diffHash: null,
-    focus: null,
+    ...DIFF_ROUTE_CLEARED,
   });
 }
 
@@ -48,7 +46,10 @@ export function navigateToTrack(id: string): void {
 export async function revealEvent(eventId: string): Promise<void> {
   const page = await fetchRevealPage(eventId);
   if (!page?.present) return;
-  navigate(revealPatch(page, eventId));
+  // A chip reveal names a record destination: it exits the diff page too.
+  // (`revealPatch` itself stays page-neutral — it also runs in applyHash's
+  // deep-link reveal, which must not close a page the hash addressed.)
+  navigate({ ...revealPatch(page, eventId), ...DIFF_ROUTE_CLEARED });
 }
 
 // Resolve a structured id (observation / assessment / input-request) to its event
@@ -76,9 +77,7 @@ export async function resolveRefAsync(kind: string, id: string): Promise<void> {
     case "review-unit":
       navigate({
         selected: { kind: "revision", id },
-        diff: null,
-        diffHash: null,
-        focus: null,
+        ...DIFF_ROUTE_CLEARED,
       });
       break;
     case "track":

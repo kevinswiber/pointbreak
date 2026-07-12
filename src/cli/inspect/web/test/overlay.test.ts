@@ -5,7 +5,7 @@ import { mountInspectorDom, resetDom } from "./support/dom";
 // root node plus an opaque `onClose` callback, and the manager enforces mutual
 // exclusion (opening one tears down the previously-active one) and traps Tab
 // focus. It imports none of the overlay-content modules — that opaque-callback
-// indirection is what severs the diff <-> palette <-> help import cycle. The
+// indirection is what severs the palette <-> help import cycle. The
 // module keeps its `activeOverlay` and registry module-local, so reset the module
 // registry before each test and remount the fixed-id DOM the overlays live in.
 type Overlay = typeof import("../src/overlay");
@@ -53,20 +53,20 @@ describe("register + open", () => {
 describe("mutual exclusion (the teardown cut)", () => {
   it("hides the previously-active overlay and invokes its onClose when another opens", () => {
     const help = need("#key-help");
-    const diff = need("#diff-modal");
+    const palette = need("#cmd-palette");
     const helpClose = vi.fn();
-    const diffClose = vi.fn();
+    const paletteClose = vi.fn();
     overlay.register("help", { node: help, onClose: helpClose });
-    overlay.register("diff", { node: diff, onClose: diffClose });
+    overlay.register("palette", { node: palette, onClose: paletteClose });
 
     overlay.open("help");
-    overlay.open("diff");
+    overlay.open("palette");
 
-    expect(diff.classList.contains("hidden")).toBe(false);
+    expect(palette.classList.contains("hidden")).toBe(false);
     expect(help.classList.contains("hidden")).toBe(true);
     // The replaced overlay's teardown ran exactly once; the opener's did not.
     expect(helpClose).toHaveBeenCalledTimes(1);
-    expect(diffClose).not.toHaveBeenCalled();
+    expect(paletteClose).not.toHaveBeenCalled();
   });
 
   it("does not tear down or re-run onClose when the same overlay re-opens", () => {
@@ -110,14 +110,14 @@ describe("closeActive / close", () => {
 
   it("close(name) only hides a non-active overlay, without running its onClose", () => {
     const help = need("#key-help");
-    const diff = need("#diff-modal");
+    const palette = need("#cmd-palette");
     const helpClose = vi.fn();
     overlay.register("help", { node: help, onClose: helpClose });
-    overlay.register("diff", { node: diff, onClose: () => {} });
-    overlay.open("diff");
+    overlay.register("palette", { node: palette, onClose: () => {} });
+    overlay.open("palette");
     overlay.close("help");
     expect(help.classList.contains("hidden")).toBe(true);
-    expect(diff.classList.contains("hidden")).toBe(false);
+    expect(palette.classList.contains("hidden")).toBe(false);
     expect(helpClose).not.toHaveBeenCalled();
   });
 });

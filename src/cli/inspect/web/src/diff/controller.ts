@@ -1,45 +1,40 @@
-// The diff controller: the lifecycle, lazy file bodies, navigator, and jump keys
-// over the two diff surfaces — the route-preserving overlay (legacy, reconciled
-// from `state.diff`) and the routed diff page (reconciled from `state.diffPage`/
-// `diffRevision`). Ported from the served app.js diff cluster (`openDiff` /
-// `openRevisionDiff` / `closeDiff` / `renderDiffOverlay` / `applyDiffFocus` /
-// `scrollToAnno` / lazy bodies / navigator / `jump*`).
+// The diff page controller: the lifecycle, lazy file bodies, navigator, and
+// jump keys over the routed annotated-diff page (reconciled from
+// `state.diffPage`/`diffRevision`/`diff`). Descended from the served app.js
+// diff-modal cluster; the modal became this page so opening a diff is a real
+// history navigation and Back returns to the record.
 //
 // Structural moves:
-//   - The overlay opens through the overlay teardown manager (`register("diff", …)`
-//     + `open("diff")`) and imports NO sibling overlay (palette / help). The page
-//     never touches the manager — it is a route surface (`activeName()` stays
-//     null on it), so palette/help can still open above it.
-//   - Route changes go through `router.navigate` and never call render: the
-//     store subscriber repaints, and the reconcilers (`renderDiffOverlay` /
-//     `renderDiffPage`, run by render) open/close/paint their surfaces.
+//   - The page never touches the overlay manager — it is a route surface
+//     (`activeName()` stays null on it), so palette/help can still open above
+//     it. Its keys (]/[/n/p, Escape) run through the global keyboard layer's
+//     diff-page block, which keeps every lens key inert while the page owns
+//     the frame.
+//   - Open and close are both real push navigations through `router.navigate`
+//     and never call render: the store subscriber repaints, and the reconciler
+//     (`renderDiffPage`, run by render) paints or resets the surface. Neither
+//     open nor close touches `selected`, so the parked cursor survives the
+//     round trip by construction.
 //   - The page's payload comes from the composite revision document (the
 //     detail module's exported `ensureRevisionComposite` seam): annotations AND
 //     snapshot identity derive from it, so cold and grouped-away deep links
-//     paint annotated with nothing loaded. Bytes come from `/api/snapshots/{id}`
-//     on both surfaces.
+//     paint annotated with nothing loaded. Bytes come from `/api/snapshots/{id}`.
 //
 // It consumes the pure `diff/render.renderDiff(snapshotId, artifact, annotations) →
-// { html, ctx }`, assigning the returned `ctx` (and resetting the cursors/filter
-// the pure renderer no longer writes) to module-local state. The diff cursors /
-// `diffCtx` / `shownDiff*` / the overlay's nav filter stay module-local — never on
-// the store; the page's nav filter is route state (`state.diffNav`).
+// { html, ctx }`, assigning the returned `ctx` (and resetting the cursors the
+// pure renderer no longer writes) to module-local state. The diff cursors /
+// `diffCtx` / `shownDiff*` stay module-local — never on the store; the
+// navigator filter is route state (`state.diffNav`).
 
 import { CLASS, diffStatusClass } from "../classNames";
 import { compositeAnnotations, ensureRevisionComposite } from "../detail";
 import { $ } from "../dom";
 import { escapeHtml } from "../escape";
 import { fetchJSON } from "../http";
-import {
-  annotationsForRevision,
-  revisionIdForSnapshot,
-  snapshotContentHashForRevision,
-  snapshotIdForRevision,
-} from "../model";
-import { activeName, close, open, register } from "../overlay";
+import { revisionIdForSnapshot } from "../model";
 import { shortId } from "../refs";
 import { navigate } from "../router";
-import { getState } from "../store";
+import { getState, type State } from "../store";
 import {
   type Annotation,
   type DiffArtifact,
@@ -56,128 +51,143 @@ import {
   unanchoredReason,
 } from "./render";
 
-// The two diff surfaces' fixed-id hosts. Only one surface paints at a time (the
-// page owns the frame while `state.diffPage` is set; render never runs the
-// overlay reconciler then), and every shared helper resolves its container
-// through the active surface.
-interface DiffSurface {
-  title: string;
-  nav: string;
-  body: string;
-}
-const MODAL_SURFACE: DiffSurface = {
-  title: "#diff-title",
-  nav: "#diff-nav",
-  body: "#diff-body",
-};
-const PAGE_SURFACE: DiffSurface = {
+// The page's fixed-id hosts (the one diff surface).
+const PAGE_SURFACE = {
   title: "#diff-page-title",
   nav: "#diff-page-nav",
   body: "#diff-page-body",
 };
 
-function activeSurface(): DiffSurface {
-  return getState().diffPage ? PAGE_SURFACE : MODAL_SURFACE;
-}
-
 function surfaceBody(): HTMLElement | null {
-  return $(activeSurface().body);
+  return $(PAGE_SURFACE.body);
 }
 
 function surfaceNav(): HTMLElement | null {
-  return $(activeSurface().nav);
+  return $(PAGE_SURFACE.nav);
 }
 
-// The identity of the diff currently painted — surface plus payload address —
-// so a re-render with an unchanged route does not re-fetch. Set before the
-// fetch, so repaints landing while it is in flight fall into the cheap
-// reconcile branch instead of stacking fetches.
+// The identity of the diff currently painted (its payload address), so a
+// re-render with an unchanged route does not re-fetch. Set before the fetch,
+// so repaints landing while it is in flight fall into the cheap reconcile
+// branch instead of stacking fetches.
 let shownDiffKey: string | null = null;
 // Module-local render context for the open diff: the files + anchored facts the
 // delegated body / nav listeners read to lazily fill a collapsed file body or
 // expand-then-scroll to a fact. Set when renderDiff paints, cleared when the
-// surface closes. NOT route state (state.diff stays the snapshot-id string|null).
+// page closes. NOT route state (state.diff stays the snapshot-id string|null).
 let diffCtx: DiffCtx | null = null;
 // Cursors for the diff-local jump keys (next/prev fact, next/prev change),
-// reset each time a new diff renders. `diffNavFilter` is the OVERLAY's
-// navigator filter; the page reads `state.diffNav` instead (route state).
+// reset each time a new diff renders. The navigator filter is route state
+// (`state.diffNav`), never module-local.
 let diffFactCursor = -1;
 let diffChangeCursor = -1;
-let diffNavFilter: DiffNavFilter = "all";
-// The page's last-painted navigator filter and `?file=` target, so a repaint
-// only re-renders the navigator / re-scrolls when the route actually moved.
+// The last-painted navigator filter and `?file=` target, so a repaint only
+// re-renders the navigator / re-scrolls when the route actually moved.
 let shownDiffNavFilter: DiffNavFilter = "all";
 let shownDiffFile: string | null = null;
-
-/** The navigator filter the active surface renders under. */
-function activeNavFilter(): DiffNavFilter {
-  return getState().diffPage ? getState().diffNav : diffNavFilter;
-}
 
 // ---------------------------------------------------------------------------
 // Route-only open / close (the open/close DOM is the reconciler's job)
 // ---------------------------------------------------------------------------
 
-// DIFF_LENS_ROUTE_SEAM: this modal remains quick readback over `diff=` route
-// state. A full-page diff lens route/data contract is deferred until it can be
-// designed as its own route and payload seam rather than inferred here.
-/** Open the snapshot diff for a snapshot id (optionally focusing a fact), route-only. */
+/**
+ * Every diff route field at rest. Spread into a navigation that leaves the
+ * diff page — the close paths here, and any entity navigation that should
+ * land on the record rather than under the page.
+ */
+export const DIFF_ROUTE_CLEARED: Pick<
+  State,
+  | "diff"
+  | "diffHash"
+  | "focus"
+  | "diffPage"
+  | "diffRevision"
+  | "diffFile"
+  | "diffNav"
+> = {
+  diff: null,
+  diffHash: null,
+  focus: null,
+  diffPage: false,
+  diffRevision: null,
+  diffFile: null,
+  diffNav: "all",
+};
+
+/**
+ * Open the diff page for a snapshot id (optionally focusing a fact). When the
+ * snapshot maps to a loaded revision the page opens revision-primary (the
+ * canonical address), keeping the snapshot pointer as payload state; an
+ * unmappable snapshot opens the snapshot-only page. A real push — Back
+ * returns to the record; the selection cursor is never touched.
+ */
 export function openDiff(
   snapshotId: string,
   focusId: string | null = null,
   contentHash: string | null = null,
 ): void {
   navigate({
+    diffPage: true,
+    diffRevision: revisionIdForSnapshot(snapshotId, contentHash),
     diff: snapshotId,
     diffHash: contentHash || null,
     focus: focusId || null,
   });
 }
 
-/** Open the diff for the snapshot a revision captured, with its content hash. */
+/**
+ * Open the diff page on a revision's own identity. No snapshot lookup is
+ * needed (or possible, for a grouped-away id): the page derives snapshot
+ * identity from the composite document. A real push; the cursor is untouched.
+ */
 export function openRevisionDiff(
   revisionId: string,
   focusId: string | null = null,
 ): void {
-  const snapshotId = snapshotIdForRevision(revisionId);
-  if (snapshotId)
-    openDiff(snapshotId, focusId, snapshotContentHashForRevision(revisionId));
+  navigate({
+    diffPage: true,
+    diffRevision: revisionId,
+    diff: null,
+    diffHash: null,
+    focus: focusId || null,
+  });
 }
 
-/** Clear the diff route (replace, so Back does not reopen it); the repaint closes it. */
+/**
+ * Leave the diff page with a real history push back to the record — never a
+ * replace, so Back can return to the page — resetting every diff route field
+ * and touching nothing else: the parked cursor (of either kind) and its open
+ * pane survive by construction.
+ */
 export function closeDiff(): void {
-  const modal = $("#diff-modal");
-  if (!getState().diff && modal?.classList.contains("hidden")) return;
-  navigate({ diff: null, diffHash: null, focus: null }, { replace: true });
+  const state = getState();
+  if (!state.diffPage && !state.diff) return;
+  navigate({ ...DIFF_ROUTE_CLEARED });
 }
 
 // ---------------------------------------------------------------------------
-// The reconciler (run by render): open/close the modal from the route + fetch
+// The reconciler (run by render): paint or reset the page from the route
 // ---------------------------------------------------------------------------
 
-// The shared fetch-and-paint body both reconcilers use: paint the loading
-// state, fetch the snapshot bytes, render them with the given annotations into
-// the surface, and reset the jump cursors. Resolves true when it painted (the
-// callers run their surface-specific post-paint steps), false when a later
-// route change superseded the fetch.
-async function paintDiffSurface(
-  s: DiffSurface,
-  opts: {
-    snapshotId: string;
-    contentHash: string | null;
-    annotations: Annotation[];
-    title: string;
-    stillCurrent: () => boolean;
-    // A quiet note painted above the bytes when the surface has no facts to
-    // offer (the snapshot-only page); null renders nothing.
-    factsNote: string | null;
-  },
-): Promise<boolean> {
-  const title = $(s.title);
+// The fetch-and-paint body: paint the loading state, fetch the snapshot bytes,
+// render them with the given annotations into the page, and reset the jump
+// cursors. Resolves true when it painted (the callers run their post-paint
+// steps), false when a later route change superseded the fetch.
+async function paintDiffPage(opts: {
+  snapshotId: string;
+  contentHash: string | null;
+  annotations: Annotation[];
+  title: string;
+  stillCurrent: () => boolean;
+  // A quiet note painted above the bytes when the page has no facts to offer
+  // (the snapshot-only route); null renders nothing.
+  factsNote: string | null;
+}): Promise<boolean> {
+  const title = $(PAGE_SURFACE.title);
   if (title) title.textContent = opts.title;
-  const body = $(s.body);
+  const body = surfaceBody();
   if (body) body.innerHTML = `<p class="${CLASS.empty}">loading snapshot…</p>`;
-  const nav = $(s.nav);
+  const nav = surfaceNav();
   if (nav) nav.innerHTML = "";
   let snapshotUrl = `/api/snapshots/${encodeURIComponent(opts.snapshotId)}`;
   if (opts.contentHash)
@@ -194,75 +204,24 @@ async function paintDiffSurface(
     const note = opts.factsNote
       ? `<p class="${CLASS.empty}">${escapeHtml(opts.factsNote)}</p>`
       : "";
-    const liveBody = $(s.body);
+    const liveBody = surfaceBody();
     if (liveBody) liveBody.innerHTML = note + html;
     diffCtx = ctx;
     diffFactCursor = -1;
     diffChangeCursor = -1;
-    const liveNav = $(s.nav);
+    const liveNav = surfaceNav();
     if (liveNav) liveNav.innerHTML = renderDiffNav();
     applyDiffFocus();
     return true;
   } catch (err: unknown) {
     if (!opts.stillCurrent()) return false;
-    const liveBody = $(s.body);
+    const liveBody = surfaceBody();
     if (liveBody)
       liveBody.innerHTML = `<p class="${CLASS.empty}">error: ${escapeHtml(
         err instanceof Error ? err.message : String(err),
       )}</p>`;
     return false;
   }
-}
-
-/**
- * Reconcile the diff modal DOM with `state.diff`/`state.focus`. Part of the render
- * path (the store subscriber calls it): it both opens (user action, deep link,
- * Back/Forward) and closes. Returns the in-flight fetch so a caller can await the
- * paint; render ignores the return.
- */
-export function renderDiffOverlay(): Promise<void> {
-  const state = getState();
-  // While the page owns the frame, the overlay reconciler must not run: a null
-  // `state.diff` there would tear down the page's render context.
-  if (state.diffPage) return Promise.resolve();
-  if (!state.diff) {
-    close("diff");
-    shownDiffKey = null;
-    diffCtx = null;
-    return Promise.resolve();
-  }
-  const snapshotId = state.diff;
-  const contentHash = state.diffHash;
-  const key = `modal:${snapshotId}|${contentHash ?? ""}`;
-  if (key === shownDiffKey) {
-    // Re-show only if the diff is not already the active overlay, so an unrelated
-    // repaint while the diff is open never re-steals focus to the close button.
-    if (activeName() !== "diff") open("diff", "#diff-close");
-    applyDiffFocus();
-    return Promise.resolve();
-  }
-  shownDiffKey = key;
-  // The snapshot endpoint is snapshot-scoped (no revision id on the wire); the
-  // revision id is recovered from the revisions list for annotation lookup.
-  const revisionId = revisionIdForSnapshot(snapshotId, contentHash);
-  const label = revisionId ? shortId(revisionId) : "";
-  // A fresh overlay starts at the unfiltered navigator (module-local state; the
-  // page's filter is route state and never resets here).
-  diffNavFilter = "all";
-  // Opening through the manager tears down any prior overlay (palette/help) with
-  // no focus restore — the indirection that replaces the served explicit closes.
-  open("diff", "#diff-close");
-  return paintDiffSurface(MODAL_SURFACE, {
-    snapshotId,
-    contentHash,
-    annotations: revisionId ? annotationsForRevision(revisionId) : [],
-    title: label
-      ? `${label} · snapshot ${shortId(snapshotId)}`
-      : shortId(snapshotId),
-    stillCurrent: () =>
-      getState().diff === snapshotId && getState().diffHash === contentHash,
-    factsNote: null,
-  }).then(() => {});
 }
 
 // Expand (rendering on first expand) and scroll the `?file=` target into view.
@@ -309,7 +268,7 @@ async function renderDiffPageFromRevision(revisionId: string): Promise<void> {
       body.innerHTML = `<p class="${CLASS.empty}">this revision names no captured snapshot</p>`;
     return;
   }
-  const painted = await paintDiffSurface(PAGE_SURFACE, {
+  const painted = await paintDiffPage({
     snapshotId,
     contentHash: revision.objectArtifactContentHash ?? null,
     annotations: compositeAnnotations(doc),
@@ -318,7 +277,7 @@ async function renderDiffPageFromRevision(revisionId: string): Promise<void> {
     factsNote: null,
   });
   if (painted) {
-    shownDiffNavFilter = activeNavFilter();
+    shownDiffNavFilter = getState().diffNav;
     applyDiffFileScroll();
   }
 }
@@ -334,7 +293,7 @@ async function renderDiffPageFromSnapshot(
     !getState().diffRevision &&
     getState().diff === snapshotId &&
     getState().diffHash === contentHash;
-  const painted = await paintDiffSurface(PAGE_SURFACE, {
+  const painted = await paintDiffPage({
     snapshotId,
     contentHash,
     annotations: [],
@@ -344,7 +303,7 @@ async function renderDiffPageFromSnapshot(
       "no review facts — this link names a snapshot the record cannot map to a revision",
   });
   if (painted) {
-    shownDiffNavFilter = activeNavFilter();
+    shownDiffNavFilter = getState().diffNav;
     applyDiffFileScroll();
   }
 }
@@ -359,7 +318,13 @@ async function renderDiffPageFromSnapshot(
  */
 export function renderDiffPage(): Promise<void> {
   const state = getState();
-  if (!state.diffPage) return Promise.resolve();
+  if (!state.diffPage) {
+    // Off the page (a close, Back, or any record render): drop the painted
+    // identity and its render context so the next open repaints fresh.
+    shownDiffKey = null;
+    diffCtx = null;
+    return Promise.resolve();
+  }
   const key = state.diffRevision
     ? `page:rev:${state.diffRevision}`
     : state.diff
@@ -373,9 +338,9 @@ export function renderDiffPage(): Promise<void> {
     return Promise.resolve();
   }
   if (key === shownDiffKey) {
-    if (activeNavFilter() !== shownDiffNavFilter) {
-      shownDiffNavFilter = activeNavFilter();
-      const nav = $(PAGE_SURFACE.nav);
+    if (getState().diffNav !== shownDiffNavFilter) {
+      shownDiffNavFilter = getState().diffNav;
+      const nav = surfaceNav();
       if (nav) nav.innerHTML = renderDiffNav();
     }
     if (getState().diffFile !== shownDiffFile) applyDiffFileScroll();
@@ -489,7 +454,7 @@ export function expandDiffFile(section: HTMLElement): void {
 }
 
 // Toggle one accordion file section; render its body on first expand. Transient DOM
-// state, reconciled on each overlay render — not route state.
+// state, reconciled on each page render — not route state.
 /** Toggle a file section open/closed, filling its body on first expand. */
 export function toggleDiffFile(section: HTMLElement): void {
   const isOpen = diffFileExpanded(section);
@@ -506,7 +471,7 @@ export function toggleDiffFile(section: HTMLElement): void {
 // a captured diff line — is reachable on a large changeset.
 function renderDiffNav(): string {
   if (!diffCtx) return "";
-  const navFilter = activeNavFilter();
+  const navFilter = getState().diffNav;
   const { files, anchored, unanchored, filePaths } = diffCtx;
   const visibleFiles = files
     .map((f, i) => ({ f, i, factCount: fileFactCount(f, anchored) }))
@@ -552,20 +517,13 @@ function diffNavSummary(): DiffNavSummary {
 }
 
 /**
- * Set the navigator's file/fact filter. On the page the filter is route state
- * (`?nav=`, a shareable refinement — replace, not push; the store subscriber's
- * repaint re-renders the navigator). On the overlay it stays module-local and
- * re-renders directly.
+ * Set the navigator's file/fact filter — route state (`?nav=`, a shareable
+ * refinement: replace, not push). The store subscriber's repaint re-renders
+ * the navigator.
  */
 export function setDiffNavFilter(filter: string): void {
   if (!isDiffNavFilter(filter)) return;
-  if (getState().diffPage) {
-    navigate({ diffNav: filter }, { replace: true });
-    return;
-  }
-  diffNavFilter = filter;
-  const nav = surfaceNav();
-  if (nav) nav.innerHTML = renderDiffNav();
+  navigate({ diffNav: filter }, { replace: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -706,55 +664,16 @@ function onDiffNavClick(ev: Event): void {
 }
 
 /**
- * Wire the diff surfaces' fixed-id controls and register the overlay's teardown
- * with the overlay manager (the page registers nothing — it is a route surface).
- * The delegated body / nav listeners read the module-local `diffCtx`; they are
- * installed once here, never at the open call site.
+ * Wire the diff page's fixed-id controls. The page registers nothing with the
+ * overlay manager — it is a route surface; its keys run through the global
+ * layer's diff-page block. The delegated body / nav listeners read the
+ * module-local `diffCtx`; they are installed once here, never at a paint site.
  */
 export function initControls(): void {
-  const modal = $<HTMLElement>("#diff-modal");
-  if (modal)
-    register("diff", {
-      node: modal,
-      onClose: closeDiff,
-      // The diff's own jump keys, run through the overlay manager's delegation:
-      // ]/[ step changes, n/p step review facts. Escape is not here — the
-      // manager owns it universally.
-      onKey: (ev) => {
-        switch (ev.key) {
-          case "]":
-            ev.preventDefault();
-            jumpChange(1);
-            return true;
-          case "[":
-            ev.preventDefault();
-            jumpChange(-1);
-            return true;
-          case "n":
-            ev.preventDefault();
-            jumpFact(1);
-            return true;
-          case "p":
-            ev.preventDefault();
-            jumpFact(-1);
-            return true;
-          default:
-            return false;
-        }
-      },
-    });
-  $("#diff-close")?.addEventListener("click", () => closeDiff());
   $("#diff-page-close")?.addEventListener("click", () => closeDiff());
-  modal?.addEventListener("click", (ev) => {
-    if (ev.target === modal) closeDiff();
-  });
   // Typed HTMLElement so the keydown listener narrows to KeyboardEvent.
-  for (const sel of [MODAL_SURFACE.body, PAGE_SURFACE.body]) {
-    const body = $<HTMLElement>(sel);
-    body?.addEventListener("click", onDiffBodyClick);
-    body?.addEventListener("keydown", onDiffBodyKeydown);
-  }
-  for (const sel of [MODAL_SURFACE.nav, PAGE_SURFACE.nav]) {
-    $(sel)?.addEventListener("click", onDiffNavClick);
-  }
+  const body = $<HTMLElement>(PAGE_SURFACE.body);
+  body?.addEventListener("click", onDiffBodyClick);
+  body?.addEventListener("keydown", onDiffBodyKeydown);
+  $(PAGE_SURFACE.nav)?.addEventListener("click", onDiffNavClick);
 }

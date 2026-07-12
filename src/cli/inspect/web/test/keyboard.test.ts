@@ -31,10 +31,6 @@ let model: Model;
 
 const REV =
   "rev:sha256:9a7626ca7cb2801721ed992402184460210477aadfd4f7228628b65ff11a6efd";
-const OBJ =
-  "obj:sha256:38a493d2f09d6fde9d1dcac61a12c4ccc4de42a0b9c6829752d34cc648a9f9d7";
-const ARTIFACT =
-  "sha256:32161336d3627d277a7a5917abe2e2694edec4f3621dbf939bf22091b40e0871";
 
 function key(init: KeyboardEventInit, target: EventTarget = document): void {
   target.dispatchEvent(
@@ -118,16 +114,18 @@ describe("selection stepping / activation / search", () => {
   it("Enter activates the selected revision's diff once the detail is open", () => {
     store.commit({ selected: { kind: "revision", id: REV }, open: true });
     key({ key: "Enter" });
-    expect(store.getState().diff).toBe(OBJ);
+    expect(store.getState().diffPage).toBe(true);
+    expect(store.getState().diffRevision).toBe(REV);
   });
 
   it("Enter on a parked cursor opens the detail; a second Enter opens the diff", () => {
     store.commit({ selected: { kind: "revision", id: REV }, open: false });
     key({ key: "Enter" });
     expect(store.getState().open).toBe(true);
-    expect(store.getState().diff).toBeNull();
+    expect(store.getState().diffPage).toBe(false);
     key({ key: "Enter" });
-    expect(store.getState().diff).toBe(OBJ);
+    expect(store.getState().diffPage).toBe(true);
+    expect(store.getState().diffRevision).toBe(REV);
   });
 
   it("Enter twice from a parked EVENT cursor descends into the diff", async () => {
@@ -138,7 +136,8 @@ describe("selection stepping / activation / search", () => {
     key({ key: "Enter" });
     expect(store.getState().open).toBe(true);
     key({ key: "Enter" });
-    expect(store.getState().diff).not.toBeNull();
+    expect(store.getState().diffPage).toBe(true);
+    expect(store.getState().diffRevision).not.toBeNull();
   });
 
   it("Enter on a focused native control stays native (no ladder)", () => {
@@ -525,25 +524,25 @@ describe("overlay keyboard scope (#455)", () => {
     await assertKeysInert(LEAKY_KEYS);
   });
 
-  it("runs no store commit and no navigate for lens keys while the diff overlay is active", async () => {
+  it("runs no store commit and no navigate for lens keys while the diff page is active", async () => {
     controller.initControls();
     store.commit({ selected: { kind: "revision", id: REV }, open: true });
-    store.commit({ diff: OBJ, diffHash: ARTIFACT, focus: null });
-    await controller.renderDiffOverlay();
-    expect(overlay.activeName()).toBe("diff");
-    // The diff's own jump keys (]/[/n/p) act through its registered key map —
+    store.commit({ diffPage: true, diffRevision: REV });
+    await controller.renderDiffPage();
+    // A route surface, not an overlay: the diff-page block owns the keyboard.
+    expect(overlay.activeName()).toBe(null);
+    // The page's own jump keys (]/[/n/p) act through the diff-page block —
     // asserted below — so this table is the lens family only.
     await assertKeysInert(["j", "k", "1", "2", "3", "4", "g", "G", "Enter"]);
   });
 
-  it("delegates the diff overlay's jump keys through its registered key map", async () => {
+  it("runs the page's own jump keys through the diff-page block", async () => {
     controller.initControls();
-    store.commit({ diff: OBJ, diffHash: ARTIFACT, focus: null });
-    await controller.renderDiffOverlay();
-    expect(overlay.activeName()).toBe("diff");
+    store.commit({ diffPage: true, diffRevision: REV });
+    await controller.renderDiffPage();
     key({ key: "n" });
     const firstAnno = document.querySelector<HTMLElement>(
-      "#diff-body .anno[data-anno]",
+      "#diff-page-body .anno[data-anno]",
     );
     expect(firstAnno).not.toBeNull();
     expect(store.getState().focus).toBe(firstAnno?.dataset.anno);

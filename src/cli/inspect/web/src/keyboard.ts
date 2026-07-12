@@ -2,8 +2,9 @@
 // lens switching, and the layered Escape. Ported from the served app.js
 // keyboard cluster (`onKey` / `handleEscape` / `stepSelection` /
 // `activateSelection` / `focusSearch` / `isTypingTarget`). Overlay-local keys
-// (the diff's jump keys, help's toggle) live in each overlay's registration,
-// not here.
+// (help's toggle) live in each overlay's registration, not here; the routed
+// diff page's keys (]/[/n/p, Escape) live in this layer's diff-page block,
+// because the page is a route surface, not an overlay.
 //
 // `keyboard` is top-of-graph — nothing imports it; the composition root wires
 // `onKey` to `document.keydown`. Every state change routes through `router.navigate`
@@ -11,11 +12,17 @@
 // goes through the manager: while an overlay is active, `onKey` runs only the
 // ref-chip activation and the palette chord before handing the event to the
 // manager's `handleOverlayKey` (Tab trap, Escape-to-close, the overlay's own
-// registered keys, deliberate inertness for the rest) — so every lens key is
+// registered keys, deliberate inertness for the rest). While the diff page owns
+// the frame the diff-page block does the same scoping — so every lens key is
 // scoped to the record, and keyboard imports no sibling overlay module.
 
 import { fetchHistoryPage, HISTORY_PAGE } from "./data";
-import { openRevisionDiff } from "./diff/controller";
+import {
+  closeDiff,
+  jumpChange,
+  jumpFact,
+  openRevisionDiff,
+} from "./diff/controller";
 import { $ } from "./dom";
 import { loadedWindow, timelineRowHeight } from "./lenses/timeline";
 import { attentionEntryKeys, lensEntryIds } from "./model";
@@ -384,9 +391,10 @@ function toggleHelp(): void {
 }
 
 // Layered Escape — one precedence chain, each press ascends one rung: close the
-// active overlay (diff / palette / help — mutually exclusive), then blur a
-// field, then restore the split from reading mode, then close the detail pane
-// (the cursor stays parked), then clear the cursor, then clear the query.
+// active overlay (palette / help — mutually exclusive; the diff page's Escape
+// is handled by the diff-page block before this runs), then blur a field, then
+// restore the split from reading mode, then close the detail pane (the cursor
+// stays parked), then clear the cursor, then clear the query.
 function handleEscape(): void {
   if (activeName()) {
     closeActive();
@@ -446,6 +454,36 @@ export function onKey(ev: KeyboardEvent): void {
   if (activeName() !== null) {
     handleOverlayKey(ev);
     return;
+  }
+  // While the routed diff page owns the frame, it owns the keyboard: its jump
+  // keys run, Escape pushes back to the record, and every lens, selection,
+  // paging, and lens-switch key below is inert. Unowned keys are left to the
+  // browser default (no preventDefault), so typing targets keep their input.
+  if (getState().diffPage) {
+    switch (ev.key) {
+      case "Escape":
+        ev.preventDefault();
+        closeDiff();
+        return;
+      case "]":
+        ev.preventDefault();
+        jumpChange(1);
+        return;
+      case "[":
+        ev.preventDefault();
+        jumpChange(-1);
+        return;
+      case "n":
+        ev.preventDefault();
+        jumpFact(1);
+        return;
+      case "p":
+        ev.preventDefault();
+        jumpFact(-1);
+        return;
+      default:
+        return;
+    }
   }
   if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
   // Escape is global (it fires even while typing). Search Enter is an explicit
@@ -565,10 +603,10 @@ export function onKey(ev: KeyboardEvent): void {
       const t = ev.target;
       if (t instanceof Element && t.closest("a[href], button")) return;
       // preventDefault matters: the keydown's default action activates whatever
-      // is focused AFTER handlers run — opening the diff focuses #diff-close,
-      // and without this the same trusted keystroke "clicks" it shut again.
-      // (Synthetic test events skip native activation, which is why only real
-      // keyboards ever saw the diff flash open and close.)
+      // is focused AFTER handlers run — when this Enter moves focus (opening a
+      // pane or page), the same trusted keystroke would "click" the newly
+      // focused control. (Synthetic test events skip native activation, so only
+      // real keyboards ever saw that double-fire.)
       ev.preventDefault();
       activateSelection();
       return;

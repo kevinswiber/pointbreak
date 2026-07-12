@@ -13,7 +13,7 @@
 // (the store subscriber repaints on commit).
 
 import { CLASS, cmdItemClass } from "./classNames";
-import { openDiff } from "./diff/controller";
+import { DIFF_ROUTE_CLEARED, openDiff } from "./diff/controller";
 import { $ } from "./dom";
 import { escapeHtml } from "./escape";
 import { presentTypes, revisionForId } from "./model";
@@ -125,9 +125,7 @@ function currentSelectionCommand(): Command | null {
       run: () =>
         navigate({
           selected: { kind: "revision", id: sel.id },
-          diff: null,
-          diffHash: null,
-          focus: null,
+          ...DIFF_ROUTE_CLEARED,
         }),
     };
   }
@@ -142,9 +140,7 @@ function currentSelectionCommand(): Command | null {
       run: () =>
         navigate({
           selected: { kind: "event", id: sel.id },
-          diff: null,
-          diffHash: null,
-          focus: null,
+          ...DIFF_ROUTE_CLEARED,
         }),
     };
   }
@@ -194,19 +190,19 @@ function buildCommands(): Command[] {
     kind: "Actions",
     label: "Switch to timeline lens",
     hint: "lens",
-    run: () => navigate({ lens: "timeline" }),
+    run: () => navigate({ lens: "timeline", ...DIFF_ROUTE_CLEARED }),
   });
   cmds.push({
     kind: "Actions",
     label: "Switch to list lens",
     hint: "lens",
-    run: () => navigate({ lens: "list" }),
+    run: () => navigate({ lens: "list", ...DIFF_ROUTE_CLEARED }),
   });
   cmds.push({
     kind: "Actions",
     label: "Switch to attention lens",
     hint: "lens",
-    run: () => navigate({ lens: "attention" }),
+    run: () => navigate({ lens: "attention", ...DIFF_ROUTE_CLEARED }),
   });
   cmds.push({
     kind: "Actions",
@@ -257,9 +253,7 @@ function buildCommands(): Command[] {
       run: () =>
         navigate({
           selected: { kind: "revision", id: u.revisionId ?? "" },
-          diff: null,
-          diffHash: null,
-          focus: null,
+          ...DIFF_ROUTE_CLEARED,
         }),
     });
   }
@@ -284,7 +278,8 @@ function buildCommands(): Command[] {
       kind: "Tracks",
       label: t,
       hint: "filter timeline",
-      run: () => navigate({ lens: "timeline", filterTrack: t }),
+      run: () =>
+        navigate({ lens: "timeline", filterTrack: t, ...DIFF_ROUTE_CLEARED }),
     });
   }
   for (const e of state.history?.entries ?? []) {
@@ -295,9 +290,7 @@ function buildCommands(): Command[] {
       run: () =>
         navigate({
           selected: { kind: "event", id: e.eventId ?? "" },
-          diff: null,
-          diffHash: null,
-          focus: null,
+          ...DIFF_ROUTE_CLEARED,
         }),
     });
   }

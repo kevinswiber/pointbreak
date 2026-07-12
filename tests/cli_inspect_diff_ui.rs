@@ -59,14 +59,14 @@ fn anchored_fact_remains_reachable_in_a_default_open_file() {
 }
 
 #[test]
-fn diff_modal_has_a_sticky_file_navigator() {
+fn diff_page_has_a_sticky_file_navigator() {
     let store = representative_store();
     let html = Inspector::spawn(store.repo.path()).get_text("/");
-    // A navigator region exists in the modal with a stable aria-label so the
+    // A navigator region exists on the page with a stable aria-label so the
     // painter and this contract can target it without a function name.
     assert!(
-        html.contains("id=\"diff-nav\""),
-        "the modal carries a file/fact navigator region"
+        html.contains("id=\"diff-page-nav\""),
+        "the diff page carries a file/fact navigator region"
     );
     assert!(
         html.contains("aria-label=\"diff files\""),
@@ -75,22 +75,22 @@ fn diff_modal_has_a_sticky_file_navigator() {
 }
 
 #[test]
-fn diff_modal_has_dialog_semantics_and_an_initial_focus_target() {
+fn diff_page_is_a_route_surface_not_a_modal() {
     let store = representative_store();
     let html = Inspector::spawn(store.repo.path()).get_text("/");
+    // The annotated diff is a routed page: a plain labelled section with its
+    // own close control — no dialog chrome, and the retired modal never returns.
     assert!(
-        html.contains("id=\"diff-modal\"")
-            && html.contains("role=\"dialog\"")
-            && html.contains("aria-modal=\"true\""),
-        "diff overlay should expose dialog semantics matching modal behavior"
+        html.contains("id=\"diff-page\"") && html.contains("aria-label=\"annotated diff\""),
+        "the diff page section exists with a stable label"
     );
     assert!(
-        html.contains("aria-labelledby=\"diff-title\""),
-        "diff dialog should be labelled by its visible title"
+        !html.contains("id=\"diff-modal\""),
+        "the retired diff modal is not served"
     );
     assert!(
-        html.contains("id=\"diff-close\"") && html.contains("aria-label=\"close diff\""),
-        "diff close button should be the reachable initial focus target"
+        html.contains("id=\"diff-page-close\""),
+        "the page carries its back-to-the-record close control"
     );
 }
 

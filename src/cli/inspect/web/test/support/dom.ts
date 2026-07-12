@@ -93,19 +93,6 @@ const INDEX_BODY = `
 
 <div id="error" class="error hidden"></div>
 
-<div id="diff-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="diff-title">
-  <div class="modal-card">
-    <header class="modal-head">
-      <span id="diff-title" class="mono"></span>
-      <button id="diff-close" class="ghost" aria-label="close diff">close</button>
-    </header>
-    <div class="diff-layout">
-      <nav id="diff-nav" class="diff-nav" aria-label="diff files"></nav>
-      <div id="diff-body" class="diff-body"></div>
-    </div>
-  </div>
-</div>
-
 <div id="cmd-palette" class="modal hidden" role="dialog" aria-modal="true" aria-label="Command palette">
   <div class="modal-card cmd-card">
     <input
@@ -142,7 +129,7 @@ const INDEX_BODY = `
       <dt><kbd>]</kbd> / <kbd>[</kbd></dt><dd>jump to the next / previous change in the diff</dd>
       <dt><kbd>/</kbd></dt><dd>focus the search box</dd>
       <dt><kbd>Space</kbd> / <kbd>Shift</kbd>+<kbd>Space</kbd></dt><dd>scroll the open detail pane</dd>
-      <dt><kbd>Esc</kbd></dt><dd>close overlays, restore the split, close the detail, clear the cursor, then the query</dd>
+      <dt><kbd>Esc</kbd></dt><dd>close the diff page or an overlay, restore the split, close the detail, clear the cursor, then the query</dd>
       <dt><kbd>?</kbd></dt><dd>toggle this cheat sheet</dd>
     </dl>
   </div>

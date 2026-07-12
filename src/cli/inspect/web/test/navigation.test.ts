@@ -104,6 +104,20 @@ describe("resolveRef routes a chip by kind", () => {
     expect(store.getState().lens).toBe("timeline");
   });
 
+  it("an obs chip reveal exits the diff page", async () => {
+    store.commit({ diffPage: true, diffRevision: REV });
+    const obsEntry = {
+      eventId: OBS_EVENT,
+      eventType: "review_observation_recorded",
+      summary: { observationId: OBS_ID },
+    };
+    revealPageFor(obsEntry as HistoryDoc["entries"][number]);
+    await navigation.resolveRefAsync("obs", OBS_ID);
+    expect(store.getState().diffPage).toBe(false);
+    expect(store.getState().diffRevision).toBeNull();
+    expect(store.getState().selected).toEqual({ kind: "event", id: OBS_EVENT });
+  });
+
   it("an assess chip resolves the id to its event server-side, then reveals it", async () => {
     const assessEntry = {
       eventId: ASSESS_EVENT,

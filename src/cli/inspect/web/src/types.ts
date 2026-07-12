@@ -94,7 +94,6 @@ export const LARGE_FILE_ROWS = 500;
 
 // Overlay name → root selector, for the single-overlay manager.
 export const OVERLAY_SELECTORS: Record<string, string> = {
-  diff: "#diff-modal",
   palette: "#cmd-palette",
   help: "#key-help",
 };

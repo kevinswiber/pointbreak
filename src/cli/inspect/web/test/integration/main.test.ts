@@ -195,23 +195,53 @@ describe("wired interactions drive the DOM/route through the delegates", () => {
     expect(store.getState().selected.kind).toBe("event");
   });
 
-  it("opening a diff from a list card then closing reconciles the modal", async () => {
+  it("opening a diff from a list card then closing reconciles the page", async () => {
     await main.main();
     store.commit({ lens: "list" });
     const diffBtn = document.querySelector<HTMLElement>(
       "#master [data-open-diff]",
     );
     diffBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(store.getState().diff).not.toBeNull();
-    // The render reconciler opened the modal.
-    await Promise.resolve();
+    // The click navigated onto the routed page; the subscriber's repaint
+    // swapped the frame synchronously (the lens layout hides underneath).
+    expect(store.getState().diffPage).toBe(true);
     expect(
-      document.querySelector("#diff-modal")?.classList.contains("hidden"),
+      document.querySelector("#diff-page")?.classList.contains("hidden"),
+    ).toBe(false);
+    expect(
+      document.querySelector("#master")?.classList.contains("hidden"),
+    ).toBe(true);
+    document
+      .querySelector("#diff-page-close")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(store.getState().diffPage).toBe(false);
+    expect(store.getState().diff).toBeNull();
+    expect(
+      document.querySelector("#diff-page")?.classList.contains("hidden"),
+    ).toBe(true);
+    expect(
+      document.querySelector("#master")?.classList.contains("hidden"),
+    ).toBe(false);
+  });
+
+  it("a topbar lens tab exits the diff page onto the lens", async () => {
+    await main.main();
+    store.commit({ diffPage: true, diffRevision: REV });
+    expect(
+      document.querySelector("#diff-page")?.classList.contains("hidden"),
     ).toBe(false);
     document
-      .querySelector("#diff-close")
+      .querySelector('.lens-tab[data-lens="list"]')
       ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(store.getState().diff).toBeNull();
+    expect(store.getState().diffPage).toBe(false);
+    expect(store.getState().lens).toBe("list");
+    expect(location.hash).toBe("#/list");
+    expect(
+      document.querySelector("#diff-page")?.classList.contains("hidden"),
+    ).toBe(true);
+    expect(
+      document.querySelector("#master")?.classList.contains("hidden"),
+    ).toBe(false);
   });
 
   it("a hashchange re-applies the route", async () => {

@@ -75,93 +75,94 @@ function syntheticArtifact(n: number): unknown {
   return { snapshot: { files } };
 }
 
-function modal(): HTMLElement | null {
-  return document.querySelector<HTMLElement>("#diff-modal");
-}
-
 async function openCommitted(): Promise<void> {
-  store.commit({ diff: OBJ, diffHash: ARTIFACT, focus: null });
-  await controller.renderDiffOverlay();
+  store.commit({ diffPage: true, diffRevision: REV, focus: null });
+  await controller.renderDiffPage();
 }
 
-describe("openDiff / openRevisionDiff (route-only, the open is the reconciler's job)", () => {
-  it("openDiff commits the diff route without directly opening the modal", () => {
-    controller.openDiff(OBJ, null, ARTIFACT);
-    expect(store.getState().diff).toBe(OBJ);
-    expect(store.getState().diffHash).toBe(ARTIFACT);
-    // openDiff only changes the route; the overlay opens when the reconciler runs.
-    expect(modal()?.classList.contains("hidden")).toBe(true);
+describe("openDiff / openRevisionDiff (page navigations — route-only, the paint is the reconciler's job)", () => {
+  it("openDiff lands on the revision-primary page when the snapshot maps", () => {
+    const push = vi.spyOn(history, "pushState");
+    try {
+      controller.openDiff(OBJ, null, ARTIFACT);
+      expect(store.getState().diffPage).toBe(true);
+      expect(store.getState().diffRevision).toBe(REV);
+      expect(store.getState().diff).toBe(OBJ); // payload pointer retained
+      expect(store.getState().diffHash).toBe(ARTIFACT);
+      expect(push).toHaveBeenCalledTimes(1); // open = push
+    } finally {
+      push.mockRestore();
+    }
   });
 
-  it("openRevisionDiff resolves the captured object and its artifact hash", () => {
+  it("openDiff lands on the snapshot-only page when nothing maps", () => {
+    controller.openDiff("obj:sha256:unmapped", null, null);
+    expect(store.getState().diffPage).toBe(true);
+    expect(store.getState().diffRevision).toBeNull();
+    expect(store.getState().diff).toBe("obj:sha256:unmapped");
+  });
+
+  it("openRevisionDiff opens the page on the revision's own identity", () => {
     controller.openRevisionDiff(REV, "obs:focus");
-    expect(store.getState().diff).toBe(OBJ);
-    expect(store.getState().diffHash).toBe(ARTIFACT);
+    expect(store.getState().diffPage).toBe(true);
+    expect(store.getState().diffRevision).toBe(REV);
     expect(store.getState().focus).toBe("obs:focus");
   });
-});
 
-describe("renderDiffOverlay (open via the overlay manager + paint the fetched artifact)", () => {
-  it("opens #diff-modal through the manager and paints the diff body and navigator", async () => {
-    await openCommitted();
-    expect(modal()?.classList.contains("hidden")).toBe(false);
-    expect(overlay.activeName()).toBe("diff");
-    expect(document.querySelector("#diff-body")?.innerHTML).toContain("dfile");
-    expect(document.querySelector("#diff-nav")?.innerHTML).toContain("files");
-    expect(document.querySelector("#diff-title")?.textContent).toContain(
-      "snapshot",
-    );
-  });
-
-  it("focuses the close button as the initial overlay focus target", async () => {
-    await openCommitted();
-    expect(document.activeElement).toBe(document.querySelector("#diff-close"));
-  });
-
-  it("tears down a prior overlay through the manager when the diff opens (no sibling import)", async () => {
-    const paletteNode = document.querySelector<HTMLElement>("#cmd-palette");
-    const paletteClose = vi.fn();
-    if (paletteNode)
-      overlay.register("palette", { node: paletteNode, onClose: paletteClose });
-    overlay.open("palette");
-    expect(overlay.activeName()).toBe("palette");
-
-    await openCommitted();
-    expect(paletteClose).toHaveBeenCalledTimes(1);
-    expect(overlay.activeName()).toBe("diff");
+  it("openRevisionDiff needs no list entry (the composite resolves the snapshot)", () => {
+    store.commit({ revisions: { entries: [] } as unknown as RevisionsDoc });
+    controller.openRevisionDiff(REV);
+    expect(store.getState().diffPage).toBe(true);
+    expect(store.getState().diffRevision).toBe(REV);
   });
 });
 
-describe("closeDiff (route-clearing via the router, never a direct render)", () => {
-  it("replaces the route and leaves the repaint to the store subscriber", async () => {
-    await openCommitted();
-    expect(modal()?.classList.contains("hidden")).toBe(false);
+describe("closeDiff (a real push back to the record, never a replace)", () => {
+  it("pushes the cleared route and never touches the parked cursor", async () => {
+    store.commit({ selected: { kind: "revision", id: REV }, open: true });
+    controller.openDiff(OBJ, "obs:focus", ARTIFACT);
+    store.commit({ diffFile: "src/lib.rs", diffNav: "with-facts" });
 
+    const pushSpy = vi.spyOn(history, "pushState");
     const replaceSpy = vi.spyOn(history, "replaceState");
-    controller.closeDiff();
-    expect(store.getState().diff).toBeNull();
-    expect(store.getState().diffHash).toBeNull();
-    expect(store.getState().focus).toBeNull();
-    expect(replaceSpy).toHaveBeenCalledTimes(1);
-    // closeDiff only cleared the route; the modal is still open until a repaint.
-    expect(modal()?.classList.contains("hidden")).toBe(false);
-
-    // The store subscriber's repaint (render → renderDiffOverlay) closes it.
-    await controller.renderDiffOverlay();
-    expect(modal()?.classList.contains("hidden")).toBe(true);
-    replaceSpy.mockRestore();
+    try {
+      controller.closeDiff();
+      expect(store.getState().diffPage).toBe(false);
+      expect(store.getState().diffRevision).toBeNull();
+      expect(store.getState().diff).toBeNull();
+      expect(store.getState().diffHash).toBeNull();
+      expect(store.getState().focus).toBeNull();
+      expect(store.getState().diffFile).toBeNull();
+      expect(store.getState().diffNav).toBe("all");
+      expect(pushSpy).toHaveBeenCalledTimes(1); // close = push
+      expect(replaceSpy).not.toHaveBeenCalled(); // never {replace: true}
+      // The cursor (and its open pane) survives the round trip untouched.
+      expect(store.getState().selected).toEqual({ kind: "revision", id: REV });
+      expect(store.getState().open).toBe(true);
+    } finally {
+      pushSpy.mockRestore();
+      replaceSpy.mockRestore();
+    }
   });
 
-  it("closes through the wired #diff-close button and the modal backdrop", async () => {
-    await openCommitted();
+  it("closes through the wired page close control", async () => {
+    controller.openRevisionDiff(REV);
+    await controller.renderDiffPage();
     document
-      .querySelector("#diff-close")
+      .querySelector("#diff-page-close")
       ?.dispatchEvent(new Event("click", { bubbles: true }));
-    expect(store.getState().diff).toBeNull();
+    expect(store.getState().diffPage).toBe(false);
+    expect(store.getState().diffRevision).toBeNull();
+  });
 
-    await openCommitted();
-    modal()?.dispatchEvent(new Event("click", { bubbles: true }));
-    expect(store.getState().diff).toBeNull();
+  it("is a no-op when no diff surface is addressed (no junk history entry)", () => {
+    const pushSpy = vi.spyOn(history, "pushState");
+    try {
+      controller.closeDiff();
+      expect(pushSpy).not.toHaveBeenCalled();
+    } finally {
+      pushSpy.mockRestore();
+    }
   });
 });
 
@@ -170,7 +171,7 @@ describe("lazy file bodies", () => {
     setSnapshotResponse(syntheticArtifact(12));
     await openCommitted();
     const collapsed = document.querySelector<HTMLElement>(
-      '#diff-body .dfile[data-dfile="11"]',
+      '#diff-page-body .dfile[data-dfile="11"]',
     );
     expect(collapsed).not.toBeNull();
     const body = collapsed?.querySelector<HTMLElement>("[data-dfile-body]");
@@ -198,7 +199,7 @@ describe("lazy file bodies", () => {
 describe("the file/fact navigator", () => {
   it("renders a summary, filters, a file list, and the unanchored-facts panel", async () => {
     await openCommitted();
-    const nav = document.querySelector("#diff-nav");
+    const nav = document.querySelector("#diff-page-nav");
     expect(
       nav
         ?.querySelector('[data-diff-nav-filter="all"]')
@@ -212,8 +213,12 @@ describe("the file/fact navigator", () => {
 
   it("filters to unanchored facts only, hiding the file list", async () => {
     await openCommitted();
+    // On the page the filter is route state; the subscriber repaint (played
+    // here by the explicit renderDiffPage) re-renders the navigator.
     controller.setDiffNavFilter("unanchored");
-    const nav = document.querySelector("#diff-nav");
+    expect(store.getState().diffNav).toBe("unanchored");
+    await controller.renderDiffPage();
+    const nav = document.querySelector("#diff-page-nav");
     expect(
       nav
         ?.querySelector('[data-diff-nav-filter="unanchored"]')
@@ -221,14 +226,13 @@ describe("the file/fact navigator", () => {
     ).toBe("true");
     expect(nav?.querySelectorAll(".diff-nav-file").length).toBe(0);
     expect(nav?.querySelector(".diff-unanchored")).not.toBeNull();
-    // Re-rendering the navigator adds no route state.
-    expect(store.getState().diff).toBe(OBJ);
   });
 
   it("filters to files carrying facts only, hiding the unanchored panel", async () => {
     await openCommitted();
     controller.setDiffNavFilter("with-facts");
-    const nav = document.querySelector("#diff-nav");
+    await controller.renderDiffPage();
+    const nav = document.querySelector("#diff-page-nav");
     expect(nav?.querySelectorAll(".diff-nav-file").length).toBe(1);
     expect(nav?.querySelector(".diff-unanchored")).toBeNull();
   });
@@ -236,7 +240,8 @@ describe("the file/fact navigator", () => {
   it("ignores an unrecognized filter value", async () => {
     await openCommitted();
     controller.setDiffNavFilter("bogus");
-    const nav = document.querySelector("#diff-nav");
+    expect(store.getState().diffNav).toBe("all");
+    const nav = document.querySelector("#diff-page-nav");
     expect(
       nav
         ?.querySelector('[data-diff-nav-filter="all"]')
@@ -245,10 +250,17 @@ describe("the file/fact navigator", () => {
   });
 });
 
-// The jump keys are owned by the diff's overlay registration: while the diff is
-// the active overlay, the global keydown layer hands ]/[/n/p to the diff's own
-// key map through the manager's delegation; with no overlay active they are dead.
-describe("diff overlay key ownership", () => {
+// The page owns its keyboard through the global layer's diff-page block (no
+// overlay is involved — activeName() stays null): ]/[/n/p and Escape run;
+// every lens, selection, paging, and lens-switch key is inert; with no page
+// active the jump keys are dead.
+describe("diff page keyboard + history", () => {
+  const EVT_ON_REV = (
+    historyJson as {
+      entries: Array<{ eventId?: string; subject?: { revisionId?: string } }>;
+    }
+  ).entries.find((e) => e.subject?.revisionId === REV)?.eventId as string;
+
   let onKey: (ev: KeyboardEvent) => void;
 
   beforeEach(async () => {
@@ -271,9 +283,9 @@ describe("diff overlay key ownership", () => {
     return ev;
   }
 
-  it("jumps to the next change on ']' while the diff overlay is active", async () => {
+  it("jumps to the next change on ']' while the page is active", async () => {
     await openCommitted();
-    expect(overlay.activeName()).toBe("diff");
+    expect(overlay.activeName()).toBe(null); // a page, not an overlay
     const scrollSpy = vi
       .spyOn(Element.prototype, "scrollIntoView")
       .mockImplementation(() => {});
@@ -293,13 +305,62 @@ describe("diff overlay key ownership", () => {
     await openCommitted();
     press("n");
     const firstAnno = document.querySelector<HTMLElement>(
-      "#diff-body .anno[data-anno]",
+      "#diff-page-body .anno[data-anno]",
     );
     expect(firstAnno).not.toBeNull();
     expect(store.getState().focus).toBe(firstAnno?.dataset.anno);
   });
 
-  it("keeps ']' inert when no overlay is active", async () => {
+  it("keeps the whole lens key family inert on the page", async () => {
+    await openCommitted();
+    const before = structuredClone(store.getState());
+    const pushSpy = vi.spyOn(history, "pushState");
+    const replaceSpy = vi.spyOn(history, "replaceState");
+    try {
+      for (const k of [
+        "j",
+        "k",
+        "1",
+        "2",
+        "3",
+        "g",
+        "G",
+        "f",
+        "b",
+        "d",
+        "u",
+        "/",
+        "Enter",
+      ]) {
+        press(k);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(store.getState()).toEqual(before); // no store commit
+      expect(pushSpy).not.toHaveBeenCalled(); // no navigate...
+      expect(replaceSpy).not.toHaveBeenCalled(); // ...not even a refinement
+    } finally {
+      pushSpy.mockRestore();
+      replaceSpy.mockRestore();
+    }
+  });
+
+  it("closes the page on Escape with a push", async () => {
+    await openCommitted();
+    const pushSpy = vi.spyOn(history, "pushState");
+    const replaceSpy = vi.spyOn(history, "replaceState");
+    try {
+      press("Escape");
+      expect(store.getState().diffPage).toBe(false);
+      expect(store.getState().diffRevision).toBeNull();
+      expect(pushSpy).toHaveBeenCalledTimes(1);
+      expect(replaceSpy).not.toHaveBeenCalled();
+    } finally {
+      pushSpy.mockRestore();
+      replaceSpy.mockRestore();
+    }
+  });
+
+  it("keeps ']' inert when no page is active", async () => {
     const before = structuredClone(store.getState());
     const scrollSpy = vi
       .spyOn(Element.prototype, "scrollIntoView")
@@ -312,6 +373,54 @@ describe("diff overlay key ownership", () => {
       scrollSpy.mockRestore();
     }
   });
+
+  it("Enter descends an open EVENT selection onto the page, cursor untouched", async () => {
+    // The event case proves the page's identity lives in diffRevision, never
+    // in the selection: the parked cursor survives open and close.
+    store.commit({ selected: { kind: "event", id: EVT_ON_REV }, open: true });
+    const pushSpy = vi.spyOn(history, "pushState");
+    try {
+      press("Enter");
+      expect(pushSpy).toHaveBeenCalledTimes(1); // open = push
+      expect(store.getState().diffPage).toBe(true);
+      expect(store.getState().diffRevision).toBe(REV);
+      expect(store.getState().selected).toEqual({
+        kind: "event",
+        id: EVT_ON_REV,
+      });
+      expect(store.getState().open).toBe(true);
+      press("Escape");
+      expect(store.getState().diffPage).toBe(false);
+      expect(store.getState().selected).toEqual({
+        kind: "event",
+        id: EVT_ON_REV,
+      }); // cursor intact
+      expect(store.getState().open).toBe(true);
+    } finally {
+      pushSpy.mockRestore();
+    }
+  });
+
+  it("returns to the record with the cursor intact on browser Back", async () => {
+    const router = await import("../../src/router");
+    router.navigate({
+      selected: { kind: "event", id: EVT_ON_REV },
+      open: false,
+    });
+    const recordHash = location.hash; // the parked-cursor record address
+    controller.openRevisionDiff(REV);
+    expect(location.hash).toContain("/diff");
+    // Simulate the browser Back: the prior entry's hash is restored and the
+    // popstate listener re-applies the route.
+    history.replaceState(null, "", recordHash);
+    router.applyHash();
+    expect(store.getState().diffPage).toBe(false);
+    expect(store.getState().selected).toEqual({
+      kind: "event",
+      id: EVT_ON_REV,
+    });
+    expect(store.getState().open).toBe(false);
+  });
 });
 
 describe("fact / change jump keys", () => {
@@ -320,7 +429,7 @@ describe("fact / change jump keys", () => {
     const replaceSpy = vi.spyOn(history, "replaceState");
     controller.jumpFact(1);
     const first = document.querySelector<HTMLElement>(
-      "#diff-body .anno[data-anno]",
+      "#diff-page-body .anno[data-anno]",
     );
     expect(store.getState().focus).toBe(first?.dataset.anno);
     expect(replaceSpy).toHaveBeenCalled();
@@ -330,7 +439,7 @@ describe("fact / change jump keys", () => {
   it("jumpChange cycles change anchors without touching the focus route", async () => {
     await openCommitted();
     expect(
-      document.querySelectorAll("#diff-body .dhunk").length,
+      document.querySelectorAll("#diff-page-body .dhunk").length,
     ).toBeGreaterThan(0);
     const focusBefore = store.getState().focus;
     controller.jumpChange(1);
@@ -340,7 +449,7 @@ describe("fact / change jump keys", () => {
   it("a noted gutter click scrolls to the annotation and syncs the focus route", async () => {
     await openCommitted();
     const noted = document.querySelector<HTMLElement>(
-      "#diff-body .drow-noted[data-anno]",
+      "#diff-page-body .drow-noted[data-anno]",
     );
     expect(noted).not.toBeNull();
     noted?.dispatchEvent(new Event("click", { bubbles: true }));

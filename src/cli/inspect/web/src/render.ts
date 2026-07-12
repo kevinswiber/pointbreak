@@ -15,7 +15,7 @@
 
 import { CLASS } from "./classNames";
 import { renderDetail, showComposite } from "./detail";
-import { openDiff, renderDiffOverlay, renderDiffPage } from "./diff/controller";
+import { openDiff, renderDiffPage } from "./diff/controller";
 import { $ } from "./dom";
 import { escapeHtml } from "./escape";
 import { partitionAttentionTiers, renderAttention } from "./lenses/attention";
@@ -333,8 +333,9 @@ function applyDiffPageMode(): boolean {
  * The single render entry: project the whole view from state. Registered once in
  * the composition root as the only `subscribe()` callback, so every `commit`
  * (navigate, load, freshness poll) repaints through here. While the diff page
- * owns the frame only the topbar surfaces repaint above it; otherwise it calls
- * the overlay reconciler and ignores its returned promise (app.js parity).
+ * owns the frame only the topbar surfaces repaint above it; otherwise the
+ * page reconciler still runs (and resets) so a closed page repaints fresh on
+ * its next open. The returned promise is ignored (app.js parity).
  */
 export function render(): void {
   renderIdentity();
@@ -351,7 +352,7 @@ export function render(): void {
   renderMaster();
   renderSelected();
   scrollSelectionIntoView();
-  void renderDiffOverlay();
+  void renderDiffPage();
 }
 
 // ---------------------------------------------------------------------------
