@@ -75,6 +75,7 @@ jobs:
             echo "|----------|--------|--------|"
           } | out
 
+          # shellcheck disable=SC2016  # The single-quoted jq program must remain literal.
           gh run list --branch "${BRANCH}" --limit 20 \
             --json name,conclusion,createdAt,headSha,status \
             --jq '[group_by(.name)[] | sort_by(.createdAt) | last] | sort_by(.name)[] | "| \(.name) | \(if .conclusion != "" and .conclusion != null then .conclusion else .status end) | `\(.headSha[0:7])` |"' \

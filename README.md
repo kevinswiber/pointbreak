@@ -33,6 +33,66 @@ cargo install pointbreak
 shore --help
 ```
 
+### Download a prebuilt binary
+
+Releases that include prebuilt binaries provide an archive for each supported target. Set the
+version and target first, then download the matching archive:
+
+```sh
+VERSION=0.6.0        # see the releases page for the current version
+TARGET=darwin-arm64  # pick yours from the table below
+curl -fsSL -O "https://github.com/kevinswiber/pointbreak/releases/download/v${VERSION}/pointbreak-${VERSION}-${TARGET}.tar.gz"
+tar xzf "pointbreak-${VERSION}-${TARGET}.tar.gz"
+./shore --version
+```
+
+Download `checksums.txt` from the same release and verify the archive. On Linux:
+
+```sh
+curl -fsSL -O "https://github.com/kevinswiber/pointbreak/releases/download/v${VERSION}/checksums.txt"
+sha256sum -c --ignore-missing checksums.txt
+```
+
+On macOS, use the system-provided `shasum` instead:
+
+```sh
+shasum -a 256 -c --ignore-missing checksums.txt
+```
+
+| Target | Operating system | Architecture |
+| --- | --- | --- |
+| `darwin-x64` | macOS | Intel 64-bit |
+| `darwin-arm64` | macOS | Apple silicon |
+| `linux-x64` | Linux (glibc) | x86-64 |
+| `linux-arm64` | Linux (glibc) | ARM64 |
+| `alpine-x64` | Linux (musl/Alpine) | x86-64 |
+| `alpine-arm64` | Linux (musl/Alpine) | ARM64 |
+| `win32-x64` | Windows | x86-64 |
+| `win32-arm64` | Windows | ARM64 |
+
+The `win32-*` targets ship as `.zip` archives containing `shore.exe`. This PowerShell flow
+downloads an archive, verifies its checksum case-insensitively, and only then extracts it:
+
+```powershell
+$Version = "0.6.0"
+$Target = "win32-x64"
+$Archive = "pointbreak-$Version-$Target.zip"
+Invoke-WebRequest "https://github.com/kevinswiber/pointbreak/releases/download/v$Version/$Archive" -OutFile $Archive
+Invoke-WebRequest "https://github.com/kevinswiber/pointbreak/releases/download/v$Version/checksums.txt" -OutFile checksums.txt
+$Expected = (Select-String -Path checksums.txt -Pattern ([regex]::Escape($Archive))).Line.Split(' ')[0]
+$Actual = (Get-FileHash $Archive -Algorithm SHA256).Hash.ToLower()
+if ($Actual -ne $Expected) { throw "checksum mismatch for $Archive" }
+Expand-Archive $Archive -DestinationPath .
+.\shore.exe --version
+```
+
+Archives downloaded with `curl` on macOS need no quarantine adjustment. If a browser download is
+quarantined, remove the attribute after extraction with
+`xattr -dr com.apple.quarantine ./shore`.
+
+See the [GitHub releases page](https://github.com/kevinswiber/pointbreak/releases) for available
+versions and assets.
+
 ## Quick Start
 
 Start with the first-review walkthrough:

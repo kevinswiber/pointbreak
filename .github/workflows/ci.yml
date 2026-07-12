@@ -25,6 +25,21 @@ jobs:
       - name: Validate Agent Skills
         run: just skills-validate
 
+  lint-workflows:
+    name: lint workflows
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: taiki-e/install-action@just
+      - uses: reviewdog/action-actionlint@5eaffa19a1991ecc52b11eddcdd57760d1ac7e3d # v1.72.0
+        with:
+          fail_level: error
+          filter_mode: nofilter
+      - run: just workflow-lint-assertions
+
   web-check:
     name: web check (inspector front-end)
     runs-on: ubuntu-latest

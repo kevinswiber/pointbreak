@@ -25,6 +25,52 @@ build *args:
 release *args:
     cargo +stable build --release {{ args }}
 
+# Self-test the release archive packaging script against a host debug build.
+package-archive-selftest:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo +stable build --bin shore
+    out="$(./scripts/package-release-archive.sh local 0.0.0 tar.gz target/debug)"
+    if [ "$out" != "pointbreak-0.0.0-local.tar.gz" ]; then
+        echo "wrong archive name: $out" >&2
+        exit 1
+    fi
+    tar tzf "$out" | sort | diff - <(printf 'LICENSE\nNOTICE\nshore\n')
+    rm -f "$out"
+    echo "package-archive selftest ok"
+
+# Lint GitHub Actions workflows, the packaging script, and the binary target manifest.
+workflow-lint: workflow-actionlint workflow-lint-assertions
+
+workflow-actionlint:
+    actionlint
+
+# Run the workflow checks not provided by reviewdog/action-actionlint in CI.
+workflow-lint-assertions:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shellcheck scripts/package-release-archive.sh
+    expected="$(cat <<'EOF'
+    [
+      {"archive":"tar.gz","builder":"cargo","os":"macos-latest","rust-target":"x86_64-apple-darwin","target":"darwin-x64"},
+      {"archive":"tar.gz","builder":"cargo","os":"macos-latest","rust-target":"aarch64-apple-darwin","target":"darwin-arm64"},
+      {"archive":"tar.gz","builder":"zigbuild","os":"ubuntu-latest","rust-target":"x86_64-unknown-linux-gnu","target":"linux-x64"},
+      {"archive":"tar.gz","builder":"zigbuild","os":"ubuntu-latest","rust-target":"aarch64-unknown-linux-gnu","target":"linux-arm64"},
+      {"archive":"tar.gz","builder":"zigbuild","os":"ubuntu-latest","rust-target":"x86_64-unknown-linux-musl","target":"alpine-x64"},
+      {"archive":"tar.gz","builder":"zigbuild","os":"ubuntu-latest","rust-target":"aarch64-unknown-linux-musl","target":"alpine-arm64"},
+      {"archive":"zip","builder":"cargo","os":"windows-latest","rust-target":"x86_64-pc-windows-msvc","target":"win32-x64"},
+      {"archive":"zip","builder":"cargo","os":"windows-latest","rust-target":"aarch64-pc-windows-msvc","target":"win32-arm64"}
+    ]
+    EOF
+    )"
+    jq -e --argjson expected "$expected" \
+      'map(to_entries | sort_by(.key) | from_entries) == $expected' \
+      .github/binary-targets.json > /dev/null
+    for t in $(jq -r '.[].target' .github/binary-targets.json); do
+      grep -q -- "$t" README.md || { echo "README missing target: $t" >&2; exit 1; }
+    done
+    echo "workflow-lint assertions ok"
+
 # Run clippy and fmt check.
 lint: fmt-check
     cargo +stable clippy --workspace --all-targets --all-features -- -D warnings
