@@ -12,7 +12,9 @@ use std::sync::{Arc, RwLock};
 
 use mmdflux::graph::{Direction, Edge, Graph, Node};
 use mmdflux::layout::{LaidOutGraph, LayoutOptions, layout_graph};
-use pointbreak::documents::revision_show_document;
+use pointbreak::documents::{
+    InspectFreshnessDocument, review_snapshot_document, revision_show_document,
+};
 use pointbreak::highlight::{emphasis_file, highlight_file};
 use pointbreak::model::{
     EventId, ObjectId, ReviewEndpoint, RevisionId, RevisionSource, ValidationStatus,
@@ -36,7 +38,6 @@ use pointbreak::session::{
 use serde::Serialize;
 
 use super::server::HighlightCache;
-use super::wire::WireObjectArtifact;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -304,25 +305,6 @@ struct RevisionLatestActivityDocument {
     kind: &'static str,
     title: String,
     at: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct FreshnessPayload {
-    schema: &'static str,
-    /// The event-log head marker (the event count), the cheap change key the
-    /// client polls. Sourced from `event_log_head_marker` — no full read, no
-    /// event-set hash. The authoritative `eventSetHash` confirm stamp stays on the
-    /// full-read endpoints (`/api/history`, `/api/revisions`).
-    event_count: u64,
-    /// The commit-graph stamp over the git ref state the revisions payload's
-    /// merge statuses read. A pure-git landing — a fast-forward that appends
-    /// no event — moves this stamp while the event count stays put, and the
-    /// polling client refetches on either change (#467). Best-effort: omitted
-    /// when the stamp cannot be derived, in which case the client falls back
-    /// to event-count-only change detection.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    commit_graph_stamp: Option<String>,
 }
 
 /// The literal floor label shown when no worktree basename can be derived.
@@ -1415,14 +1397,10 @@ pub(super) fn snapshot_json(
     {
         return Ok(cached);
     }
-    // Build the enriched wire DTO from the validated artifact: it mirrors the stored serialized
-    // shape (identity/endpoints already absent on the v2 body) and additively carries per-row syntax
-    // tokens and intraline emphasis. The stored bytes are untouched. Round-trip through
-    // `serde_json::Value` so the served key order is unchanged from before this DTO existed (an
-    // unhighlighted, unemphasized row is byte-identical).
-    let wire = WireObjectArtifact::from_artifact(&artifact, highlight_file, emphasis_file);
-    let value = serde_json::to_value(&wire).map_err(|error| error.to_string())?;
-    let body = serde_json::to_string(&value).map_err(|error| error.to_string())?;
+    // Retag only the served envelope and add presentation spans to copied rows.
+    // The validated at-rest artifact and its content hash remain untouched.
+    let document = review_snapshot_document(&artifact);
+    let body = serde_json::to_string(&document).map_err(|error| error.to_string())?;
     // Content-addressed: the body is immutable for this hash, so caching needs no invalidation.
     if let Some(cache) = cache
         && let Ok(mut cache) = cache.write()
@@ -1696,12 +1674,11 @@ pub(super) fn freshness_json(
     commit_graph_stamp: Option<String>,
 ) -> Result<String, String> {
     let event_count = event_log_head_marker(repo).map_err(|error| error.to_string())?;
-    let payload = FreshnessPayload {
-        schema: "pointbreak.inspect-freshness",
+    serde_json::to_string(&InspectFreshnessDocument::new(
         event_count,
         commit_graph_stamp,
-    };
-    serde_json::to_string(&payload).map_err(|error| error.to_string())
+    ))
+    .map_err(|error| error.to_string())
 }
 
 /// The schema-tagged wire wrapper for the repo/store identity document. The
@@ -2283,6 +2260,8 @@ mod tests {
             serde_json::from_str(&snapshot_json(repo.path(), &snapshot_id, None, None).unwrap())
                 .unwrap();
 
+        assert_eq!(wire["schema"], "pointbreak.review-snapshot");
+        assert_eq!(wire["version"], 1);
         // Object-scoped wire: content hash + frozen diff only. Identity and
         // endpoints live on /api/revisions/{id} (from the projection), never here — so
         // the worktree root is simply absent (nothing to redact).

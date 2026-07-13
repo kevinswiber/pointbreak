@@ -1,15 +1,15 @@
-//! Command-output document layer for the `shore review-*` command family.
+//! Versioned documents shared by the CLI and bundled inspect server.
 //!
 //! This module owns the serializable documents the `shore review-*` commands
-//! emit: the shared envelopes ([`DiagnosticDocument`], [`EventWriteDocument`]),
-//! the per-item view-document mappers, the per-command body structs, and the
-//! `*_document()` builders that wrap a `pointbreak::session` result into the
-//! documented JSON shape.
+//! emit, the version handshake, and the small promoted inspect set. It includes
+//! the shared envelopes ([`DiagnosticDocument`], [`EventWriteDocument`]), the
+//! per-item view-document mappers, and the builders that wrap a
+//! `pointbreak::session` result in its documented JSON shape.
 //!
-//! Consumers can produce **byte-identical** `shore review-*` JSON in-process by
-//! calling a builder and serializing the returned document with `serde_json`.
-//! The CLI is a thin caller over these same builders, so the documented JSON
-//! contract has a single source of truth.
+//! Consumers can produce the same JSON in-process by calling a builder and
+//! serializing the returned document with `serde_json`. CLI and inspect
+//! producers are thin callers over these builders, so each promoted contract
+//! has one source of truth.
 //!
 //! Stdout serialization (`write_json`) stays in the CLI; this module exposes the
 //! serializable documents, not terminal IO.
@@ -24,6 +24,7 @@ mod attention;
 mod capture;
 mod history;
 mod input_request;
+mod inspect;
 mod observation;
 mod revision;
 mod validation;
@@ -46,6 +47,11 @@ pub use input_request::{
     input_request_fetch_document, input_request_list_document, input_request_open_document,
     input_request_respond_document,
 };
+pub use inspect::{
+    INSPECT_FRESHNESS_SCHEMA, INSPECT_STARTUP_SCHEMA, InspectFreshnessDocument,
+    InspectStartupDocument, REVIEW_SNAPSHOT_SCHEMA, ReviewSnapshotDocument,
+    promoted_inspect_document_registry, review_snapshot_document,
+};
 pub use observation::{
     ObservationAddBody, ObservationListBody, observation_add_document, observation_list_document,
 };
@@ -55,7 +61,7 @@ pub use revision::{
 pub use validation::{
     ValidationAddBody, ValidationListBody, validation_add_document, validation_list_document,
 };
-pub use version::{VERSION_SCHEMA, VersionBody};
+pub use version::{VERSION_SCHEMA, VersionBody, version_document};
 pub use view::{
     AssessmentViewDocument, CurrentAssessmentDocument, InputRequestAssertionModeDocument,
     InputRequestResponseViewDocument, InputRequestViewDocument, ObservationViewDocument,
@@ -63,49 +69,66 @@ pub use view::{
 };
 
 /// Every CLI-emitted document schema and its current version.
+const CLI_DOCUMENT_REGISTRY: &[(&str, u32)] = &[
+    ("pointbreak.attention-list", 1),
+    ("pointbreak.identity-attest", 1),
+    ("pointbreak.identity-delegate", 1),
+    ("pointbreak.key-discover", 1),
+    ("pointbreak.key-enroll", 1),
+    ("pointbreak.key-init", 1),
+    ("pointbreak.key-list", 1),
+    ("pointbreak.key-show", 1),
+    ("pointbreak.key-use-ssh", 1),
+    ("pointbreak.review-assessment-add", 1),
+    ("pointbreak.review-assessment-show", 1),
+    ("pointbreak.review-association-commit", 1),
+    ("pointbreak.review-association-commit-withdrawn", 1),
+    ("pointbreak.review-association-list", 1),
+    ("pointbreak.review-association-ref", 1),
+    ("pointbreak.review-association-ref-withdrawn", 1),
+    ("pointbreak.review-capture", 1),
+    ("pointbreak.review-endorse", 1),
+    ("pointbreak.review-history", 1),
+    ("pointbreak.review-input-request-list", 1),
+    ("pointbreak.review-input-request-open", 1),
+    ("pointbreak.review-input-request-respond", 1),
+    ("pointbreak.review-input-request-show", 1),
+    ("pointbreak.review-observation-add", 1),
+    ("pointbreak.review-observation-list", 1),
+    ("pointbreak.review-revision", 2),
+    ("pointbreak.review-revision-list", 1),
+    ("pointbreak.review-validation-add", 1),
+    ("pointbreak.review-validation-list", 1),
+    ("pointbreak.store-compact", 1),
+    ("pointbreak.store-forget", 1),
+    ("pointbreak.store-link", 1),
+    ("pointbreak.store-link-preview", 1),
+    ("pointbreak.store-list", 1),
+    ("pointbreak.store-migrate", 1),
+    ("pointbreak.store-mode", 1),
+    ("pointbreak.store-remove", 1),
+    ("pointbreak.store-status", 1),
+    ("pointbreak.store-unlink", 1),
+    (version::VERSION_SCHEMA, 1),
+];
+
+pub(crate) fn cli_document_registry() -> &'static [(&'static str, u32)] {
+    CLI_DOCUMENT_REGISTRY
+}
+
+/// Compatibility registry for CLI documents and the exact promoted inspect
+/// documents shipped with the bundled server.
 pub fn document_registry() -> &'static [(&'static str, u32)] {
-    &[
-        ("pointbreak.attention-list", 1),
-        ("pointbreak.identity-attest", 1),
-        ("pointbreak.identity-delegate", 1),
-        ("pointbreak.key-discover", 1),
-        ("pointbreak.key-enroll", 1),
-        ("pointbreak.key-init", 1),
-        ("pointbreak.key-list", 1),
-        ("pointbreak.key-show", 1),
-        ("pointbreak.key-use-ssh", 1),
-        ("pointbreak.review-assessment-add", 1),
-        ("pointbreak.review-assessment-show", 1),
-        ("pointbreak.review-association-commit", 1),
-        ("pointbreak.review-association-commit-withdrawn", 1),
-        ("pointbreak.review-association-list", 1),
-        ("pointbreak.review-association-ref", 1),
-        ("pointbreak.review-association-ref-withdrawn", 1),
-        ("pointbreak.review-capture", 1),
-        ("pointbreak.review-endorse", 1),
-        ("pointbreak.review-history", 1),
-        ("pointbreak.review-input-request-list", 1),
-        ("pointbreak.review-input-request-open", 1),
-        ("pointbreak.review-input-request-respond", 1),
-        ("pointbreak.review-input-request-show", 1),
-        ("pointbreak.review-observation-add", 1),
-        ("pointbreak.review-observation-list", 1),
-        ("pointbreak.review-revision", 2),
-        ("pointbreak.review-revision-list", 1),
-        ("pointbreak.review-validation-add", 1),
-        ("pointbreak.review-validation-list", 1),
-        ("pointbreak.store-compact", 1),
-        ("pointbreak.store-forget", 1),
-        ("pointbreak.store-link", 1),
-        ("pointbreak.store-link-preview", 1),
-        ("pointbreak.store-list", 1),
-        ("pointbreak.store-migrate", 1),
-        ("pointbreak.store-mode", 1),
-        ("pointbreak.store-remove", 1),
-        ("pointbreak.store-status", 1),
-        ("pointbreak.store-unlink", 1),
-        (version::VERSION_SCHEMA, 1),
-    ]
+    static REGISTRY: std::sync::OnceLock<Vec<(&'static str, u32)>> = std::sync::OnceLock::new();
+    REGISTRY
+        .get_or_init(|| {
+            cli_document_registry()
+                .iter()
+                .chain(promoted_inspect_document_registry())
+                .copied()
+                .collect()
+        })
+        .as_slice()
 }
 
 /// Envelope for a read/diagnostic document: `{ schema, version, <flattened
@@ -156,6 +179,12 @@ impl<T> DiagnosticDocument<T> {
             body,
             diagnostics,
         }
+    }
+
+    /// The typed body used to render a human companion without rebuilding the
+    /// document envelope.
+    pub fn body(&self) -> &T {
+        &self.body
     }
 }
 

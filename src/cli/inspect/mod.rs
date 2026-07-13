@@ -2,12 +2,17 @@ use std::io::Write;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 
-use clap::Args;
+use clap::{Args, ValueEnum};
 
 mod api;
 mod cache;
 mod server;
-mod wire;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum StartupFormatArg {
+    Human,
+    Json,
+}
 
 /// `shore inspect` starts a small local web server that visualizes a `.shore/data`
 /// store: the event timeline, captured Revisions, and recorded outcomes.
@@ -22,7 +27,7 @@ pub(super) struct InspectArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
-    /// Address to bind the inspector server to.
+    /// Loopback IP address to bind the inspector server to.
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
 
@@ -33,6 +38,10 @@ pub(super) struct InspectArgs {
     /// Open the inspector in the default browser after the server starts.
     #[arg(long)]
     open: bool,
+
+    /// Startup output and request-authentication mode.
+    #[arg(long, value_enum, default_value_t = StartupFormatArg::Human)]
+    startup_format: StartupFormatArg,
 }
 
 pub(super) fn run(
@@ -47,6 +56,12 @@ pub(super) fn run(
         .host
         .parse()
         .map_err(|_| format!("invalid --host value: {}", args.host))?;
+    if !ip.is_loopback() {
+        return Err(format!("--host must be a loopback IP address: {ip}").into());
+    }
+    if args.startup_format == StartupFormatArg::Json && args.open {
+        return Err("--open cannot be used with --startup-format json".into());
+    }
     let addr = SocketAddr::new(ip, args.port);
-    server::serve(addr, args.repo, args.open, stdout)
+    server::serve(addr, args.repo, args.open, args.startup_format, stdout)
 }

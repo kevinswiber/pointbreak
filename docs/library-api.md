@@ -320,8 +320,8 @@ and artifact transfer separately.
 
 ### Documents — `pointbreak::documents`
 
-The `pointbreak::documents` module produces the documented `pointbreak.review-*` command-output documents,
-**byte-identical** to the `shore` CLI:
+The `pointbreak::documents` module produces the documented command-output and promoted bundled-inspect
+documents, **byte-identical** to their CLI/server producers:
 
 - Envelopes: `DiagnosticDocument<T>`, `EventWriteDocument<T>` (schema/version/diagnostics, plus
   event-write counts).
@@ -330,6 +330,8 @@ The `pointbreak::documents` module produces the documented `pointbreak.review-*`
   `input_request_list_document`, `input_request_fetch_document`, `input_request_respond_document`,
   `assessment_add_document`, `assessment_show_document`, `validation_add_document`,
   `validation_list_document`, `history_document`, and the body/view document types they return.
+- Shared compatibility builders: `version_document`, `review_snapshot_document`,
+  `InspectFreshnessDocument`, and `InspectStartupDocument`.
 
 A consumer that wants exactly the documented JSON contract calls a read/write workflow, passes the
 typed result to the matching builder, and serializes the document with `serde_json`.

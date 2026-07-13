@@ -430,6 +430,9 @@ fn api_snapshot_returns_snapshot_scoped_artifact() {
     let inspector = Inspector::spawn(store.repo.path());
     let snapshot = inspector.get_json(&format!("/api/snapshots/{}", urlencode(&store.snapshot_id)));
 
+    assert_eq!(snapshot["schema"], "pointbreak.review-snapshot");
+    assert_eq!(snapshot["version"], 1);
+
     // Object-scoped wire (#146): content hash + frozen diff only — no
     // identity/endpoint fields. Identity/target display live on /api/revisions(/{id}).
     assert!(
@@ -459,6 +462,7 @@ fn api_freshness_exposes_the_event_count_marker() {
     let freshness = inspector.get_json("/api/freshness");
 
     assert_eq!(freshness["schema"], "pointbreak.inspect-freshness");
+    assert_eq!(freshness["version"], 1);
     // The cheap change key is the event-log head marker — the event count, equal
     // to what a full history read reports, but computed without the full read.
     // (Monotonic-on-append and stable-across-envelope-edit are proven at the

@@ -1,6 +1,6 @@
 {
   "contentHash": "sha256:32161336d3627d277a7a5917abe2e2694edec4f3621dbf939bf22091b40e0871",
-  "schema": "shore.object",
+  "schema": "pointbreak.review-snapshot",
   "snapshot": {
     "files": [
       {
@@ -205,5 +205,5 @@
     "object_id": "obj:sha256:38a493d2f09d6fde9d1dcac61a12c4ccc4de42a0b9c6829752d34cc648a9f9d7",
     "review_id": "review:default"
   },
-  "version": 2
+  "version": 1
 }

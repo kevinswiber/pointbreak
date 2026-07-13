@@ -56,22 +56,40 @@ impl WorktreeCapture {
 pub struct Inspector {
     child: Child,
     addr: String,
+    startup_output: String,
+    bearer: Option<String>,
     stderr: Arc<Mutex<String>>,
     _stdout_drain: thread::JoinHandle<()>,
 }
 
 impl Inspector {
     pub fn spawn(repo: &Path) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_shore"))
-            .args([
-                "inspect",
-                "--repo",
-                repo.to_str().unwrap(),
-                "--host",
-                "127.0.0.1",
-                "--port",
-                "0",
-            ])
+        Self::spawn_human(repo)
+    }
+
+    pub fn spawn_human(repo: &Path) -> Self {
+        Self::spawn_with(repo, false)
+    }
+
+    pub fn spawn_authenticated(repo: &Path) -> Self {
+        Self::spawn_with(repo, true)
+    }
+
+    fn spawn_with(repo: &Path, authenticated: bool) -> Self {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_shore"));
+        command.args([
+            "inspect",
+            "--repo",
+            repo.to_str().unwrap(),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "0",
+        ]);
+        if authenticated {
+            command.args(["--startup-format", "json"]);
+        }
+        let mut child = command
             .env_remove("SHORE_LOG")
             .env_remove("RUST_LOG")
             .stdout(Stdio::piped())
@@ -94,26 +112,40 @@ impl Inspector {
             });
         }
 
-        // Read the bound URL from stdout, then keep draining stdout in the
-        // background so the server never stalls on a full pipe.
+        // Read the complete startup output for the selected mode, then keep
+        // draining stdout so the server never stalls on a full pipe.
         let stdout = child.stdout.take().expect("inspector stdout");
         let mut reader = BufReader::new(stdout);
-        let mut addr = String::new();
-        for _ in 0..8 {
+        let mut startup_output = String::new();
+        let line_count = if authenticated { 1 } else { 4 };
+        for _ in 0..line_count {
             let mut line = String::new();
             match reader.read_line(&mut line) {
                 Ok(0) | Err(_) => break,
-                Ok(_) => {
-                    if let Some(index) = line.find("http://") {
-                        addr = line[index + "http://".len()..]
-                            .trim()
-                            .trim_end_matches('/')
-                            .to_owned();
-                        break;
-                    }
-                }
+                Ok(_) => startup_output.push_str(&line),
             }
         }
+
+        let (addr, bearer) = if authenticated {
+            let startup: Value =
+                serde_json::from_str(startup_output.trim()).unwrap_or_else(|error| {
+                    panic!(
+                        "parse authenticated inspector startup: {error}; stderr: {}",
+                        drained(&stderr)
+                    )
+                });
+            let host = startup["host"].as_str().expect("startup host");
+            let port = startup["port"].as_u64().expect("startup port");
+            let token = startup["token"].as_str().expect("startup token").to_owned();
+            (format!("{host}:{port}"), Some(token))
+        } else {
+            let addr = startup_output
+                .lines()
+                .find_map(|line| line.split_once("http://").map(|(_, value)| value))
+                .map(|value| value.trim().trim_end_matches('/').to_owned())
+                .unwrap_or_default();
+            (addr, None)
+        };
         let stdout_drain = thread::spawn(move || {
             let mut sink = String::new();
             let _ = reader.read_to_string(&mut sink);
@@ -150,15 +182,32 @@ impl Inspector {
         Self {
             child,
             addr,
+            startup_output,
+            bearer,
             stderr,
             _stdout_drain: stdout_drain,
         }
     }
 
+    pub fn startup_output(&self) -> &str {
+        &self.startup_output
+    }
+
+    pub fn canonical_host(&self) -> &str {
+        &self.addr
+    }
+
+    pub fn token(&self) -> Option<&str> {
+        self.bearer.as_deref()
+    }
+
+    pub fn stderr_text(&self) -> String {
+        drained(&self.stderr)
+    }
+
     pub fn get_json(&self, path: &str) -> Value {
         let body = self.get_text(path);
-        serde_json::from_str(&body)
-            .unwrap_or_else(|error| panic!("parse {path} body: {error}\n{body}"))
+        serde_json::from_str(&body).unwrap_or_else(|error| panic!("parse {path} body: {error}"))
     }
 
     /// GET a path expected to succeed, returning the raw 200 response body.
@@ -213,11 +262,38 @@ impl Inspector {
     }
 
     fn try_raw_get(&self, path: &str) -> Result<(String, String), String> {
-        let mut stream = TcpStream::connect(&self.addr).expect("connect to inspector");
-        let request = format!(
-            "GET {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-            self.addr
-        );
+        self.try_request("GET", path, &self.default_headers())
+    }
+
+    pub fn raw_request(
+        &self,
+        method: &str,
+        path: &str,
+        headers: &[(&str, &str)],
+    ) -> (String, String) {
+        let headers = headers
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+            .collect::<Vec<_>>();
+        self.try_request(method, path, &headers)
+            .unwrap_or_else(|error| panic!("{method} {path} failed: {error}"))
+    }
+
+    fn try_request(
+        &self,
+        method: &str,
+        path: &str,
+        headers: &[(String, String)],
+    ) -> Result<(String, String), String> {
+        let mut stream = TcpStream::connect(&self.addr).map_err(|error| error.to_string())?;
+        let mut request = format!("{method} {path} HTTP/1.1\r\n");
+        for (name, value) in headers {
+            request.push_str(name);
+            request.push_str(": ");
+            request.push_str(value);
+            request.push_str("\r\n");
+        }
+        request.push_str("Connection: close\r\n\r\n");
         stream
             .write_all(request.as_bytes())
             .map_err(|error| error.to_string())?;
@@ -229,53 +305,33 @@ impl Inspector {
         let text = String::from_utf8_lossy(&response);
         let (head, body) = text
             .split_once("\r\n\r\n")
-            .ok_or_else(|| format!("response has no header/body delimiter: {text}"))?;
-        let status = head.lines().next().unwrap_or_default().to_owned();
-        Ok((status, body.to_owned()))
+            .ok_or_else(|| "response has no header/body delimiter".to_owned())?;
+        Ok((head.to_owned(), body.to_owned()))
+    }
+
+    fn default_headers(&self) -> Vec<(String, String)> {
+        let mut headers = vec![("Host".to_owned(), self.addr.clone())];
+        if let Some(token) = self.bearer.as_deref() {
+            headers.push(("Authorization".to_owned(), format!("Bearer {token}")));
+        }
+        headers
     }
 
     /// Issue a raw request line (method + target) and return the status line,
     /// for exercising non-GET routes.
     pub fn request(&self, method: &str, path: &str) -> String {
-        let mut stream = TcpStream::connect(&self.addr).expect("connect to inspector");
-        let request = format!(
-            "{method} {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-            self.addr
-        );
-        stream.write_all(request.as_bytes()).expect("send request");
-        let _ = stream.shutdown(Shutdown::Write);
-        let mut response = Vec::new();
-        stream.read_to_end(&mut response).expect("read response");
-        let text = String::from_utf8_lossy(&response);
-        text.lines().next().unwrap_or_default().to_owned()
+        let (head, _) = self
+            .try_request(method, path, &self.default_headers())
+            .expect("send request");
+        head.lines().next().unwrap_or_default().to_owned()
     }
 
     fn try_get(&self, path: &str) -> Result<(String, String), String> {
-        let mut stream = TcpStream::connect(&self.addr).map_err(|error| error.to_string())?;
-        let request = format!(
-            "GET {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-            self.addr
-        );
-        stream
-            .write_all(request.as_bytes())
-            .map_err(|error| error.to_string())?;
-        // Signal end-of-request so the server never waits for more input and can
-        // close its read side cleanly.
-        let _ = stream.shutdown(Shutdown::Write);
-
-        let mut response = Vec::new();
-        stream
-            .read_to_end(&mut response)
-            .map_err(|error| error.to_string())?;
-
-        let text = String::from_utf8_lossy(&response);
-        let (head, body) = text
-            .split_once("\r\n\r\n")
-            .ok_or_else(|| "response had no header/body delimiter".to_owned())?;
+        let (head, body) = self.try_request("GET", path, &self.default_headers())?;
         if !head.starts_with("HTTP/1.1 200") {
-            return Err(format!("unexpected status for {path}: {head}"));
+            return Err(format!("unexpected status for {path}"));
         }
-        Ok((head.to_owned(), body.to_owned()))
+        Ok((head, body))
     }
 }
 

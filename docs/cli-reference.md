@@ -171,7 +171,8 @@ revision recorded; its subject is always the captured snapshot, never the live w
 ## `shore inspect`
 
 ```bash
-shore inspect [--repo <path>] [--host <addr>] [--port <n>] [--open]
+shore inspect [--repo <path>] [--host <loopback-ip>] [--port <n>] [--open] \
+  [--startup-format <human|json>]
 ```
 
 `shore inspect` starts a small local web server that visualizes the worktree's resolved store for
@@ -179,9 +180,16 @@ tracing event timelines and outcomes — the kind of inspection that is awkward 
 files or per-command output.
 
 - `--repo <path>` defaults to `.` and may point at the repository root or a subdirectory inside it.
-- `--host <addr>` defaults to `127.0.0.1` (loopback). `--port <n>` defaults to `7878`; use
-  `--port 0` to bind an ephemeral port, which is then printed.
+- `--host <loopback-ip>` defaults to `127.0.0.1`. Non-loopback binds are rejected before the
+  server attempts to listen. `--port <n>` defaults to `7878`; use `--port 0` to bind an ephemeral
+  port, which is then printed.
 - `--open` launches the inspector in the default browser after the server starts.
+- `--startup-format human` is the default and retains the four-line browser banner. Explicit
+  `--startup-format json` is the authenticated machine mode: it rejects `--open`, prints exactly
+  one compact `pointbreak.inspect-startup` v1 JSON line with the actual loopback host/port and a
+  process-local bearer, and requires requests to send the exact advertised `Host` plus
+  `Authorization: Bearer <token>`. Authentication failures return an empty `401` before route or
+  store work. The bearer is ephemeral and must not be logged or persisted.
 - The server runs until interrupted with Ctrl-C.
 
 The page provides a chronological event timeline (filterable by track, revision, thread, and
@@ -205,9 +213,12 @@ when the store changes or a freshness diagnostic appears or clears.
 The inspector is a read-only, single-store, localhost developer tool. It reads through the same
 validated projections as `shore history` and `shore revision show` rather than parsing raw
 storage, and it serves over a synchronous, dependency-free HTTP server with no async runtime. The
-small JSON API the page consumes (`/api/history`, `/api/revisions`, `/api/revisions/{id}`,
-`/api/threads`, `/api/snapshots/{id}`, `/api/freshness`) is an internal surface for the bundled page,
-not a stable contract.
+Most of the small JSON API remains an internal surface for the bundled page. Three v1 bundled-pair
+documents are compatibility-advertised by `shore version`: `/api/snapshots/{id}` returns
+`pointbreak.review-snapshot`, `/api/freshness` returns `pointbreak.inspect-freshness`, and machine
+startup emits `pointbreak.inspect-startup`. `/api/version` mirrors the exact `pointbreak.version`
+v1 document emitted by `shore version`. The remaining endpoints and inspector-private payloads are
+not promoted contracts.
 
 Every worktree of a clone resolves the shared common-dir store (`.git/shore`), so the inspector
 renders snapshots captured in sibling worktrees as well as the current one. The `/api/snapshots/{id}`

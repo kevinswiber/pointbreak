@@ -7,21 +7,83 @@
 //! a localhost developer tool, not a production server.
 
 use std::collections::{BTreeSet, HashMap};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use std::thread;
 use std::time::Duration;
+use std::{fmt, thread};
 
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use pointbreak::documents::{InspectStartupDocument, version_document};
 use pointbreak::model::EventId;
 use pointbreak::session::{
     HistoryOrder, HistoryPage, HistoryQuery, QueryDiagnosticCode, QuerySurface,
     SnapshotSummaryCache, parse_search_query_for,
 };
 
-use super::api;
+use super::{StartupFormatArg, api};
+
+const TOKEN_BYTES: usize = 32;
+const MAX_REQUEST_LINE_BYTES: usize = 8 * 1024;
+const MAX_HEADER_COUNT: usize = 64;
+const MAX_HEADER_BYTES: usize = 32 * 1024;
+
+enum InspectAuth {
+    Human,
+    Bearer {
+        canonical_host: String,
+        token: SecretToken,
+    },
+}
+
+struct SecretToken(String);
+
+impl SecretToken {
+    fn generate() -> Result<Self, getrandom::Error> {
+        let mut bytes = [0_u8; TOKEN_BYTES];
+        getrandom::fill(&mut bytes)?;
+        Ok(Self(URL_SAFE_NO_PAD.encode(bytes)))
+    }
+
+    fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for SecretToken {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("SecretToken([redacted])")
+    }
+}
+
+impl fmt::Display for SecretToken {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("[redacted]")
+    }
+}
+
+struct RequestHead {
+    method: String,
+    target: String,
+    hosts: Vec<String>,
+    authorizations: Vec<String>,
+}
+
+#[derive(Debug)]
+enum RequestParseError {
+    Io(std::io::Error),
+    BadRequest,
+    HeaderTooLarge,
+}
+
+impl From<std::io::Error> for RequestParseError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Io(error)
+    }
+}
 
 /// Shared, read-only inspector server state. Holds the resolved store path and the read-time
 /// highlight cache; cloned cheaply behind an `Arc` to every connection thread.
@@ -153,12 +215,17 @@ impl Response {
             message.as_bytes().to_vec(),
         )
     }
+
+    fn unauthorized() -> Self {
+        Self::new("401 Unauthorized", "text/plain; charset=utf-8", Vec::new())
+    }
 }
 
 pub(super) fn serve(
     addr: SocketAddr,
     repo: PathBuf,
     open: bool,
+    startup_format: StartupFormatArg,
     stdout: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener =
@@ -167,17 +234,36 @@ pub(super) fn serve(
     // is shown and opened correctly rather than `:0`.
     let bound = listener.local_addr().unwrap_or(addr);
     let url = format!("http://{bound}/");
+    let auth = Arc::new(match startup_format {
+        StartupFormatArg::Human => InspectAuth::Human,
+        StartupFormatArg::Json => InspectAuth::Bearer {
+            canonical_host: bound.to_string(),
+            token: SecretToken::generate()
+                .map_err(|error| format!("could not generate inspect bearer: {error}"))?,
+        },
+    });
 
-    writeln!(stdout, "Pointbreak Review inspector")?;
-    writeln!(stdout, "  store: {}", repo.display())?;
-    writeln!(stdout, "  url:   {url}")?;
-    writeln!(stdout, "  stop:  Ctrl-C")?;
+    match auth.as_ref() {
+        InspectAuth::Human => {
+            writeln!(stdout, "Pointbreak Review inspector")?;
+            writeln!(stdout, "  store: {}", repo.display())?;
+            writeln!(stdout, "  url:   {url}")?;
+            writeln!(stdout, "  stop:  Ctrl-C")?;
+        }
+        InspectAuth::Bearer { token, .. } => {
+            serde_json::to_writer(
+                &mut *stdout,
+                &InspectStartupDocument::new(bound.ip().to_string(), bound.port(), token.expose()),
+            )?;
+            writeln!(stdout)?;
+        }
+    }
     stdout.flush().ok();
 
     let state = Arc::new(InspectState::new(repo));
     warm_caches(Arc::clone(&state));
 
-    if open {
+    if open && matches!(auth.as_ref(), InspectAuth::Human) {
         open_browser(&url);
     }
 
@@ -185,8 +271,9 @@ pub(super) fn serve(
         match stream {
             Ok(stream) => {
                 let state = Arc::clone(&state);
+                let auth = Arc::clone(&auth);
                 thread::spawn(move || {
-                    if let Err(error) = handle_connection(stream, &state) {
+                    if let Err(error) = handle_connection(stream, &state, &auth) {
                         tracing::debug!(error = %error, "inspect_connection_error");
                     }
                 });
@@ -254,34 +341,147 @@ fn maybe_warm_revisions_cache(state: &Arc<InspectState>, commit_graph_stamp: Opt
     });
 }
 
-fn handle_connection(stream: TcpStream, state: &Arc<InspectState>) -> std::io::Result<()> {
+fn handle_connection(
+    stream: TcpStream,
+    state: &Arc<InspectState>,
+    auth: &InspectAuth,
+) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(15)))?;
     stream.set_write_timeout(Some(Duration::from_secs(30)))?;
 
     let read_half = stream.try_clone()?;
     let mut reader = BufReader::new(read_half);
 
-    let mut request_line = String::new();
-    if reader.read_line(&mut request_line)? == 0 {
-        return Ok(());
+    let request = match parse_request_head(&mut reader) {
+        Ok(Some(request)) => request,
+        Ok(None) => return Ok(()),
+        Err(RequestParseError::Io(error)) => return Err(error),
+        Err(RequestParseError::BadRequest) => {
+            return write_response(stream, &Response::text("400 Bad Request", "bad request"));
+        }
+        Err(RequestParseError::HeaderTooLarge) => {
+            return write_response(
+                stream,
+                &Response::text(
+                    "431 Request Header Fields Too Large",
+                    "request headers too large",
+                ),
+            );
+        }
+    };
+
+    if !is_authorized(auth, &request) {
+        return write_response(stream, &Response::unauthorized());
     }
 
-    // Drain request headers; we do not consume request bodies (GET-only API).
+    let (path, query) = split_target(&request.target);
+    let response = route(state, &request.method, path, query);
+    write_response(stream, &response)
+}
+
+fn parse_request_head(reader: &mut impl BufRead) -> Result<Option<RequestHead>, RequestParseError> {
+    let Some(request_line) = read_bounded_line(reader, MAX_REQUEST_LINE_BYTES)? else {
+        return Ok(None);
+    };
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().ok_or(RequestParseError::BadRequest)?;
+    let target = parts.next().ok_or(RequestParseError::BadRequest)?;
+    let protocol = parts.next().ok_or(RequestParseError::BadRequest)?;
+    if parts.next().is_some() || !protocol.starts_with("HTTP/1.") {
+        return Err(RequestParseError::BadRequest);
+    }
+
+    let mut header_count = 0_usize;
+    let mut header_bytes = 0_usize;
+    let mut hosts = Vec::new();
+    let mut authorizations = Vec::new();
     loop {
-        let mut line = String::new();
-        let read = reader.read_line(&mut line)?;
-        if read == 0 || line == "\r\n" || line == "\n" {
+        let Some(line) = read_bounded_line(reader, MAX_HEADER_BYTES)? else {
+            return Err(RequestParseError::BadRequest);
+        };
+        header_bytes = header_bytes.saturating_add(line.len());
+        if header_bytes > MAX_HEADER_BYTES {
+            return Err(RequestParseError::HeaderTooLarge);
+        }
+        if line == "\r\n" || line == "\n" {
             break;
+        }
+        header_count += 1;
+        if header_count > MAX_HEADER_COUNT {
+            return Err(RequestParseError::HeaderTooLarge);
+        }
+
+        let line = line.trim_end_matches(['\r', '\n']);
+        let (name, value) = line.split_once(':').ok_or(RequestParseError::BadRequest)?;
+        let value = value.trim_matches([' ', '\t']);
+        if name.eq_ignore_ascii_case("host") {
+            hosts.push(value.to_owned());
+        } else if name.eq_ignore_ascii_case("authorization") {
+            authorizations.push(value.to_owned());
         }
     }
 
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or_default();
-    let target = parts.next().unwrap_or("/");
-    let (path, query) = split_target(target);
+    Ok(Some(RequestHead {
+        method: method.to_owned(),
+        target: target.to_owned(),
+        hosts,
+        authorizations,
+    }))
+}
 
-    let response = route(state, method, path, query);
-    write_response(stream, &response)
+fn read_bounded_line(
+    reader: &mut impl BufRead,
+    limit: usize,
+) -> Result<Option<String>, RequestParseError> {
+    let mut bytes = Vec::new();
+    let read = reader
+        .take((limit + 1) as u64)
+        .read_until(b'\n', &mut bytes)?;
+    if read == 0 {
+        return Ok(None);
+    }
+    if bytes.len() > limit || !bytes.ends_with(b"\n") {
+        return Err(RequestParseError::HeaderTooLarge);
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|_| RequestParseError::BadRequest)
+}
+
+fn is_authorized(auth: &InspectAuth, request: &RequestHead) -> bool {
+    let InspectAuth::Bearer {
+        canonical_host,
+        token,
+    } = auth
+    else {
+        return true;
+    };
+
+    let [host] = request.hosts.as_slice() else {
+        return false;
+    };
+    let [authorization] = request.authorizations.as_slice() else {
+        return false;
+    };
+    if host != canonical_host {
+        return false;
+    }
+    let Some(presented) = authorization.strip_prefix("Bearer ") else {
+        return false;
+    };
+    secret_eq(presented.as_bytes(), token.expose().as_bytes())
+}
+
+fn secret_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right)
+        .fold(0_u8, |difference, (left, right)| {
+            difference | (left ^ right)
+        })
+        == 0
 }
 
 fn route(state: &Arc<InspectState>, method: &str, path: &str, query: Option<&str>) -> Response {
@@ -351,6 +551,9 @@ fn route(state: &Arc<InspectState>, method: &str, path: &str, query: Option<&str
             maybe_warm_revisions_cache(state, stamp.as_deref());
             api_response(api::freshness_json(repo, stamp))
         }
+        "/api/version" => api_response(
+            serde_json::to_string(&version_document()).map_err(|error| error.to_string()),
+        ),
         "/api/identity" => api_response(api::identity_json(repo)),
         "/favicon.ico" => Response::new("204 No Content", "image/x-icon", Vec::new()),
         _ => route_member(state, path, query),
@@ -535,7 +738,7 @@ fn api_response(result: Result<String, String>) -> Response {
 
 fn write_response(mut stream: TcpStream, response: &Response) -> std::io::Result<()> {
     let header = format!(
-        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n",
         response.status,
         response.content_type,
         response.body.len(),
@@ -562,6 +765,8 @@ fn open_browser(url: &str) {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::*;
 
     fn route_for(method: &str, path: &str) -> Response {
@@ -571,6 +776,62 @@ mod tests {
             "/inspect-routing-test-unused",
         )));
         route(&state, method, path, None)
+    }
+
+    fn parse(raw: impl AsRef<[u8]>) -> Result<Option<RequestHead>, RequestParseError> {
+        parse_request_head(&mut Cursor::new(raw.as_ref()))
+    }
+
+    #[test]
+    fn request_parser_collects_only_authentication_headers() {
+        let request = parse(
+            b"GET /api/version HTTP/1.1\r\nHost: 127.0.0.1:1234\r\nX-Ignored: value\r\nAuthorization: Bearer opaque\r\n\r\n",
+        )
+        .expect("valid request")
+        .expect("request head");
+
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.target, "/api/version");
+        assert_eq!(request.hosts, ["127.0.0.1:1234"]);
+        assert_eq!(request.authorizations, ["Bearer opaque"]);
+    }
+
+    #[test]
+    fn request_parser_rejects_excess_header_count() {
+        let mut raw = String::from("GET / HTTP/1.1\r\n");
+        for _ in 0..=MAX_HEADER_COUNT {
+            raw.push_str("X-Test: value\r\n");
+        }
+        raw.push_str("\r\n");
+
+        assert!(matches!(parse(raw), Err(RequestParseError::HeaderTooLarge)));
+    }
+
+    #[test]
+    fn request_parser_rejects_excess_header_bytes() {
+        let raw = format!(
+            "GET / HTTP/1.1\r\nX-Test: {}\r\n\r\n",
+            "a".repeat(MAX_HEADER_BYTES)
+        );
+
+        assert!(matches!(parse(raw), Err(RequestParseError::HeaderTooLarge)));
+    }
+
+    #[test]
+    fn request_parser_rejects_excess_request_line_bytes() {
+        let raw = format!(
+            "GET /{} HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            "a".repeat(MAX_REQUEST_LINE_BYTES)
+        );
+
+        assert!(matches!(parse(raw), Err(RequestParseError::HeaderTooLarge)));
+    }
+
+    #[test]
+    fn secret_token_debug_and_display_are_redacted() {
+        let token = SecretToken::generate().expect("generate token");
+        assert!(!format!("{token:?}").contains(token.expose()));
+        assert!(!format!("{token}").contains(token.expose()));
     }
 
     #[test]

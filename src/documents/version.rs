@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
+use super::DiagnosticDocument;
+
 pub const VERSION_SCHEMA: &str = "pointbreak.version";
 
 #[derive(Debug, Clone, Serialize)]
@@ -18,6 +20,10 @@ impl VersionBody {
             documents: super::document_registry().iter().copied().collect(),
         }
     }
+}
+
+pub fn version_document() -> DiagnosticDocument<VersionBody> {
+    DiagnosticDocument::new(VERSION_SCHEMA, VersionBody::current(), Vec::new())
 }
 
 #[cfg(test)]
@@ -38,6 +44,9 @@ mod tests {
             ("pointbreak.review-capture", 1),
             ("pointbreak.store-status", 1),
             ("pointbreak.review-revision", 2),
+            ("pointbreak.review-snapshot", 1),
+            ("pointbreak.inspect-freshness", 1),
+            ("pointbreak.inspect-startup", 1),
         ] {
             assert_eq!(
                 registry
@@ -67,18 +76,41 @@ mod tests {
     }
 
     #[test]
-    fn registry_matches_cli_document_schema_literals() {
+    fn registry_is_cli_documents_plus_the_exact_promoted_inspect_set() {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut emitted = BTreeSet::from([VERSION_SCHEMA.to_owned()]);
         collect_schema_literals(&manifest_dir.join("src/cli"), &mut emitted);
         collect_schema_literals(&manifest_dir.join("src/documents"), &mut emitted);
 
+        let cli_registered = crate::documents::cli_document_registry()
+            .iter()
+            .map(|(schema, _)| (*schema).to_owned())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(emitted, cli_registered);
+
+        let promoted = crate::documents::promoted_inspect_document_registry()
+            .iter()
+            .map(|(schema, _)| (*schema).to_owned())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            promoted,
+            BTreeSet::from([
+                "pointbreak.review-snapshot".to_owned(),
+                "pointbreak.inspect-freshness".to_owned(),
+                "pointbreak.inspect-startup".to_owned(),
+            ])
+        );
+
         let registered = crate::documents::document_registry()
             .iter()
             .map(|(schema, _)| (*schema).to_owned())
             .collect::<BTreeSet<_>>();
-
-        assert_eq!(emitted, registered);
+        assert_eq!(
+            registered,
+            cli_registered.union(&promoted).cloned().collect()
+        );
+        assert!(!registered.contains("pointbreak.inspect-attention"));
+        assert!(!registered.contains("pointbreak.inspect-identity"));
     }
 
     fn collect_schema_literals(path: &Path, schemas: &mut BTreeSet<String>) {
@@ -93,6 +125,7 @@ mod tests {
             } else if path.extension().is_some_and(|extension| extension == "rs")
                 && !path.ends_with("src/documents/mod.rs")
                 && !path.ends_with("src/documents/version.rs")
+                && !path.ends_with("src/documents/inspect.rs")
             {
                 let source = fs::read_to_string(path).unwrap();
                 for schema in schema_literals(&source) {
