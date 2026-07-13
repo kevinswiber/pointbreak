@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Pointbreak Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/extensions/vscode"],
+      "outFiles": ["${workspaceFolder}/extensions/vscode/out/**/*.js"],
+      "preLaunchTask": "build VS Code extension"
+    }
+  ]
+}

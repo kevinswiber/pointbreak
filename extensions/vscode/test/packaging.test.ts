@@ -6,3 +6,9 @@ it("excludes the package-local Git ignore file from the VSIX", () => {
 
   expect(ignored).toContain(".gitignore");
 });
+
+it("excludes debug source maps from the VSIX", () => {
+  const ignored = readFileSync(".vscodeignore", "utf8").split("\n");
+
+  expect(ignored).toContain("out/**/*.map");
+});
