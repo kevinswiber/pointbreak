@@ -410,6 +410,29 @@ mod tests {
     }
 
     #[test]
+    fn track_param_matches_explicit_tracks_only_not_the_writer_actor() {
+        // An actor-only entry no longer answers a ?track=<actor-id> scope: the record
+        // track field is the explicit track only now.
+        let mut e = entry(
+            "2026-05-13T10:00:01Z",
+            "evt:sha256:01",
+            EventType::ReviewObservationRecorded,
+            "obs",
+            "agent:codex",
+            "rev:sha256:one",
+        );
+        e.track_id = None; // writer actor becomes the only lane
+        let actor = e.writer.actor_id.as_str().to_owned();
+        let base = base_from(vec![(e, "obj:sha256:one")]);
+        let q = HistoryQuery {
+            track: Some(actor),
+            ..Default::default()
+        };
+        let out = apply_history_query(&base, &q, &HistoryPage::default());
+        assert_eq!(out.match_count, 0);
+    }
+
+    #[test]
     fn empty_query_unwindowed_equals_base_order_and_full_identity() {
         let base = base_of(5);
         let out = apply_history_query(&base, &HistoryQuery::default(), &HistoryPage::default());

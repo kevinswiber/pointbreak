@@ -135,7 +135,12 @@ export function parseSearchQueryFor(
           key: deprecatedFrom,
           message: `\`${deprecatedFrom}:\` is deprecated; use \`${field}:\``,
         });
-      clauses.push({ kind: "field", field, value, negate });
+      clauses.push({
+        kind: "field",
+        field,
+        value: canonicalizeFieldValue(field, value),
+        negate,
+      });
     } else if (KNOWN_QUERY_KEYS.includes(key)) {
       diagnostics.push({
         code: "unsupported-qualifier",
@@ -152,6 +157,23 @@ export function parseSearchQueryFor(
 /** The legacy event-surface parse — delegates, discarding diagnostics. */
 export function parseSearchQuery(q: string): QueryClause[] {
   return parseSearchQueryFor(q, "event").clauses;
+}
+
+// Canonicalize a qualifier value after alias resolution. Actor ids come in two
+// shapes: the actor: scheme or a self-certifying Ed25519 did:key. The actor:
+// qualifier accepts a scheme id with or without its prefix (actor:agent:codex ≡
+// actor:actor:agent:codex) and canonicalizes to the prefixed form the record
+// stores; a did:key value is already fully qualified and passes through
+// untouched. Mirrors search.rs `canonicalize_field_value`.
+function canonicalizeFieldValue(field: string, value: string): string {
+  if (
+    field === "actor" &&
+    value &&
+    !value.startsWith("actor:") &&
+    !value.startsWith("did:key:")
+  )
+    return `actor:${value}`;
+  return value;
 }
 
 function pushText(clauses: QueryClause[], tok: string, negate: boolean): void {

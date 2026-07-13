@@ -30,6 +30,7 @@ const CSS_LESS_ALLOWLIST: Record<string, string> = {
   "ref-evt": REF_BASE_STYLED,
   "ref-validation": REF_BASE_STYLED,
   "ref-track": REF_BASE_STYLED,
+  "ref-actor": REF_BASE_STYLED,
   // #344 promoted content ids: linkified as non-clickable chips.
   "ref-obj": REF_NONCLICKABLE_STYLED,
   "ref-engagement": REF_NONCLICKABLE_STYLED,

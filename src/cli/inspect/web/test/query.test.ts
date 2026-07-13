@@ -226,6 +226,35 @@ describe("parseSearchQueryFor (mirror of the Rust parse_search_query_for corpus)
     expect(parsed.diagnostics[0].key).toBe("attention");
   });
 
+  it("actor qualifier accepts the id with or without its prefix", () => {
+    const expected = [
+      {
+        kind: "field",
+        field: "actor",
+        value: "actor:agent:codex",
+        negate: false,
+      },
+    ];
+    expect(parseSearchQueryFor("actor:agent:codex", "event").clauses).toEqual(
+      expected,
+    );
+    expect(
+      parseSearchQueryFor("actor:actor:agent:codex", "event").clauses,
+    ).toEqual(expected);
+  });
+
+  it("actor qualifier preserves self-certifying did:key values", () => {
+    const did = "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd";
+    expect(parseSearchQueryFor(`actor:${did}`, "event").clauses).toEqual([
+      {
+        kind: "field",
+        field: "actor",
+        value: did.toLowerCase(),
+        negate: false,
+      },
+    ]);
+  });
+
   it("aliases status: per surface with a deprecation hint", () => {
     expect(parseSearchQueryFor("status:passed", "event").clauses).toEqual([
       { kind: "field", field: "check", value: "passed", negate: false },

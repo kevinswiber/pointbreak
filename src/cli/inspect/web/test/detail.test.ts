@@ -209,7 +209,7 @@ describe("renderDetail (event detail / empty prompt)", () => {
     expect(btn?.dataset.diffFocus).toBe(OBS_ID);
   });
 
-  it("derives the writer readback from the actor id, never the writer role", () => {
+  it("derives the actor readback from the writer actor id, never the writer role", () => {
     const eventId = "evt:sha256:writerrolecharacterization";
     store.commit({
       history: {
@@ -229,14 +229,14 @@ describe("renderDetail (event detail / empty prompt)", () => {
       selected: { kind: "event", id: eventId },
     });
     detail.renderDetail();
-    // The writer identity line renders the actor id; the role is never surfaced in
-    // the readback (the raw payload dump is a separate, faithful echo).
-    const writerDt = Array.from(
+    // The actor identity line renders the writer actor id; the role is never
+    // surfaced in the readback (the raw payload dump is a separate, faithful echo).
+    const actorDt = Array.from(
       document.querySelectorAll<HTMLElement>("#detail dl.kv dt"),
-    ).find((dt) => dt.textContent === "writer");
-    const writerReadback = writerDt?.nextElementSibling?.textContent ?? "";
-    expect(writerReadback).toContain("codex");
-    expect(writerReadback).not.toContain("admin");
+    ).find((dt) => dt.textContent === "actor");
+    const actorReadback = actorDt?.nextElementSibling?.textContent ?? "";
+    expect(actorReadback).toContain("codex");
+    expect(actorReadback).not.toContain("admin");
   });
 });
 

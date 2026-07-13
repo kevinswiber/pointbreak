@@ -18,7 +18,9 @@
 
 import { fetchEventIdForQuery, fetchRevealPage, revealPatch } from "./data";
 import { DIFF_ROUTE_CLEARED, openDiff } from "./diff/controller";
+import { parseSearchQueryFor } from "./query";
 import { navigate } from "./router";
+import { getState } from "./store";
 
 /** Scope the timeline to a single revision via the shareable `revision:<id>` query. */
 export function navigateToRevision(id: string): void {
@@ -35,6 +37,33 @@ export function navigateToTrack(id: string): void {
   navigate({
     lens: "timeline",
     filterTrack: id,
+    ...DIFF_ROUTE_CLEARED,
+  });
+}
+
+// The actor is a filter clause, not a scope param: appending composes with the
+// existing query, and the `?track=` scope stays reserved for explicit tracks.
+/** Append an `actor:<id>` clause to the timeline filter, preserving existing clauses. */
+export function navigateToActor(id: string): void {
+  const current = getState().filterText.trim();
+  // Mint the short form — the parser accepts the id with or without its actor:
+  // prefix and canonicalizes, so the clause need not read actor:actor:….
+  const short = id.replace(/^actor:/, "");
+  // System-minted ids can carry whitespace (actor:git-name:Kevin Swiber); quote
+  // those so the clause survives tokenization as one field token.
+  const clause = /\s/.test(short) ? `actor:"${short}"` : `actor:${short}`;
+  // A repeated click is a no-op on the query: skip the append when a positive
+  // actor clause for this id (any spelling) already filters.
+  const already = parseSearchQueryFor(current, "event").clauses.some(
+    (c) =>
+      c.kind === "field" &&
+      c.field === "actor" &&
+      c.value === id.toLowerCase() &&
+      !c.negate,
+  );
+  navigate({
+    lens: "timeline",
+    filterText: already ? current : current ? `${current} ${clause}` : clause,
     ...DIFF_ROUTE_CLEARED,
   });
 }
@@ -82,6 +111,9 @@ export async function resolveRefAsync(kind: string, id: string): Promise<void> {
       break;
     case "track":
       navigateToTrack(id);
+      break;
+    case "actor":
+      navigateToActor(id);
       break;
     case "snap":
       openDiff(id);

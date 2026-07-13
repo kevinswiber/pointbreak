@@ -175,8 +175,10 @@ describe("wired interactions drive the DOM/route through the delegates", () => {
     const detail = document.querySelector("#detail");
     if (detail)
       detail.innerHTML = `<span class="ref" role="link" data-ref-kind="rev" data-ref-id="${REV}">chip</span>`;
+    // The injected chip specifically: the timeline rows now carry actor chips of
+    // their own, so a bare [data-ref-kind] query would hit one of those first.
     document
-      .querySelector<HTMLElement>("[data-ref-kind]")
+      .querySelector<HTMLElement>("#detail [data-ref-kind]")
       ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(store.getState().selected).toEqual({ kind: "revision", id: REV });
   });

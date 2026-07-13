@@ -180,6 +180,7 @@ pub fn parse_search_query_for(query: &str, surface: QuerySurface) -> ParsedQuery
             if let Some(from) = deprecated_from {
                 diagnostics.push(QueryDiagnostic::deprecated(&from, &field));
             }
+            let value = canonicalize_field_value(&field, value);
             clauses.push(QueryClause::Field {
                 field,
                 value,
@@ -201,6 +202,24 @@ pub fn parse_search_query_for(query: &str, surface: QuerySurface) -> ParsedQuery
 /// discarding diagnostics, so existing callers keep compiling.
 pub fn parse_search_query(query: &str) -> Vec<QueryClause> {
     parse_search_query_for(query, QuerySurface::Event).clauses
+}
+
+/// Canonicalize a qualifier value after alias resolution. Actor ids come in two
+/// shapes (`is_valid_actor_id`): the `actor:` scheme or a self-certifying Ed25519
+/// `did:key`. The `actor:` qualifier accepts a scheme id with or without its
+/// prefix (`actor:agent:codex` ≡ `actor:actor:agent:codex`) and canonicalizes to
+/// the prefixed form the record stores; a `did:key` value is already fully
+/// qualified and passes through untouched. Mirrors `web/src/query.ts`.
+fn canonicalize_field_value(field: &str, value: String) -> String {
+    if field == "actor"
+        && !value.is_empty()
+        && !value.starts_with("actor:")
+        && !value.starts_with("did:key:")
+    {
+        format!("actor:{value}")
+    } else {
+        value
+    }
 }
 
 fn push_text(clauses: &mut Vec<QueryClause>, token: &str, negate: bool) {
@@ -586,13 +605,13 @@ pub(super) fn event_type_wire(entry: &ReviewHistoryEntry) -> String {
     entry.event_type.as_str().to_owned()
 }
 
-/// The lane an entry belongs to — its explicit track, else its writer's actor id
-/// (mirrors `web/src/projection.ts entryTrack`). `pub(super)` for reuse by the
-/// query path (3.1).
+/// The entry's explicit review track only — empty when the entry has none. The
+/// writer actor id is a separate slot (`entry_actor`); it is never folded into
+/// the lane. Mirrors `web/src/projection.ts entryTrack`.
 pub(super) fn entry_track(entry: &ReviewHistoryEntry) -> String {
     match &entry.track_id {
         Some(track) if !track.as_str().is_empty() => track.as_str().to_owned(),
-        _ => entry.writer.actor_id.as_str().to_owned(),
+        _ => String::new(),
     }
 }
 
@@ -1008,10 +1027,19 @@ mod tests {
 
     #[test]
     fn entry_actor_returns_the_writer_actor_id() {
-        // The actor gets its own slot at the record layer. (entry_track's fold is
-        // untouched here; a later change removes it.)
+        // The actor gets its own slot at the record layer.
         let entry = observation_entry_with_body_tags("t", "b", &[]);
         assert_eq!(entry_actor(&entry), "actor:local"); // Writer::shore_local -> "actor:local"
+    }
+
+    #[test]
+    fn entry_track_returns_the_explicit_track_only() {
+        // The lane no longer folds the writer actor: no track means an empty lane,
+        // and the actor is reachable through its own slot.
+        let mut entry = observation_entry_with_body_tags("t", "b", &[]);
+        entry.track_id = None;
+        assert_eq!(entry_track(&entry), "");
+        assert_eq!(entry_actor(&entry), "actor:local");
     }
 
     #[test]
@@ -1181,6 +1209,56 @@ mod tests {
                 .iter()
                 .any(|d| d.code == QueryDiagnosticCode::DeprecatedQualifier)
         );
+    }
+
+    #[test]
+    fn actor_qualifier_accepts_the_id_with_or_without_its_prefix() {
+        // Actor ids always carry the `actor:` prefix, so the qualifier value
+        // canonicalizes a prefix-less spelling instead of forcing `actor:actor:…`.
+        let expected = vec![QueryClause::Field {
+            field: "actor".into(),
+            value: "actor:agent:codex".into(),
+            negate: false,
+        }];
+        let short = parse_search_query_for("actor:agent:codex", QuerySurface::Event);
+        let full = parse_search_query_for("actor:actor:agent:codex", QuerySurface::Event);
+        assert_eq!(short.clauses, expected);
+        assert_eq!(full.clauses, expected);
+
+        // Both spellings reach a real record.
+        let entry = observation_entry_with_body_tags("t", "b", &[]);
+        let record = SearchRecord::from_entry(&entry, "", &EventRecordExtras::default());
+        assert!(matches_query(
+            &record,
+            &parse_search_query("actor:actor:local")
+        ));
+        assert!(matches_query(&record, &parse_search_query("actor:local")));
+    }
+
+    #[test]
+    fn actor_qualifier_preserves_self_certifying_did_key_values() {
+        // Actor ids are either actor:-scheme or a bare Ed25519 did:key
+        // (is_valid_actor_id); a did:key value is already fully qualified and
+        // must not be rewritten to actor:did:key:….
+        let did = "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd";
+        let parsed = parse_search_query_for(&format!("actor:{did}"), QuerySurface::Event);
+        assert_eq!(
+            parsed.clauses,
+            vec![QueryClause::Field {
+                field: "actor".into(),
+                value: did.to_lowercase(),
+                negate: false,
+            }],
+        );
+
+        // End-to-end: the clause reaches a record whose writer id is the did:key.
+        let mut entry = observation_entry_with_body_tags("t", "b", &[]);
+        entry.writer.actor_id = crate::model::ActorId::new(did);
+        let record = SearchRecord::from_entry(&entry, "", &EventRecordExtras::default());
+        assert!(matches_query(
+            &record,
+            &parse_search_query(&format!("actor:{did}"))
+        ));
     }
 
     #[test]

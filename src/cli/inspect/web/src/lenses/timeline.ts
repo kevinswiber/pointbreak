@@ -27,6 +27,7 @@ import {
   supersessionStaleBadge,
 } from "../model";
 import {
+  entryActor,
   entryAnchor,
   entryRevisionId,
   entryTags,
@@ -34,7 +35,7 @@ import {
   entryTrack,
   verificationChip,
 } from "../projection";
-import { linkify, shortId } from "../refs";
+import { actorChip, linkify, shortId } from "../refs";
 import { getState, type State } from "../store";
 import type { HistoryEntry } from "../types";
 import { typeColor, typeLabel } from "../types";
@@ -218,6 +219,7 @@ function eventRow(e: HistoryEntry, selected: string | null): HTMLLIElement {
         <span class="${CLASS.meta}">
           <span class="${CLASS.type}" style="color:${typeColor(e.eventType)}">${escapeHtml(typeLabel(e.eventType))}</span>
           ${entryTrack(e) ? `<span>${escapeHtml(entryTrack(e))}</span>` : ""}
+          ${entryActor(e) ? actorChip(entryActor(e), { tabIndex: -1 }) : ""}
           ${revisionId ? `<span>revision ${escapeHtml(shortId(revisionId))}</span>` : ""}
           ${entryAnchor(e) ? `<span>${escapeHtml(entryAnchor(e))}</span>` : ""}
           ${verificationChip(e.verificationStatus ?? "")}

@@ -53,9 +53,15 @@ export interface AttentionToken {
 
 // The typed, type-specific detail of an entry lives in the top-level `summary`
 // object; `trackId` is also top-level. `subject` only carries the target ref.
-/** The lane an entry belongs to: its explicit track, else its writer's actor id. */
+/** The lane an entry belongs to: its explicit track only ("" when absent) — the
+ *  writer actor is a separate slot now (`entryActor`). */
 export function entryTrack(e: HistoryEntry): string {
-  return e.trackId || e.writer?.actorId || "";
+  return e.trackId || "";
+}
+
+/** The writer actor id an entry carries, the actor slot split out of `track`. */
+export function entryActor(e: HistoryEntry): string {
+  return e.writer?.actorId || "";
 }
 
 // The revision a history entry addresses, read through its subject (every review
@@ -66,8 +72,8 @@ export function entryRevisionId(e: HistoryEntry): string {
 }
 
 // The human label derived client-side from the structured principal object
-// (ADR-0010 structured-first). Null unless the agent's principal resolved. The
-// lane fallback in entryTrack deliberately never reads e.principal.
+// (ADR-0010 structured-first). Null unless the agent's principal resolved.
+// entryTrack/entryActor deliberately never read e.principal.
 /** `<agent> (for <principal>)` for a resolved principal, else null. */
 export function principalLabel(e: HistoryEntry): string | null {
   const principal = e.principal;

@@ -8,6 +8,7 @@ import {
   endorsementRow,
   endorsementsBlock,
   endorserDisplay,
+  entryActor,
   entryAnchor,
   entryRevisionId,
   entryTags,
@@ -48,10 +49,8 @@ describe("entryTrack", () => {
     );
   });
 
-  it("falls back to the writer actor id when there is no trackId", () => {
-    expect(entryTrack(entryOfType("work_object_proposed"))).toBe(
-      "actor:git-email:shore-tests@example.com",
-    );
+  it("returns empty when there is no explicit trackId (the actor is no longer folded)", () => {
+    expect(entryTrack(entryOfType("work_object_proposed"))).toBe("");
   });
 
   it("never reads the resolved principal — the lane fallback stays raw", () => {
@@ -60,6 +59,20 @@ describe("entryTrack", () => {
       principal: { status: "resolved", actorId: "actor:git-email:p@b.com" },
     };
     expect(entryTrack(entry)).toBe("");
+  });
+});
+
+describe("entryActor", () => {
+  it("returns the writer actor id", () => {
+    expect(entryActor(entryOfType("work_object_proposed"))).toBe(
+      "actor:git-email:shore-tests@example.com",
+    );
+  });
+
+  it("reads the writer actor even when an explicit track is present", () => {
+    expect(entryActor(entryOfType("review_observation_recorded"))).toBe(
+      entryOfType("review_observation_recorded").writer?.actorId ?? "",
+    );
   });
 });
 

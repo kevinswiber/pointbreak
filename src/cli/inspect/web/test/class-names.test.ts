@@ -199,6 +199,7 @@ describe("dynamic-family vocabulary arrays (derived from their producers)", () =
       "hash",
       "commit",
       "track",
+      "actor",
     ]);
   });
 

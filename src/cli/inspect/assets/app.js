@@ -253,7 +253,8 @@
     ...REF_ID_PREFIXES,
     "hash",
     "commit",
-    "track"
+    "track",
+    "actor"
   ];
   var annoContainerClass = /* @__PURE__ */ __name((kind) => `anno anno-${kind}`, "annoContainerClass");
   var annoKindClass = /* @__PURE__ */ __name((kind) => `anno-kind anno-kind-${kind}`, "annoKindClass");
@@ -565,7 +566,12 @@
             key: deprecatedFrom,
             message: `\`${deprecatedFrom}:\` is deprecated; use \`${field}:\``
           });
-        clauses.push({ kind: "field", field, value, negate });
+        clauses.push({
+          kind: "field",
+          field,
+          value: canonicalizeFieldValue(field, value),
+          negate
+        });
       } else if (KNOWN_QUERY_KEYS.includes(key)) {
         diagnostics.push({
           code: "unsupported-qualifier",
@@ -579,6 +585,12 @@
     return { clauses, diagnostics };
   }
   __name(parseSearchQueryFor, "parseSearchQueryFor");
+  function canonicalizeFieldValue(field, value) {
+    if (field === "actor" && value && !value.startsWith("actor:") && !value.startsWith("did:key:"))
+      return `actor:${value}`;
+    return value;
+  }
+  __name(canonicalizeFieldValue, "canonicalizeFieldValue");
   function pushText(clauses, tok, negate) {
     const term = tok.replace(/^"|"$/g, "").toLowerCase();
     if (term) clauses.push({ kind: "text", value: term, negate });
@@ -738,6 +750,13 @@
     return linkifyEscaped(escapeHtml(String(text ?? "")), opts);
   }
   __name(linkify, "linkify");
+  function actorChip(actorId, opts = {}) {
+    if (!actorId) return "";
+    const tabIndex = typeof opts === "object" ? opts.tabIndex ?? 0 : opts;
+    const display = escapeHtml(`actor ${shortId(actorId)}`);
+    return `<span class="${refClass("actor")}" role="link" tabindex="${tabIndex}" data-ref-kind="actor" data-ref-id="${escapeHtml(actorId)}" title="filter to ${escapeHtml(actorId)}">${display}</span>`;
+  }
+  __name(actorChip, "actorChip");
   function isMarkdownContentType(contentType) {
     return contentType === "text/markdown";
   }
@@ -752,9 +771,13 @@
 
   // src/projection.ts
   function entryTrack(e) {
-    return e.trackId || e.writer?.actorId || "";
+    return e.trackId || "";
   }
   __name(entryTrack, "entryTrack");
+  function entryActor(e) {
+    return e.writer?.actorId || "";
+  }
+  __name(entryActor, "entryActor");
   function entryRevisionId(e) {
     return e.subject?.revisionId || "";
   }
@@ -3246,7 +3269,7 @@
       ["payloadHash", e.payloadHash ?? ""],
       ["revision", revisionId || "—"],
       ["track", entryTrack(e) || "—"],
-      ["writer", principalLabel(e) || (e.writer ? e.writer.actorId || "—" : "—")]
+      ["actor", principalLabel(e) || entryActor(e) || "—"]
     ];
     const snapshotId = revisionId ? snapshotIdForRevision(revisionId) : "";
     const s = e.summary ?? {};
@@ -3790,6 +3813,7 @@
         <span class="${CLASS.meta}">
           <span class="${CLASS.type}" style="color:${typeColor(e.eventType)}">${escapeHtml(typeLabel(e.eventType))}</span>
           ${entryTrack(e) ? `<span>${escapeHtml(entryTrack(e))}</span>` : ""}
+          ${entryActor(e) ? actorChip(entryActor(e), { tabIndex: -1 }) : ""}
           ${revisionId ? `<span>revision ${escapeHtml(shortId(revisionId))}</span>` : ""}
           ${entryAnchor(e) ? `<span>${escapeHtml(entryAnchor(e))}</span>` : ""}
           ${verificationChip(e.verificationStatus ?? "")}
@@ -3880,6 +3904,20 @@
     });
   }
   __name(navigateToTrack, "navigateToTrack");
+  function navigateToActor(id) {
+    const current = getState().filterText.trim();
+    const short = id.replace(/^actor:/, "");
+    const clause = /\s/.test(short) ? `actor:"${short}"` : `actor:${short}`;
+    const already = parseSearchQueryFor(current, "event").clauses.some(
+      (c) => c.kind === "field" && c.field === "actor" && c.value === id.toLowerCase() && !c.negate
+    );
+    navigate({
+      lens: "timeline",
+      filterText: already ? current : current ? `${current} ${clause}` : clause,
+      ...DIFF_ROUTE_CLEARED
+    });
+  }
+  __name(navigateToActor, "navigateToActor");
   async function revealEvent(eventId) {
     const page = await fetchRevealPage(eventId);
     if (!page?.present) return;
@@ -3908,6 +3946,9 @@
         break;
       case "track":
         navigateToTrack(id);
+        break;
+      case "actor":
+        navigateToActor(id);
         break;
       case "snap":
         openDiff(id);

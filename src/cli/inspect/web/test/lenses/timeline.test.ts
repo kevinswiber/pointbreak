@@ -136,6 +136,16 @@ describe("renderTimeline", () => {
     expect(chip?.getAttribute("tabindex")).toBe("-1");
   });
 
+  it("renders a clickable actor chip in each row", () => {
+    store.commit({ history: historyJson as unknown as HistoryDoc });
+    timeline.renderTimeline();
+    const actorChips = document.querySelectorAll<HTMLElement>(
+      '#timeline [data-ref-kind="actor"]',
+    );
+    expect(actorChips.length).toBeGreaterThan(0);
+    expect(actorChips[0].dataset.refId ?? "").not.toBe("");
+  });
+
   it("keeps supersession badge refs out of the sequential timeline tab order", () => {
     const head =
       "rev:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

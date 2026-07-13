@@ -127,6 +127,7 @@ describe("REF_RE derivation", () => {
       "hash",
       "commit",
       "track",
+      "actor",
     ]);
   });
 

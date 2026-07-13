@@ -62,6 +62,7 @@ import {
 import {
   assessmentDisplayLabel,
   endorsementsBlock,
+  entryActor,
   entryRevisionId,
   entryTitle,
   entryTrack,
@@ -535,7 +536,7 @@ export function renderDetail(): void {
     ["payloadHash", e.payloadHash ?? ""],
     ["revision", revisionId || "—"],
     ["track", entryTrack(e) || "—"],
-    ["writer", principalLabel(e) || (e.writer ? e.writer.actorId || "—" : "—")],
+    ["actor", principalLabel(e) || entryActor(e) || "—"],
   ];
   const snapshotId = revisionId ? snapshotIdForRevision(revisionId) : "";
   const s = e.summary ?? {};

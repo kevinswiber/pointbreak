@@ -136,6 +136,20 @@ export function linkify(
   return linkifyEscaped(escapeHtml(String(text ?? "")), opts);
 }
 
+// The actor chip is emitted explicitly by its render sites (`refInfo`/`REF_RE`
+// do not auto-linkify `actor:` tokens in free text); clicking it appends an
+// `actor:<id>` filter clause rather than setting a scope param.
+/** A clickable "actor <id>" chip; clicking it appends an actor:<id> filter clause. */
+export function actorChip(
+  actorId: string,
+  opts: LinkifyOptions | number = {},
+): string {
+  if (!actorId) return "";
+  const tabIndex = typeof opts === "object" ? (opts.tabIndex ?? 0) : opts;
+  const display = escapeHtml(`actor ${shortId(actorId)}`);
+  return `<span class="${refClass("actor")}" role="link" tabindex="${tabIndex}" data-ref-kind="actor" data-ref-id="${escapeHtml(actorId)}" title="filter to ${escapeHtml(actorId)}">${display}</span>`;
+}
+
 /** Whether a body content type selects markdown rendering. */
 export function isMarkdownContentType(
   contentType: string | undefined,

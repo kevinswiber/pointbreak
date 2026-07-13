@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { parseSearchQueryFor } from "../src/query";
 import type { HistoryDoc, RevisionsDoc } from "../src/store";
 import historyJson from "./fixtures/history.json";
 import revisionsJson from "./fixtures/revisions.json";
@@ -85,6 +86,58 @@ describe("resolveRef routes a chip by kind", () => {
     navigation.resolveRef("track", "agent:codex");
     expect(store.getState().lens).toBe("timeline");
     expect(store.getState().filterTrack).toBe("agent:codex");
+  });
+
+  it("an actor chip appends an actor:<id> clause and never sets the track scope", () => {
+    store.commit({ filterText: "type:observation", filterTrack: "" });
+    navigation.resolveRef("actor", "actor:agent:codex-loop");
+    const s = store.getState();
+    // The clause mints the short form (the actor: id prefix is not repeated);
+    // the parser canonicalizes either spelling.
+    expect(s.filterText).toBe("type:observation actor:agent:codex-loop");
+    expect(s.filterTrack).toBe(""); // never a ?track= scope
+    expect(s.lens).toBe("timeline");
+  });
+
+  it("quotes a whitespace-bearing actor id so the clause survives tokenization", () => {
+    store.commit({ filterText: "", filterTrack: "" });
+    navigation.resolveRef("actor", "actor:git-name:Kevin Swiber");
+    const s = store.getState();
+    expect(s.filterText).toBe('actor:"git-name:Kevin Swiber"');
+    // The grammar round-trip: one actor clause carrying the whole id, no free-text spill.
+    const parsed = parseSearchQueryFor(s.filterText, "event");
+    expect(parsed.clauses).toEqual([
+      {
+        kind: "field",
+        field: "actor",
+        value: "actor:git-name:kevin swiber",
+        negate: false,
+      },
+    ]);
+  });
+
+  it("a repeated actor chip click does not duplicate the clause", () => {
+    store.commit({ filterText: "", filterTrack: "" });
+    navigation.resolveRef("actor", "actor:agent:codex-loop");
+    navigation.resolveRef("actor", "actor:agent:codex-loop");
+    expect(store.getState().filterText).toBe("actor:agent:codex-loop");
+  });
+
+  it("a repeated did:key actor chip click does not duplicate the clause", () => {
+    const did = "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd";
+    store.commit({ filterText: "", filterTrack: "" });
+    navigation.resolveRef("actor", did);
+    navigation.resolveRef("actor", did);
+    expect(store.getState().filterText).toBe(`actor:${did}`);
+  });
+
+  it("an actor chip click recognizes a hand-typed full-prefix clause as already filtering", () => {
+    store.commit({
+      filterText: "actor:actor:agent:codex-loop",
+      filterTrack: "",
+    });
+    navigation.resolveRef("actor", "actor:agent:codex-loop");
+    expect(store.getState().filterText).toBe("actor:actor:agent:codex-loop");
   });
 
   it("a snap chip opens the diff overlay route", () => {

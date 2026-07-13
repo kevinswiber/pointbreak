@@ -292,6 +292,7 @@ export const REF_KINDS = [
   "hash",
   "commit",
   "track",
+  "actor",
 ] as const;
 
 export type AnnoKind = (typeof ANNO_KINDS)[number];
