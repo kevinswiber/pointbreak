@@ -139,9 +139,9 @@ extension-install:
 extension-check:
     cd extensions/vscode && npm run check
 
-# Bundled-binary packaging is introduced separately.
+# Build a host-only VSIX with its matching shore binary for local dogfood.
 extension-package:
-    @echo "extension packaging is not available yet"
+    node extensions/vscode/scripts/package-local.mjs
 
 # Install the inspector front-end dev toolchain (Node) from the committed lockfile.
 web-install:

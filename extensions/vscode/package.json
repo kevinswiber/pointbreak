@@ -16,8 +16,47 @@
   },
   "extensionKind": ["workspace"],
   "main": "./out/extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "onView:pointbreak.attention",
+    "onCommand:pointbreak.refreshAttention",
+    "onCommand:pointbreak.capture",
+    "onCommand:pointbreak.openInReview"
+  ],
   "contributes": {
+    "commands": [
+      {
+        "command": "pointbreak.refreshAttention",
+        "title": "Refresh Review",
+        "category": "Pointbreak"
+      },
+      {
+        "command": "pointbreak.capture",
+        "title": "Capture Current Work",
+        "category": "Pointbreak"
+      },
+      {
+        "command": "pointbreak.openInReview",
+        "title": "Open in Review",
+        "category": "Pointbreak"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "pointbreak",
+          "title": "Pointbreak",
+          "icon": "$(pulse)"
+        }
+      ]
+    },
+    "views": {
+      "pointbreak": [
+        {
+          "id": "pointbreak.attention",
+          "name": "Review"
+        }
+      ]
+    },
     "configuration": {
       "title": "Pointbreak",
       "properties": {
@@ -30,6 +69,11 @@
           "type": "boolean",
           "default": false,
           "description": "Resolve the shore CLI from PATH instead of the bundled binary."
+        },
+        "pointbreak.reviewUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:7878",
+          "description": "URL of the local Pointbreak Review server."
         }
       }
     }

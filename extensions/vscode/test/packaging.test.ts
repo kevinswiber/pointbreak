@@ -12,3 +12,9 @@ it("excludes debug source maps from the VSIX", () => {
 
   expect(ignored).toContain("out/**/*.map");
 });
+
+it("excludes development-only packaging scripts from the VSIX", () => {
+  const ignored = readFileSync(".vscodeignore", "utf8").split("\n");
+
+  expect(ignored).toContain("scripts/**");
+});

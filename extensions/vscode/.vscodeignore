@@ -4,6 +4,7 @@ biome.json
 build.mjs
 src/**
 test/**
+scripts/**
 tsconfig.json
 node_modules/**
 out/**/*.map
