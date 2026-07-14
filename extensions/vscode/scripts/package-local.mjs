@@ -1,12 +1,12 @@
+import { spawnSync } from "node:child_process";
 import {
   copyFileSync,
   mkdirSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
 } from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -27,6 +27,7 @@ const executable = process.platform === "win32" ? "shore.exe" : "shore";
 const sourceBinary = path.join(repoRoot, "target", "release", executable);
 const bundledRelative = `bin/${hostLabel}/${executable}`;
 const bundledBinary = path.join(extensionRoot, bundledRelative);
+const runtimeFiles = ["out/extension.js", "out/review.js", "out/review.css"];
 
 run("cargo", ["build", "--release", "--bin", "shore"], repoRoot);
 mkdirSync(path.dirname(bundledBinary), { recursive: true });
@@ -63,14 +64,7 @@ function assertListedFiles(binary) {
   );
   assertExactFiles(
     result.stdout.split(/\r?\n/).filter(Boolean),
-    [
-      "package.json",
-      "README.md",
-      "LICENSE",
-      "NOTICE",
-      "out/extension.js",
-      binary,
-    ],
+    ["package.json", "README.md", "LICENSE", "NOTICE", ...runtimeFiles, binary],
     "vsce ls",
   );
 }
@@ -87,7 +81,7 @@ function assertArchiveFiles(artifact, binary) {
       "readme.md",
       "LICENSE.txt",
       "NOTICE",
-      "out/extension.js",
+      ...runtimeFiles,
       binary,
     ],
     "VSIX archive",

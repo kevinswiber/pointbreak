@@ -91,7 +91,7 @@
     "test": "vitest run",
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
-    "check": "npm run format-check && npm run typecheck && npm run test"
+    "check": "npm run format-check && npm run typecheck && npm run test && npm run build"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.1",

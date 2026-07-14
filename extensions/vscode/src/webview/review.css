@@ -1,0 +1,493 @@
+:root {
+  color-scheme: light dark;
+  --bg: var(--vscode-editor-background);
+  --bg-elev: var(--vscode-editorWidget-background, var(--bg));
+  --bg-row: var(--vscode-list-hoverBackground, transparent);
+  --fg: var(--vscode-editor-foreground);
+  --fg-dim: var(--vscode-descriptionForeground, var(--fg));
+  --border: var(--vscode-editorWidget-border, var(--vscode-panel-border));
+  --accent: var(--vscode-focusBorder);
+  --success: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+  --success-deep: var(
+    --vscode-gitDecoration-addedResourceForeground,
+    var(--success)
+  );
+  --danger: var(--vscode-testing-iconFailed, var(--vscode-errorForeground));
+  --warning: var(
+    --vscode-editorWarning-foreground,
+    var(--vscode-charts-yellow)
+  );
+  --info: var(--vscode-editorInfo-foreground, var(--vscode-charts-blue));
+  --assess: var(--vscode-charts-purple, var(--accent));
+  --validation: var(--vscode-charts-blue, var(--info));
+  --hunk-bg: var(--vscode-diffEditor-unchangedRegionBackground, var(--bg-row));
+  --diff-add-bg: var(--vscode-diffEditor-insertedLineBackground, var(--bg-row));
+  --diff-add-fg: var(--vscode-editor-foreground);
+  --diff-del-bg: var(--vscode-diffEditor-removedLineBackground, var(--bg-row));
+  --diff-del-fg: var(--vscode-editor-foreground);
+  --emph-add-bg: var(
+    --vscode-diffEditor-insertedTextBackground,
+    var(--diff-add-bg)
+  );
+  --emph-del-bg: var(
+    --vscode-diffEditor-removedTextBackground,
+    var(--diff-del-bg)
+  );
+  --tok-keyword: var(--vscode-symbolIcon-keywordForeground, var(--fg));
+  --tok-string: var(--vscode-symbolIcon-stringForeground, var(--fg));
+  --tok-comment: var(--vscode-descriptionForeground, var(--fg));
+  --tok-number: var(--vscode-symbolIcon-numberForeground, var(--fg));
+  --tok-type: var(--vscode-symbolIcon-classForeground, var(--fg));
+  --tok-function: var(--vscode-symbolIcon-functionForeground, var(--fg));
+  --tok-constant: var(--vscode-symbolIcon-constantForeground, var(--fg));
+  --tok-operator: var(--vscode-symbolIcon-operatorForeground, var(--fg));
+  --tok-punctuation: var(--vscode-symbolIcon-operatorForeground, var(--fg));
+  --tok-variable: var(--vscode-symbolIcon-variableForeground, var(--fg));
+  --mono: var(--vscode-editor-font-family, monospace);
+  --sans: var(--vscode-font-family, sans-serif);
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --line: 1.45;
+  --r-sm: 3px;
+  --r-md: 5px;
+  --r-lg: 7px;
+}
+
+body.vscode-light {
+  color-scheme: light;
+}
+
+body.vscode-dark {
+  color-scheme: dark;
+}
+
+body.vscode-high-contrast,
+body.vscode-high-contrast-light {
+  --border: var(--vscode-contrastBorder, var(--vscode-focusBorder));
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--vscode-font-size, 13px) / var(--line) var(--sans);
+}
+
+#review-root {
+  padding: 12px 14px;
+}
+
+.empty,
+.anno-summary {
+  color: var(--fg-dim);
+  font-size: var(--fs-sm);
+}
+
+.anno-summary,
+.anno-group {
+  margin-bottom: 10px;
+}
+
+.dfile {
+  margin-bottom: 18px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+.dfile-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+}
+
+.dfile-head::before {
+  width: 0.8em;
+  color: var(--fg-dim);
+  font-size: var(--fs-xs);
+  content: "▸";
+}
+
+.dfile[data-expanded="true"] > .dfile-head::before {
+  content: "▾";
+}
+
+.dfile[data-expanded="false"] > .dfile-head {
+  border-bottom: 0;
+}
+
+.dfile[data-expanded="false"] > .dfile-body {
+  display: none;
+}
+
+.dfile-head:hover,
+.dfile-summary,
+.dstatus,
+.badge,
+.anno-kind,
+.markdown-body code {
+  background: var(--bg-row);
+}
+
+.dfile-head:focus-visible,
+.drow-noted:focus-visible,
+.diff-nav-file:focus-visible,
+.diff-nav-fact:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.dfile-lowsignal > .dfile-head {
+  background: var(--bg);
+}
+
+.dfile-summary,
+.dstatus,
+.dfile-notes,
+.anno-track,
+.anno-loc {
+  color: var(--fg-dim);
+}
+
+.dpath,
+.dstatus,
+.dfile-summary,
+.dfile-notes,
+.anno-track,
+.anno-loc,
+.badge {
+  font-family: var(--mono);
+}
+
+.dpath {
+  font-size: var(--fs-md);
+}
+
+.dfile-lowsignal .dpath {
+  color: var(--fg-dim);
+}
+
+.dstatus,
+.dfile-summary,
+.dfile-notes,
+.anno-track,
+.anno-loc,
+.badge {
+  font-size: var(--fs-xs);
+}
+
+.dstatus,
+.dfile-summary,
+.badge {
+  padding: 1px 7px;
+  border-radius: var(--r-sm);
+}
+
+.dstatus {
+  text-transform: lowercase;
+}
+
+.dfile-notes {
+  margin-left: auto;
+}
+
+.s-added,
+.anno-kind-observation {
+  color: var(--success);
+}
+
+.s-deleted {
+  color: var(--danger);
+}
+
+.s-renamed,
+.s-copied,
+.anno-kind-input-request {
+  color: var(--warning);
+}
+
+.s-modified {
+  color: var(--info);
+}
+
+.dhunk {
+  padding: 3px 12px;
+  color: var(--info);
+  font: var(--fs-sm) / var(--line) var(--mono);
+  background: var(--hunk-bg);
+  border-top: 1px solid var(--border);
+}
+
+.drow {
+  display: grid;
+  grid-template-columns: 52px 52px 16px 1fr;
+  font: var(--fs-sm) / 1.5 var(--mono);
+}
+
+.drow .ln {
+  padding-right: 8px;
+  color: var(--fg-dim);
+  text-align: right;
+  user-select: none;
+}
+
+.drow .sign {
+  text-align: center;
+  user-select: none;
+}
+
+.drow .dtext {
+  padding-right: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.drow-added {
+  background: var(--diff-add-bg);
+}
+
+.drow-added .sign,
+.drow-added .dtext {
+  color: var(--diff-add-fg);
+}
+
+.drow-removed {
+  background: var(--diff-del-bg);
+}
+
+.drow-removed .sign,
+.drow-removed .dtext {
+  color: var(--diff-del-fg);
+}
+
+.drow-context .dtext {
+  color: var(--fg-dim);
+}
+
+.tok {
+  color: inherit;
+}
+
+.tok-keyword {
+  color: var(--tok-keyword);
+}
+
+.tok-string {
+  color: var(--tok-string);
+}
+
+.tok-comment {
+  color: var(--tok-comment);
+  font-style: italic;
+}
+
+.tok-number {
+  color: var(--tok-number);
+}
+
+.tok-type {
+  color: var(--tok-type);
+}
+
+.tok-function {
+  color: var(--tok-function);
+}
+
+.tok-constant {
+  color: var(--tok-constant);
+}
+
+.tok-operator {
+  color: var(--tok-operator);
+}
+
+.tok-punctuation {
+  color: var(--tok-punctuation);
+}
+
+.tok-variable {
+  color: var(--tok-variable);
+}
+
+.emph {
+  border-radius: 2px;
+}
+
+.drow-added .emph {
+  background: var(--emph-add-bg);
+}
+
+.drow-removed .emph {
+  background: var(--emph-del-bg);
+}
+
+.drow-meta {
+  grid-template-columns: 1fr;
+  padding: 4px 12px;
+  color: var(--fg-dim);
+  font-style: italic;
+}
+
+.drow-noted {
+  cursor: pointer;
+  box-shadow: inset 3px 0 0 var(--success);
+}
+
+.anno {
+  margin: 2px 0 6px 52px;
+  padding: 6px 10px;
+  background: var(--bg-elev);
+  border-left: 3px solid var(--border);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+}
+
+.anno-observation {
+  border-left-color: var(--success-deep);
+}
+
+.anno-input-request {
+  border-left-color: var(--warning);
+}
+
+.anno-assessment {
+  border-left-color: var(--assess);
+}
+
+.anno-validation {
+  border-left-color: var(--validation);
+}
+
+.anno-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--fs-sm);
+}
+
+.anno-kind {
+  padding: 1px 6px;
+  color: var(--fg-dim);
+  font: 10px / var(--line) var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: var(--r-sm);
+}
+
+.anno-kind-assessment {
+  color: var(--assess);
+}
+
+.anno-kind-validation {
+  color: var(--validation);
+}
+
+.anno-title {
+  font-weight: 500;
+}
+
+.anno-body {
+  margin-top: 4px;
+  color: var(--fg);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.markdown-body {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.markdown-body :where(p, ul, ol, pre) {
+  margin: 6px 0 0;
+}
+
+.markdown-body :where(h1, h2, h3, h4, h5, h6) {
+  margin: 8px 0 4px;
+  font-size: var(--fs-md);
+  line-height: 1.25;
+}
+
+.markdown-body :where(ul, ol) {
+  padding-left: 20px;
+}
+
+.markdown-body code {
+  padding: 0 3px;
+  font: var(--fs-xs) / var(--line) var(--mono);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+
+.markdown-body pre {
+  padding: 8px;
+  overflow-x: auto;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.markdown-body pre code {
+  display: block;
+  padding: 0;
+  white-space: pre;
+  background: transparent;
+  border: 0;
+}
+
+.markdown-body a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+.diff-fact-vicinity {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-row);
+  border-top: 1px solid var(--border);
+}
+
+.diff-fact-vicinity p {
+  margin: 0;
+  color: var(--fg-dim);
+  font-size: var(--fs-sm);
+}
+
+.diff-fact-vicinity button {
+  justify-self: start;
+  padding: 4px 8px;
+  color: var(--fg);
+  font: var(--fs-xs) / var(--line) var(--mono);
+  cursor: pointer;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.diff-fact-vicinity button:hover {
+  border-color: var(--accent);
+}
+
+body.vscode-high-contrast .dfile,
+body.vscode-high-contrast .anno,
+body.vscode-high-contrast-light .dfile,
+body.vscode-high-contrast-light .anno {
+  border-width: 2px;
+}
