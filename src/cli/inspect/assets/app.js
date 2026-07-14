@@ -6723,9 +6723,13 @@ click to open the revision page">
     });
   }
   __name(wireToolbar, "wireToolbar");
-  function main() {
+  function main(options = {}) {
     stopPolling();
-    bootstrapCapability();
+    const capability = bootstrapCapability();
+    if (capability.token !== null) {
+      (options.reload ?? (() => location.reload()))();
+      return Promise.resolve();
+    }
     applyPrefs();
     unsubscribers.push(subscribe(render));
     unsubscribers.push(subscribe(maybeReloadForQuery));

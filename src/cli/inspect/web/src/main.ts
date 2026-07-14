@@ -149,9 +149,15 @@ function wireToolbar(): void {
  * delegates, then run the load tail (apply the route, flip the freshness status, and
  * start the poll). Returns the load chain for deterministic test await.
  */
-export function main(): Promise<void> {
+export function main(
+  options: { readonly reload?: () => void } = {},
+): Promise<void> {
   stopPolling();
-  bootstrapCapability();
+  const capability = bootstrapCapability();
+  if (capability.token !== null) {
+    (options.reload ?? (() => location.reload()))();
+    return Promise.resolve();
+  }
   applyPrefs();
   unsubscribers.push(subscribe(render));
   // Subscribed after render so the query watcher observes render's type-toggle

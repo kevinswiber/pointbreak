@@ -65,7 +65,7 @@ afterEach(() => {
 });
 
 describe("first paint + bootstrap tail", () => {
-  it("scrubs the capability before routing and attaches it to every API request", async () => {
+  it("enters a clean document before routing or making API requests", async () => {
     const token = "bootstrap_secret_0123456789";
     history.replaceState(
       { safe: true },
@@ -73,6 +73,7 @@ describe("first paint + bootstrap tail", () => {
       `/#/attention?types=observation&token=${token}`,
     );
     const inner = globalThis.fetch;
+    const reload = vi.fn();
     let requests = 0;
     let cleanBeforeFetch = true;
     let authorized = true;
@@ -84,10 +85,19 @@ describe("first paint + bootstrap tail", () => {
       return inner(input, init);
     }) as typeof fetch;
     try {
-      await main.main();
+      await main.main({ reload });
+      expect(reload).toHaveBeenCalledOnce();
+      expect(requests).toBe(0);
+      expect(location.hash).toBe("#/attention?types=observation");
+      expect(location.href.includes(token)).toBe(false);
+      expect(document.body.textContent?.includes(token)).toBe(false);
+      expect(JSON.stringify(history.state).includes(token)).toBe(false);
+
+      await main.main({ reload });
       expect(requests).toBeGreaterThan(0);
       expect(cleanBeforeFetch).toBe(true);
       expect(authorized).toBe(true);
+      expect(reload).toHaveBeenCalledOnce();
       expect(location.hash).toBe("#/attention?types=observation");
       expect(location.href.includes(token)).toBe(false);
       expect(document.body.textContent?.includes(token)).toBe(false);
