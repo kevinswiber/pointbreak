@@ -37,7 +37,9 @@ const vscodeMocks = vi.hoisted(() => {
   }
 
   class MockPanel {
-    readonly reveal = vi.fn();
+    readonly reveal = vi.fn((_column?: number, preserveFocus = false) => {
+      if (!preserveFocus) this.setActive(true);
+    });
     readonly dispose = vi.fn(() => {
       for (const listener of this.disposeListeners) listener();
     });
@@ -47,6 +49,7 @@ const vscodeMocks = vi.hoisted(() => {
     > = [];
     readonly messageListeners: Array<(message: unknown) => void> = [];
     title = "";
+    active = true;
     visible = true;
     readonly webview = {
       cspSource: "vscode-webview://panel",
@@ -79,11 +82,28 @@ const vscodeMocks = vi.hoisted(() => {
         listener({ webviewPanel: this });
       }
     }
+    setActive(active: boolean): void {
+      if (active) {
+        for (const panel of panels) {
+          if (panel !== this && panel.active) panel.setActive(false);
+        }
+      }
+      this.active = active;
+      for (const listener of this.viewStateListeners) {
+        listener({ webviewPanel: this });
+      }
+    }
   }
 
   const panels: MockPanel[] = [];
-  const createWebviewPanel = vi.fn((..._args: unknown[]) => {
+  const createWebviewPanel = vi.fn((...args: unknown[]) => {
+    const preserveFocus = !!(args[2] as { preserveFocus?: boolean })
+      ?.preserveFocus;
+    if (!preserveFocus) {
+      for (const panel of panels) panel.setActive(false);
+    }
     const panel = new MockPanel();
+    panel.active = !preserveFocus;
     panels.push(panel);
     return panel;
   });
@@ -179,9 +199,11 @@ describe("ReviewPanelManager", () => {
       ...first,
       focus: { kind: "attention", id: "open_input_request:request:one" },
     });
-    expect(load).toHaveBeenCalledTimes(1);
+    await settled();
+    expect(load).toHaveBeenCalledTimes(2);
     expect(panel.webview.postMessage).toHaveBeenLastCalledWith({
-      type: "focus",
+      type: "render",
+      data: expect.objectContaining({ revisionId: first.revisionId }),
       focus: { kind: "attention", id: "open_input_request:request:one" },
     });
 
@@ -192,7 +214,7 @@ describe("ReviewPanelManager", () => {
     secondPanel.emitMessage({ type: "ready" });
     await secondOpen;
     await settled();
-    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenCalledTimes(3);
     expect(secondPanel.webview.postMessage).toHaveBeenLastCalledWith(
       expect.objectContaining({
         type: "render",
@@ -202,7 +224,7 @@ describe("ReviewPanelManager", () => {
 
     await manager.open(first, { preserveFocus: true });
     expect(vscodeMocks.createWebviewPanel).toHaveBeenCalledTimes(2);
-    expect(load).toHaveBeenCalledTimes(2);
+    expect(load).toHaveBeenCalledTimes(3);
     expect(panel.reveal).toHaveBeenLastCalledWith(-1, true);
 
     const sameRevisionOnAnotherTarget = location("b", first.revisionId);
@@ -215,7 +237,7 @@ describe("ReviewPanelManager", () => {
     );
     thirdPanel.emitMessage({ type: "ready" });
     await thirdOpen;
-    expect(load).toHaveBeenCalledTimes(3);
+    expect(load).toHaveBeenCalledTimes(4);
     expect(thirdPanel.title).toBe("Pointbreak Review: b · one");
   });
 
@@ -427,6 +449,93 @@ describe("ReviewPanelManager", () => {
     expect(load).toHaveBeenCalledTimes(2);
   });
 
+  it("reloads the panel the user activated instead of the last opened panel", async () => {
+    const load = vi.fn(async ({ revisionId }) => data(revisionId));
+    const manager = createManager({ load });
+    const first = location("a", "rev:one");
+    const second = location("a", "rev:two");
+    await manager.open(first);
+    await manager.open(second);
+    vscodeMocks.panels[0].setActive(true);
+    load.mockClear();
+
+    await manager.reloadActive("a");
+
+    expect(load).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenCalledWith({
+      resolution: first.resolution,
+      revisionId: first.revisionId,
+    });
+  });
+
+  it("reloads a visible panel that was opened with preserved focus", async () => {
+    const load = vi.fn(async ({ revisionId }) => data(revisionId));
+    const manager = createManager({ load });
+    const current = location("a", "rev:one");
+    await manager.open(current, { preserveFocus: true });
+    const panel = vscodeMocks.panels[0];
+    load.mockClear();
+
+    expect(panel.visible).toBe(true);
+    expect(panel.active).toBe(false);
+    await manager.reloadActive("a");
+
+    expect(load).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenCalledWith({
+      resolution: current.resolution,
+      revisionId: current.revisionId,
+    });
+  });
+
+  it("refreshes a panel immediately when the user activates it", async () => {
+    const load = vi.fn(async ({ revisionId }) => data(revisionId));
+    const manager = createManager({ load });
+    const first = location("a", "rev:one");
+    await manager.open(first);
+    await manager.open(location("b", "rev:two"));
+    load.mockClear();
+
+    vscodeMocks.panels[0].setActive(true);
+    await settled();
+
+    expect(load).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenCalledWith({
+      resolution: first.resolution,
+      revisionId: first.revisionId,
+    });
+  });
+
+  it.each([
+    {
+      name: "hides",
+      leaveCurrent: (panel: (typeof vscodeMocks.panels)[number]) =>
+        panel.setVisible(false),
+    },
+    {
+      name: "closes",
+      leaveCurrent: (panel: (typeof vscodeMocks.panels)[number]) =>
+        panel.dispose(),
+    },
+  ])("loads the visible fallback target when the current panel $name", async ({
+    leaveCurrent,
+  }) => {
+    const load = vi.fn(async ({ revisionId }) => data(revisionId));
+    const manager = createManager({ load });
+    const fallback = location("b", "rev:fallback");
+    await manager.open(fallback);
+    await manager.open(location("a", "rev:current"));
+    load.mockClear();
+
+    leaveCurrent(vscodeMocks.panels[1]);
+    await settled();
+
+    expect(load).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenCalledWith({
+      resolution: fallback.resolution,
+      revisionId: fallback.revisionId,
+    });
+  });
+
   it("does not publish a freshness reload after its generation is aborted", async () => {
     const pending = deferred<DiffRenderData>();
     const load = vi
@@ -438,16 +547,19 @@ describe("ReviewPanelManager", () => {
     const panel = vscodeMocks.panels[0];
     panel.emitMessage({ type: "ready" });
     await settled();
+    const renderedHtml = panel.webview.html;
     panel.webview.postMessage.mockClear();
     const controller = new AbortController();
     const reload = manager.reloadActive("a", controller.signal);
 
+    expect(panel.webview.html).toBe(renderedHtml);
     controller.abort();
     pending.resolve({ ...data("rev:one"), snapshotId: "obj:stale" });
     await reload;
     panel.emitMessage({ type: "ready" });
     await settled();
 
+    expect(panel.webview.html).toBe(renderedHtml);
     expect(panel.webview.postMessage).not.toHaveBeenCalled();
   });
 

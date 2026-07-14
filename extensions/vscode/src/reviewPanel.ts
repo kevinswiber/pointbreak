@@ -40,6 +40,7 @@ interface PanelSession {
   generation: number;
   ready: boolean;
   pendingState: HostToWebview | undefined;
+  active: boolean;
   visible: boolean;
   snapshot: import("./cli").ReviewSnapshotDoc | undefined;
 }
@@ -50,7 +51,7 @@ export class ReviewPanelManager implements Disposable {
   readonly onDidChangeVisibility: Event<boolean> = this.visibilityEmitter.event;
 
   private readonly sessions = new Map<string, PanelSession>();
-  private lastOpenedKey: string | undefined;
+  private currentKey: string | undefined;
   private reportedVisibility = false;
   private disposed = false;
 
@@ -70,10 +71,9 @@ export class ReviewPanelManager implements Disposable {
 
     const key = reviewDocumentKey(location);
     const existing = this.sessions.get(key);
-    this.lastOpenedKey = key;
+    this.currentKey = key;
 
     if (existing) {
-      this.markMostRecentlyOpened(existing);
       existing.panel.reveal(ViewColumn.Active, !!options.preserveFocus);
       const sameFocus = equalFocus(existing.location.focus, location.focus);
       existing.location = location;
@@ -89,10 +89,10 @@ export class ReviewPanelManager implements Disposable {
   }
 
   async reloadActive(targetKey?: string, signal?: AbortSignal): Promise<void> {
-    const session = this.lastOpenedKey
-      ? this.sessions.get(this.lastOpenedKey)
+    const session = this.currentKey
+      ? this.sessions.get(this.currentKey)
       : undefined;
-    if (!session) {
+    if (!session?.visible) {
       return;
     }
     if (
@@ -101,7 +101,7 @@ export class ReviewPanelManager implements Disposable {
     ) {
       return;
     }
-    await this.load(session, signal);
+    await this.load(session, signal, true);
   }
 
   isVisible(): boolean {
@@ -115,7 +115,7 @@ export class ReviewPanelManager implements Disposable {
     this.disposed = true;
     const sessions = [...this.sessions.values()];
     this.sessions.clear();
-    this.lastOpenedKey = undefined;
+    this.currentKey = undefined;
     for (const session of sessions) {
       session.generation += 1;
       session.panel.dispose();
@@ -146,6 +146,7 @@ export class ReviewPanelManager implements Disposable {
       generation: 0,
       ready: false,
       pendingState: undefined,
+      active: panel.active,
       visible: panel.visible,
       snapshot: undefined,
     };
@@ -154,8 +155,18 @@ export class ReviewPanelManager implements Disposable {
     panel.onDidDispose(() => this.clearSession(session));
     panel.onDidChangeViewState(({ webviewPanel }) => {
       if (this.sessions.get(key) === session) {
+        const becameActive = webviewPanel.active && !session.active;
+        session.active = webviewPanel.active;
         session.visible = webviewPanel.visible;
+        if (webviewPanel.active && webviewPanel.visible) {
+          this.currentKey = key;
+        } else if (this.currentKey === key && !webviewPanel.visible) {
+          this.selectVisibleFallback();
+        }
         this.emitVisibilityChange();
+        if (becameActive && webviewPanel.visible) {
+          void this.load(session, undefined, true);
+        }
       }
     });
     panel.webview.onDidReceiveMessage((message: unknown) => {
@@ -167,18 +178,21 @@ export class ReviewPanelManager implements Disposable {
   private async load(
     session: PanelSession,
     signal?: AbortSignal,
+    preserveRender = false,
   ): Promise<void> {
     if (signal?.aborted) return;
     const generation = ++session.generation;
     const location = session.location;
-    session.ready = false;
-    session.pendingState = undefined;
-    session.snapshot = undefined;
-    session.panel.webview.html = webviewHtml(
-      this.extensionUri,
-      session.panel.webview,
-      location,
-    );
+    if (!preserveRender) {
+      session.ready = false;
+      session.pendingState = undefined;
+      session.snapshot = undefined;
+      session.panel.webview.html = webviewHtml(
+        this.extensionUri,
+        session.panel.webview,
+        location,
+      );
+    }
 
     try {
       const data = await this.dataSource.load({
@@ -286,17 +300,28 @@ export class ReviewPanelManager implements Disposable {
     }
     session.generation += 1;
     this.sessions.delete(session.key);
-    if (this.lastOpenedKey === session.key) {
-      this.lastOpenedKey = [...this.sessions.keys()].at(-1);
+    if (this.currentKey === session.key) {
+      this.selectVisibleFallback();
     }
     if (!this.disposed) {
       this.emitVisibilityChange();
     }
   }
 
-  private markMostRecentlyOpened(session: PanelSession): void {
-    this.sessions.delete(session.key);
-    this.sessions.set(session.key, session);
+  private selectVisibleFallback(): void {
+    const fallback = this.preferredVisibleSession();
+    this.currentKey = fallback?.key;
+    if (fallback) {
+      fallback.active = fallback.panel.active;
+      void this.load(fallback, undefined, true);
+    }
+  }
+
+  private preferredVisibleSession(): PanelSession | undefined {
+    const visible = [...this.sessions.values()].filter(
+      (session) => session.visible,
+    );
+    return visible.find((session) => session.panel.active) ?? visible.at(-1);
   }
 
   private hasVisibleSession(): boolean {
