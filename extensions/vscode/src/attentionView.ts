@@ -9,7 +9,12 @@ import {
   type TreeView,
   type WorkspaceFolder,
 } from "vscode";
-import type { AttentionListDoc, PointbreakCli, RevisionListDoc } from "./cli";
+import type {
+  AttentionItem,
+  AttentionListDoc,
+  PointbreakCli,
+  RevisionListDoc,
+} from "./cli";
 import type { TargetResolution } from "./targetResolver";
 
 interface NodeBase {
@@ -47,6 +52,7 @@ export interface AttentionItemNode extends NodeBase {
   description: string;
   revisionId?: string;
   attentionId: string;
+  item: AttentionItem;
   lens: "attention";
   command?: "pointbreak.openAnnotatedDiff";
 }
@@ -190,6 +196,15 @@ export class AttentionTreeProvider implements TreeDataProvider<TreeNode> {
     return this.visible;
   }
 
+  findAttentionItem(
+    targetKey: string,
+    attentionId: string,
+  ): AttentionItem | undefined {
+    return this.attentionByTarget
+      .get(targetKey)
+      ?.items.find((item) => item.id === attentionId);
+  }
+
   private async refreshResolutions(
     resolutions: ResolvedTarget[],
     signal?: AbortSignal,
@@ -249,8 +264,8 @@ export class AttentionTreeProvider implements TreeDataProvider<TreeNode> {
     }
     if (node.kind === "revision-item") {
       item.contextValue = "pointbreak.revision";
-    } else if (node.kind === "attention-item" && node.revisionId) {
-      item.contextValue = "pointbreak.attentionItem";
+    } else if (node.kind === "attention-item") {
+      item.contextValue = attentionContextValue(node.item);
     }
     return item;
   }
@@ -337,12 +352,13 @@ function deriveTargetChildren(
   const attentionChildren: AttentionItemNode[] = (attention?.items ?? []).map(
     (item) => ({
       kind: "attention-item",
-      label: item.title ?? item.kind,
+      label: attentionLabel(item),
       targetKey: resolution.target.key,
       folder: resolution.folder,
       description: item.tier,
       revisionId: item.revisionId,
       attentionId: item.id,
+      item,
       lens: "attention",
       command: item.revisionId ? "pointbreak.openAnnotatedDiff" : undefined,
     }),
@@ -374,6 +390,30 @@ function deriveTargetChildren(
       children: revisionChildren,
     },
   ];
+}
+
+function attentionContextValue(item: AttentionItem): string | undefined {
+  if (
+    item.kind === "open_input_request" ||
+    item.kind === "follow_up_outstanding"
+  ) {
+    return "pointbreak.attention.inputRequest";
+  }
+  if (
+    item.kind === "ambiguous_assessment" ||
+    item.kind === "stale_assessment" ||
+    item.kind === "failed_validation"
+  ) {
+    return "pointbreak.attention.assessment";
+  }
+  if (item.kind === "competing_heads") {
+    return "pointbreak.attention.headResolution";
+  }
+  return undefined;
+}
+
+function attentionLabel(item: AttentionItem): string {
+  return item.kind === "open_input_request" ? item.title : item.kind;
 }
 
 function repairNode(

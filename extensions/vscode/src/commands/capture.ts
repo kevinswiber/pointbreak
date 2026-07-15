@@ -1,11 +1,16 @@
 import { window } from "vscode";
-import { refreshAfterWrite } from "../attentionView";
 import {
   type CaptureChoice,
+  type CaptureDoc,
   type CaptureOptions,
   type PointbreakCli,
   PointbreakCliError,
 } from "../cli";
+import type {
+  HumanWriteContext,
+  HumanWriteCoordinator,
+  HumanWriteResult,
+} from "../humanWriteCoordinator";
 import { pickFolder, type TargetResolution } from "../targetResolver";
 
 interface CapturePick {
@@ -21,7 +26,15 @@ interface UntrackedPick {
 
 interface CaptureDependencies {
   pick?: typeof pickFolder;
-  refresh?: typeof refreshAfterWrite;
+  humanWrites?: HumanWriteCoordinator;
+}
+
+export interface CoordinatedCaptureRequest {
+  repo: string;
+  resource: unknown;
+  options: CaptureOptions;
+  confirm(context: HumanWriteContext): Promise<boolean>;
+  afterWrite?(document: CaptureDoc): void;
 }
 
 const CAPTURE_CHOICES: CapturePick[] = [
@@ -47,6 +60,7 @@ const UNTRACKED_CHOICES: UntrackedPick[] = [
   { label: "Include untracked files", includeUntracked: true },
 ];
 const EMPTY_CAPTURE_ACTION = "Capture empty revision";
+const CONFIRM_CAPTURE_ACTION = "Capture";
 
 export async function runCaptureCommand(
   cli: PointbreakCli,
@@ -81,33 +95,67 @@ export async function runCaptureCommand(
     includeUntracked,
     allowEmpty: false,
   };
+  const humanWrites = dependencies.humanWrites;
+  if (!humanWrites) {
+    await window.showErrorMessage(
+      "Pointbreak could not prepare the human write.",
+    );
+    return;
+  }
 
   try {
-    const result = await captureWithEmptyRetry(
-      cli,
-      resolution.folder.uri.fsPath,
-      options,
-    );
+    const capture = (captureOptions: CaptureOptions) =>
+      runCoordinatedCapture(cli, humanWrites, {
+        repo: resolution.folder.uri.fsPath,
+        resource: resolution.folder.uri,
+        options: captureOptions,
+        confirm: async ({ actorId }) =>
+          (await window.showWarningMessage(
+            `${captureDescription(captureOptions)} as ${actorId}?`,
+            { modal: true },
+            CONFIRM_CAPTURE_ACTION,
+          )) === CONFIRM_CAPTURE_ACTION,
+        afterWrite: () => {
+          markTargetPopulated(resolutions, resolution.target.key);
+        },
+      });
+    const result = await captureWithEmptyRetry(capture, options);
     if (!result) {
       return;
     }
-    markTargetPopulated(resolutions, resolution.target.key);
     void window.showInformationMessage(
-      `Captured revision ${shortRevisionId(result.revision.id)}`,
+      `Captured revision ${shortRevisionId(result.document.revision.id)}`,
     );
-    await (dependencies.refresh ?? refreshAfterWrite)();
   } catch (error) {
     await window.showErrorMessage(captureErrorMessage(error));
   }
 }
 
-async function captureWithEmptyRetry(
+export function runCoordinatedCapture(
   cli: PointbreakCli,
-  repo: string,
+  humanWrites: HumanWriteCoordinator,
+  request: CoordinatedCaptureRequest,
+): Promise<HumanWriteResult<CaptureDoc> | undefined> {
+  return humanWrites.run({
+    repo: request.repo,
+    resource: request.resource,
+    confirm: request.confirm,
+    write: async () => {
+      const document = await cli.capture(request.repo, request.options);
+      request.afterWrite?.(document);
+      return document;
+    },
+  });
+}
+
+async function captureWithEmptyRetry(
+  capture: (
+    options: CaptureOptions,
+  ) => Promise<HumanWriteResult<CaptureDoc> | undefined>,
   options: CaptureOptions,
 ) {
   try {
-    return await cli.capture(repo, options);
+    return await capture(options);
   } catch (error) {
     if (!isZeroChangedFilesError(error)) {
       throw error;
@@ -119,8 +167,18 @@ async function captureWithEmptyRetry(
     if (retry !== EMPTY_CAPTURE_ACTION) {
       return undefined;
     }
-    return cli.capture(repo, { ...options, allowEmpty: true });
+    return capture({ ...options, allowEmpty: true });
   }
+}
+
+function captureDescription(options: CaptureOptions): string {
+  let source = "Capture current work";
+  if (options.choice === "staged") {
+    source = "Capture staged work";
+  } else if (options.choice === "unstaged") {
+    source = "Capture unstaged work";
+  }
+  return options.allowEmpty ? `${source} as an empty revision` : source;
 }
 
 function isZeroChangedFilesError(error: unknown): boolean {

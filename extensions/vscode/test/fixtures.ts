@@ -30,6 +30,7 @@ export const ATTENTION_JSON = JSON.stringify({
       assessment: "accepted",
       trackId: "agent:codex-screens-r",
       recordedBy: "actor:agent:codex",
+      headRevisionIds: ["rev:sha256:da444b13"],
     },
   ],
   diagnostics: [],

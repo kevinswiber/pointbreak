@@ -27,7 +27,10 @@
     "onCommand:pointbreak.openAnnotatedDiff",
     "onCommand:pointbreak.openInReview",
     "onCommand:pointbreak.stopInspect",
-    "onCommand:pointbreak.addObservationFromSelection"
+    "onCommand:pointbreak.addObservationFromSelection",
+    "onCommand:pointbreak.respondInputRequest",
+    "onCommand:pointbreak.assessAttention",
+    "onCommand:pointbreak.captureAttentionResolution"
   ],
   "contributes": {
     "commands": [
@@ -61,14 +64,61 @@
         "title": "Add Observation from Selection",
         "category": "Pointbreak",
         "enablement": "pointbreak.hasSourceReviewContext"
+      },
+      {
+        "command": "pointbreak.respondInputRequest",
+        "title": "Respond to Input Request",
+        "category": "Pointbreak",
+        "icon": "$(reply)"
+      },
+      {
+        "command": "pointbreak.assessAttention",
+        "title": "Record Assessment",
+        "category": "Pointbreak",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "pointbreak.captureAttentionResolution",
+        "title": "Capture Head Resolution",
+        "category": "Pointbreak",
+        "icon": "$(git-merge)"
       }
     ],
     "menus": {
       "view/item/context": [
         {
           "command": "pointbreak.openInReview",
-          "when": "view == pointbreak.attention && (viewItem == pointbreak.revision || viewItem == pointbreak.attentionItem)",
+          "when": "view == pointbreak.attention && (viewItem == pointbreak.revision || viewItem == pointbreak.attentionItem || viewItem == pointbreak.attention.inputRequest || viewItem == pointbreak.attention.assessment)",
           "group": "navigation@2"
+        },
+        {
+          "command": "pointbreak.respondInputRequest",
+          "when": "view == pointbreak.attention && viewItem == pointbreak.attention.inputRequest",
+          "group": "inline@1"
+        },
+        {
+          "command": "pointbreak.assessAttention",
+          "when": "view == pointbreak.attention && viewItem == pointbreak.attention.assessment",
+          "group": "inline@1"
+        },
+        {
+          "command": "pointbreak.captureAttentionResolution",
+          "when": "view == pointbreak.attention && viewItem == pointbreak.attention.headResolution",
+          "group": "inline@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "pointbreak.respondInputRequest",
+          "when": "false"
+        },
+        {
+          "command": "pointbreak.assessAttention",
+          "when": "false"
+        },
+        {
+          "command": "pointbreak.captureAttentionResolution",
+          "when": "false"
         }
       ]
     },
@@ -112,7 +162,7 @@
           "type": "string",
           "scope": "resource",
           "default": "human:local",
-          "description": "Track used for observations added from a source selection."
+          "description": "Default track for human-authored Pointbreak writes."
         }
       }
     }

@@ -872,7 +872,8 @@ guides, never gates (ADR-0019): nothing here is a write precondition. The emitte
   - `competing_heads` — a supersession thread with two or more current heads. `headRevisionIds` is
     sorted for determinism, **not** a priority ranking.
   - `stale_assessment` — a current assessment anchored to a superseded revision, until every
-    current head of the thread has been re-judged.
+    current head of the thread has been re-judged. `headRevisionIds` names that complete current
+    head set; `freshness.supersededBy` continues to name direct superseders only.
   - `failed_validation` — the latest failed/errored check per `(revision, track, checkName)` on a
     current head; a strictly-later passing rerun clears it (`skipped` never clears), and so does
     a later, unanimously accepting judgment on the revision (ADR-0019's judgment-subsumption

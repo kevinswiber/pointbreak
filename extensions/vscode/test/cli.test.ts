@@ -81,12 +81,21 @@ describe("captureArgs", () => {
       args({ choice: "staged", includeUntracked: false, allowEmpty: false }),
     ).toEqual(["capture", "--staged"]);
     expect(
-      args({ choice: "unstaged", includeUntracked: true, allowEmpty: true }),
+      args({
+        choice: "unstaged",
+        includeUntracked: true,
+        allowEmpty: true,
+        supersedes: ["rev:sha256:two", "rev:sha256:one"],
+      }),
     ).toEqual([
       "capture",
       "--unstaged",
       "--include-untracked",
       "--allow-empty",
+      "--supersedes",
+      "rev:sha256:two",
+      "--supersedes",
+      "rev:sha256:one",
     ]);
   });
 
@@ -112,7 +121,7 @@ describe("observationArgs", () => {
     expect(observationArgs(options)).toEqual([
       "observation",
       "add",
-      "--revision",
+      "--exact-revision",
       "rev:sha256:one",
       "--track",
       "human:local",
@@ -162,6 +171,123 @@ describe("observationArgs", () => {
   });
 });
 
+it("uses typed exact-write documents, sanitized env, and stdin bytes", async () => {
+  process.env.SHORE_ACTOR_ID = "actor:agent:leaked";
+  process.env.SHORE_FORMAT = "text";
+  const calls: Array<{
+    args: string[];
+    opts: { cwd: string; env: NodeJS.ProcessEnv; stdin?: Uint8Array };
+  }> = [];
+  const exec: ExecFn = async (_file, args, opts) => {
+    calls.push({ args, opts });
+    return {
+      stdout: args[0] === "version" ? VERSION_JSON : documentFor(args),
+      stderr: "",
+      exitCode: 0,
+    };
+  };
+  const cli = new PointbreakCli(binary, exec);
+
+  await expect(cli.identityWhoami("/repo")).resolves.toMatchObject({
+    actorId: "actor:git-email:human@example.com",
+  });
+  await cli.showAssessments("/repo", {
+    revisionId: "rev:sha256:one",
+    track: "human:local",
+  });
+  await cli.addAssessment("/repo", {
+    revisionId: "rev:sha256:one",
+    track: "human:local",
+    assessment: "needs-changes",
+    summary: "Fix the boundary.",
+    replaces: ["assess:sha256:one", "assess:sha256:two"],
+  });
+  await cli.respondInputRequest("/repo", {
+    inputRequestId: "input-request:sha256:one",
+    outcome: "approved",
+    reason: "Approved after review.",
+  });
+  await cli.addValidation("/repo", {
+    revisionId: "rev:sha256:one",
+    track: "human:local",
+    checkName: "vscode-task:npm:workspace:test",
+    status: "passed",
+    command: "npm test",
+    summary: "The selected task passed.",
+  });
+
+  expect(calls.map(({ args }) => args)).toEqual([
+    ["version"],
+    ["identity", "whoami"],
+    [
+      "assessment",
+      "show",
+      "--exact-revision",
+      "rev:sha256:one",
+      "--track",
+      "human:local",
+      "--all",
+      "--include-summary",
+    ],
+    [
+      "assessment",
+      "add",
+      "--exact-revision",
+      "rev:sha256:one",
+      "--track",
+      "human:local",
+      "--assessment",
+      "needs-changes",
+      "--summary-stdin",
+      "--replaces",
+      "assess:sha256:one",
+      "--replaces",
+      "assess:sha256:two",
+    ],
+    [
+      "input-request",
+      "respond",
+      "input-request:sha256:one",
+      "--outcome",
+      "approved",
+      "--reason-stdin",
+    ],
+    [
+      "validation",
+      "add",
+      "--exact-revision",
+      "rev:sha256:one",
+      "--track",
+      "human:local",
+      "--check-name",
+      "vscode-task:npm:workspace:test",
+      "--status",
+      "passed",
+      "--command",
+      "npm test",
+      "--summary-stdin",
+    ],
+  ]);
+  expect(calls.map(({ opts }) => bytes(opts.stdin))).toEqual([
+    undefined,
+    undefined,
+    undefined,
+    "Fix the boundary.",
+    "Approved after review.",
+    "The selected task passed.",
+  ]);
+  expect(
+    calls.every(
+      ({ opts }) =>
+        opts.env.SHORE_ACTOR_ID === undefined &&
+        opts.env.SHORE_FORMAT === undefined,
+    ),
+  ).toBe(true);
+  expect(JSON.stringify(calls.map(({ args }) => args))).not.toContain(
+    "Approved after review.",
+  );
+});
+
 it("rejects a document whose schema does not match the requested command", async () => {
   const exec: ExecFn = async (_file, args) => ({
     stdout:
@@ -192,3 +318,63 @@ it("decodes the live revision-list entries shape", async () => {
   });
   expect(document.revisionCount).toBe(1);
 });
+
+function bytes(value: Uint8Array | undefined): string | undefined {
+  return value === undefined ? undefined : Buffer.from(value).toString("utf8");
+}
+
+function documentFor(args: string[]): string {
+  const command = `${args[0]} ${args[1] ?? ""}`;
+  const documents: Record<string, unknown> = {
+    "identity whoami": {
+      schema: "pointbreak.identity-whoami",
+      version: 1,
+      actorId: "actor:git-email:human@example.com",
+    },
+    "assessment show": {
+      schema: "pointbreak.review-assessment-show",
+      version: 1,
+      revisionId: "rev:sha256:one",
+      filters: {
+        trackId: "human:local",
+        all: true,
+        includeSummary: true,
+      },
+      current: { status: "unassessed" },
+      assessments: [],
+      diagnostics: [],
+    },
+    "assessment add": {
+      schema: "pointbreak.review-assessment-add",
+      version: 1,
+      revisionId: "rev:sha256:one",
+      assessmentId: "assess:sha256:new",
+      eventId: "evt:sha256:assessment",
+      trackId: "human:local",
+      target: { kind: "revision", revisionId: "rev:sha256:one" },
+      assessment: "needs_changes",
+      diagnostics: [],
+    },
+    "input-request respond": {
+      schema: "pointbreak.review-input-request-respond",
+      version: 1,
+      inputRequestId: "input-request:sha256:one",
+      inputRequestResponseId: "input-request-response:sha256:one",
+      eventId: "evt:sha256:response",
+      outcome: "approved",
+      diagnostics: [],
+    },
+    "validation add": {
+      schema: "pointbreak.review-validation-add",
+      version: 1,
+      revisionId: "rev:sha256:one",
+      validationCheckId: "validation:sha256:one",
+      eventId: "evt:sha256:validation",
+      trackId: "human:local",
+      target: { kind: "revision", revisionId: "rev:sha256:one" },
+      status: "passed",
+      diagnostics: [],
+    },
+  };
+  return JSON.stringify(documents[command]);
+}

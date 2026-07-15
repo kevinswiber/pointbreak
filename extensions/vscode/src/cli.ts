@@ -4,7 +4,7 @@ import type { ResolvedBinary } from "./binary";
 export type ExecFn = (
   file: string,
   args: string[],
-  opts: { cwd: string; env: NodeJS.ProcessEnv },
+  opts: { cwd: string; env: NodeJS.ProcessEnv; stdin?: Uint8Array },
 ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
 
 export interface DiagnosticDocument {
@@ -138,14 +138,91 @@ export interface ObservationAddDoc extends DiagnosticDocument {
   bodyContentHash?: string;
 }
 
-export interface AttentionItem {
-  id: string;
-  tier: string;
-  kind: string;
-  revisionId?: string;
-  title?: string;
-  [field: string]: unknown;
+export type AttentionTier = "primary" | "secondary";
+
+export interface AttentionFreshness {
+  state: "current" | "superseded";
+  supersededBy?: string[];
 }
+
+interface AttentionItemBase {
+  id: string;
+  tier: AttentionTier;
+  revisionId?: string;
+  freshness: AttentionFreshness;
+  observedAt: string;
+}
+
+export interface OpenInputRequestAttentionItem extends AttentionItemBase {
+  kind: "open_input_request";
+  inputRequestId: string;
+  mode: "operative" | "advisory";
+  reasonCode: string;
+  title: string;
+  trackId: string;
+  openedBy: string;
+}
+
+export interface FollowUpOutstandingAttentionItem extends AttentionItemBase {
+  kind: "follow_up_outstanding";
+  assessmentId: string;
+  trackId: string;
+  recordedBy: string;
+  openInputRequestIds: string[];
+}
+
+export interface AttentionAssessmentRecord {
+  assessmentId: string;
+  assessment: string;
+  trackId: string;
+  recordedBy: string;
+  recordedAt: string;
+  relatedObservationIds?: string[];
+  relatedInputRequestIds?: string[];
+}
+
+export interface AmbiguousAssessmentAttentionItem extends AttentionItemBase {
+  kind: "ambiguous_assessment";
+  assessments: AttentionAssessmentRecord[];
+}
+
+export interface CompetingHeadsAttentionItem extends AttentionItemBase {
+  kind: "competing_heads";
+  headRevisionIds: string[];
+  threadRevisionCount: number;
+}
+
+export interface StaleAssessmentAttentionItem extends AttentionItemBase {
+  kind: "stale_assessment";
+  assessmentId: string;
+  assessment: string;
+  trackId: string;
+  recordedBy: string;
+  headRevisionIds?: string[];
+}
+
+export interface FailedValidationAttentionItem extends AttentionItemBase {
+  kind: "failed_validation";
+  validationCheckId: string;
+  checkName: string;
+  status: "failed" | "errored";
+  exitCode?: number;
+  trackId: string;
+  recordedBy: string;
+  logArtifactContentHashes?: string[];
+}
+
+export type AttentionItem =
+  | OpenInputRequestAttentionItem
+  | FollowUpOutstandingAttentionItem
+  | AmbiguousAssessmentAttentionItem
+  | CompetingHeadsAttentionItem
+  | StaleAssessmentAttentionItem
+  | FailedValidationAttentionItem;
+
+export type InputRequestResponseAttentionItem =
+  | OpenInputRequestAttentionItem
+  | FollowUpOutstandingAttentionItem;
 
 export interface AttentionListDoc extends DiagnosticDocument {
   schema: "pointbreak.attention-list";
@@ -194,6 +271,7 @@ export interface CaptureOptions {
   choice: CaptureChoice;
   includeUntracked: boolean;
   allowEmpty: boolean;
+  supersedes?: readonly string[];
 }
 
 export interface ObservationOptions {
@@ -206,14 +284,128 @@ export interface ObservationOptions {
   endLine: number;
 }
 
+export interface IdentityWhoamiDoc extends DiagnosticDocument {
+  schema: "pointbreak.identity-whoami";
+  version: 1;
+  actorId: string;
+}
+
+export type AssessmentValue =
+  | "accepted"
+  | "accepted-with-follow-up"
+  | "needs-changes"
+  | "needs-clarification";
+
+export interface AssessmentView {
+  id: string;
+  trackId: string;
+  target: ReviewFactTarget;
+  assessment: string;
+  status: string;
+  createdAt?: string;
+  writer: { actorId: string; [field: string]: unknown };
+  [field: string]: unknown;
+}
+
+export interface AssessmentShowDoc extends DiagnosticDocument {
+  schema: "pointbreak.review-assessment-show";
+  version: 1;
+  revisionId: string;
+  filters: {
+    trackId?: string;
+    all: boolean;
+    includeSummary: boolean;
+  };
+  current: {
+    status: string;
+    assessmentId?: string;
+    assessment?: string;
+    candidates?: AssessmentView[];
+  };
+  assessments: AssessmentView[];
+}
+
+export interface AssessmentAddDoc extends DiagnosticDocument {
+  schema: "pointbreak.review-assessment-add";
+  version: 1;
+  revisionId: string;
+  assessmentId: string;
+  eventId: string;
+  trackId: string;
+  target: ReviewFactTarget;
+  assessment: string;
+}
+
+export interface AssessmentShowOptions {
+  revisionId: string;
+  track: string;
+}
+
+export interface AssessmentAddOptions {
+  revisionId: string;
+  track: string;
+  assessment: AssessmentValue;
+  summary?: string;
+  replaces?: readonly string[];
+}
+
+export type InputRequestOutcome =
+  | "approved"
+  | "rejected"
+  | "dismissed"
+  | "superseded"
+  | "abandoned";
+
+export interface InputRequestRespondDoc extends DiagnosticDocument {
+  schema: "pointbreak.review-input-request-respond";
+  version: 1;
+  inputRequestId: string;
+  inputRequestResponseId: string;
+  eventId: string;
+  outcome: string;
+}
+
+export interface InputRequestRespondOptions {
+  inputRequestId: string;
+  outcome: InputRequestOutcome;
+  reason?: string;
+}
+
+export type ValidationStatus = "passed" | "failed" | "errored" | "skipped";
+
+export interface ValidationAddDoc extends DiagnosticDocument {
+  schema: "pointbreak.review-validation-add";
+  version: 1;
+  revisionId: string;
+  validationCheckId: string;
+  eventId: string;
+  trackId: string;
+  target: ReviewFactTarget;
+  status: ValidationStatus;
+}
+
+export interface ValidationAddOptions {
+  revisionId: string;
+  track: string;
+  checkName: string;
+  status: ValidationStatus;
+  command?: string;
+  summary?: string;
+}
+
 export const REQUIRED_DOCUMENTS: Record<string, number> = {
   "pointbreak.version": 1,
   "pointbreak.attention-list": 1,
+  "pointbreak.identity-whoami": 1,
+  "pointbreak.review-assessment-add": 1,
+  "pointbreak.review-assessment-show": 1,
   "pointbreak.review-revision-list": 1,
   "pointbreak.review-revision": 2,
   "pointbreak.review-capture": 1,
+  "pointbreak.review-input-request-respond": 1,
   "pointbreak.review-observation-add": 1,
   "pointbreak.review-snapshot": 1,
+  "pointbreak.review-validation-add": 1,
   "pointbreak.inspect-freshness": 1,
   "pointbreak.inspect-startup": 1,
   "pointbreak.store-status": 1,
@@ -345,6 +537,64 @@ export class PointbreakCli {
     );
   }
 
+  async identityWhoami(repo: string): Promise<IdentityWhoamiDoc> {
+    return this.runDocument(
+      repo,
+      ["identity", "whoami"],
+      "pointbreak.identity-whoami",
+    );
+  }
+
+  async showAssessments(
+    repo: string,
+    options: AssessmentShowOptions,
+  ): Promise<AssessmentShowDoc> {
+    return this.runDocument(
+      repo,
+      assessmentShowArgs(options),
+      "pointbreak.review-assessment-show",
+    );
+  }
+
+  async addAssessment(
+    repo: string,
+    options: AssessmentAddOptions,
+  ): Promise<AssessmentAddDoc> {
+    const command = assessmentAddCommand(options);
+    return this.runDocument(
+      repo,
+      command.args,
+      "pointbreak.review-assessment-add",
+      command.stdin,
+    );
+  }
+
+  async respondInputRequest(
+    repo: string,
+    options: InputRequestRespondOptions,
+  ): Promise<InputRequestRespondDoc> {
+    const command = inputRequestRespondCommand(options);
+    return this.runDocument(
+      repo,
+      command.args,
+      "pointbreak.review-input-request-respond",
+      command.stdin,
+    );
+  }
+
+  async addValidation(
+    repo: string,
+    options: ValidationAddOptions,
+  ): Promise<ValidationAddDoc> {
+    const command = validationAddCommand(options);
+    return this.runDocument(
+      repo,
+      command.args,
+      "pointbreak.review-validation-add",
+      command.stdin,
+    );
+  }
+
   private async ensureHandshake(repo: string): Promise<void> {
     this.handshake ??= this.readVersion(repo).then(() => undefined);
     return this.handshake;
@@ -376,19 +626,22 @@ export class PointbreakCli {
     repo: string,
     args: string[],
     schema: string,
+    stdin?: Uint8Array,
   ): Promise<T> {
     await this.ensureHandshake(repo);
-    return this.executeDocument(repo, args, schema);
+    return this.executeDocument(repo, args, schema, stdin);
   }
 
   private async executeDocument<T extends DiagnosticDocument>(
     repo: string,
     args: string[],
     schema: string,
+    stdin?: Uint8Array,
   ): Promise<T> {
     const result = await this.exec(this.binary.path, args, {
       cwd: repo,
       env: sanitizedEnv(),
+      stdin,
     });
     if (result.exitCode !== 0) {
       const detail = result.stderr.trim() || "no error output";
@@ -440,6 +693,9 @@ export function captureArgs(opts: CaptureOptions): string[] {
   if (opts.allowEmpty) {
     args.push("--allow-empty");
   }
+  for (const revisionId of opts.supersedes ?? []) {
+    args.push("--supersedes", revisionId);
+  }
   return args;
 }
 
@@ -447,7 +703,7 @@ export function observationArgs(options: ObservationOptions): string[] {
   return [
     "observation",
     "add",
-    "--revision",
+    "--exact-revision",
     options.revisionId,
     "--track",
     options.track,
@@ -464,9 +720,89 @@ export function observationArgs(options: ObservationOptions): string[] {
   ];
 }
 
+function assessmentShowArgs(options: AssessmentShowOptions): string[] {
+  return [
+    "assessment",
+    "show",
+    "--exact-revision",
+    options.revisionId,
+    "--track",
+    options.track,
+    "--all",
+    "--include-summary",
+  ];
+}
+
+function assessmentAddCommand(options: AssessmentAddOptions): CommandInput {
+  const args = [
+    "assessment",
+    "add",
+    "--exact-revision",
+    options.revisionId,
+    "--track",
+    options.track,
+    "--assessment",
+    options.assessment,
+  ];
+  if (options.summary !== undefined) {
+    args.push("--summary-stdin");
+  }
+  for (const assessmentId of options.replaces ?? []) {
+    args.push("--replaces", assessmentId);
+  }
+  return { args, stdin: textBytes(options.summary) };
+}
+
+function inputRequestRespondCommand(
+  options: InputRequestRespondOptions,
+): CommandInput {
+  const args = [
+    "input-request",
+    "respond",
+    options.inputRequestId,
+    "--outcome",
+    options.outcome,
+  ];
+  if (options.reason !== undefined) {
+    args.push("--reason-stdin");
+  }
+  return { args, stdin: textBytes(options.reason) };
+}
+
+function validationAddCommand(options: ValidationAddOptions): CommandInput {
+  const args = [
+    "validation",
+    "add",
+    "--exact-revision",
+    options.revisionId,
+    "--track",
+    options.track,
+    "--check-name",
+    options.checkName,
+    "--status",
+    options.status,
+  ];
+  if (options.command !== undefined) {
+    args.push("--command", options.command);
+  }
+  if (options.summary !== undefined) {
+    args.push("--summary-stdin");
+  }
+  return { args, stdin: textBytes(options.summary) };
+}
+
+interface CommandInput {
+  args: string[];
+  stdin?: Uint8Array;
+}
+
+function textBytes(value: string | undefined): Uint8Array | undefined {
+  return value === undefined ? undefined : Buffer.from(value, "utf8");
+}
+
 const defaultExec: ExecFn = (file, args, opts) =>
   new Promise((resolve) => {
-    execFile(
+    const child = execFile(
       file,
       args,
       {
@@ -485,6 +821,7 @@ const defaultExec: ExecFn = (file, args, opts) =>
         });
       },
     );
+    child.stdin?.end(opts.stdin);
   });
 
 function isDocument(value: unknown): value is DiagnosticDocument {

@@ -6,6 +6,7 @@ import {
   PointbreakCliError,
 } from "../src/cli";
 import { runCaptureCommand } from "../src/commands/capture";
+import type { HumanWriteCoordinator } from "../src/humanWriteCoordinator";
 import type { TargetResolution } from "../src/targetResolver";
 import { workspaceFolder } from "./helpers/vscodeMock";
 
@@ -13,6 +14,7 @@ const vscodeMocks = vi.hoisted(() => ({
   showErrorMessage: vi.fn(),
   showInformationMessage: vi.fn(),
   showQuickPick: vi.fn(),
+  showWarningMessage: vi.fn(),
 }));
 
 vi.mock("vscode", () => ({ window: vscodeMocks }));
@@ -21,6 +23,8 @@ beforeEach(() => {
   vscodeMocks.showErrorMessage.mockReset();
   vscodeMocks.showInformationMessage.mockReset();
   vscodeMocks.showQuickPick.mockReset();
+  vscodeMocks.showWarningMessage.mockReset();
+  vscodeMocks.showWarningMessage.mockResolvedValue("Capture");
 });
 
 describe("runCaptureCommand", () => {
@@ -47,10 +51,11 @@ describe("runCaptureCommand", () => {
     vscodeMocks.showInformationMessage.mockResolvedValueOnce(
       "Capture empty revision",
     );
+    const refresh = vi.fn(async () => undefined);
 
     await runCaptureCommand(cli, [resolved()], {
       pick: vi.fn(async (items) => items[0] as never),
-      refresh: vi.fn(),
+      humanWrites: humanWrites(refresh),
     });
 
     expect(capture.mock.calls.map((call) => call[1].allowEmpty)).toEqual([
@@ -83,7 +88,10 @@ describe("runCaptureCommand", () => {
       choice: "staged",
     });
 
-    await runCaptureCommand(cli, [resolved()], { pick, refresh });
+    await runCaptureCommand(cli, [resolved()], {
+      pick,
+      humanWrites: humanWrites(refresh),
+    });
 
     expect(pick).toHaveBeenCalledOnce();
     expect(capture).toHaveBeenCalledWith("/repo", {
@@ -116,7 +124,7 @@ describe("runCaptureCommand", () => {
 
     const command = runCaptureCommand(cli, [resolved()], {
       pick: vi.fn(async (items) => items[0] as never),
-      refresh,
+      humanWrites: humanWrites(refresh),
     });
     await vi.waitFor(() =>
       expect(vscodeMocks.showInformationMessage).toHaveBeenCalled(),
@@ -149,7 +157,7 @@ describe("runCaptureCommand", () => {
 
     await runCaptureCommand(cli, [first, second], {
       pick: vi.fn(async () => second as never),
-      refresh,
+      humanWrites: humanWrites(refresh),
     });
 
     expect(first).toMatchObject({ emptyInventory: false });
@@ -170,12 +178,39 @@ describe("runCaptureCommand", () => {
       choice: "staged",
     });
 
+    const refresh = vi.fn(async () => undefined);
     await runCaptureCommand(cli, [resolved()], {
       pick: vi.fn(async (items) => items[0] as never),
-      refresh: vi.fn(),
+      humanWrites: humanWrites(refresh),
     });
 
     expect(vscodeMocks.showQuickPick).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels actor confirmation without capturing or refreshing", async () => {
+    const capture = vi.fn(async () => ({
+      schema: "pointbreak.review-capture" as const,
+      version: 1 as const,
+      revision: { id: "rev:sha256:a" },
+      diagnostics: [],
+    }));
+    const cli = { capture } as unknown as PointbreakCli;
+    const refresh = vi.fn(async () => undefined);
+    const coordinator = humanWrites(refresh);
+    vscodeMocks.showQuickPick.mockResolvedValueOnce({
+      label: "Staged only",
+      choice: "staged",
+    });
+    vscodeMocks.showWarningMessage.mockResolvedValueOnce(undefined);
+
+    await runCaptureCommand(cli, [resolved()], {
+      pick: vi.fn(async (items) => items[0] as never),
+      humanWrites: coordinator,
+    });
+
+    expect(coordinator.run).toHaveBeenCalledOnce();
+    expect(capture).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
   });
 });
 
@@ -199,4 +234,24 @@ function deferred<T>() {
     resolve = next;
   });
   return { promise, resolve };
+}
+
+function humanWrites(refresh: () => Promise<void>): HumanWriteCoordinator {
+  return {
+    run: vi.fn(async (request: HumanWriteRequestMock) => {
+      const context = {
+        actorId: "actor:git-email:human@example.com",
+        track: "human:local",
+      };
+      if (!(await request.confirm(context))) return undefined;
+      const result = await request.write(context);
+      await refresh();
+      return { document: result, refreshed: true };
+    }),
+  } as unknown as HumanWriteCoordinator;
+}
+
+interface HumanWriteRequestMock {
+  confirm(context: { actorId: string; track: string }): Promise<boolean>;
+  write(context: { actorId: string; track: string }): Promise<unknown>;
 }

@@ -106,6 +106,10 @@ pub enum AttentionDetail {
         assessment: ReviewAssessment,
         track_id: TrackId,
         recorded_by: ActorId,
+        /// Every current head in the assessment's supersession thread. This is
+        /// intentionally distinct from freshness.supersededBy, which names only
+        /// direct superseders.
+        head_revision_ids: Vec<RevisionId>,
     },
     FailedValidation {
         validation_check_id: ValidationCheckId,
@@ -509,6 +513,7 @@ fn stale_assessment_items(
                 assessment: record.assessment,
                 track_id: record.track_id.clone(),
                 recorded_by: record.recorded_by.clone(),
+                head_revision_ids: supersession.heads_for(revision_id).into_iter().collect(),
             };
             items.push(AttentionItem {
                 id: format!("stale_assessment:{}", record.assessment_id.as_str()),
@@ -1433,14 +1438,57 @@ mod tests {
                 assessment,
                 track_id,
                 recorded_by,
+                head_revision_ids,
             } => {
                 assert_eq!(assessment_id.as_str(), "assess:sha256:s1");
                 assert_eq!(*assessment, ReviewAssessment::Accepted);
                 assert_eq!(track_id.as_str(), "human:kevin");
                 assert_eq!(recorded_by.as_str(), "actor:human:kevin");
+                assert_eq!(head_revision_ids.as_slice(), std::slice::from_ref(&b));
             }
             _ => panic!("expected stale_assessment"),
         }
+    }
+
+    #[test]
+    fn stale_assessment_names_current_heads_beyond_converged_superseders() {
+        let a = rev("a");
+        let events = vec![
+            revision_event("a", vec![], "2026-06-04T00:00:00Z"),
+            revision_event("b", vec![a.clone()], "2026-06-04T00:00:01Z"),
+            revision_event("c", vec![a.clone()], "2026-06-04T00:00:02Z"),
+            revision_event("d", vec![rev("b"), rev("c")], "2026-06-04T00:00:03Z"),
+            assessment_event(
+                &a,
+                "human:kevin",
+                "actor:human:kevin",
+                "s1",
+                ReviewAssessment::Accepted,
+                vec![],
+                vec![],
+                "2026-06-04T00:00:04Z",
+            ),
+        ];
+
+        let projection = attention_from_events(&events, None).expect("projects");
+        let stale = projection
+            .items
+            .iter()
+            .find(|item| matches!(item.detail, AttentionDetail::StaleAssessment { .. }))
+            .expect("stale assessment");
+        assert_eq!(stale.freshness.superseded_by, vec![rev("b"), rev("c")]);
+        match &stale.detail {
+            AttentionDetail::StaleAssessment {
+                head_revision_ids, ..
+            } => assert_eq!(head_revision_ids.as_slice(), [rev("d")]),
+            _ => unreachable!(),
+        }
+        let wire = serde_json::to_value(stale).expect("serializes");
+        assert_eq!(wire["headRevisionIds"], serde_json::json!([rev("d")]));
+        assert_eq!(
+            wire["freshness"]["supersededBy"],
+            serde_json::json!([rev("b"), rev("c")])
+        );
     }
 
     #[test]

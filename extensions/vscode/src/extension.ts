@@ -3,6 +3,8 @@ import { AttentionTreeProvider } from "./attentionView";
 import { resolveBinary } from "./binary";
 import { PointbreakCli } from "./cli";
 import { runAddObservationFromSelectionCommand } from "./commands/addObservationFromSelection";
+import { runAssessmentFromAttentionCommand } from "./commands/assessmentFromAttention";
+import { runAttentionHeadResolutionCommand } from "./commands/attentionHeadResolution";
 import { runCaptureCommand } from "./commands/capture";
 import { runOpenAnnotatedDiffCommand } from "./commands/openAnnotatedDiff";
 import { runOpenInReviewCommand } from "./commands/openInReview";
@@ -10,8 +12,10 @@ import {
   OpenInSourceCommand,
   SourceReviewContextStore,
 } from "./commands/openInSource";
+import { runRespondInputRequestCommand } from "./commands/respondInputRequest";
 import { InspectApiDiffDataSource } from "./diffDataSource";
 import { FreshnessCoordinator } from "./freshnessCoordinator";
+import { HumanWriteCoordinator } from "./humanWriteCoordinator";
 import { InspectChildManager } from "./inspectChild";
 import { revisionIsCurrent } from "./inspectClient";
 import { InspectConnectionStore } from "./inspectConnectionStore";
@@ -90,6 +94,15 @@ export async function activate(context: ExtensionContext): Promise<void> {
       },
     },
   );
+  const humanWrites = new HumanWriteCoordinator(cli, {
+    resolveTrack: (resource) =>
+      workspace
+        .getConfiguration("pointbreak", resource as never)
+        .get<string>("observationTrack", "human:local"),
+    showDiagnostic: async (message) => window.showWarningMessage(message),
+    refresh: () => freshness.refreshAfterWrite(),
+    showRefreshError: async (message) => window.showWarningMessage(message),
+  });
   context.subscriptions.push(
     provider,
     treeView,
@@ -109,7 +122,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     ),
     commands.registerCommand("pointbreak.capture", () =>
       runCaptureCommand(cli, resolutions, {
-        refresh: () => freshness.refreshAfterWrite(),
+        humanWrites,
       }),
     ),
     commands.registerCommand("pointbreak.openAnnotatedDiff", (node) =>
@@ -123,6 +136,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     ),
     commands.registerCommand("pointbreak.addObservationFromSelection", () =>
       runAddObservationFromSelectionCommand(cli, resolutions, sourceContexts, {
+        humanWrites,
         isRevisionCurrent: async (resolution, revisionId) => {
           const { client } = await inspectManager.ensure(resolution);
           return revisionIsCurrent(
@@ -130,7 +144,21 @@ export async function activate(context: ExtensionContext): Promise<void> {
             revisionId,
           );
         },
-        refresh: () => freshness.refreshAfterWrite(),
+      }),
+    ),
+    commands.registerCommand("pointbreak.respondInputRequest", (node) =>
+      runRespondInputRequestCommand(cli, node, { humanWrites }),
+    ),
+    commands.registerCommand("pointbreak.assessAttention", (node) =>
+      runAssessmentFromAttentionCommand(cli, node, { humanWrites }),
+    ),
+    commands.registerCommand("pointbreak.captureAttentionResolution", (node) =>
+      runAttentionHeadResolutionCommand(cli, resolutions, node, {
+        humanWrites,
+        findAttentionItem: (targetKey, attentionId) =>
+          provider.findAttentionItem(targetKey, attentionId),
+        routeAssessment: async (refreshedNode) =>
+          commands.executeCommand("pointbreak.assessAttention", refreshedNode),
       }),
     ),
   );

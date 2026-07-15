@@ -25,6 +25,7 @@ vi.mock("vscode", () => ({
 
 import { runAddObservationFromSelectionCommand } from "../src/commands/addObservationFromSelection";
 import { SourceReviewContextStore } from "../src/commands/openInSource";
+import type { HumanWriteCoordinator } from "../src/humanWriteCoordinator";
 import type { TargetResolution } from "../src/targetResolver";
 import { workspaceFolder } from "./helpers/vscodeMock";
 
@@ -35,7 +36,7 @@ beforeEach(() => {
 });
 
 describe("runAddObservationFromSelectionCommand", () => {
-  it("records a verified selection without confirmation and refreshes", async () => {
+  it("records a verified selection through actor confirmation and refreshes", async () => {
     const contexts = contextStore(document);
     const cli = cliMock();
     const dependencies = deps(editor(document, 1, 0, 1, 3));
@@ -49,6 +50,13 @@ describe("runAddObservationFromSelectionCommand", () => {
 
     expect(dependencies.confirmDrift).not.toHaveBeenCalled();
     expect(dependencies.confirmUnverified).not.toHaveBeenCalled();
+    expect(dependencies.humanWrites.run).toHaveBeenCalledOnce();
+    expect(dependencies.confirmWrite).toHaveBeenCalledWith({
+      actorId: "actor:git-email:human@example.com",
+      track: "human:local",
+      revisionId: "rev:sha256:one",
+      title: "Check this range",
+    });
     expect(cli.addObservation).toHaveBeenCalledWith("/repo", {
       revisionId: "rev:sha256:one",
       track: "human:local",
@@ -62,6 +70,23 @@ describe("runAddObservationFromSelectionCommand", () => {
       "Observation recorded.",
     );
     expect(dependencies.refresh).toHaveBeenCalledOnce();
+  });
+
+  it("cancels final actor confirmation without appending", async () => {
+    const contexts = contextStore(document);
+    const cli = cliMock();
+    const dependencies = deps(editor(document, 1, 0, 1, 3));
+    dependencies.confirmWrite.mockResolvedValueOnce(false);
+
+    await runAddObservationFromSelectionCommand(
+      cli as never,
+      resolutions(),
+      contexts,
+      dependencies,
+    );
+
+    expect(cli.addObservation).not.toHaveBeenCalled();
+    expect(dependencies.refresh).not.toHaveBeenCalled();
   });
 
   it("refreshes a completed write without waiting for its notification", async () => {
@@ -366,9 +391,25 @@ function cliMock() {
 }
 
 function deps(activeEditor: ReturnType<typeof editor>) {
+  const refresh = vi.fn(async () => undefined);
+  const confirmWrite = vi.fn(async () => true);
+  const humanWrites = {
+    run: vi.fn(async (request: HumanWriteRequestMock) => {
+      const context = {
+        actorId: "actor:git-email:human@example.com",
+        track: "human:local",
+      };
+      if (!(await request.confirm(context))) return undefined;
+      const result = await request.write(context);
+      await refresh();
+      return result;
+    }),
+  } as unknown as HumanWriteCoordinator;
   return {
     activeEditor: vi.fn(() => activeEditor),
     observationTrack: vi.fn(() => "human:local"),
+    humanWrites,
+    confirmWrite,
     isRevisionCurrent: vi.fn(async () => true),
     promptTitle: vi.fn(async () => "Check this range"),
     confirmDrift: vi.fn(async () => true),
@@ -377,8 +418,13 @@ function deps(activeEditor: ReturnType<typeof editor>) {
     capture: vi.fn(async () => undefined),
     showInformationMessage: vi.fn(async () => undefined),
     showErrorMessage: vi.fn(async () => undefined),
-    refresh: vi.fn(async () => undefined),
+    refresh,
   };
+}
+
+interface HumanWriteRequestMock {
+  confirm(context: { actorId: string; track: string }): Promise<boolean>;
+  write(context: { actorId: string; track: string }): Promise<unknown>;
 }
 
 function deferred<T>() {

@@ -37,6 +37,9 @@ it("contributes the Review view and its commands", () => {
     "onCommand:pointbreak.openInReview",
     "onCommand:pointbreak.stopInspect",
     "onCommand:pointbreak.addObservationFromSelection",
+    "onCommand:pointbreak.respondInputRequest",
+    "onCommand:pointbreak.assessAttention",
+    "onCommand:pointbreak.captureAttentionResolution",
   ]);
   expect(pkg.contributes.views.pointbreak).toContainEqual({
     id: "pointbreak.attention",
@@ -49,6 +52,9 @@ it("contributes the Review view and its commands", () => {
     "pointbreak.openInReview",
     "pointbreak.stopInspect",
     "pointbreak.addObservationFromSelection",
+    "pointbreak.respondInputRequest",
+    "pointbreak.assessAttention",
+    "pointbreak.captureAttentionResolution",
   ]);
   expect(
     pkg.contributes.commands.find(
@@ -59,9 +65,29 @@ it("contributes the Review view and its commands", () => {
   });
   expect(pkg.contributes.menus["view/item/context"]).toContainEqual({
     command: "pointbreak.openInReview",
-    when: "view == pointbreak.attention && (viewItem == pointbreak.revision || viewItem == pointbreak.attentionItem)",
+    when: "view == pointbreak.attention && (viewItem == pointbreak.revision || viewItem == pointbreak.attentionItem || viewItem == pointbreak.attention.inputRequest || viewItem == pointbreak.attention.assessment)",
     group: "navigation@2",
   });
+  expect(pkg.contributes.menus["view/item/context"]).toContainEqual({
+    command: "pointbreak.captureAttentionResolution",
+    when: "view == pointbreak.attention && viewItem == pointbreak.attention.headResolution",
+    group: "inline@1",
+  });
+  expect(pkg.contributes.menus["view/item/context"]).toContainEqual({
+    command: "pointbreak.assessAttention",
+    when: "view == pointbreak.attention && viewItem == pointbreak.attention.assessment",
+    group: "inline@1",
+  });
+  expect(pkg.contributes.menus["view/item/context"]).toContainEqual({
+    command: "pointbreak.respondInputRequest",
+    when: "view == pointbreak.attention && viewItem == pointbreak.attention.inputRequest",
+    group: "inline@1",
+  });
+  expect(pkg.contributes.menus.commandPalette).toEqual([
+    { command: "pointbreak.respondInputRequest", when: "false" },
+    { command: "pointbreak.assessAttention", when: "false" },
+    { command: "pointbreak.captureAttentionResolution", when: "false" },
+  ]);
   expect(
     pkg.contributes.configuration.properties["pointbreak.reviewUrl"],
   ).toMatchObject({
@@ -79,6 +105,8 @@ it("contributes the Review view and its commands", () => {
   ).toMatchObject({
     type: "string",
     default: "human:local",
+    scope: "resource",
+    description: "Default track for human-authored Pointbreak writes.",
   });
 });
 

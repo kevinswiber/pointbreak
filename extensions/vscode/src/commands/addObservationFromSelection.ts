@@ -1,6 +1,9 @@
-import { commands, window, workspace } from "vscode";
-import { refreshAfterWrite } from "../attentionView";
+import { commands, window } from "vscode";
 import type { PointbreakCli } from "../cli";
+import type {
+  HumanWriteContext,
+  HumanWriteCoordinator,
+} from "../humanWriteCoordinator";
 import {
   liveSelectionToSnapshot,
   repoRelativeFile,
@@ -15,6 +18,7 @@ import type { SourceReviewContextStore } from "./openInSource";
 const DRIFT_ACTION = "Add to changed source";
 const UNVERIFIED_ACTION = "Add outside captured lines";
 const CAPTURE_ACTION = "Capture current work";
+const RECORD_ACTION = "Record observation";
 const OPEN_SOURCE_GUIDANCE =
   "Open a captured range from Pointbreak Review before adding an observation.";
 
@@ -31,7 +35,7 @@ interface SourceEditor {
 
 export interface AddObservationDependencies {
   activeEditor(): SourceEditor | undefined;
-  observationTrack(editor: SourceEditor): string;
+  humanWrites?: HumanWriteCoordinator;
   isRevisionCurrent(
     resolution: ResolvedTargetResolution,
     revisionId: string,
@@ -40,10 +44,12 @@ export interface AddObservationDependencies {
   confirmDrift(message: string): Promise<boolean>;
   confirmUnverified(message: string): Promise<boolean>;
   offerCapture(message: string): Promise<boolean>;
+  confirmWrite(
+    context: HumanWriteContext & { revisionId: string; title: string },
+  ): Promise<boolean>;
   capture(): Promise<unknown>;
   showInformationMessage(message: string): Promise<unknown>;
   showErrorMessage(message: string): Promise<unknown>;
-  refresh(): Promise<void>;
 }
 
 export async function runAddObservationFromSelectionCommand(
@@ -139,13 +145,6 @@ export async function runAddObservationFromSelectionCommand(
     return;
   }
 
-  const track = dependencies.observationTrack(editor).trim();
-  if (!track) {
-    await dependencies.showErrorMessage(
-      "Pointbreak observation track must not be empty.",
-    );
-    return;
-  }
   const title = (await dependencies.promptTitle())?.trim();
   if (!title) return;
 
@@ -165,19 +164,40 @@ export async function runAddObservationFromSelectionCommand(
     return;
   }
 
+  const humanWrites = dependencies.humanWrites;
+  if (!humanWrites) {
+    await dependencies.showErrorMessage(
+      "Pointbreak could not prepare the human write.",
+    );
+    return;
+  }
   try {
-    const result = await cli.addObservation(resolution.folder.uri.fsPath, {
-      revisionId: context.revisionId,
-      track,
-      title,
-      file: verification.target.filePath,
-      side: verification.target.side,
-      startLine: verification.target.startLine,
-      endLine: verification.target.endLine,
+    const result = await humanWrites.run({
+      repo: resolution.folder.uri.fsPath,
+      resource: editor.document.uri,
+      confirm: (writer) =>
+        dependencies.confirmWrite({
+          ...writer,
+          revisionId: context.revisionId,
+          title,
+        }),
+      write: async ({ track }) => {
+        const added = await cli.addObservation(resolution.folder.uri.fsPath, {
+          revisionId: context.revisionId,
+          track,
+          title,
+          file: verification.target.filePath,
+          side: verification.target.side,
+          startLine: verification.target.startLine,
+          endLine: verification.target.endLine,
+        });
+        if (added.revisionId !== context.revisionId) {
+          throw new Error("observation revision changed during write");
+        }
+        return added;
+      },
     });
-    if (result.revisionId !== context.revisionId) {
-      throw new Error("observation revision changed during write");
-    }
+    if (!result) return;
   } catch {
     await dependencies.showErrorMessage(
       "Pointbreak could not add the observation.",
@@ -185,23 +205,12 @@ export async function runAddObservationFromSelectionCommand(
     return;
   }
   void dependencies.showInformationMessage("Observation recorded.");
-  try {
-    await dependencies.refresh();
-  } catch {
-    await dependencies.showErrorMessage(
-      "Observation recorded, but Pointbreak could not refresh the review.",
-    );
-  }
 }
 
 function defaultDependencies(): AddObservationDependencies {
   return {
     activeEditor: () =>
       window.activeTextEditor as unknown as SourceEditor | undefined,
-    observationTrack: (editor) =>
-      workspace
-        .getConfiguration("pointbreak", editor.document.uri as never)
-        .get<string>("observationTrack", "human:local"),
     isRevisionCurrent: async () => false,
     promptTitle: async () =>
       window.showInputBox({
@@ -225,11 +234,16 @@ function defaultDependencies(): AddObservationDependencies {
     offerCapture: async (message) =>
       (await window.showInformationMessage(message, CAPTURE_ACTION)) ===
       CAPTURE_ACTION,
+    confirmWrite: async ({ actorId, track, revisionId, title }) =>
+      (await window.showWarningMessage(
+        `Record “${title}” on ${revisionId} as ${actorId} in track ${track}?`,
+        { modal: true },
+        RECORD_ACTION,
+      )) === RECORD_ACTION,
     capture: async () => commands.executeCommand("pointbreak.capture"),
     showInformationMessage: async (message) =>
       window.showInformationMessage(message),
     showErrorMessage: async (message) => window.showErrorMessage(message),
-    refresh: refreshAfterWrite,
   };
 }
 
