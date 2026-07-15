@@ -42,6 +42,9 @@ fn release_workflows_target_single_pointbreak_crate() {
     assert!(cog.contains(r#""git push origin refs/tags/v{{version}}""#));
     assert!(cog.contains("gh workflow run release.yml -f tag=v{{version}}"));
     assert!(cog.contains(r#"repository = "pointbreak""#));
+    assert!(cog.contains(r#"owner = "withpointbreak""#));
+    let stale_owner = ["owner = \"", "kevinswiber", "\""].join("");
+    assert!(!cog.contains(&stale_owner));
 }
 
 #[test]

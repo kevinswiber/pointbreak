@@ -120,7 +120,7 @@ path = "CHANGELOG.md"
 template = "remote"
 remote = "github.com"
 repository = "pointbreak"
-owner = "kevinswiber"
+owner = "withpointbreak"
 
 [[changelog.authors]]
 signature = "Kevin Swiber"
