@@ -375,7 +375,7 @@ store-only, with no committed-config sibling to separate from. This default stor
 user-level multi-repository store or remote sync service; a clone may opt into a separate,
 machine-wide **user-level family store tier** (see
 [User-Level Family Store Tier](#user-level-family-store-tier) below), which resolves the
-multi-repository case [issue #153](https://github.com/kevinswiber/pointbreak/issues/153) named.
+multi-repository case [issue #153](https://github.com/withpointbreak/pointbreak/issues/153) named.
 
 Public commands expose the resolved store as command JSON using opaque refs. Callers must not depend
 on raw store paths, event filenames, artifact paths, `.git` paths, `.shore/data` paths, or
@@ -1094,7 +1094,7 @@ supported, so the error offers no migration to run. (This retired flat layout is
 `shore store migrate`, which folds a pre-flip `.shore/data/` store into the shared common-dir store;
 see [Shared Common-Dir Store Selection](#shared-common-dir-store-selection).) The still-future
 `shore doctor`
-([issue #9](https://github.com/kevinswiber/pointbreak/issues/9)) remains a separate, read-only
+([issue #9](https://github.com/withpointbreak/pointbreak/issues/9)) remains a separate, read-only
 diagnostic bundle concern — it is not built.
 
 Migration and repair work should commit independently. One successful fix should not be rolled back

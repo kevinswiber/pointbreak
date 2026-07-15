@@ -1,7 +1,7 @@
 # Install the latest (or a requested) Pointbreak Review release on Windows.
 #
 # Usage:
-#   irm https://raw.githubusercontent.com/kevinswiber/pointbreak/main/scripts/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/install.ps1 | iex
 
 [CmdletBinding()]
 param(
@@ -14,7 +14,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$Repository = "kevinswiber/pointbreak"
+$Repository = "withpointbreak/pointbreak"
 $ApiRoot = "https://api.github.com/repos"
 $DownloadRoot = "https://github.com/$Repository/releases/download"
 $ReleasesUrl = "https://github.com/$Repository/releases"

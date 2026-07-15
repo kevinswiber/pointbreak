@@ -45,7 +45,29 @@ if [ ${#VIEWER[@]} -eq 0 ]; then
   fi
 fi
 
-REPO="kevinswiber/pointbreak"
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(git -C "$SCRIPT_DIR/.." rev-parse --show-toplevel)
+
+resolve_repository() {
+  local remote_url
+  remote_url=$(git -C "$REPO_ROOT" remote get-url origin)
+  remote_url=${remote_url#git@github.com:}
+  remote_url=${remote_url#https://github.com/}
+  remote_url=${remote_url%.git}
+
+  if [[ ! "$remote_url" =~ ^[^/]+/[^/]+$ ]]; then
+    echo "error: origin is not a GitHub owner/repository URL" >&2
+    return 1
+  fi
+
+  printf '%s\n' "$remote_url"
+}
+
+REPO=${RELEASE_PLAN_REPO:-$(resolve_repository)}
+if [[ ! "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
+  echo "error: RELEASE_PLAN_REPO must be an owner/repository name" >&2
+  exit 1
+fi
 WORKFLOW="release-plan.yml"
 
 if [ -n "${RELEASE_PLAN_DIR:-}" ]; then

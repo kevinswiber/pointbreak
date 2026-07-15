@@ -53,7 +53,7 @@ Ratified by [ADR-0028](./adr/adr-0028-id-prefix-convention.md):
 note marks a chip that is styled with a tooltip but has no navigation route (it never renders a dead
 link). The list is derived from `REF_ID_PREFIXES` in `src/cli/inspect/web/src/classNames.ts` and
 mirrored by the registry's `linkified` flags under a drift test. Membership and the shape gaps were
-resolved in [#344](https://github.com/kevinswiber/pointbreak/issues/344) (see the *Linkification
+resolved in [#344](https://github.com/withpointbreak/pointbreak/issues/344) (see the *Linkification
 Membership Resolved* amendment in ADR-0028): the eight production-minted content ids above linkify as
 non-clickable chips, the `rev:worktree:` shape now linkifies, and the legacy `review-unit`/`snap`
 display entries were retired.

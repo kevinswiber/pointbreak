@@ -9,7 +9,7 @@ scripts select the archive for the current platform and verify it against the re
 Install the latest release into `~/.local/bin`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/kevinswiber/pointbreak/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/install.sh | sh
 ```
 
 If `~/.local/bin` is not already in `PATH`, the installer prints a command for your current shell and
@@ -27,7 +27,7 @@ The script also supports `wget` when run from a local checkout.
 Pass installer options after `sh -s --`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/kevinswiber/pointbreak/main/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/install.sh \
   | sh -s -- --version=v0.6.0 --prefix="$HOME/bin"
 ```
 
@@ -39,7 +39,7 @@ non-prerelease GitHub release. `--prefix` names the directory that will contain 
 Install the latest release into `%LOCALAPPDATA%\Pointbreak\bin`:
 
 ```powershell
-irm https://raw.githubusercontent.com/kevinswiber/pointbreak/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/install.ps1 | iex
 ```
 
 The installer adds that directory to your user `PATH` when necessary. Restart the terminal before
@@ -53,7 +53,7 @@ To pin a version, choose another install directory, or leave `PATH` unchanged, i
 script as a script block:
 
 ```powershell
-$Install = [scriptblock]::Create((irm https://raw.githubusercontent.com/kevinswiber/pointbreak/main/scripts/install.ps1))
+$Install = [scriptblock]::Create((irm https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/install.ps1))
 & $Install -Version v0.6.0 -InstallDir "$HOME\bin" -NoModifyPath
 ```
 
@@ -73,7 +73,7 @@ way.
 To inspect a script before running it:
 
 ```sh
-curl -fsSL -o install.sh https://raw.githubusercontent.com/kevinswiber/pointbreak/main/scripts/install.sh
+curl -fsSL -o install.sh https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/install.sh
 less install.sh
 sh install.sh
 ```
@@ -81,7 +81,7 @@ sh install.sh
 On Windows:
 
 ```powershell
-irm https://raw.githubusercontent.com/kevinswiber/pointbreak/main/scripts/install.ps1 -OutFile install.ps1
+irm https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/install.ps1 -OutFile install.ps1
 Get-Content .\install.ps1
 .\install.ps1
 ```
@@ -117,14 +117,14 @@ commands.
 ## Manual download
 
 Download the archive for your target and `checksums.txt` from the
-[GitHub releases page](https://github.com/kevinswiber/pointbreak/releases). For example, on Apple
+[GitHub releases page](https://github.com/withpointbreak/pointbreak/releases). For example, on Apple
 silicon macOS:
 
 ```sh
 VERSION=0.6.0
 TARGET=darwin-arm64
 ARCHIVE="pointbreak-${VERSION}-${TARGET}.tar.gz"
-BASE="https://github.com/kevinswiber/pointbreak/releases/download/v${VERSION}"
+BASE="https://github.com/withpointbreak/pointbreak/releases/download/v${VERSION}"
 
 curl -fsSLO "${BASE}/${ARCHIVE}"
 curl -fsSLO "${BASE}/checksums.txt"

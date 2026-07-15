@@ -2,13 +2,13 @@
 # Install the latest (or a requested) Pointbreak Review release on macOS or Linux.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/kevinswiber/pointbreak/main/scripts/install.sh | sh
-#   curl -fsSL https://raw.githubusercontent.com/kevinswiber/pointbreak/main/scripts/install.sh \
+#   curl -fsSL https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/install.sh \
 #     | sh -s -- --version=v0.6.0 --prefix="$HOME/.local/bin"
 
 set -eu
 
-REPOSITORY="kevinswiber/pointbreak"
+REPOSITORY="withpointbreak/pointbreak"
 API_ROOT="https://api.github.com/repos"
 DOWNLOAD_ROOT="https://github.com/${REPOSITORY}/releases/download"
 RELEASES_URL="https://github.com/${REPOSITORY}/releases"

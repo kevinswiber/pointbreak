@@ -7,9 +7,13 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kevinswiber/pointbreak.git",
+    "url": "https://github.com/withpointbreak/pointbreak.git",
     "directory": "extensions/vscode"
   },
+  "bugs": {
+    "url": "https://github.com/withpointbreak/pointbreak/issues"
+  },
+  "homepage": "https://github.com/withpointbreak/pointbreak#readme",
   "engines": {
     "node": ">=20",
     "vscode": "^1.74.0"

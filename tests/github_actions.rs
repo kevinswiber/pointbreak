@@ -31,7 +31,10 @@ fn release_workflows_target_single_pointbreak_crate() {
     assert!(release_plan.contains("RELEASE_COG_CONFIG"));
     assert!(release.contains("cargo publish -p pointbreak --locked"));
     assert!(release.contains("https://crates.io/api/v1/crates/pointbreak/${VERSION}"));
-    assert!(release_script.contains(r#"REPO="kevinswiber/pointbreak""#));
+    assert!(release_script.contains("RELEASE_PLAN_REPO"));
+    assert!(release_script.contains("remote get-url origin"));
+    let stale_repository = ["kevinswiber", "pointbreak"].join("/");
+    assert!(!release_script.contains(&stale_repository));
     assert!(!release.contains("boardwalk"));
     assert!(cog.contains(r#""git commit --amend -m 'chore: v{{version}}'""#));
     assert!(cog.contains(r#""git tag -f -m 'v{{version}}' v{{version}}""#));

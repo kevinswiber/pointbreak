@@ -17,7 +17,7 @@ const COMPACT_ALLOWED_PROPERTIES = new Set([
 
 // Classes the inspector can emit that have no `app.css` rule and fall back to
 // their base class, each with a one-line reason. Whether any is a real styling
-// gap is being evaluated in kevinswiber/pointbreak#296; this list keeps the drift
+// gap is being evaluated in withpointbreak/pointbreak#296; this list keeps the drift
 // test green while that decision is owned there. An emitted class with no rule
 // and no entry here fails the test — that is the JS-vs-CSS drift catch.
 const REF_BASE_STYLED =

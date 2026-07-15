@@ -55,7 +55,7 @@ try {
             -NoModifyPath
     }
     catch {
-        if ($_.Exception.Message -notmatch "Check https://github.com/kevinswiber/pointbreak/releases") {
+        if ($_.Exception.Message -notmatch "Check https://github.com/withpointbreak/pointbreak/releases") {
             throw
         }
         $missingReleaseFailed = $true

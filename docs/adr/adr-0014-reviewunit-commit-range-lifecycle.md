@@ -384,7 +384,7 @@ terminality (§3), all-statuses-derived (§4), the §10 association-vs-supersess
 (§8), and the CLI surface (§9) are all unchanged. This amendment re-scopes **when
 `divergent_commit_association` fires and what withholds the landing headline** (§5/§7), adds one git
 plumbing helper (§6), and adds a **write-time advisory guard** on `shore association record --commit`.
-Tracked as [issue #443](https://github.com/kevinswiber/pointbreak/issues/443).
+Tracked as [issue #443](https://github.com/withpointbreak/pointbreak/issues/443).
 
 **What was wrong.** §7's predicate — two un-withdrawn commit associations with different OIDs
 (`src/session/projection/commit_range.rs:328-342`) — fires on states the model itself blesses: a

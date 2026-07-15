@@ -76,7 +76,7 @@ if POINTBREAK_INSTALLER_FIXTURE_ROOT="${temp_dir}/releases" \
     printf 'installer accepted a missing release\n' >&2
     exit 1
 fi
-grep -F "check https://github.com/kevinswiber/pointbreak/releases" \
+grep -F "check https://github.com/withpointbreak/pointbreak/releases" \
     "${temp_dir}/missing-release.log" >/dev/null
 
 rm -f "${install_dir}/shore"

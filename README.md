@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/pointbreak.svg)](https://crates.io/crates/pointbreak)
 [![Documentation](https://docs.rs/pointbreak/badge.svg)](https://docs.rs/pointbreak)
-[![CI](https://github.com/kevinswiber/pointbreak/actions/workflows/ci.yml/badge.svg)](https://github.com/kevinswiber/pointbreak/actions/workflows/ci.yml)
+[![CI](https://github.com/withpointbreak/pointbreak/actions/workflows/ci.yml/badge.svg)](https://github.com/withpointbreak/pointbreak/actions/workflows/ci.yml)
 
 Pointbreak Review is a durable, local-first review record for code changes that humans and coding
 agents build together. It is designed for the iteration that happens long before a pull request
@@ -19,9 +19,9 @@ a reader can tell whether each fact is merely signed or bound to a trusted ident
 [docs/signing-ux.md](docs/signing-ux.md).
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/kevinswiber/pointbreak/main/assets/shore-inspector-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/kevinswiber/pointbreak/main/assets/shore-inspector-light.png">
-  <img alt="The Pointbreak Review inspector: a filterable event timeline with per-actor tracks and signature-trust badges, beside an event detail pane" src="https://raw.githubusercontent.com/kevinswiber/pointbreak/main/assets/shore-inspector-light.png" width="800">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/withpointbreak/pointbreak/main/assets/shore-inspector-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/withpointbreak/pointbreak/main/assets/shore-inspector-light.png">
+  <img alt="The Pointbreak Review inspector: a filterable event timeline with per-actor tracks and signature-trust badges, beside an event detail pane" src="https://raw.githubusercontent.com/withpointbreak/pointbreak/main/assets/shore-inspector-light.png" width="800">
 </picture>
 
 *Watching a review in the Pointbreak Review inspector opened by `shore inspect`: the event timeline, each fact attributed to its track, with signature-trust badges.*
@@ -31,13 +31,13 @@ a reader can tell whether each fact is merely signed or bound to a trusted ident
 On macOS or Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kevinswiber/pointbreak/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/install.sh | sh
 ```
 
 On Windows PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/kevinswiber/pointbreak/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/install.ps1 | iex
 ```
 
 The installers select the correct release archive, verify its SHA-256 checksum, and install the
@@ -100,7 +100,7 @@ documents, schema names, and V1 limitations.
 Pointbreak ships a portable author-handoff skill under [skills/](skills/README.md). Install it with:
 
 ```bash
-npx skills add kevinswiber/pointbreak
+npx skills add withpointbreak/pointbreak
 ```
 
 ## Documentation

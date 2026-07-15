@@ -7,7 +7,7 @@ skills into the agent environment where you want them to run.
 The recommended install path is:
 
 ```bash
-npx skills add kevinswiber/pointbreak
+npx skills add withpointbreak/pointbreak
 ```
 
 Install the skill ahead of the work session where it should run, not after the implementation is
@@ -27,7 +27,7 @@ already finished.
 Manual fallback for agents that read the shared Agent Skills directory:
 
 ```bash
-git clone https://github.com/kevinswiber/pointbreak.git
+git clone https://github.com/withpointbreak/pointbreak.git
 cd pointbreak
 mkdir -p ~/.agents/skills
 cp -r skills/* ~/.agents/skills/

@@ -77,7 +77,7 @@ Use an unscoped commit unless `cog.toml` grows an explicit scopes list. Today th
 empty, so scoped commits such as `docs(readme): ...` are rejected.
 
 Check the current branch against the upstream default branch. In a fork, add an `upstream` remote
-that points to `kevinswiber/pointbreak`; in the maintainer clone, replace `upstream` with `origin`
+that points to `withpointbreak/pointbreak`; in the maintainer clone, replace `upstream` with `origin`
 if `origin` is the upstream repository.
 
 ```bash
