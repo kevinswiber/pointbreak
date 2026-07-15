@@ -8,10 +8,10 @@ Pointbreak Review is a durable, local-first review record for code changes that 
 agents build together. It is designed for the iteration that happens long before a pull request
 opens, where you might guide one agent to author a change and another to review it.
 
-Coding agents generate far more activity than anyone can follow. Rather than store or replay full
-transcripts, Pointbreak keeps only the facts that move a review forward: what changed and why, the
-open questions, and each assessment. It records them as an append-only log you can read in the
-terminal, browse in a local web inspector, or consume as JSON.
+Decisions outlive conversations. Coding agents generate far more activity than anyone can follow.
+Rather than store or replay full transcripts, Pointbreak keeps only the facts that move a review
+forward: what changed and why, the open questions, and each assessment. It records them as an
+append-only log you can read in the terminal, browse in a local web inspector, or consume as JSON.
 
 Every fact carries the actor that asserted it, human or agent, and can be signed with an Ed25519 key.
 Signing never blocks a write, but when a signature is present the record becomes tamper-evident, and
