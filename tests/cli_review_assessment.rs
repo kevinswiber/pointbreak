@@ -49,6 +49,164 @@ fn assessment_add_and_show_run_at_the_top_level() {
 }
 
 #[test]
+fn assessment_exact_revision_targets_a_superseded_revision_for_add_and_show() {
+    let (repo, first_id, second_id) = support::superseded_dump_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+
+    let legacy = shore([
+        "assessment",
+        "add",
+        "--repo",
+        repo_arg,
+        "--revision",
+        &first_id,
+        "--track",
+        "human:legacy",
+        "--assessment",
+        "accepted",
+    ]);
+    assert!(
+        legacy.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&legacy.stderr)
+    );
+    assert_eq!(parse_json(&legacy.stdout)["revisionId"], second_id);
+
+    let exact = shore([
+        "assessment",
+        "add",
+        "--repo",
+        repo_arg,
+        "--exact-revision",
+        &first_id,
+        "--track",
+        "human:exact",
+        "--assessment",
+        "needs-changes",
+    ]);
+    assert!(
+        exact.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&exact.stderr)
+    );
+    assert_eq!(parse_json(&exact.stdout)["revisionId"], first_id);
+
+    let legacy_show = shore([
+        "assessment",
+        "show",
+        "--repo",
+        repo_arg,
+        "--revision",
+        &first_id,
+        "--track",
+        "human:legacy",
+    ]);
+    assert!(legacy_show.status.success());
+    assert_eq!(parse_json(&legacy_show.stdout)["revisionId"], second_id);
+
+    let exact_show = shore([
+        "assessment",
+        "show",
+        "--repo",
+        repo_arg,
+        "--exact-revision",
+        &first_id,
+        "--track",
+        "human:exact",
+    ]);
+    assert!(exact_show.status.success());
+    assert_eq!(parse_json(&exact_show.stdout)["revisionId"], first_id);
+}
+
+#[test]
+fn assessment_exact_revision_rejects_conflicting_or_unknown_selectors_before_write() {
+    let repo = support::dump_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+    let capture = parse_json(&shore(["capture", "--repo", repo_arg]).stdout);
+    let revision_id = capture["revision"]["id"].as_str().unwrap();
+
+    let conflicting = shore([
+        "assessment",
+        "add",
+        "--repo",
+        repo_arg,
+        "--revision",
+        revision_id,
+        "--exact-revision",
+        revision_id,
+        "--track",
+        "human:kevin",
+        "--assessment",
+        "accepted",
+    ]);
+    assert!(!conflicting.status.success());
+    assert!(String::from_utf8_lossy(&conflicting.stderr).contains("cannot be used with"));
+
+    let unknown = shore([
+        "assessment",
+        "add",
+        "--repo",
+        repo_arg,
+        "--exact-revision",
+        "rev:sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "--track",
+        "human:kevin",
+        "--assessment",
+        "accepted",
+    ]);
+    assert!(!unknown.status.success());
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("unknown revision"));
+}
+
+#[test]
+fn assessment_exact_revision_validates_relationships_against_the_named_revision() {
+    let (repo, first_id, _) = support::superseded_dump_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+    let observation = parse_json(
+        &shore([
+            "observation",
+            "add",
+            "--repo",
+            repo_arg,
+            "--revision",
+            &first_id,
+            "--track",
+            "human:kevin",
+            "--title",
+            "belongs to the successor",
+        ])
+        .stdout,
+    );
+    let before = parse_json(&shore(["store", "status", "--repo", repo_arg]).stdout)
+        ["inventory"]["eventCount"]
+        .as_u64()
+        .unwrap();
+
+    let rejected = shore([
+        "assessment",
+        "add",
+        "--repo",
+        repo_arg,
+        "--exact-revision",
+        &first_id,
+        "--track",
+        "human:kevin",
+        "--assessment",
+        "accepted",
+        "--related-observation",
+        observation["observationId"].as_str().unwrap(),
+    ]);
+
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("unknown observation"));
+    let after = parse_json(&shore(["store", "status", "--repo", repo_arg]).stdout)["inventory"]
+        ["eventCount"]
+        .as_u64()
+        .unwrap();
+    assert_eq!(after, before, "relationship rejection must not append");
+}
+
+#[test]
 fn assessment_add_observation_target_resolves_a_bare_fragment() {
     let repo = support::dump_repo();
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);

@@ -19,6 +19,7 @@ use crate::session::{ArtifactRemovalProjection, EventStore};
 pub struct AssessmentShowOptions {
     pub(super) repo: PathBuf,
     pub(super) revision_id: Option<RevisionId>,
+    pub(super) exact_revision_id: Option<RevisionId>,
     pub(super) track: Option<String>,
     pub(super) include_summary: bool,
     pub(super) include_all: bool,
@@ -31,6 +32,7 @@ impl AssessmentShowOptions {
         Self {
             repo: repo.as_ref().to_path_buf(),
             revision_id: None,
+            exact_revision_id: None,
             track: None,
             include_summary: false,
             include_all: false,
@@ -41,6 +43,11 @@ impl AssessmentShowOptions {
 
     pub fn with_revision_id(mut self, id: RevisionId) -> Self {
         self.revision_id = Some(id);
+        self
+    }
+
+    pub fn with_exact_revision_id(mut self, id: RevisionId) -> Self {
+        self.exact_revision_id = Some(id);
         self
     }
     pub fn with_track(mut self, track: impl Into<String>) -> Self {
@@ -95,7 +102,10 @@ pub fn show_assessments(options: AssessmentShowOptions) -> Result<AssessmentShow
     let events = EventStore::from_backend(read_store.backend()).list_events()?;
     let resolved = resolve_revision(
         &events,
-        RevisionSelection::from_revision_seed(options.revision_id.as_ref()),
+        RevisionSelection::from_revision_options(
+            options.revision_id.as_ref(),
+            options.exact_revision_id.as_ref(),
+        )?,
         &CurrentRevisionContext::for_repo(&options.repo)?,
         RevisionScope::default(),
     )?;

@@ -52,6 +52,136 @@ fn observation_add_and_list_run_at_the_top_level() {
 }
 
 #[test]
+fn observation_exact_revision_targets_and_validates_the_named_snapshot() {
+    let repo = GitRepo::new();
+    repo.write("README.md", "base\n");
+    repo.commit_all("base");
+    repo.write("only-a.rs", "fn a() {}\n");
+    let first = parse_json(
+        &shore([
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--include-untracked",
+        ])
+        .stdout,
+    );
+    let first_id = first["revision"]["id"].as_str().unwrap().to_owned();
+    repo.remove("only-a.rs");
+    repo.write("only-b.rs", "fn b() {}\n");
+    let second = parse_json(
+        &shore([
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--include-untracked",
+            "--supersedes",
+            &first_id,
+        ])
+        .stdout,
+    );
+    let second_id = second["revision"]["id"].as_str().unwrap().to_owned();
+
+    let legacy = shore([
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--revision",
+        &first_id,
+        "--track",
+        "human:legacy",
+        "--title",
+        "head seed",
+    ]);
+    assert!(
+        legacy.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&legacy.stderr)
+    );
+    assert_eq!(parse_json(&legacy.stdout)["revisionId"], second_id);
+
+    let exact = shore([
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--exact-revision",
+        &first_id,
+        "--track",
+        "human:exact",
+        "--title",
+        "exact target",
+        "--file",
+        "only-a.rs",
+    ]);
+    assert!(
+        exact.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&exact.stderr)
+    );
+    let exact = parse_json(&exact.stdout);
+    assert_eq!(exact["revisionId"], first_id);
+    assert_eq!(exact["target"]["filePath"], "only-a.rs");
+
+    let wrong_snapshot = shore([
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--revision",
+        &first_id,
+        "--track",
+        "human:legacy",
+        "--title",
+        "wrong snapshot",
+        "--file",
+        "only-a.rs",
+    ]);
+    assert!(!wrong_snapshot.status.success());
+    assert!(String::from_utf8_lossy(&wrong_snapshot.stderr).contains("not present"));
+}
+
+#[test]
+fn observation_exact_revision_rejects_conflicting_or_unknown_selectors_before_write() {
+    let repo = modified_repo();
+    let capture = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let revision_id = capture["revision"]["id"].as_str().unwrap();
+
+    let conflicting = shore([
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--revision",
+        revision_id,
+        "--exact-revision",
+        revision_id,
+        "--track",
+        "human:kevin",
+        "--title",
+        "conflict",
+    ]);
+    assert!(!conflicting.status.success());
+    assert!(String::from_utf8_lossy(&conflicting.stderr).contains("cannot be used with"));
+
+    let unknown = shore([
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--exact-revision",
+        "rev:sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "--track",
+        "human:kevin",
+        "--title",
+        "unknown",
+    ]);
+    assert!(!unknown.status.success());
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("unknown revision"));
+}
+
+#[test]
 fn observation_responds_to_resolves_a_bare_fragment_to_the_full_id() {
     let repo = modified_repo();
     shore(["capture", "--repo", repo.path().to_str().unwrap()]);

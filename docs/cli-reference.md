@@ -82,8 +82,9 @@ rendering it beside the writer as `claude-code (for kevin@swiber.dev)`. Discover
 the read proceeds with no resolution (advisory, never blocking). The file format is documented in
 [storage-model.md](./storage-model.md).
 
-The **write** side of this config — creating a delegation record or describing an actor's kind/roles —
-is the `shore identity` command group (`shore identity delegate` / `shore identity attest`, below).
+The command group also previews the resolved writer and owns the **write** side of this config —
+creating a delegation record or describing an actor's kind/roles. See `shore identity whoami`,
+`delegate`, and `attest` below.
 
 ### Signing
 
@@ -597,6 +598,9 @@ remain internal storage details.
 ## `shore identity`
 
 ```bash
+# Preview the actor that repository writes will use (pointbreak.identity-whoami).
+shore identity whoami [--repo .] [--format <fmt>]
+
 # Stage a delegation record binding an agent to its responsible principal (pointbreak.identity-delegate).
 shore identity delegate <agent-actor-id> --principal <principal-actor-id> \
   [--from <RFC3339>] [--until <RFC3339>] [--comment <text>] [--local] [--repo .] [--format <fmt>]
@@ -606,9 +610,13 @@ shore identity attest <actor-id> --kind <kind> [--role <role>]... \
   [--comment <text>] [--local] [--repo .] [--format <fmt>]
 ```
 
-`shore identity` writes the actor/principal config the read side (above) resolves. Both subcommands are
-possession-style: they stage the working-tree edit only and never invoke git — review and commit the
-file to apply it (`git log -p` is the audit trail), exactly like `shore key enroll`.
+`shore identity whoami` previews the writer identity that the existing resolver will use. It honors
+`SHORE_ACTOR_ID`, then Git email, Git name, and finally `actor:local`; it accepts no actor override.
+Its v1 JSON is exactly `schema`, `version`, and `actorId`.
+
+The other `shore identity` commands write the actor/principal config the read side (above) resolves.
+Both are possession-style: they stage the working-tree edit only and never invoke git — review and
+commit the file to apply it (`git log -p` is the audit trail), exactly like `shore key enroll`.
 
 - **`delegate`** stages a delegation record into `.shore/delegates.json` binding `<agent-actor-id>` (an
   `actor:agent:<name>` id) to a responsible **non-agent** `--principal` (the human/actor that answers
@@ -705,7 +713,8 @@ unresolved signer is a hard error rather than an unsigned write. Only shipped su
 
 ```bash
 shore observation add --track <track-id> --title <title> \
-  [--revision <revision-id>] [target options] [--body-content-type text/plain|text/markdown] \
+  [--revision <revision-id> | --exact-revision <revision-id>] [target options] \
+  [--body-content-type text/plain|text/markdown] \
   [--tag <tag>]... [--confidence low|medium|high] [--supersedes <observation-id>]... \
   [--responds-to <observation-id>]...
 shore observation list [--revision <revision-id>] [--track <track-id>] \
@@ -715,8 +724,10 @@ shore observation list [--revision <revision-id>] [--track <track-id>] \
 Observations are append-only review notes for a captured revision.
 
 - `observation add` requires `--track` and `--title`.
-- `--revision` pins the observation to one captured revision. Without either, the command defaults to the single captured revision and errors if
-  multiple captured revisions exist.
+- `--revision` is a head seed: a superseded revision resolves forward to the unique current head of
+  its thread. `--exact-revision` targets the named revision without following supersession. The two
+  options are mutually exclusive. Without either, the command defaults to the single captured
+  revision in the current worktree scope and errors when none or multiple are in scope.
 - Tracks are review lanes, not actor or producer provenance.
 - Without `--file`, the observation targets the whole revision.
 - With `--file <path>`, it targets a captured file.
@@ -797,16 +808,20 @@ notification transport, or cancellation/escalation event.
 
 ```bash
 shore assessment add --track <track-id> --assessment <assessment> \
-  [--revision <revision-id>] [target options] [--summary-content-type text/plain|text/markdown]
-shore assessment show [--revision <revision-id>] [--all] [--track <track-id>] \
+  [--revision <revision-id> | --exact-revision <revision-id>] [target options] \
+  [--summary-content-type text/plain|text/markdown]
+shore assessment show [--revision <revision-id> | --exact-revision <revision-id>] \
+  [--all] [--track <track-id>] \
   [--include-summary] [--format <fmt>]
 ```
 
 Assessments record review calls for a captured revision.
 
 - `assessment add` requires `--track` and `--assessment`.
-- `--revision` pins the assessment to one captured revision. Without either, the command defaults to the single captured revision and errors if
-  multiple captured revisions exist.
+- `--revision` is a head seed: a superseded revision resolves forward to the unique current head of
+  its thread. `--exact-revision` targets the named revision without following supersession. The two
+  options are mutually exclusive. Without either, the command defaults to the single captured
+  revision in the current worktree scope and errors when none or multiple are in scope.
 - CLI input uses `kebab-case` assessment values: `accepted`, `accepted-with-follow-up`,
   `needs-changes`, and `needs-clarification`. Command JSON output uses the matching `snake_case`
   values: `accepted`, `accepted_with_follow_up`, `needs_changes`, and `needs_clarification`. The
@@ -870,7 +885,8 @@ guides, never gates (ADR-0019): nothing here is a write precondition. The emitte
 
 ```bash
 shore validation add --track <track-id> --check-name <name> --status <status> \
-  [--revision <revision-id>] [validation options] [--summary-content-type text/plain|text/markdown]
+  [--revision <revision-id> | --exact-revision <revision-id>] [validation options] \
+  [--summary-content-type text/plain|text/markdown]
 shore validation list [--revision <revision-id>] \
   [--track <track-id>] [--status <status>] [--include-body] [--format <fmt>]
 ```
@@ -880,8 +896,10 @@ revision. They are advisory review context only: they do not accept, reject, mer
 replace a review assessment.
 
 - `validation add` requires `--track`, `--check-name`, and `--status`.
-- `--revision` pins the check to one captured revision. Without either, the command defaults to the single captured revision and errors if
-  multiple captured revisions exist.
+- `--revision` is a head seed: a superseded revision resolves forward to the unique current head of
+  its thread. `--exact-revision` targets the named revision without following supersession. The two
+  options are mutually exclusive. Without either, the command defaults to the single captured
+  revision in the current worktree scope and errors when none or multiple are in scope.
 - Validation targets are revision-only. There are no file or path target flags.
 - Status values are `passed`, `failed`, `errored`, and `skipped`.
 - `--command`, `--exit-code`, `--source-fingerprint`, `--started-at`, `--completed-at`, and

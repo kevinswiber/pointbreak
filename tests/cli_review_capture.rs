@@ -832,6 +832,137 @@ fn capture_accepts_supersedes_and_records_no_lineage_attach() {
 }
 
 #[test]
+fn capture_exact_payload_rerun_with_supersedes_is_idempotent() {
+    let repo = modified_repo();
+    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first_id = first["revision"]["id"].as_str().unwrap().to_owned();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+
+    let capture = || {
+        shore([
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--supersedes",
+            &first_id,
+        ])
+    };
+    let successor = parse_json(&capture().stdout);
+    let rerun = capture();
+
+    assert!(
+        rerun.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&rerun.stderr)
+    );
+    let rerun = parse_json(&rerun.stdout);
+    assert_eq!(rerun["revision"]["id"], successor["revision"]["id"]);
+    assert_eq!(rerun["eventsCreated"], 0);
+    assert!(rerun["eventsExisting"].as_u64().unwrap() >= 1);
+}
+
+#[test]
+fn capture_rejects_a_different_proposal_for_an_existing_head_before_append() {
+    let repo = modified_repo();
+    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first_id = first["revision"]["id"].as_str().unwrap().to_owned();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+    let successor = parse_json(
+        &shore([
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--supersedes",
+            &first_id,
+        ])
+        .stdout,
+    );
+    let successor_id = successor["revision"]["id"].as_str().unwrap().to_owned();
+    let before =
+        parse_json(&shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout);
+
+    let conflict = shore([
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--supersedes",
+        &successor_id,
+    ]);
+
+    assert!(!conflict.status.success());
+    let stderr = String::from_utf8_lossy(&conflict.stderr);
+    assert!(
+        stderr.contains("capture proposal for revision"),
+        "stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("genuinely new content state"),
+        "stderr:\n{stderr}"
+    );
+    let after =
+        parse_json(&shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout);
+    assert_eq!(after["eventCount"], before["eventCount"]);
+    assert_eq!(after["revisionCount"], before["revisionCount"]);
+}
+
+#[test]
+fn capture_rejects_a_different_proposal_for_an_existing_non_head_before_append() {
+    let repo = modified_repo();
+    let first = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);
+    let first_id = first["revision"]["id"].as_str().unwrap().to_owned();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+    let second = parse_json(
+        &shore([
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--supersedes",
+            &first_id,
+        ])
+        .stdout,
+    );
+    let second_id = second["revision"]["id"].as_str().unwrap().to_owned();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 4 }\n");
+    let third = parse_json(
+        &shore([
+            "capture",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--supersedes",
+            &second_id,
+        ])
+        .stdout,
+    );
+    let third_id = third["revision"]["id"].as_str().unwrap().to_owned();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+    let before =
+        parse_json(&shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout);
+
+    let conflict = shore([
+        "capture",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--supersedes",
+        &third_id,
+    ]);
+
+    assert!(!conflict.status.success());
+    let stderr = String::from_utf8_lossy(&conflict.stderr);
+    assert!(
+        stderr.contains("capture proposal for revision"),
+        "stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("genuinely new content state"),
+        "stderr:\n{stderr}"
+    );
+    let after =
+        parse_json(&shore(["revision", "list", "--repo", repo.path().to_str().unwrap()]).stdout);
+    assert_eq!(after["eventCount"], before["eventCount"]);
+    assert_eq!(after["revisionCount"], before["revisionCount"]);
+}
+
+#[test]
 fn rebased_recapture_with_stable_object_id_writes_distinct_artifact() {
     let repo = GitRepo::new();
     let base = (1..=12)

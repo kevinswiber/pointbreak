@@ -32,9 +32,13 @@ pub(super) struct AssessmentAddArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
-    /// Captured revision to assess; defaults to the single captured revision.
-    #[arg(long)]
+    /// Captured revision head seed; defaults to the single captured revision.
+    #[arg(long, conflicts_with = "exact_revision")]
     revision: Option<String>,
+
+    /// Exact captured revision to assess without following supersession.
+    #[arg(long)]
+    exact_revision: Option<String>,
 
     /// Review lane that owns this assessment.
     #[arg(long)]
@@ -121,9 +125,13 @@ pub(super) struct AssessmentShowArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
-    /// Captured revision to read; defaults to the single captured revision.
-    #[arg(long)]
+    /// Captured revision head seed; defaults to the single captured revision.
+    #[arg(long, conflicts_with = "exact_revision")]
     revision: Option<String>,
+
+    /// Exact captured revision to read without following supersession.
+    #[arg(long)]
+    exact_revision: Option<String>,
 
     /// Only show assessments from this review lane.
     #[arg(long)]
@@ -287,6 +295,9 @@ pub(super) fn assessment_add_options(
     if let Some(revision) = &args.revision {
         options = options.with_revision_id(RevisionId::new(ids.rev(revision)?));
     }
+    if let Some(exact_revision) = &args.exact_revision {
+        options = options.with_exact_revision_id(RevisionId::new(ids.rev(exact_revision)?));
+    }
     if let Some(summary) = summary {
         options = options.with_summary(summary);
     }
@@ -326,6 +337,10 @@ pub(super) fn assessment_show_options(
     if let Some(revision) = &args.revision {
         let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
         options = options.with_revision_id(RevisionId::new(ids.rev(revision)?));
+    }
+    if let Some(exact_revision) = &args.exact_revision {
+        let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
+        options = options.with_exact_revision_id(RevisionId::new(ids.rev(exact_revision)?));
     }
     if let Some(track) = args.track {
         options = options.with_track(track);

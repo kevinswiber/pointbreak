@@ -69,6 +69,31 @@ pub fn dump_repo() -> git_repo::GitRepo {
     repo
 }
 
+/// Capture two worktree states where the second supersedes the first, returning
+/// the repository and both full revision ids for selector-behavior tests.
+#[allow(dead_code)]
+pub fn superseded_dump_repo() -> (git_repo::GitRepo, String, String) {
+    let repo = dump_repo();
+    let repo_arg = repo.path().to_str().expect("temporary path is utf-8");
+    let first: serde_json::Value =
+        serde_json::from_slice(&shore(["capture", "--repo", repo_arg]).stdout)
+            .expect("first capture emits JSON");
+    let first_id = first["revision"]["id"]
+        .as_str()
+        .expect("first revision id")
+        .to_owned();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+    let second: serde_json::Value = serde_json::from_slice(
+        &shore(["capture", "--repo", repo_arg, "--supersedes", &first_id]).stdout,
+    )
+    .expect("second capture emits JSON");
+    let second_id = second["revision"]["id"]
+        .as_str()
+        .expect("second revision id")
+        .to_owned();
+    (repo, first_id, second_id)
+}
+
 /// A repository with two commits (clean worktree), so `--base HEAD~1` captures
 /// the committed range. Shared by the commit-range read-surface suites.
 #[allow(dead_code)]

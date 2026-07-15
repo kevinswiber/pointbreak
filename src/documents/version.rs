@@ -40,6 +40,7 @@ mod tests {
         for (schema, version) in [
             ("pointbreak.version", 1),
             ("pointbreak.attention-list", 1),
+            ("pointbreak.identity-whoami", 1),
             ("pointbreak.review-revision-list", 1),
             ("pointbreak.review-capture", 1),
             ("pointbreak.review-observation-add", 1),

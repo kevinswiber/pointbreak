@@ -32,6 +32,22 @@ pub(crate) enum RevisionSelection<'a> {
 }
 
 impl<'a> RevisionSelection<'a> {
+    /// Build a selection from the mutually exclusive revision write options.
+    /// `--revision` remains a head seed; `--exact-revision` addresses the named
+    /// captured revision without following supersession.
+    pub(crate) fn from_revision_options(
+        head_seed: Option<&'a RevisionId>,
+        exact_revision: Option<&'a RevisionId>,
+    ) -> Result<Self> {
+        match (head_seed, exact_revision) {
+            (Some(_), Some(_)) => Err(ShoreError::WorkflowInputInvalid {
+                reason: "--revision and --exact-revision are mutually exclusive".to_owned(),
+            }),
+            (None, Some(exact_revision)) => Ok(Self::Exact(exact_revision)),
+            (head_seed, None) => Ok(Self::from_revision_seed(head_seed)),
+        }
+    }
+
     /// Build the selection from an optional `--revision` seed: a present seed is a
     /// head seed (`Head`), an absent one defaults to the current capture.
     pub(crate) fn from_revision_seed(seed: Option<&'a RevisionId>) -> Self {
@@ -524,6 +540,32 @@ mod scope_tests {
             worktree_root: worktree_root.to_owned(),
             head_ref: head_ref.map(str::to_owned),
         }
+    }
+
+    #[test]
+    fn revision_options_select_exact_head_seed_or_current_and_reject_both() {
+        let head_seed = RevisionId::new("rev:sha256:head-seed");
+        let exact = RevisionId::new("rev:sha256:exact");
+
+        assert_eq!(
+            RevisionSelection::from_revision_options(Some(&head_seed), None).unwrap(),
+            RevisionSelection::Head(&head_seed)
+        );
+        assert_eq!(
+            RevisionSelection::from_revision_options(None, Some(&exact)).unwrap(),
+            RevisionSelection::Exact(&exact)
+        );
+        assert_eq!(
+            RevisionSelection::from_revision_options(None, None).unwrap(),
+            RevisionSelection::Current
+        );
+
+        let error = RevisionSelection::from_revision_options(Some(&head_seed), Some(&exact))
+            .expect_err("the two revision selectors are mutually exclusive");
+        assert_eq!(
+            error.to_string(),
+            "--revision and --exact-revision are mutually exclusive"
+        );
     }
 
     fn current(

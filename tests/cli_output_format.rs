@@ -19,6 +19,25 @@ fn format_json_pretty_preserves_the_document_shape() {
 }
 
 #[test]
+fn identity_whoami_supports_pretty_json_without_changing_its_shape() {
+    let repo = support::dump_repo();
+    let path = repo.path().to_str().unwrap();
+    let pretty = support::shore([
+        "identity",
+        "whoami",
+        "--repo",
+        path,
+        "--format",
+        "json-pretty",
+    ]);
+    let compact = support::shore(["identity", "whoami", "--repo", path, "--format", "json"]);
+    let pretty_value: serde_json::Value = serde_json::from_slice(&pretty.stdout).unwrap();
+    let compact_value: serde_json::Value = serde_json::from_slice(&compact.stdout).unwrap();
+    assert_eq!(pretty_value, compact_value);
+    assert!(String::from_utf8_lossy(&pretty.stdout).starts_with("{\n"));
+}
+
+#[test]
 fn legacy_pretty_and_compact_flags_are_removed() {
     let repo = support::dump_repo();
     let path = repo.path().to_str().unwrap();

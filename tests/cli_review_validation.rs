@@ -48,6 +48,98 @@ fn validation_add_and_list_run_at_the_top_level() {
 }
 
 #[test]
+fn validation_exact_revision_targets_a_superseded_revision() {
+    let (repo, first_id, second_id) = support::superseded_dump_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+
+    let legacy = shore([
+        "validation",
+        "add",
+        "--repo",
+        repo_arg,
+        "--revision",
+        &first_id,
+        "--track",
+        "human:legacy",
+        "--check-name",
+        "legacy",
+        "--status",
+        "passed",
+    ]);
+    assert!(
+        legacy.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&legacy.stderr)
+    );
+    assert_eq!(parse_json(&legacy.stdout)["revisionId"], second_id);
+
+    let exact = shore([
+        "validation",
+        "add",
+        "--repo",
+        repo_arg,
+        "--exact-revision",
+        &first_id,
+        "--track",
+        "human:exact",
+        "--check-name",
+        "exact",
+        "--status",
+        "passed",
+    ]);
+    assert!(
+        exact.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&exact.stderr)
+    );
+    assert_eq!(parse_json(&exact.stdout)["revisionId"], first_id);
+}
+
+#[test]
+fn validation_exact_revision_rejects_conflicting_or_unknown_selectors_before_write() {
+    let repo = modified_repo();
+    let repo_arg = repo.path().to_str().unwrap();
+    let capture = parse_json(&shore(["capture", "--repo", repo_arg]).stdout);
+    let revision_id = capture["revision"]["id"].as_str().unwrap();
+
+    let conflicting = shore([
+        "validation",
+        "add",
+        "--repo",
+        repo_arg,
+        "--revision",
+        revision_id,
+        "--exact-revision",
+        revision_id,
+        "--track",
+        "human:kevin",
+        "--check-name",
+        "conflict",
+        "--status",
+        "passed",
+    ]);
+    assert!(!conflicting.status.success());
+    assert!(String::from_utf8_lossy(&conflicting.stderr).contains("cannot be used with"));
+
+    let unknown = shore([
+        "validation",
+        "add",
+        "--repo",
+        repo_arg,
+        "--exact-revision",
+        "rev:sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "--track",
+        "human:kevin",
+        "--check-name",
+        "unknown",
+        "--status",
+        "passed",
+    ]);
+    assert!(!unknown.status.success());
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("unknown revision"));
+}
+
+#[test]
 fn validation_add_revision_resolves_a_bare_fragment_before_it_is_stored() {
     let repo = modified_repo();
     let captured = parse_json(&shore(["capture", "--repo", repo.path().to_str().unwrap()]).stdout);

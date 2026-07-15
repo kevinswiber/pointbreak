@@ -23,6 +23,7 @@ mod association;
 mod attention;
 mod capture;
 mod history;
+mod identity;
 mod input_request;
 mod inspect;
 mod observation;
@@ -42,6 +43,9 @@ pub use association::{
 pub use attention::{ATTENTION_LIST_SCHEMA, AttentionListBody, attention_list_document};
 pub use capture::{CaptureBody, capture_document};
 pub use history::{HistoryBody, history_document};
+pub use identity::{
+    IDENTITY_WHOAMI_SCHEMA, IdentityWhoamiBody, IdentityWhoamiDocument, identity_whoami_document,
+};
 pub use input_request::{
     InputRequestFetchBody, InputRequestListBody, InputRequestOpenBody, InputRequestRespondBody,
     input_request_fetch_document, input_request_list_document, input_request_open_document,
@@ -73,6 +77,7 @@ const CLI_DOCUMENT_REGISTRY: &[(&str, u32)] = &[
     ("pointbreak.attention-list", 1),
     ("pointbreak.identity-attest", 1),
     ("pointbreak.identity-delegate", 1),
+    (identity::IDENTITY_WHOAMI_SCHEMA, 1),
     ("pointbreak.key-discover", 1),
     ("pointbreak.key-enroll", 1),
     ("pointbreak.key-init", 1),

@@ -20,7 +20,7 @@ pub(super) struct ObservationArgs {
 
 #[derive(Debug, Subcommand)]
 enum ObservationCommand {
-    Add(ObservationAddArgs),
+    Add(Box<ObservationAddArgs>),
     List(ObservationListArgs),
 }
 
@@ -30,8 +30,13 @@ struct ObservationAddArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
-    #[arg(long)]
+    /// Captured revision head seed.
+    #[arg(long, conflicts_with = "exact_revision")]
     revision: Option<String>,
+
+    /// Exact captured revision without following supersession.
+    #[arg(long)]
+    exact_revision: Option<String>,
 
     /// Review lane that owns this observation.
     #[arg(long)]
@@ -134,7 +139,7 @@ pub(super) fn run(
             let span = tracing::info_span!("shore.review.observation.add");
             let _entered = span.enter();
             tracing::debug!(command = "review.observation.add", "command_start");
-            review_observation_add(args, stdout, stderr)
+            review_observation_add(*args, stdout, stderr)
         }
         ObservationCommand::List(args) => {
             let span = tracing::info_span!("shore.review.observation.list");
@@ -190,6 +195,9 @@ fn observation_add_options(
 
     if let Some(revision) = &args.revision {
         options = options.with_revision_id(RevisionId::new(ids.rev(revision)?));
+    }
+    if let Some(exact_revision) = &args.exact_revision {
+        options = options.with_exact_revision_id(RevisionId::new(ids.rev(exact_revision)?));
     }
     if let Some(body) = body {
         options = options.with_body(body);

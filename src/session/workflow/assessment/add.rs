@@ -38,6 +38,7 @@ use crate::storage::{Durability, LocalStorage};
 pub struct AssessmentAddOptions {
     repo: PathBuf,
     revision_id: Option<RevisionId>,
+    exact_revision_id: Option<RevisionId>,
     track: Option<String>,
     assessment: Option<ReviewAssessment>,
     summary: Option<String>,
@@ -56,6 +57,7 @@ impl AssessmentAddOptions {
         Self {
             repo: repo.as_ref().to_path_buf(),
             revision_id: None,
+            exact_revision_id: None,
             track: None,
             assessment: None,
             summary: None,
@@ -82,6 +84,11 @@ impl AssessmentAddOptions {
 
     pub fn with_revision_id(mut self, id: RevisionId) -> Self {
         self.revision_id = Some(id);
+        self
+    }
+
+    pub fn with_exact_revision_id(mut self, id: RevisionId) -> Self {
+        self.exact_revision_id = Some(id);
         self
     }
     pub fn with_track(mut self, track: impl Into<String>) -> Self {
@@ -185,7 +192,10 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
     let validation_events = validation_store.validation_events()?;
     let resolved = resolve_revision(
         &validation_events,
-        RevisionSelection::from_revision_seed(options.revision_id.as_ref()),
+        RevisionSelection::from_revision_options(
+            options.revision_id.as_ref(),
+            options.exact_revision_id.as_ref(),
+        )?,
         &CurrentRevisionContext::for_repo(&options.repo)?,
         RevisionScope::default(),
     )?;

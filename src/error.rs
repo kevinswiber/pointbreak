@@ -1,5 +1,5 @@
 use crate::crypto::EventVerificationStatus;
-use crate::model::EventId;
+use crate::model::{EventId, RevisionId};
 
 pub type Result<T> = std::result::Result<T, ShoreError>;
 
@@ -38,6 +38,12 @@ pub enum ShoreError {
 
     #[error("{reason}")]
     WorkflowInputInvalid { reason: String },
+
+    #[error(
+        "capture proposal for revision {} conflicts with the proposal already visible to this writer; create a genuinely new content state before retrying with different capture metadata",
+        .revision_id.as_str()
+    )]
+    CaptureProposalConflict { revision_id: RevisionId },
 
     #[error("event signature verification rejected event {} with status {}", .event_id.as_str(), .status.as_str())]
     EventVerificationRejected {

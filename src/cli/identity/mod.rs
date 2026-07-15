@@ -4,9 +4,11 @@ use clap::{Args, Subcommand};
 
 mod attest;
 mod delegate;
+mod whoami;
 
 use attest::AttestArgs;
 use delegate::DelegateArgs;
+use whoami::WhoamiArgs;
 
 #[derive(Debug, Args)]
 pub(super) struct IdentityArgs {
@@ -23,6 +25,8 @@ enum IdentityCommand {
     /// Stage an actor-attributes entry (kind + roles) for an actor. Possession-style:
     /// stages the working-tree `.shore/actor-attributes.json` edit only; commit to apply.
     Attest(AttestArgs),
+    /// Show the actor identity that repository writes will use.
+    Whoami(WhoamiArgs),
 }
 
 pub(super) fn run(
@@ -38,6 +42,10 @@ pub(super) fn run(
         IdentityCommand::Attest(args) => {
             tracing::debug!(command = "identity.attest", "command_start");
             attest::run(args, stdout, stderr)
+        }
+        IdentityCommand::Whoami(args) => {
+            tracing::debug!(command = "identity.whoami", "command_start");
+            whoami::run(args, stdout)
         }
     }
 }

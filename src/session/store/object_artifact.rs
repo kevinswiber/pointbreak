@@ -46,20 +46,30 @@ pub struct ObjectArtifact {
 /// exclusive-create write is idempotent: a byte-identical artifact already
 /// present returns `Ok` (INV-2/INV-3); a different artifact under the same path is
 /// a loud conflict.
+#[cfg(test)]
 pub(crate) fn write_object_artifact_to(
     backend: &StoreBackend,
     fingerprint: &RevisionFingerprint,
     snapshot: DiffSnapshot,
 ) -> Result<ObjectArtifact> {
-    if snapshot.object_id != fingerprint.object_id {
+    let artifact = build_object_artifact_v2(snapshot)?;
+    write_prepared_object_artifact_to(backend, fingerprint, artifact)
+}
+
+/// Write an already-built object artifact after capture has completed any
+/// pre-append validation that depends on its content hash.
+pub(crate) fn write_prepared_object_artifact_to(
+    backend: &StoreBackend,
+    fingerprint: &RevisionFingerprint,
+    artifact: ObjectArtifact,
+) -> Result<ObjectArtifact> {
+    if artifact.snapshot.object_id != fingerprint.object_id {
         return Err(ShoreError::Message(format!(
             "object id {} does not match revision fingerprint {}",
-            snapshot.object_id.as_str(),
+            artifact.snapshot.object_id.as_str(),
             fingerprint.object_id.as_str()
         )));
     }
-
-    let artifact = build_object_artifact_v2(snapshot)?;
 
     // Dedup on the artifact's canonical content hash. The object id is a stable
     // review-content identity, while the artifact body keeps the concrete captured

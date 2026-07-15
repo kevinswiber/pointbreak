@@ -29,8 +29,13 @@ struct ValidationAddArgs {
     #[arg(long, default_value = ".")]
     repo: PathBuf,
 
-    #[arg(long)]
+    /// Captured revision head seed.
+    #[arg(long, conflicts_with = "exact_revision")]
     revision: Option<String>,
+
+    /// Exact captured revision without following supersession.
+    #[arg(long)]
+    exact_revision: Option<String>,
 
     /// Review lane that owns this validation check.
     #[arg(long)]
@@ -195,6 +200,10 @@ fn validation_add_options(
     if let Some(revision) = &args.revision {
         let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
         options = options.with_revision_id(RevisionId::new(ids.rev(revision)?));
+    }
+    if let Some(exact_revision) = &args.exact_revision {
+        let ids = crate::cli::id_resolver::IdResolver::new(&args.repo);
+        options = options.with_exact_revision_id(RevisionId::new(ids.rev(exact_revision)?));
     }
     if let Some(command) = args.command {
         options = options.with_command(command);

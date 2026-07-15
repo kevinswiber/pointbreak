@@ -22,7 +22,9 @@ use crate::session::fingerprint::{
     ResolvedCommitEndpoint, ResolvedIndexEndpoint, ResolvedStagedBaseEndpoint,
     ResolvedTreeEndpoint, RevisionFingerprint, engagement_id_from_root, engagement_id_provisional,
 };
-use crate::session::store::resolution::{prepare_write_landing, resolve_write_store};
+use crate::session::store::resolution::{
+    prepare_write_landing, resolve_write_store, resolve_write_validation_store,
+};
 use crate::session::workflow::util::sorted_unique;
 use crate::session::{
     BestEffortSkipSink, EventSigningOptions, EventStore, EventWriteOutcome, ProjectionDiagnostic,
@@ -399,11 +401,7 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
     let review_id = ReviewId::new(format!("{}:default", id_prefix::REVIEW));
     let journal_id = JournalId::new(format!("{}:default", id_prefix::JOURNAL));
     let snapshot = DiffSnapshot::new(review_id, fingerprint.object_id.clone(), files);
-    let artifact = crate::session::object_artifact::write_object_artifact_to(
-        write_store.backend(),
-        &fingerprint,
-        snapshot,
-    )?;
+    let artifact = crate::session::object_artifact::build_object_artifact_v2(snapshot)?;
 
     let event_store = EventStore::from_backend(write_store.backend());
     let mut recorder = CaptureRecorder::default();
@@ -415,11 +413,9 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
     // lends its engagement; an all-dangling set takes a deterministic provisional
     // id. The hint never gates the write — the read projections own grouping.
     let supersedes = sorted_unique(options.supersedes.clone());
-    let engagement_id = derive_engagement_id(
-        &event_store.list_events()?,
-        &fingerprint.revision_id,
-        &supersedes,
-    )?;
+    let validation_events = resolve_write_validation_store(&worktree_root)?.validation_events()?;
+    let engagement_id =
+        derive_engagement_id(&validation_events, &fingerprint.revision_id, &supersedes)?;
     // The generative move is an advisory proposal of a revision over a
     // content-only object, with its derived engagement grouping hint. The
     // subject addresses the revision through the checked review-domain
@@ -433,27 +429,40 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
         subject,
         None,
     )?;
+    let payload = WorkObjectProposedPayload {
+        engagement_id: engagement_id.clone(),
+        work_object: WorkObjectProposal::Revision {
+            revision: Revision {
+                id: fingerprint.revision_id.clone(),
+                object_id: fingerprint.object_id.clone(),
+                git_provenance: Some(fingerprint.git_provenance()),
+            },
+            object_artifact_content_hash: artifact.content_hash.clone(),
+            supersedes,
+        },
+    };
+    let object_artifact_content_hash = artifact.content_hash.clone();
+    let proposal_exists = preflight_capture_proposal(&validation_events, &payload)?;
+    crate::session::object_artifact::write_prepared_object_artifact_to(
+        write_store.backend(),
+        &fingerprint,
+        artifact,
+    )?;
+
     let mut event = ShoreEvent::new(
         EventType::WorkObjectProposed,
         work_object_proposed_idempotency_key(&fingerprint.revision_id)?,
         target,
         writer,
-        WorkObjectProposedPayload {
-            engagement_id: engagement_id.clone(),
-            work_object: WorkObjectProposal::Revision {
-                revision: Revision {
-                    id: fingerprint.revision_id.clone(),
-                    object_id: fingerprint.object_id.clone(),
-                    git_provenance: Some(fingerprint.git_provenance()),
-                },
-                object_artifact_content_hash: artifact.content_hash.clone(),
-                supersedes,
-            },
-        },
+        payload,
         occurred_at,
     )?;
     sign_event_if_requested(&mut event, &options.signing)?;
-    recorder.record(&event_store, event)?;
+    if proposal_exists {
+        recorder.record_existing();
+    } else {
+        recorder.record(&event_store, event)?;
+    }
 
     // Record the capture-time branch ref as a best-effort `RevisionRefAssociated`
     // after the capture event, whenever the capture tips at the checked-out
@@ -509,7 +518,7 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
         source: fingerprint.source,
         base: fingerprint.base,
         target: fingerprint.target,
-        object_artifact_content_hash: artifact.content_hash,
+        object_artifact_content_hash,
         events_created: recorder.events_created,
         events_existing: recorder.events_existing,
         events_created_by_type: recorder.events_created_by_type,
@@ -905,6 +914,48 @@ fn revision_engagement_hints(events: &[ShoreEvent]) -> Result<BTreeMap<RevisionI
     Ok(hints)
 }
 
+/// Compare a proposed capture against every writer-visible proposal for the
+/// same content-derived revision. An identical payload is an idempotent rerun;
+/// any different payload must use a new revision minted from new content.
+fn preflight_capture_proposal(
+    events: &[ShoreEvent],
+    proposed: &WorkObjectProposedPayload,
+) -> Result<bool> {
+    let WorkObjectProposal::Revision {
+        revision: proposed_revision,
+        ..
+    } = &proposed.work_object
+    else {
+        return Err(ShoreError::Message(
+            "capture proposal preflight requires a revision proposal".to_owned(),
+        ));
+    };
+    let mut found_identical = false;
+    for event in events
+        .iter()
+        .filter(|event| event.event_type == EventType::WorkObjectProposed)
+    {
+        let existing: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
+        let WorkObjectProposal::Revision {
+            revision: existing_revision,
+            ..
+        } = &existing.work_object
+        else {
+            continue;
+        };
+        if existing_revision.id != proposed_revision.id {
+            continue;
+        }
+        if existing != *proposed {
+            return Err(ShoreError::CaptureProposalConflict {
+                revision_id: proposed_revision.id.clone(),
+            });
+        }
+        found_identical = true;
+    }
+    Ok(found_identical)
+}
+
 #[derive(Default)]
 struct CaptureRecorder {
     events_created: usize,
@@ -913,6 +964,10 @@ struct CaptureRecorder {
 }
 
 impl CaptureRecorder {
+    fn record_existing(&mut self) {
+        self.events_existing += 1;
+    }
+
     fn record(&mut self, event_store: &EventStore, event: ShoreEvent) -> Result<()> {
         let event_type = event.event_type;
         match event_store.record_event_once(&event)? {
@@ -1797,6 +1852,53 @@ mod tests {
             view.superseded,
             [root.revision_id.clone()].into_iter().collect()
         );
+    }
+
+    #[test]
+    fn linked_only_prior_proposal_conflict_is_rejected_before_local_event_append() {
+        let linked_repo = committed_repo();
+        linked_repo.write("src/lib.rs", "pub fn value() -> u32 { 3 }\n");
+        let root = capture_worktree_review(CaptureOptions::new(linked_repo.path())).unwrap();
+        linked_repo.write("src/lib.rs", "pub fn value() -> u32 { 4 }\n");
+        let captured = capture_worktree_review(
+            CaptureOptions::new(linked_repo.path()).with_supersedes(vec![root.revision_id.clone()]),
+        )
+        .unwrap();
+
+        let validation_events = EventStore::open(resolved_store_dir(linked_repo.path()))
+            .list_events()
+            .unwrap();
+        let mut proposed: crate::session::event::WorkObjectProposedPayload =
+            validation_events
+                .iter()
+                .find_map(|event| {
+                    let payload: crate::session::event::WorkObjectProposedPayload =
+                        serde_json::from_value(event.payload.clone()).ok()?;
+                    match &payload.work_object {
+                        crate::session::event::WorkObjectProposal::Revision {
+                            revision, ..
+                        } if revision.id == captured.revision_id => Some(payload),
+                        _ => None,
+                    }
+                })
+                .expect("linked validation store contains the prior proposal");
+        let crate::session::event::WorkObjectProposal::Revision { supersedes, .. } =
+            &mut proposed.work_object
+        else {
+            unreachable!("fixture selected a revision proposal")
+        };
+        *supersedes = vec![captured.revision_id.clone()];
+
+        let clone_local = tempfile::tempdir().unwrap();
+        let clone_local_store = EventStore::open(clone_local.path());
+        let error = super::preflight_capture_proposal(&validation_events, &proposed).unwrap_err();
+
+        assert!(matches!(
+            error,
+            crate::error::ShoreError::CaptureProposalConflict { revision_id }
+                if revision_id == captured.revision_id
+        ));
+        assert!(clone_local_store.list_events().unwrap().is_empty());
     }
 
     #[test]

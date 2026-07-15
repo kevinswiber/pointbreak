@@ -10,21 +10,21 @@ use std::path::Path;
 use ed25519_dalek::{Signer as _, SigningKey};
 use pointbreak::crypto::{EventSignatureBytes, EventSigner, SignerId};
 use pointbreak::error::{Result, ShoreError};
-use pointbreak::model::ActorId;
+use pointbreak::model::{ActorId, ValidationStatus};
 use pointbreak::session::event::{
     EventType, InputRequestReasonCode, InputRequestResponseOutcome, ReviewAssessment,
 };
 use pointbreak::session::{
-    ArtifactKind, ArtifactRef, AssessmentAddOptions, CaptureOptions, EventVerificationPolicy,
-    EventVerificationStatus, EventWriteOutcome, ImportArtifactOptions, ImportArtifactOutcome,
-    IngestEventsOptions, InputRequestFetchOptions, InputRequestListOptions,
+    ArtifactKind, ArtifactRef, AssessmentAddOptions, AssessmentShowOptions, CaptureOptions,
+    EventVerificationPolicy, EventVerificationStatus, EventWriteOutcome, ImportArtifactOptions,
+    ImportArtifactOutcome, IngestEventsOptions, InputRequestFetchOptions, InputRequestListOptions,
     InputRequestOpenOptions, InputRequestRespondOptions, InputRequestStatus,
     InputRequestStatusFilter, ObservationAddOptions, ReviewHistoryOptions, RevisionShowOptions,
-    SensitivityKind, SensitivityPolicyOutcome, SensitivitySeverity, TrustSet,
+    SensitivityKind, SensitivityPolicyOutcome, SensitivitySeverity, TrustSet, ValidationAddOptions,
     capture_worktree_review, event_signature_trust_set, export_artifact, fetch_input_request,
     import_artifact, ingest_events, list_input_requests, open_input_request, read_events,
-    record_observation, referenced_artifacts, respond_input_request, review_history, show_revision,
-    verify_event_signature,
+    record_assessment, record_observation, record_validation_check, referenced_artifacts,
+    respond_input_request, review_history, show_assessments, show_revision, verify_event_signature,
 };
 use serde_json::Value;
 use support::git_repo::GitRepo;
@@ -192,6 +192,87 @@ fn write_paths_remain_unsigned_by_default() {
 
     assert!(event.signer.is_none());
     assert!(event.signature.is_none());
+}
+
+#[test]
+fn exact_revision_options_address_a_superseded_revision_without_changing_head_seed_behavior() {
+    let repo = modified_repo();
+    let first = capture_worktree_review(CaptureOptions::new(repo.path())).unwrap();
+    repo.write("src/lib.rs", "pub fn value() -> u32 {\n    3\n}\n");
+    let second = capture_worktree_review(
+        CaptureOptions::new(repo.path()).with_supersedes(vec![first.revision_id.clone()]),
+    )
+    .unwrap();
+
+    let legacy_observation = record_observation(
+        ObservationAddOptions::new(repo.path())
+            .with_revision_id(first.revision_id.clone())
+            .with_track("human:kevin")
+            .with_title("head seed"),
+    )
+    .unwrap();
+    let exact_observation = record_observation(
+        ObservationAddOptions::new(repo.path())
+            .with_exact_revision_id(first.revision_id.clone())
+            .with_track("human:kevin")
+            .with_title("exact target"),
+    )
+    .unwrap();
+    assert_eq!(legacy_observation.revision_id, second.revision_id);
+    assert_eq!(exact_observation.revision_id, first.revision_id);
+
+    let legacy_assessment = record_assessment(
+        AssessmentAddOptions::new(repo.path())
+            .with_revision_id(first.revision_id.clone())
+            .with_track("human:kevin")
+            .with_assessment(ReviewAssessment::Accepted),
+    )
+    .unwrap();
+    let exact_assessment = record_assessment(
+        AssessmentAddOptions::new(repo.path())
+            .with_exact_revision_id(first.revision_id.clone())
+            .with_track("human:kevin")
+            .with_assessment(ReviewAssessment::NeedsChanges),
+    )
+    .unwrap();
+    assert_eq!(legacy_assessment.revision_id, second.revision_id);
+    assert_eq!(exact_assessment.revision_id, first.revision_id);
+    assert_eq!(
+        show_assessments(
+            AssessmentShowOptions::new(repo.path())
+                .with_exact_revision_id(first.revision_id.clone())
+        )
+        .unwrap()
+        .revision_id,
+        first.revision_id
+    );
+    assert_eq!(
+        show_assessments(
+            AssessmentShowOptions::new(repo.path()).with_revision_id(first.revision_id.clone())
+        )
+        .unwrap()
+        .revision_id,
+        second.revision_id
+    );
+
+    let legacy_validation = record_validation_check(
+        ValidationAddOptions::new(repo.path())
+            .with_revision_id(first.revision_id.clone())
+            .with_track("human:kevin")
+            .with_check_name("legacy")
+            .with_status(ValidationStatus::Passed),
+    )
+    .unwrap();
+    let exact_validation = record_validation_check(
+        ValidationAddOptions::new(repo.path())
+            .with_exact_revision_id(first.revision_id.clone())
+            .with_track("human:kevin")
+            .with_check_name("exact")
+            .with_status(ValidationStatus::Passed),
+    )
+    .unwrap();
+    assert_eq!(legacy_validation.revision_id, second.revision_id);
+    assert_eq!(exact_validation.revision_id, first.revision_id);
 }
 
 #[test]
