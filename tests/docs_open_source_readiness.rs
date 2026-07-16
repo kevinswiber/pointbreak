@@ -6,7 +6,7 @@ fn cli_reference_documents_verification_and_endorsement_readback() {
     // reader-relative contract, are documented on the read surfaces.
     assert_markdown_section_contains(
         &cli,
-        "## `shore history`",
+        "## `pointbreak history`",
         &[
             "verificationStatus",
             "untrusted_key",
@@ -21,7 +21,7 @@ fn cli_reference_documents_verification_and_endorsement_readback() {
     );
     assert_markdown_section_contains(
         &cli,
-        "## `shore revision show`",
+        "## `pointbreak revision show`",
         &["verificationStatus", "endorsements", "endorserAttributes"],
     );
 }
@@ -51,14 +51,15 @@ fn cli_reference_exists_and_covers_current_commands() {
     let cli = std::fs::read_to_string("docs/cli-reference.md").expect("read CLI reference");
 
     for command in [
-        "shore capture",
-        "shore store status",
-        "shore store migrate",
-        "shore observation add",
-        "shore input-request open",
-        "shore assessment add",
-        "shore history",
-        "shore revision show",
+        "pointbreak capture",
+        "pointbreak store status",
+        "pointbreak store paths",
+        "pointbreak store migrate",
+        "pointbreak observation add",
+        "pointbreak input-request open",
+        "pointbreak assessment add",
+        "pointbreak history",
+        "pointbreak revision show",
     ] {
         assert!(
             cli.contains(command),
@@ -83,7 +84,7 @@ fn cli_reference_exists_and_covers_current_commands() {
 
     assert_markdown_section_contains(
         &cli,
-        "## `shore observation`",
+        "## `pointbreak observation`",
         &[
             "--revision <revision-id>",
             "--include-body",
@@ -92,7 +93,7 @@ fn cli_reference_exists_and_covers_current_commands() {
     );
     assert_markdown_section_contains(
         &cli,
-        "## `shore input-request`",
+        "## `pointbreak input-request`",
         &[
             "--revision <revision-id>",
             "--track <track-id>",
@@ -104,7 +105,7 @@ fn cli_reference_exists_and_covers_current_commands() {
     );
     assert_markdown_section_contains(
         &cli,
-        "## `shore assessment`",
+        "## `pointbreak assessment`",
         &[
             "--revision <revision-id>",
             "--include-summary",
@@ -120,10 +121,11 @@ fn public_docs_cover_the_shared_common_dir_store() {
 
     assert_markdown_section_contains(
         &cli,
-        "## `shore store`",
+        "## `pointbreak store`",
         &[
-            "shore store status",
-            "shore store migrate",
+            "pointbreak store status",
+            "pointbreak store paths",
+            "pointbreak store migrate",
             "pointbreak.store-status",
             "policyOutcome",
             "file:sha256:",
@@ -134,9 +136,10 @@ fn public_docs_cover_the_shared_common_dir_store() {
     );
 
     for token in [
-        ".git/shore",
+        "<git-common-dir>/pointbreak",
+        "pointbreak.link.json",
         "shared common-dir store",
-        "shore store migrate",
+        "pointbreak store paths",
         "ephemeral",
         "sensitivity scan",
         "inventory",
@@ -161,12 +164,12 @@ fn getting_started_walks_through_first_review() {
 
     for required in [
         "cargo install pointbreak",
-        "shore capture",
-        "shore revision show",
-        "shore observation add",
-        "shore input-request open",
-        "shore assessment add",
-        ".git/shore",
+        "pointbreak capture",
+        "pointbreak revision show",
+        "pointbreak observation add",
+        "pointbreak input-request open",
+        "pointbreak assessment add",
+        "<git-common-dir>/pointbreak",
     ] {
         assert!(
             guide.contains(required),
@@ -359,7 +362,7 @@ fn docs_cover_actor_identity_and_delegation() {
         "storage-model documents the writer.role hard break (both read_event anchors stay valid)"
     );
     assert!(
-        storage.contains(".shore/delegates.json"),
+        storage.contains(".pointbreak/delegates.json"),
         "storage-model documents the delegates file"
     );
     assert!(
@@ -374,7 +377,7 @@ fn docs_cover_actor_identity_and_delegation() {
     let agent_authoring =
         std::fs::read_to_string("docs/agent-authoring.md").expect("read agent authoring");
     assert!(
-        agent_authoring.contains("actor:agent:") && agent_authoring.contains("SHORE_ACTOR_ID"),
+        agent_authoring.contains("actor:agent:") && agent_authoring.contains("POINTBREAK_ACTOR_ID"),
         "agent-authoring documents the agent actor-id scheme"
     );
 
@@ -385,7 +388,7 @@ fn docs_cover_actor_identity_and_delegation() {
 
     let cli = std::fs::read_to_string("docs/cli-reference.md").expect("read CLI reference");
     assert!(
-        cli.contains("SHORE_ACTOR_ID") && cli.contains(".shore/delegates.json"),
+        cli.contains("POINTBREAK_ACTOR_ID") && cli.contains(".pointbreak/delegates.json"),
         "cli-reference documents agent identity and delegates discovery"
     );
 }
@@ -441,13 +444,13 @@ fn docs_cover_key_custody_and_signing_ux() {
     // CLI: the keys family, the sign-key flag, and the new env vars.
     assert_markdown_section_contains(
         &cli,
-        "## `shore key`",
+        "## `pointbreak key`",
         &[
-            "shore key init",
-            "shore key list",
-            "shore key show",
-            "shore key enroll",
-            "shore key discover",
+            "pointbreak key init",
+            "pointbreak key list",
+            "pointbreak key show",
+            "pointbreak key enroll",
+            "pointbreak key discover",
             "pointbreak.key-init",
             "pointbreak.key-discover",
             "--sign-key",
@@ -457,18 +460,22 @@ fn docs_cover_key_custody_and_signing_ux() {
         cli.contains("discovery does not authorize keys"),
         "cli-reference documents that discovery is advisory"
     );
-    for token in ["SHORE_SIGNING", "SHORE_SIGNING_KEY", "SHORE_HOME"] {
+    for token in [
+        "POINTBREAK_SIGNING",
+        "POINTBREAK_SIGNING_KEY",
+        "POINTBREAK_HOME",
+    ] {
         assert!(cli.contains(token), "cli-reference documents {token}");
     }
 
     // Storage: the allowed-signers format (NOT OpenSSH) and the user-level key home.
     for token in [
-        ".shore/allowed-signers.json",
+        ".pointbreak/allowed-signers.json",
         "\"allowedSigners\"",
         "not the OpenSSH",
         "OpenSSH allowed-signers files are evidence inputs",
-        ".shore/allowed-signers.json remains the committed trust file",
-        "~/.shore/keys/",
+        ".pointbreak/allowed-signers.json remains the committed trust file",
+        "~/.pointbreak/keys/",
     ] {
         assert!(storage.contains(token), "storage-model documents {token}");
     }
@@ -486,7 +493,7 @@ fn docs_cover_key_custody_and_signing_ux() {
 
     // Agent-authoring: auto-keygen + enrollment.
     assert!(
-        agent_authoring.contains("shore key enroll"),
+        agent_authoring.contains("pointbreak key enroll"),
         "agent-authoring documents the enrollment pointer"
     );
 
@@ -498,7 +505,7 @@ fn docs_cover_key_custody_and_signing_ux() {
             "signing-ux documents the {rung} rung"
         );
     }
-    for token in ["shore key discover", "review candidate"] {
+    for token in ["pointbreak key discover", "review candidate"] {
         assert!(signing_ux.contains(token), "signing-ux documents {token}");
     }
 
@@ -521,11 +528,11 @@ fn docs_cover_ssh_agent_use_ssh_signing() {
     let agent_authoring =
         std::fs::read_to_string("docs/agent-authoring.md").expect("read agent authoring");
 
-    // CLI: the use-ssh subcommand + its JSON contract string live under `## `shore key``.
+    // CLI: the use-ssh subcommand + its JSON contract string live under `## `pointbreak key``.
     assert_markdown_section_contains(
         &cli,
-        "## `shore key`",
-        &["shore key use-ssh", "pointbreak.key-use-ssh"],
+        "## `pointbreak key`",
+        &["pointbreak key use-ssh", "pointbreak.key-use-ssh"],
     );
 
     // Signing UX: the developer parallel, custody, the exclusions, and the agent never-gates modes.
@@ -550,7 +557,7 @@ fn docs_cover_ssh_agent_use_ssh_signing() {
 
     // Agent-authoring: the human use-ssh note (agents still auto-keygen).
     assert!(
-        agent_authoring.contains("shore key use-ssh"),
+        agent_authoring.contains("pointbreak key use-ssh"),
         "agent-authoring notes the human use-ssh path"
     );
 

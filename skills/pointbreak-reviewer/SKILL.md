@@ -5,6 +5,11 @@ description: Use when a coding agent should review a Pointbreak handoff or captu
 
 # Pointbreak Reviewer Handoff Review
 
+This skill targets the `0.7.0`-and-later flat `pointbreak` CLI. Use only the canonical Pointbreak
+environment and storage names; existing installations must complete the offline move described in
+`docs/installation.md` before review work resumes. `pointbreak store paths --repo . --format json`
+reports the canonical paths, including the Git-common-dir store shared by linked worktrees.
+
 You are the reviewing agent for a Pointbreak revision another agent captured. Your job is to review
 the change independently, record durable review findings, answer any open operative requests you can
 answer, and make the review call.

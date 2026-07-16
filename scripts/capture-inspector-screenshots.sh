@@ -358,7 +358,7 @@ if (hideObservations === "true") hiddenEventTypes.unshift("observation");
 const manifest = {
   schema: "com.withpointbreak.review-interface-capture/v2",
   producer: {
-    name: "shore",
+    name: "pointbreak",
     version: producerVersion,
     commit: producerCommit,
   },

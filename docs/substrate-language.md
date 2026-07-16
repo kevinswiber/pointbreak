@@ -56,8 +56,8 @@ architecture vocabulary and never surface in commands or JSON; the other two —
 | **Revision** | The captured **work object** — the addressed, fact-carrying unit that observations, input requests, assessments, and validation evidence attach to, and the thing supersession operates over. The pre-reshape `ReviewUnit` folds into this layer. | `revision` is a permitted domain term. |
 | **Object** | A **content-only identity** that is a sub-layer of `Revision`: a hash of the captured content alone, git-optional. Many revisions can share one object (two clones capturing identical content converge on the same object id), so it is a dedup/grouping key, **not** a peer work-object kind. | `object` is a permitted domain term (listing/grouping only). |
 
-On the surface, the review commands are flat top-level verbs (`shore capture`, `shore revision …`,
-`shore observation …`); "review" is the engagement type, distinct from the captured unit, which is
+On the surface, the review commands are flat top-level verbs (`pointbreak capture`, `pointbreak revision …`,
+`pointbreak observation …`); "review" is the engagement type, distinct from the captured unit, which is
 a **revision**. So "review" names exactly one thing — the activity — and `revision` / `object` name
 the unit and its content identity.
 
@@ -158,7 +158,7 @@ from a parallel discriminator that could disagree with it.
 Everything else names its domain directly: observations, assessments, and notes stay `Review*`; the
 commit/ref association family is `Revision*` (`revision_commit_associated`, `revision_ref_withdrawn`,
 …); input requests and validation evidence name their own concept. The surface verb is unchanged:
-`shore capture` is still how an author proposes a work object, even though the internal event is
+`pointbreak capture` is still how an author proposes a work object, even though the internal event is
 `work_object_proposed`.
 
 **Generative moves default and stay Advisory.** The highest-stakes rule for the generative move is that
@@ -183,7 +183,7 @@ advisory-first rule that governs resource claims; see
 Review-domain terms remain correct in command names and user-facing JSON. Do not rename user-facing
 surfaces to substrate terms just because the underlying pattern generalizes.
 
-The domain surface is `shore validation` and documents such as
+The domain surface is `pointbreak validation` and documents such as
 `pointbreak.review-validation-list`. Internally, those records are evidence supporting an assertion, but
 public commands and JSON stay review-domain named.
 
@@ -203,7 +203,7 @@ authorize a public task command surface.
 ## Carry-Forward Rules
 
 - Keep substrate vocabulary internal unless a user-facing term is clearly better than the domain
-  term. Prefer `shore revision show` over exposing "projection" in the command surface; keep `Journal`
+  term. Prefer `pointbreak revision show` over exposing "projection" in the command surface; keep `Journal`
   and `Engagement` out of the command surface entirely.
 - Preserve ambiguity in projections. Multiple distinct facts should surface as ambiguous or
   diagnostic state, not disappear behind timestamp tie-breakers. Competing supersession heads are the

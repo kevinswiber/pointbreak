@@ -1,18 +1,21 @@
 # CLI Reference
 
-This reference covers the public `shore` command surface provided by the `pointbreak` crate.
+This reference covers the public `pointbreak` command surface provided by the `pointbreak` crate.
+
+Raw `shore.*` strings shown in schema examples are frozen persisted protocol identifiers, not a
+current command, environment family, or storage namespace.
 
 Command output JSON is the machine-integration surface, under a **tiered stability promise**. A
 narrow **hard core** is frozen within each document's `version`:
 
 - the envelope discriminators (`schema`, `version`) on every document;
-- the field-paths a non-human consumer actually reads — `shore capture`'s `revision.id`,
-  `shore input-request list`'s `inputRequests[].{id,title,mode,reasonCode,trackId}`, and
-  `shore input-request respond`'s `inputRequestResponseId` and `eventId`;
+- the field-paths a non-human consumer actually reads — `pointbreak capture`'s `revision.id`,
+  `pointbreak input-request list`'s `inputRequests[].{id,title,mode,reasonCode,trackId}`, and
+  `pointbreak input-request respond`'s `inputRequestResponseId` and `eventId`;
 - the wire-value vocabularies — the assessment values, the input-request response outcomes, and the
   input-request `mode` (`operative`/`advisory`) and `reasonCode` value sets that ride the consumed
-  `input-request list` field-paths (see the [`assessment`](#shore-assessment) and
-  [`input-request`](#shore-input-request) sections). These vocabularies grow **additively** within a
+  `input-request list` field-paths (see the [`assessment`](#pointbreak-assessment) and
+  [`input-request`](#pointbreak-input-request) sections). These vocabularies grow **additively** within a
   `version`: a new value may be appended (a soft-shell consumer selects the values it knows and
   tolerates the rest), but removing or renaming an existing value is a coordinated break (ADR-0029,
   Decision 7 amendment 2026-07-09).
@@ -44,46 +47,46 @@ Tracing writes to stderr by default. When stdout is piped into JSON tools, prefe
 When `--log-file <path>` points inside the repository, Pointbreak treats that path as command-helper
 plumbing for the current command and excludes it from the reviewed snapshot and fingerprint.
 
-## `shore version`
+## `pointbreak version`
 
 ```bash
-shore version [--format <fmt>]
+pointbreak version [--format <fmt>]
 ```
 
-`shore version` emits the `pointbreak.version` version 1 compatibility document. Its hard core is
+`pointbreak version` emits the `pointbreak.version` version 1 compatibility document. Its hard core is
 `cliVersion`, the version of the running CLI, and `documents`, a schema-to-version map covering every
 CLI document in the handshake surface. Inspector API payloads are versioned separately. Clients use this
 handshake before decoding other command output.
 
 The `documents` map is sorted by schema. New entries are additive soft-shell growth, so consumers
 must select the schemas they require and tolerate additional entries. `--format text` prints a short
-human digest; compact JSON remains the default machine contract. The separate `shore --version` flag
+human digest; compact JSON remains the default machine contract. The separate `pointbreak --version` flag
 continues to print the human-facing CLI version.
 
 ## Actor Identity and Delegation
 
 Every write records a writer `actorId`. By default it derives from the local Git identity
 (`actor:git-email:<email>`, then `actor:git-name:<name>`, then `actor:local`). Set
-`SHORE_ACTOR_ID` to write under an explicit identity — agents use `actor:agent:<agent-name>`:
+`POINTBREAK_ACTOR_ID` to write under an explicit identity — agents use `actor:agent:<agent-name>`:
 
 ```bash
-export SHORE_ACTOR_ID="actor:agent:claude-code"
+export POINTBREAK_ACTOR_ID="actor:agent:claude-code"
 ```
 
-`SHORE_ACTOR_ID` outranks the Git identity on every CLI write path, including paths without a
+`POINTBREAK_ACTOR_ID` outranks the Git identity on every CLI write path, including paths without a
 per-call override; a malformed value is ignored and falls through rather than corrupting
 provenance.
 
 Review read commands (`history`, the `observation` / `input-request` / `assessment` / `validation`
 list and show commands, `revision show`, and the inspector) discover a checked-in delegation map at
-`<repo>/.shore/delegates.json` and resolve the human principal an agent wrote on behalf of,
+`<repo>/.pointbreak/delegates.json` and resolve the human principal an agent wrote on behalf of,
 rendering it beside the writer as `claude-code (for kevin@swiber.dev)`. Discovery is presence-based
-— absent file, no change. A malformed `.shore/delegates.json` prints a single warning to stderr and
+— absent file, no change. A malformed `.pointbreak/delegates.json` prints a single warning to stderr and
 the read proceeds with no resolution (advisory, never blocking). The file format is documented in
 [storage-model.md](./storage-model.md).
 
 The command group also previews the resolved writer and owns the **write** side of this config —
-creating a delegation record or describing an actor's kind/roles. See `shore identity whoami`,
+creating a delegation record or describing an actor's kind/roles. See `pointbreak identity whoami`,
 `delegate`, and `attest` below.
 
 ### Signing
@@ -91,18 +94,18 @@ creating a delegation record or describing an actor's kind/roles. See `shore ide
 Every write may carry an Ed25519 signature. Which key signs (if any) follows this precedence:
 
 1. `--sign-key <name|path>` on the write subcommand (a keystore key name or a path to a key file)
-2. `SHORE_SIGNING_KEY` (same shape: a key name or a path)
+2. `POINTBREAK_SIGNING_KEY` (same shape: a key name or a path)
 3. agent-context auto-keygen — under an `actor:agent:*` id, a passphrase-less per-machine key is
    generated on first write (see [agent-authoring.md](./agent-authoring.md))
 4. the user-default keystore key named `default`
 5. none — the write proceeds unsigned
 
-`SHORE_SIGNING=off` (case-insensitive) disables signing entirely; `SHORE_SIGNING=auto` (the default)
-resolves a signer where possible. `SHORE_HOME` overrides the user-level key home (mainly for
+`POINTBREAK_SIGNING=off` (case-insensitive) disables signing entirely; `POINTBREAK_SIGNING=auto` (the default)
+resolves a signer where possible. `POINTBREAK_HOME` overrides the user-level key home (mainly for
 tests/CI). **Signing never gates a write** (with one exception, below): any resolution failure (no key,
-an unreadable key home, an unsupported algorithm, a malformed configured key, `SHORE_SIGNING=off`)
+an unreadable key home, an unsupported algorithm, a malformed configured key, `POINTBREAK_SIGNING=off`)
 degrades to an unsigned write at exit 0 with a one-line advisory diagnostic on stderr — it never blocks.
-The sole exception is `shore endorse` (below), where unsigned is a hard error because the
+The sole exception is `pointbreak endorse` (below), where unsigned is a hard error because the
 signature *is* the endorsement's content. See
 [signing-ux.md](./signing-ux.md) for the human / agent / CI flows and the
 `unsigned → untrusted_key → valid` ladder.
@@ -115,23 +118,23 @@ naming who or what is doing the reviewing, such as `agent:codex` or a human revi
 identity. There is no fixed vocabulary or required shape; the label is opaque to Pointbreak and
 exists so a revision's facts can be filtered and grouped by who recorded them.
 
-- On every write command that records a fact (`shore observation add`,
-  `shore assessment add`, `shore validation add`,
-  `shore association record` / `withdraw`, `shore input-request open`),
+- On every write command that records a fact (`pointbreak observation add`,
+  `pointbreak assessment add`, `pointbreak validation add`,
+  `pointbreak association record` / `withdraw`, `pointbreak input-request open`),
   `--track <track-id>` is **required** and
   stamps the lane that owns the new fact.
-- On read/list commands (`shore observation list`, `shore input-request list`,
-  `shore validation list`, `shore assessment show`, `shore history`,
-  `shore revision show`), `--track <track-id>` is **optional** and narrows the results to one
+- On read/list commands (`pointbreak observation list`, `pointbreak input-request list`,
+  `pointbreak validation list`, `pointbreak assessment show`, `pointbreak history`,
+  `pointbreak revision show`), `--track <track-id>` is **optional** and narrows the results to one
   lane; omitted, all lanes are returned.
 
-## `shore diff`
+## `pointbreak diff`
 
 ```bash
-shore diff [--repo <path>] [--revision <id>] [--stat] [--color <auto|always|never>] [--theme <theme>]
+pointbreak diff [--repo <path>] [--revision <id>] [--stat] [--color <auto|always|never>] [--theme <theme>]
 ```
 
-`shore diff` prints a captured revision's diff — base to target, from the **frozen captured
+`pointbreak diff` prints a captured revision's diff — base to target, from the **frozen captured
 snapshot** — as a text unified diff on stdout. It is the terminal reader for the immutable diff a
 revision recorded; its subject is always the captured snapshot, never the live working tree
 (`git diff` owns the live tree).
@@ -148,22 +151,22 @@ revision recorded; its subject is always the captured snapshot, never the live w
 - `--theme <theme>` picks the truecolor palette: `auto` (the default) detects the terminal
   background — light or dark — and selects the matching built-in palette; `light` / `dark` force a
   built-in; any other value names a bundled syntax theme, matched case-insensitively (bat's
-  vocabulary, e.g. `"Monokai Extended"`, `"onehalflight"`, `"nord"`). Environment fallbacks: `SHORE_THEME`, then
-  bat's `BAT_THEME` (precedence: `--theme` > `SHORE_THEME` > `BAT_THEME` > detection > dark). An
-  unknown name from `--theme`/`SHORE_THEME` is an error listing the valid vocabulary; an unknown
+  vocabulary, e.g. `"Monokai Extended"`, `"onehalflight"`, `"nord"`). Environment fallbacks: `POINTBREAK_THEME`, then
+  bat's `BAT_THEME` (precedence: `--theme` > `POINTBREAK_THEME` > `BAT_THEME` > detection > dark). An
+  unknown name from `--theme`/`POINTBREAK_THEME` is an error listing the valid vocabulary; an unknown
   inherited `BAT_THEME` warns on stderr and falls back. The terminal is queried only when colors
   are on, stdout is a direct truecolor TTY, and the preference is `auto` — piped output never
   probes and stays deterministic. Themes apply on truecolor terminals (`COLORTERM=truecolor`); the
   16-color palette always follows the terminal's own theme. Intraline (changed sub-word) emphasis
   renders as an add/del background tint on truecolor and as an underline on 16-color terminals.
-- `shore diff` is a **filter, not a pager**: it writes plain git-diff to any pipe or redirect and
+- `pointbreak diff` is a **filter, not a pager**: it writes plain git-diff to any pipe or redirect and
   colorizes only when writing directly to a terminal, so it composes with the tools you already use —
-  `shore diff | less -R` to page, `shore diff | delta` (or another diff renderer) to reformat,
-  `shore diff > change.diff` to save. There is no built-in pager and no `--no-pager` flag; use
-  `--color always` to force color through a pipe (e.g. `shore diff --color always | less -R`). A
-  reader that closes the pipe early (`shore diff | head`) is a clean exit.
+  `pointbreak diff | less -R` to page, `pointbreak diff | delta` (or another diff renderer) to reformat,
+  `pointbreak diff > change.diff` to save. There is no built-in pager and no `--no-pager` flag; use
+  `--color always` to force color through a pipe (e.g. `pointbreak diff --color always | less -R`). A
+  reader that closes the pipe early (`pointbreak diff | head`) is a clean exit.
 - The command is **text-only and non-interactive**: it has no `--format` selector and emits no JSON
-  (machine consumers read the review documents, e.g. `shore revision show --format json`). Its output
+  (machine consumers read the review documents, e.g. `pointbreak revision show --format json`). Its output
   is **disposable** — wording, layout, and ordering may change between releases, so nothing should
   parse it.
 - File headers carry the captured mode for `/dev/null`-sided changes: an added file with a recorded
@@ -172,18 +175,18 @@ revision recorded; its subject is always the captured snapshot, never the live w
   as a genuine add/delete instead of a `/dev/null` repository path, so ordinary textual changes
   replay with `git apply`. It is a fidelity improvement, **not** a guaranteed patch-export format:
   binary payloads, missing-final-newline markers, unusual path quoting, submodules, and object-ID
-  index lines are out of scope, so treat `shore diff` as human-oriented captured-diff readback.
-- When a revision's captured content has been removed from the store, `shore diff` prints a short
+  index lines are out of scope, so treat `pointbreak diff` as human-oriented captured-diff readback.
+- When a revision's captured content has been removed from the store, `pointbreak diff` prints a short
   "content is unavailable" line (with the removed content's short id) instead of a diff body.
 
-## `shore inspect`
+## `pointbreak inspect`
 
 ```bash
-shore inspect [--repo <path>] [--host <loopback-ip>] [--port <n>] [--open] \
+pointbreak inspect [--repo <path>] [--host <loopback-ip>] [--port <n>] [--open] \
   [--api-only] [--format <text|json>]
 ```
 
-`shore inspect` starts a small local web server that visualizes the worktree's resolved store for
+`pointbreak inspect` starts a small local web server that visualizes the worktree's resolved store for
 tracing event timelines and outcomes — the kind of inspection that is awkward against the raw JSON
 files or per-command output.
 
@@ -214,7 +217,7 @@ event type, newest-first by default), a per-event detail view, a composite per-r
 the current-assessment status plus grouped observations, input requests, assessments, and
 competing-head badges, a supersession-thread list/detail view showing heads, threaded revisions,
 diagnostics, and stale superseded-revision facts, and the captured diff for a revision annotated with
-the review facts anchored to each line. Validation checks recorded with `shore validation add`
+the review facts anchored to each line. Validation checks recorded with `pointbreak validation add`
 appear throughout — as a labeled timeline event type, a "Validation checks" section on the revision
 page (with the check name, status, trigger, and exit code), and on thread cards — shown for context
 only; they do not affect the current assessment and carry no merge or acceptance authority. The
@@ -228,33 +231,33 @@ truncated, clickable references that navigate to the resource they name, and the
 when the store changes or a freshness diagnostic appears or clears.
 
 The inspector is a read-only, single-store, localhost developer tool. It reads through the same
-validated projections as `shore history` and `shore revision show` rather than parsing raw
+validated projections as `pointbreak history` and `pointbreak revision show` rather than parsing raw
 storage, and it serves over a synchronous, dependency-free HTTP server with no async runtime. The
 Most of the small JSON API remains an internal surface for the bundled page. Three v1 bundled-pair
-documents are compatibility-advertised by `shore version`: `/api/snapshots/{id}` returns
+documents are compatibility-advertised by `pointbreak version`: `/api/snapshots/{id}` returns
 `pointbreak.review-snapshot`, `/api/freshness` returns `pointbreak.inspect-freshness`, and JSON
 startup emits `pointbreak.inspect-startup`. `/api/version` mirrors the exact `pointbreak.version`
-v1 document emitted by `shore version`. The remaining endpoints and inspector-private payloads are
+v1 document emitted by `pointbreak version`. The remaining endpoints and inspector-private payloads are
 not promoted contracts.
 
-Every worktree of a clone resolves the shared common-dir store (`.git/shore`), so the inspector
+Every worktree of a clone resolves the shared common-dir store (`<git-common-dir>/pointbreak`), so the inspector
 renders snapshots captured in sibling worktrees as well as the current one. The `/api/snapshots/{id}`
 payload is **content-only**: it carries the immutable diff content and its `contentHash` only — no
 `revisionId`, `source`, `base`, or `target`. The captured worktree path is therefore simply absent
 from the snapshot wire (there is nothing to redact). Endpoint/target display lives on
 `/api/revisions/{id}` and `/api/revisions`, derived from the revision projection (a path-private
-`targetDisplay` block), not from the snapshot artifact. `shore revision list` JSON still carries
+`targetDisplay` block), not from the snapshot artifact. `pointbreak revision list` JSON still carries
 `target.worktreeRoot`, unchanged.
 
-## `shore capture`
+## `pointbreak capture`
 
 ```bash
-shore capture [--repo <path>] [--base <rev> | --root | --staged | --unstaged] \
+pointbreak capture [--repo <path>] [--base <rev> | --root | --staged | --unstaged] \
   [--target <rev>] [--include-untracked] [--allow-empty] \
   [--path <pathspec>]... [--supersedes <revision-id>]...
 ```
 
-`shore capture` records the current V1 revision: the base endpoint, target endpoint, and
+`pointbreak capture` records the current V1 revision: the base endpoint, target endpoint, and
 captured diff snapshot. By default V1 captures the local Git worktree from `HEAD` (or Git's empty
 tree before the first commit) to the working tree (source `git_worktree`). That default is a
 combined "what differs from the baseline" capture: it includes staged and unstaged tracked changes
@@ -262,7 +265,7 @@ because both differ from `HEAD`. Like `git diff HEAD`, default capture excludes 
 `--include-untracked` to synthesize untracked files as added files in the captured snapshot.
 In a newly initialized repository with no commits, default worktree capture uses Git's empty tree as
 the base endpoint and the working tree as the target. If the only files are still untracked, use
-`shore capture --include-untracked`.
+`pointbreak capture --include-untracked`.
 
 By default, a selected source that produces zero changed files is an error. The error suggests
 likely source flags such as `--include-untracked`, `--staged`, or `--unstaged` when they might
@@ -300,30 +303,30 @@ explain the empty result. Use `--allow-empty` to intentionally record an empty r
 - `--include-untracked` is valid only with default worktree capture or `--unstaged`. It is rejected
   with `--base`, `--root`, and `--staged` because those modes are tree/index captures rather than
   worktree-plus-untracked captures. To capture a new repository's untracked initial files, use
-  `shore capture --include-untracked`, not `shore capture --root --include-untracked`.
+  `pointbreak capture --include-untracked`, not `pointbreak capture --root --include-untracked`.
 - `--allow-empty` is valid with every capture source. Without it, Pointbreak refuses to record a
   revision whose selected source has no changed files. This keeps accidental empty captures from
   hiding a missed `--include-untracked`, `--staged`, `--unstaged`, or pathspec typo while still
   allowing an explicit empty revision when that is the intended review object.
-- Durable state lands in the shared common-dir store at `.git/shore` under the clone's Git common
+- Durable state lands in the shared common-dir store at `<git-common-dir>/pointbreak` under the clone's Git common
   directory (the default for every worktree). An `ephemeral` worktree instead keeps its own
-  discardable `.shore/data/` store. A legacy flat `.shore/` store from before the `.shore/data/`
+  discardable `.pointbreak/data/` store. A legacy flat `.pointbreak/` store from before the `.pointbreak/data/`
   layout is a retired pre-1.0 format: it is detected and refused, not migrated — distinct from
-  `shore store migrate`, which folds a pre-flip worktree-local `.shore/data/` store into the shared
+  `pointbreak store migrate`, which folds a pre-flip worktree-local `.pointbreak/data/` store into the shared
   store; see [storage-model.md](./storage-model.md#migrations-and-doctor).
-- Opting into ephemeral mode generates a committed `.shore/.gitignore` (two lines: `data/` +
+- Opting into ephemeral mode generates a committed `.pointbreak/.gitignore` (two lines: `data/` +
   `*.local.json`) when the paths are not already ignored, so the worktree-local store stays out of
   `git status`; the file is visible, meant to be committed, and survives clone. Writer-initializing
   commands against the ephemeral store generate it too; a shared-store write generates nothing (the
   shared store lives inside `.git/`, which git already ignores) and never mutates the working tree.
   Nothing writes `.git/info/exclude` anymore, and no tracked `.gitignore` is ever modified.
-  Committed config siblings (`.shore/delegates.json`, `.shore/actor-attributes.json`,
-  `.shore/allowed-signers.json`, `.shore/store.json`) stay tracked; only `.shore/data/` and the
-  private `.shore/delegates.local.json`, `.shore/actor-attributes.local.json`, and
-  `.shore/store.local.json` overrides are excluded.
+  Committed config siblings (`.pointbreak/delegates.json`, `.pointbreak/actor-attributes.json`,
+  `.pointbreak/allowed-signers.json`, `.pointbreak/store.json`) stay tracked; only `.pointbreak/data/` and the
+  private `.pointbreak/delegates.local.json`, `.pointbreak/actor-attributes.local.json`, and
+  `.pointbreak/store.local.json` overrides are excluded.
 - The store subtree (`events/`, `state.json`, and `artifacts/`) is the same wherever it resolves:
-  the shared common-dir store at `.git/shore` by default, or an `ephemeral` worktree's own
-  `.shore/data/`.
+  the shared common-dir store at `<git-common-dir>/pointbreak` by default, or an `ephemeral` worktree's own
+  `.pointbreak/data/`.
 - `events/` stores immutable event files.
 - `state.json` is a rebuildable projection, not the authority.
 - Full captured snapshots are Pointbreak-owned immutable object artifacts under `artifacts/objects/`.
@@ -346,12 +349,12 @@ explain the empty result. Use `--allow-empty` to intentionally record an empty r
   the captured revision's identity: the same range captured under a different scope is a different
   revision, while identical captured content still shares one content object. A scope that matches
   no changed files is an error unless `--allow-empty` is passed; with `--allow-empty`, the empty
-  revision still records the requested scope. The scope is visible in `shore revision show`,
-  `shore revision list`, and `shore history` under
+  revision still records the requested scope. The scope is visible in `pointbreak revision show`,
+  `pointbreak revision list`, and `pointbreak history` under
   `source.pathspecs`; an unscoped capture carries no `pathspecs` key and its identity is unchanged
   from before the option existed. (This is deliberately git pathspec syntax, not the
-  gitignore-style globs of `.shore/sensitivity.json` — capture scoping is executed by git, while
-  the sensitivity exclude config is matched by Shore at scan time.)
+  gitignore-style globs of `.pointbreak/sensitivity.json` — capture scoping is executed by git, while
+  the sensitivity exclude config is matched by Pointbreak at scan time.)
 - `git_tree`, `git_index`, and `git_working_tree` are endpoint states in the recorded model. The
   source selector decides which endpoint pair is captured: default worktree (`HEAD` or empty tree to
   working tree), committed range (`commit` to `commit`), root (`empty tree` to `commit`), staged
@@ -362,46 +365,54 @@ multiple worktrees of the same clone, kept safe by content-addressed writes and 
 projection rather than a lock. V1 does not add a daemon, delivery queue, approval flow, async
 storage, remote storage, or note mutation.
 
-By default every worktree of a clone resolves the shared common-dir store at `.git/shore`, so
-`shore capture` lands its capture directly there — no setup step — and the capture is
+By default every worktree of a clone resolves the shared common-dir store at `<git-common-dir>/pointbreak`, so
+`pointbreak capture` lands its capture directly there — no setup step — and the capture is
 immediately visible to `revision list`, `revision show`, and `history` from any sibling worktree. An
-`ephemeral` worktree instead captures into its own discardable `.shore/data/` store (see
-[`shore store`](#shore-store)).
+`ephemeral` worktree instead captures into its own discardable `.pointbreak/data/` store (see
+[`pointbreak store`](#pointbreak-store)).
 
-The native review write commands — `shore observation add`, `shore input-request open`
-and `respond`, `shore assessment add`, and `shore validation add` — behave the same
+The native review write commands — `pointbreak observation add`, `pointbreak input-request open`
+and `respond`, `pointbreak assessment add`, and `pointbreak validation add` — behave the same
 way. They resolve the shared common-dir store, so you can record a
 fact against a revision (or related observation, assessment, or request) captured in a sibling
 worktree, and the fact lands directly in that shared store, visible to every worktree in place. An
-`ephemeral` worktree writes the fact to its own `.shore/data/` store, unchanged.
+`ephemeral` worktree writes the fact to its own `.pointbreak/data/` store, unchanged.
 
-## `shore store`
+## `pointbreak store`
 
 ```bash
-shore store status [--repo <path>] [--format <fmt>] [--show-paths]
-shore store mode (shared | ephemeral | show) [--repo <path>] [--format <fmt>]
-shore store migrate [--repo <path>] [--include-ephemeral] [--retire-source] [--format <fmt>]
-shore store link [<slug>] [--repo <path>] [--include-ephemeral] [--include-sensitive] [--retire-source] [--format <fmt>]
-shore store unlink [--repo <path>] [--format <fmt>]
-shore store forget <slug> [--yes] [--force] [--format <fmt>]
-shore store list [--format <fmt>]
-shore store remove [--repo <path>] (--snapshot <id> | --revision <id> | --ref <name> | --range <a>..<b> | --orphans) [--sign-key <key>] [--format <fmt>]
-shore store gc [--repo <path>] [--format <fmt>]
-shore store compact [--repo <path>] [--format <fmt>]
+pointbreak store status [--repo <path>] [--format <fmt>] [--show-paths]
+pointbreak store paths [--repo <path>] [--format <fmt>]
+pointbreak store mode (shared | ephemeral | show) [--repo <path>] [--format <fmt>]
+pointbreak store migrate [--repo <path>] [--include-ephemeral] [--retire-source] [--format <fmt>]
+pointbreak store link [<slug>] [--repo <path>] [--include-ephemeral] [--include-sensitive] [--retire-source] [--format <fmt>]
+pointbreak store unlink [--repo <path>] [--format <fmt>]
+pointbreak store forget <slug> [--yes] [--force] [--format <fmt>]
+pointbreak store list [--format <fmt>]
+pointbreak store remove [--repo <path>] (--snapshot <id> | --revision <id> | --ref <name> | --range <a>..<b> | --orphans) [--sign-key <key>] [--format <fmt>]
+pointbreak store gc [--repo <path>] [--format <fmt>]
+pointbreak store compact [--repo <path>] [--format <fmt>]
 ```
 
-`shore store` commands inspect, configure, and maintain the review store the current Git worktree
+`pointbreak store` commands inspect, configure, and maintain the review store the current Git worktree
 resolves. By default every worktree of a clone — the main worktree and every linked worktree alike —
-resolves the same **shared common-dir store** at `.git/shore` (the path under the repo's Git common
+resolves the same **shared common-dir store** at `<git-common-dir>/pointbreak` (the path under the repo's Git common
 directory), automatically and with no setup step. Because linked worktrees share one Git common
 directory, a capture in any worktree is immediately visible from its siblings. By default this is a
 per-clone store, not a user-level multi-repository store or remote sync service; a clone can opt into
-the machine-wide **user-level family store tier** with `shore store link` (see below).
+the machine-wide **user-level family store tier** with `pointbreak store link` (see below).
 
-`shore store status` resolves the store and emits `pointbreak.store-status` JSON.
+`pointbreak store status` resolves the store and emits `pointbreak.store-status` JSON.
+
+`pointbreak store paths` is the supported path-discovery seam. It emits
+`pointbreak.store-paths` version 1 with the selected `tier` and exact `worktreeStore`, `commonStore`,
+`binding`, `home`, and `keys` paths. The binding is
+`<git-common-dir>/pointbreak.link.json`; the common store is
+`<git-common-dir>/pointbreak`. Linked worktrees share both through their Git common directory. Use
+this command in scripts instead of reconstructing Pointbreak paths.
 
 - `mode` is `local` (the clone-local common-dir store), `ephemeral` (a worktree pinned to its
-  discardable `.shore/data`), or `user-level` (a clone linked to a family store). `storeRef` is
+  discardable `.pointbreak/data`), or `user-level` (a clone linked to a family store). `storeRef` is
   `local` for the first two and the family slug for `user-level`. A `user-level` status additionally
   carries `repositoryFamilyRef`, `cloneRef`, `liveCloneCount`, `orphaned`, and `lastWrite`; the other
   two tiers omit them. These family fields sit outside the frozen hard core under this document's
@@ -432,22 +443,22 @@ Every review read command resolves the shared common-dir store: `revision list` 
 `assessment show` read it from any worktree of the clone, including hydrated bodies and the captured
 snapshot, so their `eventCount` and `eventSetHash` reflect that one store.
 
-`shore store mode` reads or sets a per-worktree store mode that controls where the worktree's review
-data lands. `shore store mode ephemeral` pins the worktree to a discardable worktree-local
-`.shore/data` store — the privacy escape hatch for sensitive or throwaway work whose bytes should
-disappear when the worktree is removed. `shore store mode shared` (the default) uses the shared
-common-dir store. The mode is written to a committed `.shore/store.json`, and may be overridden
-privately by a git-excluded `.shore/store.local.json` (the local file wins, the
+`pointbreak store mode` reads or sets a per-worktree store mode that controls where the worktree's review
+data lands. `pointbreak store mode ephemeral` pins the worktree to a discardable worktree-local
+`.pointbreak/data` store — the privacy escape hatch for sensitive or throwaway work whose bytes should
+disappear when the worktree is removed. `pointbreak store mode shared` (the default) uses the shared
+common-dir store. The mode is written to a committed `.pointbreak/store.json`, and may be overridden
+privately by a git-excluded `.pointbreak/store.local.json` (the local file wins, the
 `delegates.json` / `delegates.local.json` precedent). A malformed or unsupported config is a hard
-error rather than a silent fallback. `shore store mode show` reports the resolved mode without changing
+error rather than a silent fallback. `pointbreak store mode show` reports the resolved mode without changing
 it. All three forms emit `pointbreak.store-mode` JSON with `mode` (`shared` | `ephemeral`) and `source`
 (`default` | `committed` | `local`); the body embeds no storage path.
 
 ### Sensitivity exclude globs
 
-The worktree sensitivity scan (run by `shore store status` and `shore store migrate`'s consent
-gate) supports a committed **`.shore/sensitivity.json`** plus a git-excluded
-**`.shore/sensitivity.local.json`** (covered by `.shore/.gitignore`'s `*.local.json` line) listing
+The worktree sensitivity scan (run by `pointbreak store status` and `pointbreak store migrate`'s consent
+gate) supports a committed **`.pointbreak/sensitivity.json`** plus a git-excluded
+**`.pointbreak/sensitivity.local.json`** (covered by `.pointbreak/.gitignore`'s `*.local.json` line) listing
 path globs the scan skips — the targeted alternative to the blanket `--include-ephemeral` override
 when a repo's own test fixtures carry scanner-triggering strings:
 
@@ -474,14 +485,14 @@ unsupported-version config are hard errors naming the offending file — the con
 protection, so a misread never silently changes coverage.
 
 An excluded path is **not scanned** — an explicit operator opt-out, kept honest by the audit
-surfaces: `shore store status` reports `sensitivity.excludedPathCount` and
+surfaces: `pointbreak store status` reports `sensitivity.excludedPathCount` and
 `sensitivity.excludeGlobs[{glob, matched}]` (zero-count globs included; a dead glob is itself worth
-seeing), and `shore store migrate` reports `sensitivityExcludedPathCount` whenever its gate scan
+seeing), and `pointbreak store migrate` reports `sensitivityExcludedPathCount` whenever its gate scan
 ran (absent under `--include-ephemeral`, which skips the scan). Excluded paths themselves are never
 listed — the scan's redacted `file:sha256:*` posture stands. The gate behavior is unchanged: a
 `block` finding outside the excludes still refuses without `--include-ephemeral`.
 
-**Seeing which files matched (`shore store status --show-paths`).** A finding names only its *kind*
+**Seeing which files matched (`pointbreak store status --show-paths`).** A finding names only its *kind*
 and a redacted `file:sha256:*` reference, so on its own it does not tell you which file to exclude.
 `--show-paths` closes that loop: it re-runs the same scan (the same matchers, the same exclude
 globs) locally and lists the real matched worktree paths grouped by finding kind, so you can author
@@ -494,17 +505,17 @@ machine-readable as JSON, so nothing is being withheld from a program. It exists
 versioned `pointbreak.store-status` JSON document a single, uniformly path-free shape, so a tool that
 pipes that document into a log, an index, or a relay never depends on a flag to stay path-free. The
 redaction that genuinely matters is on the **stored and forwarded** data — the events written to
-`.git/shore` and the default `pointbreak.store-status` document, which can cross machine, family-store,
+`<git-common-dir>/pointbreak` and the default `pointbreak.store-status` document, which can cross machine, family-store,
 and relay boundaries and would otherwise leak your local filesystem layout to whoever reads the
 store. `--show-paths` never writes to the store or emits JSON, so it sits outside that contract by
 construction: the type that carries the real paths is not serializable, and the paths reach nothing
 but stdout.
 
-A pre-flip worktree-local `.shore/data` store on a non-ephemeral worktree (data written before the
+A pre-flip worktree-local `.pointbreak/data` store on a non-ephemeral worktree (data written before the
 shared common-dir default) is detected on any read or write and errors with a hint to run
-`shore store migrate`. `shore store migrate` folds that legacy store into the shared common-dir store
-**non-destructively** by default: it copies events and artifacts forward and leaves `.shore/data` in
-place, so you can verify the result and then remove `.shore/data` yourself to finish the switch. It
+`pointbreak store migrate`. `pointbreak store migrate` folds that legacy store into the shared common-dir store
+**non-destructively** by default: it copies events and artifacts forward and leaves `.pointbreak/data` in
+place, so you can verify the result and then remove `.pointbreak/data` yourself to finish the switch. It
 is idempotent (re-running reports the already-present facts as existing), and it refuses an ephemeral
 or sensitivity-flagged worktree unless you pass `--include-ephemeral`.
 
@@ -513,7 +524,7 @@ verification walks every durable file in the source store (`events/` and `artifa
 only in-flight `*.tmp` files are excluded — the regenerable store-root `state.json` sits outside
 those trees, and a nested file merely named `state.json` is verified like any other) and requires each to be
 present in the shared store with identical content — byte-identical for artifacts, canonically
-identical modulo the import's own ingest-provenance stamp for events. Only then is `.shore/data`
+identical modulo the import's own ingest-provenance stamp for events. Only then is `.pointbreak/data`
 deleted, so the very next read resolves. On **any** missing or divergent file — including an orphan
 artifact no event references, which the fold deliberately does not carry — the command errors,
 names the offending paths, and deletes nothing. A source with no durable files at all (only the store-root
@@ -523,44 +534,44 @@ counts, never directory existence.
 
 It emits `pointbreak.store-migrate` JSON with `eventsCreated`, `eventsExisting`, `artifactsCreated`,
 `artifactsExisting`, `sourceEmpty`, `sourceRetired`, `verifiedEvents`, and `verifiedArtifacts`.
-(This is distinct from the legacy flat `.shore/` layout, a retired pre-1.0 format that is detected
+(This is distinct from the legacy flat `.pointbreak/` layout, a retired pre-1.0 format that is detected
 and refused rather than migrated; see
 [storage-model.md](./storage-model.md#migrations-and-doctor).)
 
-`shore store link [<slug>]` promotes this clone into the opt-in **user-level family store** at
-`<shore-home-root>/stores/<slug>/`, a per-machine store shared across independent clones of the same
+`pointbreak store link [<slug>]` promotes this clone into the opt-in **user-level family store** at
+`<pointbreak-home-root>/stores/<slug>/`, a per-machine store shared across independent clones of the same
 repository family so review facts survive removing any one clone. The binding is recorded **per
-physical clone** in the git common dir (`shore.link.json` under `.git/`), so it never travels in a
-commit and a single `shore store link` binds the main checkout and every current and future
-`git worktree` of that clone. (A legacy per-worktree `.shore/store.local.json` binding from before
-this is still honored as a fallback; a worktree can still opt out locally with `shore store mode
+physical clone** in the git common dir (`pointbreak.link.json` under `.git/`), so it never travels in a
+commit and a single `pointbreak store link` binds the main checkout and every current and future
+`git worktree` of that clone. (A legacy per-worktree `.pointbreak/store.local.json` binding from before
+this is still honored as a fallback; a worktree can still opt out locally with `pointbreak store mode
 ephemeral`.) When a worktree writes to its clone-local store while a sibling worktree of the same
-clone is linked, `shore store status` and `shore capture` surface a one-line advisory pointing at
-`shore store link <slug>` — the split is signalled, never silent. Before any family write,
+clone is linked, `pointbreak store status` and `pointbreak capture` surface a one-line advisory pointing at
+`pointbreak store link <slug>` — the split is signalled, never silent. Before any family write,
 `link` runs its gates in order: it refuses an ephemeral worktree (override `--include-ephemeral`) and
 a sensitivity-flagged worktree (override `--include-sensitive`), refuses a slug already stamped for a
 different family, and warns (without blocking) on a sync-managed filesystem path or when the clone
-shares no git history with an existing family. It then folds the clone-local `.git/shore` history
+shares no git history with an existing family. It then folds the clone-local `<git-common-dir>/pointbreak` history
 forward with independent verification and flips the binding last, so an interrupted link leaves the
 clone still resolving its clone-local store. Omitting `<slug>` fails with a suggestion rather than
 picking one silently. `--retire-source` deletes the clone-local store only after the fold is
-verified. When the fold carries prior unsigned `shore store remove` events, a diagnostic discloses
+verified. When the fold carries prior unsigned `pointbreak store remove` events, a diagnostic discloses
 that they lost possession-based suppression and should be re-issued in the family store. It emits
 `pointbreak.store-link` JSON (`familyRef`, `cloneRef`, `createdFamily`, the `folded*` counts,
-`sourceRetired`, and any warnings). `shore store unlink` detaches this clone (clearing the binding
+`sourceRetired`, and any warnings). `pointbreak store unlink` detaches this clone (clearing the binding
 and deregistering it) without moving any data, and survives a family store that was already forgotten.
 
-`shore store forget <slug>` is the whole-store destructive verb for a family store, deliberately
-outside `shore store remove`'s content-targeted removal (no store survives a forget to hold a removal
+`pointbreak store forget <slug>` is the whole-store destructive verb for a family store, deliberately
+outside `pointbreak store remove`'s content-targeted removal (no store survives a forget to hold a removal
 event). It is dry-run by default: it previews the inventory and live-clone count that would be lost
 and deletes nothing. `--yes` performs the deletion, but only for a family with zero live clones (an
-**orphaned** family store — a different notion from `shore store remove --orphans`, which targets
-unreachable-commit content); a family with live clones additionally requires `--force`. `shore store
+**orphaned** family store — a different notion from `pointbreak store remove --orphans`, which targets
+unreachable-commit content); a family with live clones additionally requires `--force`. `pointbreak store
 list` is the one repo-less surface: it takes no `--repo` flag, never resolves a git repo, and walks
-`<shore-home-root>/stores/` reporting each family's `familyRef`, inventory, `liveCloneCount`,
+`<pointbreak-home-root>/stores/` reporting each family's `familyRef`, inventory, `liveCloneCount`,
 `orphaned` flag, and `lastWrite`. Against an empty home it returns an empty `families` array.
 
-`shore store remove` retires content-addressed artifacts from the store. It resolves exactly one
+`pointbreak store remove` retires content-addressed artifacts from the store. It resolves exactly one
 selector to a set of content hashes — `--snapshot <id>` (a snapshot's bound artifact), `--revision
 <id>` (every artifact a revision references), `--ref <name>` / `--range <a>..<b>` (artifacts of
 revisions anchored on the named commit or commit range), or `--orphans` (artifacts of commit-anchored
@@ -569,11 +580,11 @@ revisions whose commits are all unreachable) — and records one removal fact pe
 `coReferencingUnits` (other revisions that still name the same shared artifact, reported before the
 removal), plus `eventsCreated` and `eventsExisting`. Removal is content-targeted and idempotent:
 re-removing a hash reports `created: false`. Removal is a write, so a signed store stays signed —
-`--sign-key` selects the signing key exactly as `shore capture` does. There is deliberately no
+`--sign-key` selects the signing key exactly as `pointbreak capture` does. There is deliberately no
 `--idempotency-key`; the removal key is derived solely from the content hash. Removal records the
-fact; it does not delete bytes — run `shore store gc` / `shore store compact` to reclaim them.
+fact; it does not delete bytes — run `pointbreak store gc` / `pointbreak store compact` to reclaim them.
 
-`shore store gc` and `shore store compact` are the same local sweep: they physically delete the
+`pointbreak store gc` and `pointbreak store compact` are the same local sweep: they physically delete the
 content-addressed blobs whose content hash has been removed, reclaiming disk. The sweep records no
 event and is fully re-derivable from the log — re-capturing the same content re-materializes the blob.
 It emits `pointbreak.store-compact` JSON listing each swept blob's `contentHash` and `outcome`
@@ -582,8 +593,8 @@ already `missing`).
 
 Removed content renders as an explained state on every read surface, never as an error. For
 note-shaped bodies (observation and input-request bodies, response reasons, assessment and
-validation summaries, imported note bodies), `shore revision show`, the leaf `list`/`fetch`/`show`
-commands, and `shore history` omit the body text and carry a `bodyContentState` /
+validation summaries, imported note bodies), `pointbreak revision show`, the leaf `list`/`fetch`/`show`
+commands, and `pointbreak history` omit the body text and carry a `bodyContentState` /
 `summaryContentState` / `reasonContentState` field beside the content hash — `suppressed_present`
 while the bytes are still stored (a compact would reclaim them) or `physically_removed` after the
 sweep — plus `body_content_suppressed_present` / `body_content_physically_removed` diagnostics.
@@ -592,95 +603,95 @@ recorded removal still fails the read with the `import referenced artifacts` gui
 
 Command output is the machine-integration surface, under the tiered stability promise described at
 the [top of this reference](#cli-reference) (a frozen hard core; an additive-evolvable soft shell).
-Raw store paths, event files, artifact paths, `.git` paths, `.shore/data` paths, and `state.json`
+Raw store paths, event files, artifact paths, `.git` paths, `.pointbreak/data` paths, and `state.json`
 remain internal storage details.
 
-## `shore identity`
+## `pointbreak identity`
 
 ```bash
 # Preview the actor that repository writes will use (pointbreak.identity-whoami).
-shore identity whoami [--repo .] [--format <fmt>]
+pointbreak identity whoami [--repo .] [--format <fmt>]
 
 # Stage a delegation record binding an agent to its responsible principal (pointbreak.identity-delegate).
-shore identity delegate <agent-actor-id> --principal <principal-actor-id> \
+pointbreak identity delegate <agent-actor-id> --principal <principal-actor-id> \
   [--from <RFC3339>] [--until <RFC3339>] [--comment <text>] [--local] [--repo .] [--format <fmt>]
 
 # Stage an actor-attributes entry — kind + roles — for any actor (pointbreak.identity-attest).
-shore identity attest <actor-id> --kind <kind> [--role <role>]... \
+pointbreak identity attest <actor-id> --kind <kind> [--role <role>]... \
   [--comment <text>] [--local] [--repo .] [--format <fmt>]
 ```
 
-`shore identity whoami` previews the writer identity that the existing resolver will use. It honors
-`SHORE_ACTOR_ID`, then Git email, Git name, and finally `actor:local`; it accepts no actor override.
+`pointbreak identity whoami` previews the writer identity that the existing resolver will use. It honors
+`POINTBREAK_ACTOR_ID`, then Git email, Git name, and finally `actor:local`; it accepts no actor override.
 Its v1 JSON is exactly `schema`, `version`, and `actorId`.
 
-The other `shore identity` commands write the actor/principal config the read side (above) resolves.
+The other `pointbreak identity` commands write the actor/principal config the read side (above) resolves.
 Both are possession-style: they stage the working-tree edit only and never invoke git — review and
-commit the file to apply it (`git log -p` is the audit trail), exactly like `shore key enroll`.
+commit the file to apply it (`git log -p` is the audit trail), exactly like `pointbreak key enroll`.
 
-- **`delegate`** stages a delegation record into `.shore/delegates.json` binding `<agent-actor-id>` (an
+- **`delegate`** stages a delegation record into `.pointbreak/delegates.json` binding `<agent-actor-id>` (an
   `actor:agent:<name>` id) to a responsible **non-agent** `--principal` (the human/actor that answers
   for the agent; the depth-0 rule rejects an agent principal). `--from` defaults to now in RFC 3339 UTC;
   `--until` defaults to an open window; `--comment` is free text for diff readers. Emits a
   `pointbreak.identity-delegate` document and a stderr hint to commit.
-- **`attest`** stages an actor-attributes entry into `.shore/actor-attributes.json` for `<actor-id>`
+- **`attest`** stages an actor-attributes entry into `.pointbreak/actor-attributes.json` for `<actor-id>`
   (any persisted actor id). `--kind` is required — exactly one kind per actor; the reserved well-known
   kinds are `human`, `agent`, `service`, and `reviewer-model`, but any lowercase-kebab token is
   accepted. `--role` is repeatable; kind and roles are normalized to lowercase-kebab and roles are
   deduped + sorted. Re-attesting **replaces** the actor's entry (kind, roles, and comment) — it is not
   additive. Emits a `pointbreak.identity-attest` document.
 - **`--local`** writes the private `.local.json` sibling instead of the committed file and git-excludes
-  it via the generated, committed `.shore/.gitignore` (its `*.local.json` line covers every private
+  it via the generated, committed `.pointbreak/.gitignore` (its `*.local.json` line covers every private
   override). The layers merge git-config style: a local entry **fully replaces** the
   committed entry for that key on this machine (never a merge), and the command surfaces that
   full-replace caveat on stderr.
 - `--repo` (default `.`) may be the repository root or a path inside it; the entry always lands at the
-  worktree-root `.shore/`. Inputs are validated against the same grammar the readers enforce, so a
+  worktree-root `.pointbreak/`. Inputs are validated against the same grammar the readers enforce, so a
   staged file always re-reads and a rejected input writes nothing.
 
 The delegation-map format is documented in [storage-model.md](./storage-model.md); the models and
 decisions are in [ADR-0010](./adr/adr-0010-actor-identity-and-delegation.md) (delegation) and
 [ADR-0012](./adr/adr-0012-actor-attributes-and-roles.md) (actor attributes).
 
-## `shore key`
+## `pointbreak key`
 
-Manage the user-level signing keystore and stage signer enrollment. Keys live in `~/.shore/keys/`
-(honoring `$XDG_DATA_HOME` on Unix and `%APPDATA%\shore` on Windows; `SHORE_HOME` overrides) — never
-in the repo `.shore/` or the store. See [storage-model.md](./storage-model.md) for the key home and
+Manage the user-level signing keystore and stage signer enrollment. Keys live in `~/.pointbreak/keys/`
+(honoring `$XDG_DATA_HOME` on Unix and `%APPDATA%\pointbreak` on Windows; `POINTBREAK_HOME` overrides) — never
+in the repo `.pointbreak/` or the store. See [storage-model.md](./storage-model.md) for the key home and
 allowed-signers format.
 
 ```bash
 # Generate a human signing key and print its did:key (pointbreak.key-init).
-shore key init --name default
+pointbreak key init --name default
 
 # List local keys with enrollment status and which is the default (pointbreak.key-list).
-shore key list --repo .
+pointbreak key list --repo .
 
 # Discover local Git/OpenSSH signing evidence (pointbreak.key-discover).
 # Discovery only suggests reviewed next steps.
-shore key discover --repo .
+pointbreak key discover --repo .
 
 # Print a key's did:key and/or raw public key (pointbreak.key-show).
-shore key show default --did
-shore key show default --pubkey
+pointbreak key show default --did
+pointbreak key show default --pubkey
 
 # Adopt an existing SSH Ed25519 key as an agent-backed signer (pointbreak.key-use-ssh).
 # Reuses ssh-agent custody — no new key material. Parallel to `init`.
-shore key use-ssh ~/.ssh/id_ed25519.pub --name default
-shore key use-ssh 'key::ssh-ed25519 AAAA…'   # git user.signingKey literal form
+pointbreak key use-ssh ~/.ssh/id_ed25519.pub --name default
+pointbreak key use-ssh 'key::ssh-ed25519 AAAA…'   # git user.signingKey literal form
 
 # Stage an allow-list entry binding a key's did:key to an actor (pointbreak.key-enroll).
-# Possession-style: this stages the working-tree .shore/allowed-signers.json edit only;
+# Possession-style: this stages the working-tree .pointbreak/allowed-signers.json edit only;
 # review and commit it to authorize the binding.
-shore key enroll default --actor actor:agent:claude-code --repo .
-shore key enroll --signer did:key:z6Mk... --actor actor:git-email:alice@example.com --repo .
+pointbreak key enroll default --actor actor:agent:claude-code --repo .
+pointbreak key enroll --signer did:key:z6Mk... --actor actor:git-email:alice@example.com --repo .
 ```
 
 `init` refuses to overwrite an existing named key. `use-ssh` adopts an existing SSH **public** key as an
 agent-backed `default` signer: it accepts a `*.pub` path or a `key::ssh-ed25519 AAAA…` literal, emits a
-`pointbreak.key-use-ssh` document with the derived `did:key` (the same `.didKey` field `shore key show
+`pointbreak.key-use-ssh` document with the derived `did:key` (the same `.didKey` field `pointbreak key show
 --did` prints) plus an enrollment hint, and (like `init`) refuses to overwrite. Only plain `ssh-ed25519`
-keys are accepted; `ed25519-sk`/RSA/ECDSA are rejected with a clear error pointing at `shore key init`.
+keys are accepted; `ed25519-sk`/RSA/ECDSA are rejected with a clear error pointing at `pointbreak key init`.
 `discover` reads local Git/OpenSSH signing evidence and emits a `pointbreak.key-discover` document:
 `candidates[]` includes `source`, `signerId`, `keyArgument`, `suggestedName`, `actorHints`,
 matching `localKeys`, matching `enrolledActors`, the `resolvedActor` used for suggestions, and
@@ -688,36 +699,36 @@ advisory `commands`; `diagnostics[]` reports non-fatal missing or unsupported ev
 details. Suggested commands describe unmet setup only: an already adopted signer is not offered a
 duplicate `use-ssh` alias, and an already authorized actor/signer pair is not offered a redundant
 `enroll` command. This discovery does not authorize keys, does not write the key home, and does not
-stage `.shore/allowed-signers.json`. Review a candidate, optionally adopt public key custody with
-`shore key use-ssh`, then stage reviewed trust with `shore key enroll --signer <did:key> --actor
+stage `.pointbreak/allowed-signers.json`. Review a candidate, optionally adopt public key custody with
+`pointbreak key use-ssh`, then stage reviewed trust with `pointbreak key enroll --signer <did:key> --actor
 <actor> --repo .`.
 
 `list`/`enroll`/`discover` take `--repo` (default `.`) to resolve the committed
-`.shore/allowed-signers.json` or local Git/OpenSSH evidence.
+`.pointbreak/allowed-signers.json` or local Git/OpenSSH evidence.
 Enrollment never commits — the human's commit is the authorization.
 
 Each **write** subcommand (`capture`, `observation add`, `assessment add`,
 `validation add`, `association record`/`withdraw`, `input-request open`/`respond`)
 accepts `--sign-key <name|path>` to
-sign that write with a specific key (highest precedence; overrides `SHORE_SIGNING_KEY`). A key that
+sign that write with a specific key (highest precedence; overrides `POINTBREAK_SIGNING_KEY`). A key that
 cannot be loaded leaves the write unsigned at exit 0 with an advisory diagnostic — signing never
 blocks. An agent-backed key resolves through an identities-only ssh-agent pre-flight; if the agent is
 unavailable (`signing_agent_unavailable`), does not hold the key (`signing_agent_key_absent`), or fails
 the real sign (`signing_agent_sign_failed`), the write is left unsigned at exit 0 — see
 [signing-ux.md](./signing-ux.md) for the full never-gates table. This never-gates behavior covers the
-ordinary signed review writes listed above; `shore endorse` is the exception, where an
+ordinary signed review writes listed above; `pointbreak endorse` is the exception, where an
 unresolved signer is a hard error rather than an unsigned write. Only shipped subcommands are listed;
 `rotate` and `revoke` are named follow-ons, not yet available.
 
-## `shore observation`
+## `pointbreak observation`
 
 ```bash
-shore observation add --track <track-id> --title <title> \
+pointbreak observation add --track <track-id> --title <title> \
   [--revision <revision-id> | --exact-revision <revision-id>] [target options] \
   [--body-content-type text/plain|text/markdown] \
   [--tag <tag>]... [--confidence low|medium|high] [--supersedes <observation-id>]... \
   [--responds-to <observation-id>]...
-shore observation list [--revision <revision-id>] [--track <track-id>] \
+pointbreak observation list [--revision <revision-id>] [--track <track-id>] \
   [--file <path>] [--tag <tag>] [--include-body] [--format <fmt>]
 ```
 
@@ -751,17 +762,17 @@ Observations are append-only review notes for a captured revision.
 Output is compact `pointbreak.review-observation-add` or `pointbreak.review-observation-list` JSON by
 default.
 
-## `shore input-request`
+## `pointbreak input-request`
 
 ```bash
-shore input-request open --track <track-id> --title <title> --reason <reason> \
+pointbreak input-request open --track <track-id> --title <title> --reason <reason> \
   [--revision <revision-id>] [--mode operative|advisory] \
   [--body-content-type text/plain|text/markdown]
-shore input-request list [--revision <revision-id>] [--track <track-id>] \
+pointbreak input-request list [--revision <revision-id>] [--track <track-id>] \
   [--mode operative|advisory] [--file <path>] [--status open|responded|ambiguous|all] \
   [--include-body] [--format <fmt>]
-shore input-request show <input-request-id> [--include-body]
-shore input-request respond <input-request-id> --outcome <outcome> [reason options] \
+pointbreak input-request show <input-request-id> [--include-body]
+pointbreak input-request respond <input-request-id> --outcome <outcome> [reason options] \
   [--reason-content-type text/plain|text/markdown]
 ```
 
@@ -804,13 +815,13 @@ Output documents are compact `pointbreak.review-input-request-open`,
 V1 is durable and polling-friendly. It does not add a daemon, filesystem watch mode, TUI prompt,
 notification transport, or cancellation/escalation event.
 
-## `shore assessment`
+## `pointbreak assessment`
 
 ```bash
-shore assessment add --track <track-id> --assessment <assessment> \
+pointbreak assessment add --track <track-id> --assessment <assessment> \
   [--revision <revision-id> | --exact-revision <revision-id>] [target options] \
   [--summary-content-type text/plain|text/markdown]
-shore assessment show [--revision <revision-id> | --exact-revision <revision-id>] \
+pointbreak assessment show [--revision <revision-id> | --exact-revision <revision-id>] \
   [--all] [--track <track-id>] \
   [--include-summary] [--format <fmt>]
 ```
@@ -848,10 +859,10 @@ by default.
 State-change outcomes such as deferred, split-out, overridden, and superseded are ordinary review
 observations when needed.
 
-## `shore attention`
+## `pointbreak attention`
 
 ```bash
-shore attention list [--repo <path>] [--revision <revision-id>] [--format <fmt>]
+pointbreak attention list [--repo <path>] [--revision <revision-id>] [--format <fmt>]
 ```
 
 `attention list` is a read-only projection of the review record's outstanding, judgment-needing
@@ -882,13 +893,13 @@ guides, never gates (ADR-0019): nothing here is a write precondition. The emitte
     open.
 - This document is entirely soft shell: no field-path here joins the ADR-0029 hard core.
 
-## `shore validation`
+## `pointbreak validation`
 
 ```bash
-shore validation add --track <track-id> --check-name <name> --status <status> \
+pointbreak validation add --track <track-id> --check-name <name> --status <status> \
   [--revision <revision-id> | --exact-revision <revision-id>] [validation options] \
   [--summary-content-type text/plain|text/markdown]
-shore validation list [--revision <revision-id>] \
+pointbreak validation list [--revision <revision-id>] \
   [--track <track-id>] [--status <status>] [--include-body] [--format <fmt>]
 ```
 
@@ -917,20 +928,20 @@ replace a review assessment.
 Output documents are compact `pointbreak.review-validation-add` and
 `pointbreak.review-validation-list` JSON by default.
 
-## `shore endorse`
+## `pointbreak endorse`
 
 ```bash
-shore endorse <target-event-id> [--sign-key <name|path>] [--actor <id>] [--repo .] [--format <fmt>]
+pointbreak endorse <target-event-id> [--sign-key <name|path>] [--actor <id>] [--repo .] [--format <fmt>]
 ```
 
-`shore endorse` records a detached co-signature (an endorsement) over an existing target event —
+`pointbreak endorse` records a detached co-signature (an endorsement) over an existing target event —
 for example a captured revision's `work_object_proposed` event. The resolved signer is the attesting
 signer and the carrier's envelope writer is the **endorser's own actor** (`--actor`, else the resolved
 writing identity), never the target's author.
 
 - **Unsigned is a hard error.** Unlike every other write — where signing never gates — an endorsement
   has no unsigned form, because the signature *is* its content. The signer is resolved first (before the
-  target); if none resolves (`SHORE_SIGNING=off`, no key, an unreadable key), the command exits non-zero
+  target); if none resolves (`POINTBREAK_SIGNING=off`, no key, an unreadable key), the command exits non-zero
   and writes nothing. Signer precedence otherwise follows the **Signing** rules above.
 - Idempotent: re-endorsing the same target with the same signer is a no-op (`eventsCreated: 0`,
   `eventsExisting: 1`, same carrier `eventId`).
@@ -942,18 +953,18 @@ writing identity), never the target's author.
 The endorsement record and its read-side classification are decided in
 [ADR-0013](./adr/adr-0013-endorsement-record-and-classification.md).
 
-## `shore association`
+## `pointbreak association`
 
 ```bash
-shore association record --track <track-id> (--commit <rev> | --ref <name> --head <oid>) \
+pointbreak association record --track <track-id> (--commit <rev> | --ref <name> --head <oid>) \
   [--revision <revision-id>] [--sign-key <name|path>] [--repo <path>]
-shore association withdraw <association-id> --track <track-id> \
+pointbreak association withdraw <association-id> --track <track-id> \
   [--revision <revision-id>] [--sign-key <name|path>] [--repo <path>]
-shore association list [--revision <revision-id>] [--axis commit|ref] [--current] \
+pointbreak association list [--revision <revision-id>] [--axis commit|ref] [--current] \
   [--repo <path>] [--format <fmt>]
 ```
 
-`shore association` records and withdraws the commit-graph associations of a captured
+`pointbreak association` records and withdraws the commit-graph associations of a captured
 revision as append-only associate/withdraw events on two axes — commit and ref. This is how a
 revision is tied to the commits and branches that carry it; recording a landed commit
 (`record --commit`) is the association half of the ADR-0014 lifecycle
@@ -969,7 +980,7 @@ revision is tied to the commits and branches that carry it; recording a landed c
   store. Withdrawal is terminal: a later re-association of the same target does not revive the
   withdrawn edge.
 - Both writes are signable — `--sign-key <name|path>` selects the signing key exactly as
-  `shore capture` does, and signing never gates the write.
+  `pointbreak capture` does, and signing never gates the write.
 - `--revision <revision-id>` pins the target revision; without it the command defaults to the single
   captured revision and errors if multiple captured revisions exist.
 - **`list`** reports both axes unless `--axis commit|ref` narrows to one, and `--current` excludes
@@ -984,16 +995,16 @@ Divergent or dangling associations surface as advisory diagnostics on the read s
 `retraction_target_missing` when a withdrawal names an association that never appeared); they are
 render-only and never gate a write.
 
-## `shore history`
+## `pointbreak history`
 
 ```bash
-shore history [--repo <path>] [--revision <id>] [--track <track-id>] \
+pointbreak history [--repo <path>] [--revision <id>] [--track <track-id>] \
   [--event-type <event-type>]... [--ref <name> [--by label|liveness]] \
   [--filter <query>] [--limit <n>] [--cursor <cursor>] [--watch [--poll-ms <ms>]] \
   [--include-body] [--format <fmt>]
 ```
 
-`shore history` reads the chronological ledger of durable Pointbreak events.
+`pointbreak history` reads the chronological ledger of durable Pointbreak events.
 
 - History replays the resolved store's `events/` and emits compact `pointbreak.review-history` v1 JSON by
   default.
@@ -1034,12 +1045,12 @@ shore history [--repo <path>] [--revision <id>] [--track <track-id>] \
 
 ### Verification status and endorsement readback
 
-`shore history`, `shore revision show`, and the inspector endpoints render two
+`pointbreak history`, `pointbreak revision show`, and the inspector endpoints render two
 reader-relative, **advisory** facts beside each event. They render only — they never gate a write or
 change an exit code, and the temporal `require-verified-endorsement` tier is out of scope.
 
 - `verificationStatus` ∈ `valid | invalid | untrusted_key | unsigned` — the per-event signature
-  ladder, resolved against the **reader's** `.shore/allowed-signers.json`. An event signed by a key
+  ladder, resolved against the **reader's** `.pointbreak/allowed-signers.json`. An event signed by a key
   the reader has not enrolled reads `untrusted_key`; an event with no signature reads `unsigned`.
 - `endorsements[]` — for an endorsed (co-signed) target event, one entry per endorsement
   attestation (co-signature member). Because signatures are deterministic, one signer yields one
@@ -1049,7 +1060,7 @@ change an exit code, and the temporal `require-verified-endorsement` tier is out
   - `classification` ∈ `endorsement-trusted | unknown_endorser | ambiguous_endorser`.
   - `endorser` — the resolved actor, present only when `endorsement-trusted`.
   - `endorserAttributes` — the endorser's attested `kind`/`roles` from
-    `.shore/actor-attributes.json`. This is a **sibling enrichment** rendered beside the
+    `.pointbreak/actor-attributes.json`. This is a **sibling enrichment** rendered beside the
     classification; it is **not** an input to how the classification is decided.
 
 Both are **reader-relative**: the same endorsement carrier may read `endorsement-trusted` for a
@@ -1074,17 +1085,17 @@ attributes for the endorser. The classification rules are decided in
 }
 ```
 
-History is not the full revision row projection. Use `shore revision show` for the composite
+History is not the full revision row projection. Use `pointbreak revision show` for the composite
 narrative-first plus snapshot-complete view of one captured revision.
 
-## `shore revision list`
+## `pointbreak revision list`
 
 ```bash
-shore revision list [--repo <path>] [--object <object-id>] [--ref <name> [--by label|liveness]] \
+pointbreak revision list [--repo <path>] [--object <object-id>] [--ref <name> [--by label|liveness]] \
   [--filter <query>] [--integration-ref <name>] [--worktree <path>] [--all | --orphans] [--format <fmt>]
 ```
 
-`shore revision list` is the discovery surface for captured revisions. It emits
+`pointbreak revision list` is the discovery surface for captured revisions. It emits
 `pointbreak.review-revision-list` JSON with `eventSetHash`, `eventCount`, `revisionCount`, and entries
 sorted by capture time. Each entry carries the revision id, the content-only object id, the capture
 endpoints, and `objectArtifactContentHash`.
@@ -1111,21 +1122,21 @@ endpoints, and `objectArtifactContentHash`.
 - `--integration-ref <name>` sets the reachability target for the `merged` status: a revision is
   `merged` only when it is an ancestor of this ref (equality counts). It defaults to the repository's
   detected default branch (`origin/HEAD`, else local `main`/`master`) — the same narrow default
-  `shore revision show` applies — so the status answers "did this land on the default branch?". When
+  `pointbreak revision show` applies — so the status answers "did this land on the default branch?". When
   no default branch is detected it falls back to broad reachability (any live tip).
 - `--worktree <path>` scopes the listing to captures belonging to the worktree at that path.
 - Every recorded revision is shown by default, including revisions whose anchored commits are all
   unreachable. `--all` remains an accepted compatibility spelling of that default; `--orphans`
   explicitly narrows the listing to only those unreachable revisions.
 
-## `shore revision show`
+## `pointbreak revision show`
 
 ```bash
-shore revision show [REVISION] [--repo <path>] [--track <track-id>] \
+pointbreak revision show [REVISION] [--repo <path>] [--track <track-id>] \
   [--include-body] [--format <fmt>]
 ```
 
-`shore revision show` is the composite view for one revision. It emits compact
+`pointbreak revision show` is the composite view for one revision. It emits compact
 `pointbreak.review-revision` v2 JSON by default.
 
 - When exactly one revision has been captured, Pointbreak selects it automatically.
@@ -1145,8 +1156,8 @@ shore revision show [REVISION] [--repo <path>] [--track <track-id>] \
 - Each narrative member (observations, input requests and their responses, assessments, validation
   checks) and the `revision` identity (the capture event) carry the same reader-relative
   `verificationStatus` and `endorsements` (with `endorserAttributes`) readback documented under
-  [`shore history`](#verification-status-and-endorsement-readback) — advisory, render-only,
-  resolved against the reader's `.shore/` trust and attributes config.
+  [`pointbreak history`](#verification-status-and-endorsement-readback) — advisory, render-only,
+  resolved against the reader's `.pointbreak/` trust and attributes config.
 
 Revision-scoped selection seeds on the `[REVISION]` positional and resolves that revision's thread
 head; no implicit newest capture globally wins. Unscoped current selection with multiple unrelated captured
@@ -1158,6 +1169,6 @@ interdiff or stack DAG beyond the supersession graph.
 Capture and succession facts stay signable under ADR-0004's generic `EventToBeSigned` contract with
 the Dead Simple Signing Envelope (DSSE) and pre-authentication encoding rules.
 
-`shore revision show` is distinct from `shore history`: history is the chronological raw
-event listing, while `shore revision show` is the composite revision view for agents and future
+`pointbreak revision show` is distinct from `pointbreak history`: history is the chronological raw
+event listing, while `pointbreak revision show` is the composite revision view for agents and future
 frontends.

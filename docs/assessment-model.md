@@ -20,10 +20,10 @@ as evidence without changing the current-assessment projection.
 
 ## CLI surface
 
-Use `shore assessment add` to record a durable assessment:
+Use `pointbreak assessment add` to record a durable assessment:
 
 ```bash
-shore assessment add \
+pointbreak assessment add \
   --track human:kevin \
   --assessment accepted \
   --summary "looks good, ship it"
@@ -33,14 +33,14 @@ The command targets the selected revision by default. It can also target a captu
 or a native observation, input request, or assessment in the same revision:
 
 ```bash
-shore assessment add --track human:kevin --assessment needs-changes --file src/lib.rs
-shore assessment add --track human:kevin --assessment needs-changes \
+pointbreak assessment add --track human:kevin --assessment needs-changes --file src/lib.rs
+pointbreak assessment add --track human:kevin --assessment needs-changes \
   --file src/lib.rs --start-line 42 --end-line 58
-shore assessment add --track human:kevin --assessment accepted \
+pointbreak assessment add --track human:kevin --assessment accepted \
   --observation <observation-id>
-shore assessment add --track human:kevin --assessment accepted \
+pointbreak assessment add --track human:kevin --assessment accepted \
   --input-request <input-request-id>
-shore assessment add --track human:kevin --assessment accepted-with-follow-up \
+pointbreak assessment add --track human:kevin --assessment accepted-with-follow-up \
   --target-assessment <assessment-id>
 ```
 
@@ -55,16 +55,16 @@ never mutated in place; the replacement is a new fact. `--related-observation` a
 `--related-input-request` record evidence links only; they do not mutate observations or close input
 requests.
 
-Use `shore assessment show` to read the current assessment projection:
+Use `pointbreak assessment show` to read the current assessment projection:
 
 ```bash
-shore assessment show --format json-pretty
-shore assessment show --all --include-summary
-shore assessment show --track human:kevin
+pointbreak assessment show --format json-pretty
+pointbreak assessment show --all --include-summary
+pointbreak assessment show --track human:kevin
 ```
 
-`show` replays `.shore/data/events/`, reports `current.status` as `unassessed`, `resolved`, or
-`ambiguous`, and defaults to current assessments only. `--all` includes replaced assessments.
+`show` replays events from the resolved store, reports `current.status` as `unassessed`, `resolved`,
+or `ambiguous`, and defaults to current assessments only. `--all` includes replaced assessments.
 Repeated writes with the same `assessmentId` are preserved but collapsed in read output with a
 duplicate semantic diagnostic.
 
@@ -90,8 +90,8 @@ identities folds into that single subject plus the distinct object sub-identity.
 ## Legacy disposition events
 
 Earlier versions of Pointbreak wrote `review_disposition_recorded` events with eight variants. Pointbreak is
-pre-V1 and does not preserve those events on disk. Loading a `.shore/data/events/` directory that
+pre-V1 and does not preserve those events on disk. Loading a `.pointbreak/data/events/` directory that
 contains legacy disposition events fails with a typed error pointing at this section.
 
-**Migration:** delete the local `.shore/data/` directory and re-capture any in-progress reviews. There is
+**Migration:** delete the local `.pointbreak/data/` directory and re-capture any in-progress reviews. There is
 no automatic migration tool.

@@ -5,6 +5,11 @@
 This is architecture guidance for Pointbreak's durable review/session state. It describes constraints
 the first filesystem persistence release should preserve, even when the implementation starts small.
 
+Raw `shore.*` names in this document are frozen persisted protocol identifiers. They remain stable
+because changing them would invalidate stored evidence, digests, signatures, and IDs; they do not name
+a current executable, environment family, or runtime placement. Operational guidance uses Pointbreak
+names exclusively.
+
 ## Goal
 
 Pointbreak should make durable state boring: write facts once, rebuild projections, and keep output,
@@ -16,15 +21,19 @@ before persistence, shared mutable JSON files, unbounded retries, and helper byp
 
 Pointbreak V1 intentionally uses a filesystem-backed `events/` + `artifacts/` store as the
 authoritative local store. The authoritative store is the one the worktree **resolves**: the shared
-common-dir store at `.git/shore` by default (the same store for every worktree of a clone), or a
-worktree-local `.shore/data` store when the worktree is ephemeral. The on-disk layout is identical
+common-dir store at `<git-common-dir>/pointbreak` by default (the same store for every worktree of a clone), or a
+worktree-local `.pointbreak/data` store when the worktree is ephemeral. The on-disk layout is identical
 regardless of location. This is a deliberate split between canonical immutable facts and derived
 projections, not a temporary gap waiting to be replaced by a database.
 
 **Path convention.** Store paths below (`events/`, `artifacts/`, `state.json`, …) are shown relative
-to the resolved store directory — `.git/shore` by default, or `.shore/data` when the worktree is
+to the resolved store directory — `<git-common-dir>/pointbreak` by default, or `.pointbreak/data` when the worktree is
 ephemeral. They are not absolute repo paths; only the ephemeral opt-out and the legacy-migration
-notes name `.shore/data` literally.
+notes name `.pointbreak/data` literally.
+
+Run `pointbreak store paths --repo <path> --format json` to obtain the canonical worktree store,
+shared common-dir store, `pointbreak.link.json` binding, user home, and key paths. Linked worktrees
+report the same common store and binding because both live under their shared Git common directory.
 
 **Authoritative facts.** Durable history lives in two places within the resolved store:
 
@@ -57,17 +66,17 @@ contract until a later design explicitly promotes them.
 
 Use distinct storage concepts for distinct semantics. The authoritative store resolves to one of two
 locations — the shared common-dir store by default, or a worktree-local ephemeral store — while the
-committed config siblings always live under the worktree's `.shore/`:
+committed config siblings always live under the worktree's `.pointbreak/`:
 
 ```text
-.git/shore/               shared common-dir store (default; one per clone, shared by every worktree)
+<git-common-dir>/pointbreak/               shared common-dir store (default; one per clone, shared by every worktree)
   events/                 immutable event log
   state.json              rebuildable projection
   artifacts/              immutable or content-addressed support records
     notes/                optional content-addressed note-body records
     objects/              immutable captured revision object artifacts (content-only snapshots)
 
-.shore/                   per-worktree config (and the ephemeral store, when opted in)
+.pointbreak/                   per-worktree config (and the ephemeral store, when opted in)
   data/                   ephemeral worktree-local store (git-excluded; same events/ + artifacts/ layout)
   store.json              committed store-mode config (shared | ephemeral)
   store.local.json        locally-excluded private store-mode override
@@ -78,27 +87,27 @@ committed config siblings always live under the worktree's `.shore/`:
   allowed-signers.json    committed allowed-signers trust set
 ```
 
-By default the store lives at `.git/shore` under the clone's Git common directory, so every worktree
+By default the store lives at `<git-common-dir>/pointbreak` under the clone's Git common directory, so every worktree
 of the clone resolves the same store; an ephemeral worktree instead keeps its store under its own
-`.shore/data/`. Either way the store's on-disk layout (`events/`, `state.json`, `artifacts/…`) is the
-same. The worktree's `.shore/` directory always holds the committed config siblings (`store.json`,
+`.pointbreak/data/`. Either way the store's on-disk layout (`events/`, `state.json`, `artifacts/…`) is the
+same. The worktree's `.pointbreak/` directory always holds the committed config siblings (`store.json`,
 `delegates.json`, `actor-attributes.json`, `allowed-signers.json`). Only the ephemeral store subtree
 and the private `.local.json` overrides are kept out of Git, via a committed
-**`.shore/.gitignore`** carrying exactly two lines (`data/` and `*.local.json`) — never a wholesale
-`.shore/` exclude, which would hide the committed config, and never the hidden, per-clone
+**`.pointbreak/.gitignore`** carrying exactly two lines (`data/` and `*.local.json`) — never a wholesale
+`.pointbreak/` exclude, which would hide the committed config, and never the hidden, per-clone
 `.git/info/exclude`. (`allowed-signers.json` is committed-only and has no `.local.json` override, by
 deliberate trust-set-locality decision.) Pointbreak generates the file when something first needs
-covering — opting into ephemeral mode (`shore store mode ephemeral` or a write to an ephemeral
+covering — opting into ephemeral mode (`pointbreak store mode ephemeral` or a write to an ephemeral
 store) or staging a `--local` identity override — and skips generation entirely when the paths are
 already ignored by any standard source, so user-managed ignore files are respected. A shared-store
 write generates nothing and never touches the working tree (the shared store lives inside `.git/`,
 which git already ignores).
 
-Clones that predate the committed `.shore/.gitignore` may still carry the retired mechanism's
-narrow entries (`.shore/data/`, `.shore/*.local.json`-style lines) in `.git/info/exclude`; those
+Clones that predate the committed `.pointbreak/.gitignore` may still carry the retired mechanism's
+narrow entries (`.pointbreak/data/`, `.pointbreak/*.local.json`-style lines) in `.git/info/exclude`; those
 are harmless — redundant with the committed file — and can be removed by hand. A legacy
-**wholesale `.shore/`** line is different: it hides committed `.shore/` config and suppresses the
-generated `.shore/.gitignore`, so a clone carrying one should delete that line by hand.
+**wholesale `.pointbreak/`** line is different: it hides committed `.pointbreak/` config and suppresses the
+generated `.pointbreak/.gitignore`, so a clone carrying one should delete that line by hand.
 
 `events/` is the authoritative log. Events are immutable, independently written, and never moved to
 `failed/`, retried in place, or rewritten on read.
@@ -125,7 +134,7 @@ Revision capture follows the same authority split:
 - bounded `state.json` may summarize revision count and current unambiguous revision ID, but it
   is not the source of revision identity or snapshot content
 
-`shore capture` returns `pointbreak.review-capture` JSON as the command-output contract. The
+`pointbreak capture` returns `pointbreak.review-capture` JSON as the command-output contract. The
 command reports the revision and object IDs plus the object artifact content hash, without making
 object artifact paths a user-facing API.
 
@@ -138,7 +147,7 @@ live **head** rather than resolving to a single scalar head. When two captures s
 predecessor, the resulting **competing heads** are surfaced as competing, never nulled or tie-broken by
 timestamp.
 
-Succession identity must not depend on worktree paths, raw `.git` layout, raw `.shore/data` paths, or
+Succession identity must not depend on worktree paths, raw `.git` layout, raw `.pointbreak/data` paths, or
 raw shared-store paths. The `supersedes` pointers carry opaque revision ids only. Succession facts
 remain ordinary producer facts signable by the generic `EventToBeSigned` contract from
 [ADR-0004](./adr/adr-0004-event-signatures.md), including its Dead Simple Signing Envelope (DSSE)
@@ -211,10 +220,10 @@ threshold are externalized to `artifacts/notes/<sha256(body)>.json` with the `sh
 envelope (schema `shore.note-body`, version `1`), keeping `state.json` bounded and avoiding
 unbounded event payload growth.
 
-The direct read surface is `shore observation list`, which replays events and can optionally
+The direct read surface is `pointbreak observation list`, which replays events and can optionally
 hydrate bodies. Body artifact paths, event filenames, and `state.json` paths are internal storage
 details, not command-output API. Native observations also appear in the composite
-`shore revision show` projection.
+`pointbreak revision show` projection.
 
 Native input requests follow the same revision ledger model:
 
@@ -245,10 +254,10 @@ the threshold is externalized to `artifacts/notes/<sha256(body)>.json` with the 
 envelope (schema `shore.note-body`, version `1`), keeping `state.json` bounded and avoiding
 unbounded event payload growth.
 
-The direct read surfaces are `shore input-request list` and `shore input-request show`,
+The direct read surfaces are `pointbreak input-request list` and `pointbreak input-request show`,
 which replay events and can optionally hydrate bodies. Body artifact paths, reason artifact paths,
 event filenames, and `state.json` paths are internal storage details, not command-output API. Native
-input requests also appear in the composite `shore revision show` projection.
+input requests also appear in the composite `pointbreak revision show` projection.
 
 Native assessments follow the same revision ledger model:
 
@@ -281,10 +290,10 @@ threshold are externalized to `artifacts/notes/<sha256(body)>.json` with the `sh
 envelope (schema `shore.note-body`, version `1`), keeping `state.json` bounded and avoiding
 unbounded event payload growth.
 
-The direct read surface is `shore assessment show`, which replays events and can optionally
+The direct read surface is `pointbreak assessment show`, which replays events and can optionally
 hydrate summaries. Summary artifact paths, event filenames, and `state.json` paths are internal
 storage details, not command-output API. Native assessments also appear in the composite
-`shore revision show` projection.
+`pointbreak revision show` projection.
 
 State-change outcomes such as deferred, split-out, overridden, and superseded are represented as
 native observations tagged with `state-change:*`, not as assessment values.
@@ -300,14 +309,14 @@ Validation evidence follows the same revision ledger model:
 - bounded `state.json` summarizes validation evidence with `validationCheckCount`, but it does not
   embed validation history, summary content, logs, or reports
 
-Validation evidence is advisory. It may support review judgment in `shore revision show`,
-`shore history`, and `shore validation list`, but it never grants review acceptance,
+Validation evidence is advisory. It may support review judgment in `pointbreak revision show`,
+`pointbreak history`, and `pointbreak validation list`, but it never grants review acceptance,
 merge authority, or write authority. It never changes `currentAssessment`, assessment ambiguity,
 operative input-request counts, or any other operative projection.
 
 Validation identity is path-free. Event targets, validation targets, and stable identity fields carry
 opaque IDs such as `revisionId`, `trackId`, and `validationCheckId`; they must not derive from
-worktree paths, raw `.git` layout, raw `.shore/data` paths, raw shared-store paths, raw artifact paths,
+worktree paths, raw `.git` layout, raw `.pointbreak/data` paths, raw shared-store paths, raw artifact paths,
 or machine-local route names.
 
 Validation summaries use the shared inline-or-artifact mechanics. Summaries under or equal to
@@ -323,7 +332,7 @@ type, `sigVersion`, or family-specific signing path. See
 
 Review history is the chronological read surface over durable events:
 
-- `shore history` returns `pointbreak.review-history` JSON derived from a validated scan of the
+- `pointbreak history` returns `pointbreak.review-history` JSON derived from a validated scan of the
   resolved store's `events/`
 - `eventSetHash` and `eventCount` describe the full event set read for the command, not only the
   returned entries after filters
@@ -340,9 +349,9 @@ Shared state diagnostics are still included so callers can see duplicate semanti
 inspecting the underlying events. Raw event files, artifact paths, event filenames, and `state.json`
 are storage details, not history output API.
 
-`shore revision show` is the composite read surface for one captured revision:
+`pointbreak revision show` is the composite read surface for one captured revision:
 
-- `shore revision show` returns `pointbreak.review-revision` JSON derived from a validated scan of the
+- `pointbreak revision show` returns `pointbreak.review-revision` JSON derived from a validated scan of the
   resolved store's `events/` plus the bound immutable object artifact for the selected revision
 - `eventSetHash` and `eventCount` describe the full event set read for the command, not only the
   selected revision's returned narrative facts
@@ -366,10 +375,10 @@ one is present.
 
 ## Shared Common-Dir Store Selection
 
-The default durable store is the **shared common-dir store** at `.git/shore`, the path under the
+The default durable store is the **shared common-dir store** at `<git-common-dir>/pointbreak`, the path under the
 clone's Git common directory. It is the default for **every** worktree of a clone — the main
 worktree and every linked worktree alike — automatically, with no setup step. Because all linked
-worktrees of a clone share one Git common directory, they all resolve the same `.git/shore` store,
+worktrees of a clone share one Git common directory, they all resolve the same `<git-common-dir>/pointbreak` store,
 so a capture in any worktree is immediately visible from its siblings. The store stays flat —
 store-only, with no committed-config sibling to separate from. This default store is per-clone, not a
 user-level multi-repository store or remote sync service; a clone may opt into a separate,
@@ -378,7 +387,7 @@ machine-wide **user-level family store tier** (see
 multi-repository case [issue #153](https://github.com/withpointbreak/pointbreak/issues/153) named.
 
 Public commands expose the resolved store as command JSON using opaque refs. Callers must not depend
-on raw store paths, event filenames, artifact paths, `.git` paths, `.shore/data` paths, or
+on raw store paths, event filenames, artifact paths, `.git` paths, `.pointbreak/data` paths, or
 `state.json` layout — the JSON never prints them.
 
 The writer contract is direct. Review capture and the native review write commands — recording an
@@ -387,34 +396,34 @@ event, artifacts, and rebuilt `state.json` directly into the shared common-dir
 store, the same store every read surface resolves. The fact is therefore visible to every worktree
 of the clone in place, with no setup step, and a write can attach a fact to a revision (or relate
 it to an observation, assessment, or request) captured in a sibling worktree. An **ephemeral**
-worktree (`shore store mode ephemeral`) instead pins its writes to a discardable worktree-local
-`.shore/data/` store — the privacy escape hatch for sensitive or throwaway work whose bytes should
+worktree (`pointbreak store mode ephemeral`) instead pins its writes to a discardable worktree-local
+`.pointbreak/data/` store — the privacy escape hatch for sensitive or throwaway work whose bytes should
 disappear when the worktree is removed.
 
-A pre-flip worktree-local `.shore/data/` store on a non-ephemeral worktree (data written before the
+A pre-flip worktree-local `.pointbreak/data/` store on a non-ephemeral worktree (data written before the
 shared common-dir default) is detected on any read or write and errors with a hint to run
-`shore store migrate`. `shore store migrate` folds that legacy store into the shared common-dir store
+`pointbreak store migrate`. `pointbreak store migrate` folds that legacy store into the shared common-dir store
 **non-destructively** by default: it copies events and artifacts forward with strict content-hash
-validation and leaves `.shore/data/` in place, so the operator can verify the result and then remove
-`.shore/data/` to finish the switch — or completes the switch in one command with
+validation and leaves `.pointbreak/data/` in place, so the operator can verify the result and then remove
+`.pointbreak/data/` to finish the switch — or completes the switch in one command with
 `--retire-source`, which independently re-verifies the fold from disk (a physical walk requiring
 every durable source file present with identical content in the shared store — never a
 manifest-driven check, which cannot see orphan/unreferenced files) and only then deletes
-`.shore/data/`; on any divergence it errors and deletes nothing. It is idempotent — re-running
+`.pointbreak/data/`; on any divergence it errors and deletes nothing. It is idempotent — re-running
 reports already-present facts as existing — and refuses an ephemeral or sensitivity-flagged worktree
 unless `--include-ephemeral` is passed. It scans for sensitivity findings before moving data and
-reports them in the command document. (`shore store migrate` folds the ephemeral `.shore/data/`
-store into the shared common-dir store; it is unrelated to the legacy flat `.shore/` layout, a
+reports them in the command document. (`pointbreak store migrate` folds the ephemeral `.pointbreak/data/`
+store into the shared common-dir store; it is unrelated to the legacy flat `.pointbreak/` layout, a
 retired pre-1.0 format that is detected and refused rather than migrated; see
 [Migrations And Doctor](#migrations-and-doctor).)
 
 The legacy-store guard deliberately keeps firing after a plain (no-retire) migrate until
-`.shore/data/` is removed: the guard is not auto-suppressed once the fold looks like a subset,
+`.pointbreak/data/` is removed: the guard is not auto-suppressed once the fold looks like a subset,
 because that check would run on **every** read and write (each opens the store), and a
-suppressed-but-present `.shore/data/` would silently diverge the moment anything wrote to it.
+suppressed-but-present `.pointbreak/data/` would silently diverge the moment anything wrote to it.
 `--retire-source` is the supported completion; the guard's hint names it.
 
-`shore store status` is the public health and inventory surface for the resolved store. Its
+`pointbreak store status` is the public health and inventory surface for the resolved store. Its
 `inventory` reports event and artifact byte counts, total bytes, optional Git untracked bytes,
 largest artifact refs, and revision snapshot byte accounting; its redacted sensitivity scan
 findings are hashed `file:sha256:*` values and do not disclose secret contents or source file paths.
@@ -422,16 +431,16 @@ Sensitivity findings are reported but do not currently abort a write; a hard-blo
 explicit override controls are a forward-looking note for when movement can target a wider store.
 
 Known-safe paths that trip the scanner (a repo's own test fixtures, for example) can be excluded
-with a committed `.shore/sensitivity.json` (plus a git-excluded `.shore/sensitivity.local.json`
+with a committed `.pointbreak/sensitivity.json` (plus a git-excluded `.pointbreak/sensitivity.local.json`
 override, merged by union) — the targeted alternative to the blanket `--include-ephemeral`
 override, which disables the migrate gate wholesale. An excluded path is not scanned; the scan
 reports the excluded-path count and per-glob match counts so an over-broad exclude stays visible.
 See [cli-reference.md](./cli-reference.md#sensitivity-exclude-globs) for the format and glob
 semantics.
 
-Reads resolve the shared common-dir store on every review read surface. `shore revision list` and
-`show`, `shore history`, the observation, input-request, and validation lists,
-`shore assessment show`, the association list, and the inspector API all
+Reads resolve the shared common-dir store on every review read surface. `pointbreak revision list` and
+`show`, `pointbreak history`, the observation, input-request, and validation lists,
+`pointbreak assessment show`, the association list, and the inspector API all
 read it from any worktree of the clone, including object artifacts and large note-shaped bodies, so
 their `eventCount` and `eventSetHash` reflect that one store.
 
@@ -447,14 +456,14 @@ retry counts, backoff, and circuit breakers do not belong in the store's `events
 ## User-Level Family Store Tier
 
 A clone may opt into a **user-level family store**: one store per repository family per machine, at
-`<shore-home-root>/stores/<slug>/`. It exists so review facts survive removing any single clone
+`<pointbreak-home-root>/stores/<slug>/`. It exists so review facts survive removing any single clone
 (`rm -rf` of a checkout) and are shared across independent clones of the same family — offline, with
 no daemon and no sync service. The tier is opt-in per clone and additive: a clone that never links
-keeps resolving its clone-local `.git/shore` store exactly as before.
+keeps resolving its clone-local `<git-common-dir>/pointbreak` store exactly as before.
 
-**Placement and shared root.** The shore-home root is resolved by the same precedence the key home
-already uses — `SHORE_HOME`, then `$XDG_DATA_HOME/shore`, then `$HOME/.shore` on Unix or
-`%APPDATA%\shore` on Windows (see [Signature Allow-List and Key
+**Placement and shared root.** The Pointbreak-home root is resolved by the same precedence the key home
+already uses — `POINTBREAK_HOME`, then `$XDG_DATA_HOME/pointbreak`, then `$HOME/.pointbreak` on Unix or
+`%APPDATA%\pointbreak` on Windows (see [Signature Allow-List and Key
 Home](#signature-allow-list-and-key-home)); both the key home and the family stores now derive that
 root from one shared resolver rather than two copies. The `stores/` path segment keeps
 `<root>/{keys,stores}` disjoint from the key home by construction, so a family named `keys` still
@@ -465,29 +474,29 @@ regenerable `state.json` — plus two new files, `family.json` and a generated `
 **Resolution precedence.** `resolve_store` grows one branch, giving the order **ephemeral opt-in >
 user-level opt-in > clone-local default** (the legacy flat-layout hard-cutover guard still fires
 before any of these, unconditionally). The opt-in is a `familyRef`/`cloneRef` pair read from the git
-common dir's `shore.link.json` (inside `.git/`, shared by every worktree of one physical clone), with
-the legacy per-worktree `.shore/store.local.json` honored as a back-compat fallback — never from the
-committed `.shore/store.json`, so a pulled commit can never activate the tier for anyone else. Because
-the binding lives in the common dir, a single `shore store link` binds the main checkout and every
+common dir's `pointbreak.link.json` (inside `.git/`, shared by every worktree of one physical clone), with
+the legacy per-worktree `.pointbreak/store.local.json` honored as a back-compat fallback — never from the
+committed `.pointbreak/store.json`, so a pulled commit can never activate the tier for anyone else. Because
+the binding lives in the common dir, a single `pointbreak store link` binds the main checkout and every
 `git worktree` of the clone, and `cloneRef` keys on the common dir so one physical clone is one
 registry member. A binding in the committed document is a hard error, and one of the pair without the
 other is a hard error too — "opted in with no family" is unrepresentable. The ephemeral opt-out stays
-per-worktree, so an ephemeral worktree still escapes to `.shore/data` even when the binding is
+per-worktree, so an ephemeral worktree still escapes to `.pointbreak/data` even when the binding is
 present. (This per-physical-clone relocation is the issue #402 amendment to ADR-0033.)
 
-**The link/unlink/forget/list surface.** `shore store link <slug>` promotes the current clone: it
+**The link/unlink/forget/list surface.** `pointbreak store link <slug>` promotes the current clone: it
 refuses an Ephemeral-mode worktree and a sensitivity-`block` worktree unless explicitly overridden,
 refuses a slug already stamped for a different family, warns (without blocking) on a sync-managed
 filesystem path, and warns — advisory only — when the clone shares no git history with the family it
 is joining. It then folds the clone-local history forward by default, optionally retiring the source
 after a verified fold, and flips the local binding last. When a worktree writes to its clone-local
-store while a sibling worktree of the same clone is linked, `shore store status` and `shore capture`
-surface a one-line advisory pointing at `shore store link <slug>` — the split is signalled, never
-silent. `shore store unlink` detaches the clone back to clone-local, moving no data. `shore store forget <slug>` is the whole-store destructive verb,
+store while a sibling worktree of the same clone is linked, `pointbreak store status` and `pointbreak capture`
+surface a one-line advisory pointing at `pointbreak store link <slug>` — the split is signalled, never
+silent. `pointbreak store unlink` detaches the clone back to clone-local, moving no data. `pointbreak store forget <slug>` is the whole-store destructive verb,
 dry-run by default and `--yes` to execute (refused while any clone is still live, unless `--force`);
 it sits deliberately outside the content-targeted removal model in [Content Removal and
 Compaction](#content-removal-and-compaction) — no store survives a forget to hold a removal event in.
-`shore store list` is the first store surface with no `--repo` input: it walks every family on the
+`pointbreak store list` is the first store surface with no `--repo` input: it walks every family on the
 machine and reports each one's inventory, live-clone count, and orphan status.
 
 **`family.json` / `registry.json` / `.gitignore`.** `family.json` is the schema-versioned manifest
@@ -505,7 +514,7 @@ control.
 
 - The family store must live on a **local POSIX filesystem**. Network filesystems (NFS) and
   sync-managed directories (Dropbox, iCloud / Mobile Documents, OneDrive, Google Drive) are
-  unsupported: `~/.shore` looks syncable, which is exactly the footgun a best-effort path warning
+  unsupported: `~/.pointbreak` looks syncable, which is exactly the footgun a best-effort path warning
   calls out at link time.
 - `compact` / `gc` should run against a **quiescent** family store. The compaction-versus-writer race
   is inherited unchanged from the existing multi-worktree case — corruption-free, but benign
@@ -515,7 +524,7 @@ control.
   arm of content-targeted removal (see [Content Removal and
   Compaction](#content-removal-and-compaction)): prior **unsigned** removals in the folded source lose
   operative suppression in the family store. This is accepted and documented, not fixed — the
-  recommended recovery is to re-issue `shore store remove` natively in the family store, surfaced as a
+  recommended recovery is to re-issue `pointbreak store remove` natively in the family store, surfaced as a
   diagnostic whenever a fold transports removal events. Steady-state direct writes to an
   already-linked family store are unaffected.
 - `registry.json` writes are an atomic whole-set read-modify-write with **no lock**. Two clones
@@ -553,8 +562,8 @@ Tier-2 in ADR-0016) — an operative removal over a matching hash never suppress
 This body-side render is read-surface consistency, not a privacy gate: the sensitive captured bytes
 are the snapshot artifacts, and their removal path is the one described above.
 
-Removal is two-phase. `shore store remove` appends the removal event (cheap, convergent, auditable);
-the marked bytes survive on disk until `shore store gc` / `shore store compact` runs a local,
+Removal is two-phase. `pointbreak store remove` appends the removal event (cheap, convergent, auditable);
+the marked bytes survive on disk until `pointbreak store gc` / `pointbreak store compact` runs a local,
 non-event maintenance sweep that physically deletes the removed and unreferenced blobs. Because a
 removed content hash has no live referrer by construction, the sweep needs no reference-count wait and
 is re-derivable from the event log. **Compaction — not removal — is the point of no return:** removal
@@ -786,7 +795,7 @@ elision threshold, no generated-file detection, and no metadata-only marker for 
   three variants carry file-level Git facts (rename, mode change, submodule pointer change) and
   also leave `hunks` empty, but they are not content-omission markers. There is no `ElidedFile`
   or `GeneratedFile` variant.
-- **Read surface.** `shore revision show` is narrative-first plus snapshot-complete: reviewed
+- **Read surface.** `pointbreak revision show` is narrative-first plus snapshot-complete: reviewed
   ledger material appears first, and the snapshot remainder includes every captured file, metadata
   row, hunk header, and diff row. No flag omits row bodies.
 - **Content-hash scope.** `ObjectArtifact.contentHash` covers the full row inventory. The object
@@ -813,8 +822,8 @@ the projection saw; it is not a causal ordering primitive or a raw event-file ch
 
 If a cached projection's `eventSetHash` does not match a fresh scan of the store's `events/`, the
 projection is stale and should be rebuilt from the event files. The event files remain authoritative;
-`state.json` is still safe to delete and regenerate. `shore history` and
-`shore revision show` reuse this freshness primitive, and future derived-index projections should
+`state.json` is still safe to delete and regenerate. `pointbreak history` and
+`pointbreak revision show` reuse this freshness primitive, and future derived-index projections should
 do the same rather than inventing per-projection hashes.
 
 ## Shared Mutable Files
@@ -842,10 +851,10 @@ conflicting events under one idempotency key fail loud. A stale `state.json` is 
 authority because reads rebuild from the event log.
 
 The shared common-dir store depends on this directly. Capture and every native review write land in
-the `.git/shore` store every read resolves, so multiple worktrees of the same clone may write that
+the `<git-common-dir>/pointbreak` store every read resolves, so multiple worktrees of the same clone may write that
 one store directory concurrently, and the content-addressed/regenerable primitives above keep that
-safe without a lock. `shore store migrate` reuses the same import path — content-hash-validated,
-artifacts before events — to fold a pre-flip worktree-local `.shore/data/` store forward, scanning
+safe without a lock. `pointbreak store migrate` reuses the same import path — content-hash-validated,
+artifacts before events — to fold a pre-flip worktree-local `.pointbreak/data/` store forward, scanning
 for sensitivity findings before movement and reporting them in its document. Any store-directory lock
 added later must be scoped to the store directory, never "one clone, one writer", so a future
 cross-clone store inherits it.
@@ -891,13 +900,13 @@ format is retired and no longer supported (see [Migrations And Doctor](#migratio
 
 Every event's writer carries an `actorId`. Human writers derive theirs from Git identity
 (`actor:git-email:<email>` or `actor:git-name:<name>`); agents write under their own
-`actor:agent:<agent-name>` id, set with `SHORE_ACTOR_ID` (see
+`actor:agent:<agent-name>` id, set with `POINTBREAK_ACTOR_ID` (see
 [agent-authoring.md](./agent-authoring.md)). The actor id is reported in projections but is never
 the basis of a binding decision — a writer cannot make a claim trustworthy by asserting it
 ([ADR-0007](./adr/adr-0007-writer-act-vocabulary.md)).
 
 Who an agent acts *on behalf of* is answered by a checked-in delegation map at
-`.shore/delegates.json` — a sibling of `.shore/allowed-signers.json`, deliberately separate so that
+`.pointbreak/delegates.json` — a sibling of `.pointbreak/allowed-signers.json`, deliberately separate so that
 key rotation never touches delegation. It is human-committed JSON:
 
 ```json
@@ -926,33 +935,33 @@ Resolution is projection-time, replay-stable, and git-free: it selects the recor
 contains the event's `occurredAt`. **Revocation closes a window** (`validUntil` set) — events
 inside the closed window keep resolving, so history stays stable — while **deleting a record is
 disavowal**: events that previously resolved deliberately resolve to nothing. `git log -p
-.shore/delegates.json` is the audit trail; the file's history, not a mechanism, records who was
+.pointbreak/delegates.json` is the audit trail; the file's history, not a mechanism, records who was
 enrolled when.
 
 Resolution config is reader-supplied, exactly like the allowed-signers trust set. A consumer
 without the map — a mirror, an exported bundle — degrades to `principal: none`, never a wrong
-answer. The CLI discovers `.shore/delegates.json` at the worktree root; a malformed file warns once
+answer. The CLI discovers `.pointbreak/delegates.json` at the worktree root; a malformed file warns once
 to stderr and proceeds with no map (advisory, never blocking). Overlapping windows with distinct
 principals resolve as `ambiguous` and are surfaced, never auto-picked.
 
-A locally-excluded `.shore/delegates.local.json` override may sit beside the committed
-`.shore/delegates.json`. The two layer git-config style: for each agent present in the local file,
+A locally-excluded `.pointbreak/delegates.local.json` override may sit beside the committed
+`.pointbreak/delegates.json`. The two layer git-config style: for each agent present in the local file,
 its records **fully replace** the committed records for that agent (including replacement with an
 empty array, which disavows the agent locally); agents absent from the local file inherit the
 committed map; either file may exist alone, and a malformed local file is advisory — it never
 poisons the committed default. The committed file stays the shared, portable audit/authority root;
 the local override is a private, non-portable convenience. Pointbreak keeps
-`.shore/delegates.local.json` out of Git via the committed `.shore/.gitignore`'s `*.local.json`
-line (the committed `.shore/delegates.json` and `.shore/allowed-signers.json` are deliberately
-tracked). `shore identity delegate --local` generates that file automatically before staging the
-override; if you hand-create the override instead, commit a two-line `.shore/.gitignore` (`data/`
+`.pointbreak/delegates.local.json` out of Git via the committed `.pointbreak/.gitignore`'s `*.local.json`
+line (the committed `.pointbreak/delegates.json` and `.pointbreak/allowed-signers.json` are deliberately
+tracked). `pointbreak identity delegate --local` generates that file automatically before staging the
+override; if you hand-create the override instead, commit a two-line `.pointbreak/.gitignore` (`data/`
 + `*.local.json`) yourself — or run the enroll command once — so it does not show up in
 `git status`.
 
-In this release, delegation entries are created by editing `.shore/delegates.json` directly (or by
+In this release, delegation entries are created by editing `.pointbreak/delegates.json` directly (or by
 an agent proposing a working-tree edit); the human's review-and-commit is the authorization. The
-symmetric signature trust set `.shore/allowed-signers.json` is staged the same possession-style way —
-by `shore key enroll` or a hand edit — and documented in the next section.
+symmetric signature trust set `.pointbreak/allowed-signers.json` is staged the same possession-style way —
+by `pointbreak key enroll` or a hand edit — and documented in the next section.
 
 Pre-cutover honesty: agent events written before the `actor:agent:` cutover carry the human's
 git-email id and remain exactly what they claimed at write time. The `agent:*` *track* name is a
@@ -961,8 +970,8 @@ hatch.
 
 ## Signature Allow-List and Key Home
 
-The committed signature trust set lives at `.shore/allowed-signers.json`, a sibling of
-`.shore/delegates.json`. It is a **custom Pointbreak JSON document** — **not the OpenSSH**
+The committed signature trust set lives at `.pointbreak/allowed-signers.json`, a sibling of
+`.pointbreak/delegates.json`. It is a **custom Pointbreak JSON document** — **not the OpenSSH**
 `allowed_signers` line format despite the filename echo — mapping each actor to the `did:key`s
 authorized to sign on its behalf:
 
@@ -981,29 +990,29 @@ authorized to sign on its behalf:
 
 Like the delegation map, it is **reader-supplied trust config**, never store content: a consumer
 without the file — a mirror, an exported bundle — renders a signed event as `untrusted_key`, never a
-wrong `valid`. Entries are staged possession-style (`shore key enroll` writes the working-tree
+wrong `valid`. Entries are staged possession-style (`pointbreak key enroll` writes the working-tree
 file; the human's commit is the authorization) and the file is deliberately tracked in Git.
 
-OpenSSH allowed-signers files are evidence inputs for `shore key discover`, not Pointbreak trust
+OpenSSH allowed-signers files are evidence inputs for `pointbreak key discover`, not Pointbreak trust
 policy. They can provide principal hints and public signing keys that help a human stage a reviewed
-Pointbreak entry. In short: .shore/allowed-signers.json remains the committed trust file and the
+Pointbreak entry. In short: .pointbreak/allowed-signers.json remains the committed trust file and the
 only portable authorization source for friendly `actor:*` ids. Discovery never silently copies OpenSSH
 entries into this file and never makes an event `valid` by itself.
 
-Private **keys never live in the repo `.shore/` or the store** — both are copyable, linkable, or
+Private **keys never live in the repo `.pointbreak/` or the store** — both are copyable, linkable, or
 mirrored surfaces and would ship the private key. They live in a user-level **key home**,
-`~/.shore/keys/`, resolved as `SHORE_HOME` (verbatim override, mainly for tests/CI), then
-`$XDG_DATA_HOME/shore`, then `$HOME/.shore` on Unix or `%APPDATA%\shore` on Windows. On Unix the key
+`~/.pointbreak/keys/`, resolved as `POINTBREAK_HOME` (verbatim override, mainly for tests/CI), then
+`$XDG_DATA_HOME/pointbreak`, then `$HOME/.pointbreak` on Unix or `%APPDATA%\pointbreak` on Windows. On Unix the key
 home is created `0700` and each private-key file `0600`; on Windows mode bits are advisory and the
 directory inherits the parent ACL (documented caveat). A private-key file is a minimal
 Pointbreak-native JSON document carrying the raw 32-byte Ed25519 seed (`{ "version", "alg", "seed" }`,
 base64); a `<name>.pub` sidecar records the derived `did:key`.
 
-A key may instead be **agent-backed**: a custody-tagged reference adopted with `shore key use-ssh`,
+A key may instead be **agent-backed**: a custody-tagged reference adopted with `pointbreak key use-ssh`,
 where ssh-agent custodies the private key and the keystore stores only the **public** key — no seed.
 Its on-disk document is `{ "version", "alg", "custody": "agent", "publicKey" }` (the public key
-base64); it lives at the same `~/.shore/keys/<name>` with the same `<name>.pub` did:key sidecar, never
-in the repo `.shore/` or the store. The change is additive — an existing `{ version, alg, seed }` file
+base64); it lives at the same `~/.pointbreak/keys/<name>` with the same `<name>.pub` did:key sidecar, never
+in the repo `.pointbreak/` or the store. The change is additive — an existing `{ version, alg, seed }` file
 still loads as file custody. Because the reference carries the public key, it is not secret, so the
 `0600` mode is not applied (the no-clobber-on-create policy still is); and its `did:key` derives from
 the stored public material with **no agent and no private key**, so `enroll` / `list` / `show` work
@@ -1083,17 +1092,17 @@ rather than loop.
 ## Migrations And Doctor
 
 Runtime code should read canonical storage. Legacy repair and migration belong in a future
-`shore doctor` or equivalent explicit command.
+`pointbreak doctor` or equivalent explicit command.
 
-The legacy flat `.shore/` layout — an early pre-1.0 store that kept `events/`, `artifacts/`, and
-`state.json` directly under `.shore/` instead of nesting them under `.shore/data/` — is a **retired
+The legacy flat `.pointbreak/` layout — an early pre-1.0 store that kept `events/`, `artifacts/`, and
+`state.json` directly under `.pointbreak/` instead of nesting them under `.pointbreak/data/` — is a **retired
 pre-1.0 format**. 1.0 is the store-format floor: a flat store is still detected (by the same
 flat-store-marker set the resolve guard uses) and the resolve path surfaces it as a typed,
 actionable error, but it is no longer relocated or upgraded — the format is retired and no longer
 supported, so the error offers no migration to run. (This retired flat layout is distinct from
-`shore store migrate`, which folds a pre-flip `.shore/data/` store into the shared common-dir store;
+`pointbreak store migrate`, which folds a pre-flip `.pointbreak/data/` store into the shared common-dir store;
 see [Shared Common-Dir Store Selection](#shared-common-dir-store-selection).) The still-future
-`shore doctor`
+`pointbreak doctor`
 ([issue #9](https://github.com/withpointbreak/pointbreak/issues/9)) remains a separate, read-only
 diagnostic bundle concern — it is not built.
 

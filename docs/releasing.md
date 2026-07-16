@@ -2,9 +2,15 @@
 
 Pointbreak releases are driven from GitHub Actions through Cocogitto.
 
-The published crate is `pointbreak`; it installs the `shore` command. The crate source is
+The published crate is `pointbreak`; it installs the `pointbreak` command. The crate source is
 licensed Apache-2.0 through `Cargo.toml` and the repository `LICENSE` file. Preserve `NOTICE`
 and `TRADEMARKS.md` so release artifacts keep the Pointbreak trademark reservation visible.
+
+Release `0.7.0` is the hard executable, environment, and storage-name cutover described in
+[ADR-0036](./adr/adr-0036-pointbreak-cli-storage-and-environment-cutover.md). Its notes must direct
+operators to stop writers, move owner-controlled state offline, update environment/config references,
+verify `pointbreak store paths` and readback, and use the inverse filesystem move for rollback. Do not
+promise a fallback, compatibility alias, automatic migration, or migration command.
 
 Use the **Release Plan** workflow in `plan` mode first. It reports the current commit, recent CI
 status, the version Cocogitto will publish, and a changelog preview. For an exact release, set the

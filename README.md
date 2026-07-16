@@ -24,7 +24,7 @@ a reader can tell whether each fact is merely signed or bound to a trusted ident
   <img alt="The Pointbreak Review inspector: a filterable event timeline with per-actor tracks and signature-trust badges, beside an event detail pane" src="https://raw.githubusercontent.com/withpointbreak/pointbreak/main/assets/shore-inspector-light.png" width="800">
 </picture>
 
-*Watching a review in the Pointbreak Review inspector opened by `shore inspect`: the event timeline, each fact attributed to its track, with signature-trust badges.*
+*Watching a review in the Pointbreak Review inspector opened by `pointbreak inspect`: the event timeline, each fact attributed to its track, with signature-trust badges.*
 
 ## Install
 
@@ -41,8 +41,12 @@ irm https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/ins
 ```
 
 The installers select the correct release archive, verify its SHA-256 checksum, and install the
-`shore` command. The published `pointbreak` crate also provides the `shore` command and can be
+`pointbreak` command. The published `pointbreak` crate also provides the `pointbreak` command and can be
 installed with `cargo install pointbreak`.
+
+Release `0.7.0` is a hard operational cutover to this executable and the canonical Pointbreak
+environment and storage names. Existing installations must move local state offline before use; see
+[Upgrading to 0.7.0](docs/installation.md#upgrading-to-070).
 
 See [Installation](docs/installation.md) for version pinning, custom install directories, supported
 platforms, manual downloads, and checksum verification.
@@ -57,17 +61,17 @@ The short path is:
 
 ```bash
 cd path/to/git-worktree
-shore capture
-shore revision show --format json-pretty
+pointbreak capture
+pointbreak revision show --format json-pretty
 ```
 
 Then record what you learn:
 
 ```bash
-shore observation add --track human:local --title "Check error handling"
-shore input-request open --track human:local --title "Need decision" \
+pointbreak observation add --track human:local --title "Check error handling"
+pointbreak input-request open --track human:local --title "Need decision" \
   --reason manual-decision-required --mode advisory
-shore assessment add --track human:local --assessment needs-clarification \
+pointbreak assessment add --track human:local --assessment needs-clarification \
   --summary "Small change, but one decision is still open."
 ```
 
@@ -81,17 +85,20 @@ Or browse the whole store visually — event timeline, per-revision pages, and a
 a local web UI:
 
 ```bash
-shore inspect --open
+pointbreak inspect --open
 ```
 
-Pointbreak stores local review facts in `.shore/data/`. Command output JSON is the integration surface;
-raw event files, artifact paths, and `.shore/data/state.json` are internal storage details unless a
-command explicitly documents them. Consumers that prefer to read and write those facts in process
-can use the supported library API instead of the CLI — see [docs/library-api.md](docs/library-api.md).
+Repository config lives in `.pointbreak/`. Review facts normally live in the Git common directory's
+`pointbreak/` store, shared by every linked worktree; an ephemeral worktree uses `.pointbreak/data/`.
+Run `pointbreak store paths --format text` to see the canonical locations for a repository. Command
+output JSON is the integration surface; raw event files, artifact paths, and `state.json` are internal
+storage details unless a command explicitly documents them. Consumers that prefer to read and write
+those facts in process can use the supported library API instead of the CLI — see
+[docs/library-api.md](docs/library-api.md).
 
 ## Commands
 
-The `shore` command surface is still taking shape and will change before v1. See
+The `pointbreak` command surface is still taking shape and will change before v1. See
 [docs/cli-reference.md](docs/cli-reference.md) for the current commands, their options, output
 documents, schema names, and V1 limitations.
 
@@ -138,14 +145,14 @@ Architecture and model notes:
 
 ## Project Status
 
-Pointbreak Review is experimental and under active development. The published crate is `pointbreak`;
-the installed command stays `shore` because command names should remain short and practical.
+Pointbreak Review is experimental and under active development. The crate and sole installed command
+are both `pointbreak`.
 
 The current focus is a headless, durable review model and the surfaces derived from it:
 
 - Git working-tree or commit-range (`--base`) capture into a revision
-- append-only local events under `.shore/data/events/`
-- immutable snapshot and note-body artifacts under `.shore/data/artifacts/`
+- append-only local events in the resolved Pointbreak store
+- immutable snapshot and note-body artifacts in that store
 - rebuildable projections and command-output JSON
 - read-only terminal and local web views over the same model
 

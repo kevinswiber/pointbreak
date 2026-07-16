@@ -29,6 +29,16 @@ fn canonical_review_example_pack_exists() {
 }
 
 #[test]
+fn current_exporter_and_materialize_hint_use_pointbreak() {
+    let exporter = include_str!("../examples/support/review_example_pack.rs");
+    let command = include_str!("../examples/review_example_pack.rs");
+
+    assert!(exporter.contains("name: \"pointbreak\".to_owned()"));
+    assert!(command.contains("pointbreak inspect --repo"));
+    assert!(!command.contains("shore inspect --repo"));
+}
+
+#[test]
 fn canonical_review_example_manifest_pins_the_record_and_all_authoritative_files() {
     let manifest_path = pack_root().join("manifest.json");
     let manifest: Value = serde_json::from_slice(

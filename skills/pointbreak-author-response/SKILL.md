@@ -5,6 +5,11 @@ description: Use when the coding agent that authored a change should pick up a P
 
 # Pointbreak Author Review Response
 
+This skill targets the `0.7.0`-and-later flat `pointbreak` CLI. Use only the canonical Pointbreak
+environment and storage names; existing installations must complete the offline move described in
+`docs/installation.md` before review work resumes. `pointbreak store paths --repo . --format json`
+reports the canonical paths, including the Git-common-dir store shared by linked worktrees.
+
 You are the agent that authored the change. A reviewer has recorded a Pointbreak review on the
 existing revision, and you are picking that review back up. Your job is to triage the verdict,
 respond through structured input-request channels, make required changes when the review asks for

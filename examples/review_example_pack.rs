@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         PackCommand::Verify { pack } => verify_pack(&pack)?,
         PackCommand::Materialize { pack, output } => {
             materialize_pack(&pack, &output)?;
-            println!("shore inspect --repo {}", output.display());
+            println!("pointbreak inspect --repo {}", output.display());
         }
     }
     Ok(())

@@ -1,14 +1,15 @@
 # Library API
 
-Pointbreak ships as a library (`pointbreak`) alongside the `shore` binary. This page documents the
+Pointbreak ships as a library (`pointbreak`) alongside the `pointbreak` binary. This page documents the
 **supported, stable library surface** for consumers that read and write durable review facts
-in process, without shelling out to `shore`. The motivating consumer is a federation bridge that
+in process, without shelling out to `pointbreak`. The motivating consumer is a federation bridge that
 forwards review decisions on behalf of remote reviewers.
 
-The `shore` command-output JSON remains a supported integration surface (see
+The `pointbreak` command-output JSON remains a supported integration surface (see
 [cli-reference.md](cli-reference.md)). The library surface below is an additional, equally supported
-contract: the [`pointbreak::documents`](#documents) module produces the **byte-identical**
-`shore.*` documents in process.
+contract: the [`pointbreak::documents`](#documents) module produces the **byte-identical**, frozen
+`shore.*` persisted protocol documents in process. Those raw schema names preserve existing evidence;
+they do not name a current executable, environment family, or storage namespace.
 
 ## What "stable" means
 
@@ -61,10 +62,10 @@ Pointbreak does not introduce async traits or a runtime of its own.
 | `record_observation` / `record_assessment` / `record_validation_check` (+ options/results) | Record observations, the review assessment, and advisory validation evidence. |
 
 **Per-call writer attribution.** Each write-options builder exposes
-`with_actor_id(ActorId)`. Precedence is **explicit override > `SHORE_ACTOR_ID` env var > local Git
+`with_actor_id(ActorId)`. Precedence is **explicit override > `POINTBREAK_ACTOR_ID` env var > local Git
 identity**; a malformed id is ignored and falls through to the next source, and `None` reproduces the
 default resolution exactly. This lets an in-process, concurrent consumer attribute each write to the
-correct actor without mutating the process-global `SHORE_ACTOR_ID` (which is `unsafe` and racy under
+correct actor without mutating the process-global `POINTBREAK_ACTOR_ID` (which is `unsafe` and racy under
 edition 2024). The chosen actor is part of a fact's content-addressed identity, so distinct actors
 produce distinct facts.
 
@@ -75,13 +76,13 @@ status, and `with_include_body(true)` hydrates validation summaries. Validation 
 advisory; it does not accept, reject, merge, block, or replace a review assessment.
 
 **Shared-store write resolution.** By default every worktree of a clone resolves the same shared
-common-dir store (`.git/shore`) for both reads and writes, with no setup step. Every review write
+common-dir store (`<git-common-dir>/pointbreak`) for both reads and writes, with no setup step. Every review write
 workflow above (`record_observation`, `open_input_request`, `respond_input_request`,
 `record_assessment`, and `record_validation_check`) validates and derives against
 that store, and the write itself lands directly in it (`resolve_write_store` resolves the same store
 the reads do), so a consumer can record a fact against a revision, observation, assessment, or
 input request captured in a sibling worktree, and the fact is visible to reads from every worktree in
-place. An `ephemeral` worktree instead resolves its own discardable worktree-local `.shore/data/`
+place. An `ephemeral` worktree instead resolves its own discardable worktree-local `.pointbreak/data/`
 store; the validation set reduces to that store's event list.
 
 `respond_input_request` answers **revision** input requests (the reviewer-to-author loop). Agent
@@ -177,10 +178,10 @@ unchanged generic `sign_with` accept it), and a tightly-scoped sign-time degrade
 for the network signer. See [ADR-0010](./adr/adr-0010-actor-identity-and-delegation.md).
 
 `discover_enrollment_candidates` (`pointbreak::keys`) is the public discovery API behind
-`shore key discover`. It returns `EnrollmentDiscovery` with advisory candidates and structured
+`pointbreak key discover`. It returns `EnrollmentDiscovery` with advisory candidates and structured
 diagnostics for local Git/OpenSSH signing evidence such as `gpg.format=ssh`, `user.signingKey`, and
 `gpg.ssh.allowedSignersFile`. Discovery does not authorize keys and does not write either the
-user-level key home or `.shore/allowed-signers.json`; callers still need an explicit reviewed
+user-level key home or `.pointbreak/allowed-signers.json`; callers still need an explicit reviewed
 enrollment step before a friendly actor's signature can become `valid`.
 
 ### Actor identity and delegation — `pointbreak::session`
@@ -191,7 +192,7 @@ resolve a principal, and signing never gates a write.
 
 | Symbol | Purpose |
 | --- | --- |
-| `DelegationMap` / `delegation_map_from_value` / `DelegationMap::from_delegates_file` | Parse a checked-in `.shore/delegates.json` map (top-level `delegates` key, unknown keys ignored), reader-supplied like `TrustSet`. |
+| `DelegationMap` / `delegation_map_from_value` / `DelegationMap::from_delegates_file` | Parse a checked-in `.pointbreak/delegates.json` map (top-level `delegates` key, unknown keys ignored), reader-supplied like `TrustSet`. |
 | `DelegationMap::resolve` / `PrincipalResolution` / `UnresolvedReason` | Resolve an agent actor's principal at an event `occurredAt` over half-open validity windows: `Resolved` / `None(reason)` / `Ambiguous`. |
 | `PrincipalView` / `PrincipalStatus` / `PrincipalSource` | The serialized principal object `{actorId, status, source}` that rides beside `writer` in projections; `principal_view_for` builds it (only for `actor:agent:*` writers), `principal_display_label` renders `claude-code (for kevin@swiber.dev)`. |
 | `with_delegation_map` | Thread a `DelegationMap` into a read — on `ReviewHistoryOptions` and `RevisionShowOptions`, and as a parameter to the leaf document builders — beside `with_trust_set`. |
@@ -249,7 +250,7 @@ with ingest provenance — `ingest: { via, receivedAt }`, with `via` naming the 
 to-be-signed view, so stamping never invalidates a signature, and re-ingest keeps the first
 stored stamp state ([ADR-0009](adr/adr-0009-resumption-binding-trust-source.md)).
 
-Events folded into the shared common-dir store by `import_store_bundle` (the seam `shore store
+Events folded into the shared common-dir store by `import_store_bundle` (the seam `pointbreak store
 migrate` uses) carry that same ingest provenance (`via: "bundle-apply"`), and binding decisions are a
 pure function of the events actually read. An unsigned input-request response binds via possession
 only inside the store that locally wrote it: once it is read back as a bundle-stamped copy, the

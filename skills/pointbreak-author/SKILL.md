@@ -14,6 +14,11 @@ work, you turn the handoff into self-grading and pollute the review surface the 
 
 ## Workflow at a glance
 
+This skill targets the `0.7.0`-and-later flat `pointbreak` CLI. Use only the canonical Pointbreak
+environment and storage names; existing installations must complete the offline move described in
+`docs/installation.md` before review work resumes. `pointbreak store paths --repo . --format json`
+reports the canonical paths, including the Git-common-dir store shared by linked worktrees.
+
 ```text
 1. Confirm the full task change you intend to hand off — uncommitted in the worktree, or landed in commits.
 2. Capture the revision: `pointbreak capture`, or `pointbreak capture --base <rev>` for a landed range.
@@ -82,8 +87,8 @@ issue or PR number, use the branch's distinctive segment as a fallback, and use 
 neither exists. Keep the part after `agent:` lowercase, hyphenated, and around 15 characters or fewer.
 
 Tracks are review lanes, not actor identity. The unique tag keeps lanes legible when more than one
-agent run writes to the same `.pointbreak/data/` store; Pointbreak still records writer provenance separately in
-the event envelope.
+agent run writes to the same resolved store; Pointbreak still records writer provenance separately
+in the event envelope.
 
 ```bash
 agent_name="<agent-name>"

@@ -30,9 +30,23 @@ fn agent_skills_and_docs_adopt_validation_evidence_workflow() {
         "skills/pointbreak-author-response/SKILL.md",
         "pointbreak validation list",
     );
-    assert_contains("docs/agent-authoring.md", "shore validation add");
-    assert_contains("docs/agent-authoring.md", "shore validation list");
+    assert_contains("docs/agent-authoring.md", "pointbreak validation add");
+    assert_contains("docs/agent-authoring.md", "pointbreak validation list");
     assert_contains("skills/README.md", "validation evidence");
+}
+
+#[test]
+fn repo_owned_agent_skills_use_only_the_flat_pointbreak_cli() {
+    for skill in [
+        "skills/pointbreak-author/SKILL.md",
+        "skills/pointbreak-reviewer/SKILL.md",
+        "skills/pointbreak-author-response/SKILL.md",
+    ] {
+        assert_not_contains(skill, "shore ");
+        assert_not_contains(skill, "SHORE_");
+        assert_not_contains(skill, ".shore");
+        assert_not_contains(skill, "pointbreak review");
+    }
 }
 
 #[test]

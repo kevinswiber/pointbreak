@@ -13,10 +13,10 @@ captured diff snapshot taken at a single moment. Capturing a revision is the one
 in the workflow — proposing a captured work object for others to assert facts about — while "review"
 stays the surface verb. V1 captures several Git-backed shapes: the local Git worktree from `HEAD` to
 the working tree (the default, excluding untracked files unless `--include-untracked` is passed); the
-committed range between two resolved commits with `shore capture --base <rev>`
+committed range between two resolved commits with `pointbreak capture --base <rev>`
 (`<rev>..--target`, target defaulting to `HEAD`), read as a tree diff with no working-tree
-involvement; or explicit index-boundary captures with `shore capture --staged` and
-`shore capture --unstaged`.
+involvement; or explicit index-boundary captures with `pointbreak capture --staged` and
+`pointbreak capture --unstaged`.
 
 Each revision binds an immutable **object artifact** by content hash. The artifact body is
 content-only, so two revisions capturing the same change in different worktrees share one
@@ -34,9 +34,9 @@ the **competing heads** are surfaced rather than one silently winning.
 ## The workflow at a glance
 
 1. Start from a Git worktree containing the change you want to review.
-2. Capture a revision with `shore capture`.
-3. Inspect what was captured with `shore revision show` and
-   `shore history`.
+2. Capture a revision with `pointbreak capture`.
+3. Inspect what was captured with `pointbreak revision show` and
+   `pointbreak history`.
 4. Record review facts as you read the diff:
    - **Observations** are notes you want preserved.
    - **Input requests** are durable pause/decision requests for someone else.
@@ -52,7 +52,7 @@ must differ from `HEAD`; the change can come from anywhere — a coding agent, a
 teammate's WIP branch, your own edits — but it must be present in the working
 tree before capture. Pointbreak reads the diff from `git`; it does not summarize
 prior commits on its own. If the change is already committed, capture the
-committed range directly with `shore capture --base <rev>` (see
+committed range directly with `pointbreak capture --base <rev>` (see
 [section 2](#2-capture-a-revision)) instead of recreating it in the working
 tree.
 
@@ -61,11 +61,11 @@ cd path/to/worktree
 git status        # confirm the changes you expect are present
 ```
 
-By default the store is the shared common-dir store at `.git/shore`, under the clone's Git common
+By default the store is the shared common-dir store at `<git-common-dir>/pointbreak`, under the clone's Git common
 directory — every worktree of the clone resolves the same store, and because it lives inside `.git`
 it never appears in `git status`, so ordinary captures never touch the working tree at all. Opting
-into an ephemeral worktree (`shore store mode ephemeral`) or writing a `--local` identity override
-generates a committed `.shore/.gitignore` (two lines: `data/` + `*.local.json`) that keeps the
+into an ephemeral worktree (`pointbreak store mode ephemeral`) or writing a `--local` identity override
+generates a committed `.pointbreak/.gitignore` (two lines: `data/` + `*.local.json`) that keeps the
 worktree-local store and the private overrides out of `git status`; the file is visible, meant to
 be committed, and survives clone. If the paths are already ignored — for example by a project
 `.gitignore` entry — Pointbreak generates nothing and leaves your ignore files untouched. Nothing
@@ -74,11 +74,11 @@ writes the hidden `.git/info/exclude` anymore.
 ## 2. Capture a revision
 
 ```bash
-shore capture
-shore capture --include-untracked
+pointbreak capture
+pointbreak capture --include-untracked
 ```
 
-`shore capture` records a `work_object_proposed` event and writes the
+`pointbreak capture` records a `work_object_proposed` event and writes the
 captured snapshot as an immutable Pointbreak-owned object artifact. The output document is
 `pointbreak.review-capture` JSON and includes:
 
@@ -89,17 +89,17 @@ captured snapshot as an immutable Pointbreak-owned object artifact. The output d
 You can pin later commands to the captured revision with `--revision
 <id>`. When only one revision exists in the store, commands that need a
 current revision pick it automatically. When multiple exist, list them with
-`shore revision list` and pass either the exact revision ID or seed a
+`pointbreak revision list` and pass either the exact revision ID or seed a
 supersession thread with `--revision <id>`.
 
-The snapshot is now frozen. Re-running `shore capture` later creates a
+The snapshot is now frozen. Re-running `pointbreak capture` later creates a
 new revision; it does not mutate the previous one.
 
 Default worktree capture is a combined `HEAD` to working-tree capture: staged
 and unstaged tracked changes are both included because both differ from `HEAD`.
 It follows `git diff HEAD` for untracked files, so untracked paths are ignored
 unless you opt in with `--include-untracked`. In a repository with no commits
-yet, `shore capture --include-untracked` captures untracked initial files from
+yet, `pointbreak capture --include-untracked` captures untracked initial files from
 Git's empty tree to the working tree; `--root` is for capturing a committed
 target from the empty tree.
 
@@ -111,9 +111,9 @@ such as `--include-untracked`, `--staged`, or `--unstaged`. Pass
 When the index boundary matters, capture it explicitly:
 
 ```bash
-shore capture --staged
-shore capture --unstaged
-shore capture --unstaged --include-untracked
+pointbreak capture --staged
+pointbreak capture --unstaged
+pointbreak capture --unstaged --include-untracked
 ```
 
 `--staged` records the current commit (or Git's empty tree in a repository with
@@ -128,8 +128,8 @@ When the change is already committed and the working tree is clean, capture the
 landed range instead of recreating a working-tree diff:
 
 ```bash
-shore capture --base <commit-before-the-change>   # target defaults to HEAD
-shore capture --base <rev> --target <rev>         # explicit range
+pointbreak capture --base <commit-before-the-change>   # target defaults to HEAD
+pointbreak capture --base <rev> --target <rev>         # explicit range
 ```
 
 `--base`/`--target` resolve any rev (a branch, tag, `HEAD~N`, or commit OID) to a
@@ -154,23 +154,23 @@ identity:
 
 ```bash
 # review only what changed under packages/foo, in the current worktree
-shore capture --path packages/foo
+pointbreak capture --path packages/foo
 
 # same, over an explicit range
-shore capture --base v1.2.0 --target HEAD --path docs/spec
+pointbreak capture --base v1.2.0 --target HEAD --path docs/spec
 ```
 
 `--path` takes a native git pathspec, is repeatable, and scopes tracked files and
 any enabled untracked-file synthesis alike; a scope that matches no changed
 files is an error unless `--allow-empty` is passed. See
-[`shore capture`](./cli-reference.md#shore-capture) for the full
+[`pointbreak capture`](./cli-reference.md#pointbreak-capture) for the full
 semantics.
 
 Record a succession round by naming the revisions a new capture supersedes:
 
 ```bash
-shore capture --supersedes <revision-id>
-shore capture --supersedes <revision-id> --supersedes <other-revision-id>
+pointbreak capture --supersedes <revision-id>
+pointbreak capture --supersedes <revision-id> --supersedes <other-revision-id>
 ```
 
 The `supersedes` set is order-independent and may name more than one predecessor. There is no
@@ -179,10 +179,10 @@ separate lineage command or declared lineage id — the thread is the connected 
 the same predecessor, the resulting **competing heads** are surfaced as competing, never collapsed to
 a single winner.
 
-Write commands such as `shore observation add`,
-`shore input-request open`, and `shore assessment add` accept
+Write commands such as `pointbreak observation add`,
+`pointbreak input-request open`, and `pointbreak assessment add` accept
 `--revision <id>`. When more than one captured revision is current, pass
-the ID from capture output or `shore revision list`; otherwise writes fail
+the ID from capture output or `pointbreak revision list`; otherwise writes fail
 with an ambiguity error.
 
 Supersession makes that ambiguity contextual. A revision-scoped read seeds on `--revision <id>` and
@@ -197,21 +197,21 @@ superseded revisions.
 Three read surfaces describe revisions, and they answer different questions:
 
 ```bash
-shore revision list     # what revisions exist in the store
-shore revision show          # composite revision view (narrative + snapshot)
-shore history       # chronological raw event listing
+pointbreak revision list     # what revisions exist in the store
+pointbreak revision show          # composite revision view (narrative + snapshot)
+pointbreak history       # chronological raw event listing
 ```
 
 For a visual, cross-linked view of the whole store — an event timeline, composite per-revision
 pages, supersession-thread pages, and captured diffs annotated with their review facts — run
-`shore inspect` to open a local web UI (see the [CLI reference](cli-reference.md)). The commands
+`pointbreak inspect` to open a local web UI (see the [CLI reference](cli-reference.md)). The commands
 below remain the scriptable surface.
 
-### `shore revision list`
+### `pointbreak revision list`
 
-`shore revision list` projects every `work_object_proposed` event into a
+`pointbreak revision list` projects every `work_object_proposed` event into a
 flat directory of revisions. It is the discovery surface — start here when
-`shore revision show` errors with `multiple captured revisions; pass
+`pointbreak revision show` errors with `multiple captured revisions; pass
 --revision`, or whenever you need to pick an ID for `--revision <id>`.
 Git reachability enriches each entry's status but never removes a recorded
 revision from this unfiltered directory, even if its commit objects later disappear.
@@ -224,7 +224,7 @@ time so the newest revision appears last. Pass `--object <object-id>` to list on
 that share one content object — a listing lens that may span threads, never a head selector.
 
 ```bash
-shore revision list --format json-pretty
+pointbreak revision list --format json-pretty
 ```
 
 When a revision supersedes another, the list/read projections build the supersession DAG and surface
@@ -233,9 +233,9 @@ renderer; this release has no interdiff or stack DAG. Capture facts remain signa
 generic `EventToBeSigned` producer-fact view and ADR-0004's Dead Simple Signing Envelope (DSSE)
 pre-authentication encoding.
 
-### `shore revision show`
+### `pointbreak revision show`
 
-`shore revision show` is the composite view of one revision. It returns
+`pointbreak revision show` is the composite view of one revision. It returns
 `pointbreak.review-revision` JSON containing:
 
 - revision identity and event-set freshness metadata
@@ -250,26 +250,26 @@ metadata row, hunk header, and diff row. Track filters narrow narrative facts
 without changing snapshot completeness.
 
 ```bash
-shore revision show --format json-pretty
-shore revision show <revision-id>
-shore revision show --track agent:codex
-shore revision show --include-body
+pointbreak revision show --format json-pretty
+pointbreak revision show <revision-id>
+pointbreak revision show --track agent:codex
+pointbreak revision show --include-body
 ```
 
 Passing a revision id seeds head selection on that revision and resolves its thread's current
 head; an intra-thread fork is reported as competing revisions.
 
-### `shore history`
+### `pointbreak history`
 
-`shore history` is the chronological raw-event listing across the
+`pointbreak history` is the chronological raw-event listing across the
 entire `events/` log — across revisions if there is more than one.
 It is the place to answer "what happened, in what order?" rather than
 "what does this revision look like right now?".
 
 ```bash
-shore history --format json-pretty
-shore history --event-type review-observation-recorded
-shore history --revision <id> --include-body
+pointbreak history --format json-pretty
+pointbreak history --event-type review-observation-recorded
+pointbreak history --revision <id> --include-body
 ```
 
 `eventSetHash` and `eventCount` describe the full validated event set used to
@@ -291,28 +291,28 @@ older observation through `--supersedes`.
 
 ```bash
 # Review-wide observation
-shore observation add \
+pointbreak observation add \
   --track agent:codex \
   --title "Check error handling near IO boundary"
 
 # File-targeted observation
-shore observation add \
+pointbreak observation add \
   --track agent:codex \
   --title "Untrusted input flows here" \
   --file src/lib.rs
 
 # Range-targeted observation, with a body from a file
-shore observation add \
+pointbreak observation add \
   --track human:kevin \
   --title "Worth a unit test" \
   --file src/lib.rs --start-line 42 --end-line 58 \
   --body-file notes/lib-42.md
 
 # Replay observations for one track
-shore observation list --track agent:codex --format json-pretty
+pointbreak observation list --track agent:codex --format json-pretty
 
 # Include bodies on read
-shore observation list --include-body
+pointbreak observation list --include-body
 ```
 
 Bodies may come from `--body`, `--body-file`, or `--body-stdin`. Large bodies
@@ -327,16 +327,16 @@ or tool needs an explicit answer before proceeding. `--mode` defaults to
 imply that a cooperative client must pause.
 
 ```bash
-shore input-request open \
+pointbreak input-request open \
   --track human:kevin \
   --title "Need approval to land schema change" \
   --reason manual-decision-required
 
-shore input-request list                 # defaults to open
-shore input-request list --status all
-shore input-request show <input-request-id> --include-body
+pointbreak input-request list                 # defaults to open
+pointbreak input-request list --status all
+pointbreak input-request show <input-request-id> --include-body
 
-shore input-request respond <input-request-id> \
+pointbreak input-request respond <input-request-id> \
   --outcome approved \
   --reason "discussed in chat, ok to land"
 ```
@@ -358,37 +358,37 @@ revision. CLI input and human-facing display use `accepted`,
 JSON output uses the matching `snake_case` values.
 
 ```bash
-shore assessment add \
+pointbreak assessment add \
   --track human:kevin \
   --assessment accepted \
   --summary "looks good, ship it"
 
 # Assessment that replaces an older one
-shore assessment add \
+pointbreak assessment add \
   --track human:kevin \
   --assessment accepted-with-follow-up \
   --summary "supersedes earlier needs-changes after offline discussion" \
   --replaces <older-assessment-id>
 
-shore assessment show --format json-pretty
-shore assessment show --all --include-summary
+pointbreak assessment show --format json-pretty
+pointbreak assessment show --all --include-summary
 ```
 
 `--replaces` is the only V1 relationship that removes an older assessment
 from the current set.
 `--related-observation` and `--related-input-request` record evidence links;
 they do not mutate observations or close input requests (use
-`shore input-request respond` for the input-request lifecycle).
+`pointbreak input-request respond` for the input-request lifecycle).
 
 State-change outcomes such as deferred, split-out, overridden, and superseded
 are recorded as observations tagged with `state-change:*`. Use
-`shore assessment` for review calls and `shore observation add`
+`pointbreak assessment` for review calls and `pointbreak observation add`
 with a concrete tag such as `--tag state-change:deferred` for state-change
 evidence.
 
 ### Attention
 
-`shore attention list` is the read that surfaces what still needs an actor's
+`pointbreak attention list` is the read that surfaces what still needs an actor's
 judgment across the review record: open asks (including evidence requests),
 ambiguous assessments, competing supersession heads, stale decisions on
 superseded revisions, failed checks on current heads, and outstanding
@@ -396,8 +396,8 @@ follow-ups. It is a projection over the same durable facts the commands above
 record — nothing new is written by reading it.
 
 ```bash
-shore attention list
-shore attention list --revision <revision-id>
+pointbreak attention list
+pointbreak attention list --revision <revision-id>
 ```
 
 Attention *guides, never gates* (ADR-0019): the list is derived attention
@@ -410,7 +410,7 @@ How items clear — every clearing action is a durable fact about the work,
 never a fact about the queue (ADR-0019's judgment-subsumption amendment):
 
 - `open_input_request` / `follow_up_outstanding` — respond with
-  `shore input-request respond` (the `dismissed` outcome closes a moot ask).
+  `pointbreak input-request respond` (the `dismissed` outcome closes a moot ask).
 - `ambiguous_assessment` — record an assessment that `--replaces` the
   competing records; a superseded revision's ambiguity also resolves once
   every successor head has been re-judged.
@@ -429,7 +429,7 @@ never a fact about the queue (ADR-0019's judgment-subsumption amendment):
 ### Durable event facts vs. rebuildable projections
 
 Pointbreak separates **authoritative facts** from **derived views**. The paths below are relative to
-the resolved store directory — `.git/shore` by default, or a worktree-local `.shore/data/` when the
+the resolved store directory — `<git-common-dir>/pointbreak` by default, or a worktree-local `.pointbreak/data/` when the
 worktree is ephemeral:
 
 - `events/` is the authoritative append-only log. Each file is one
@@ -465,8 +465,8 @@ Every observation, input request, and assessment belongs to a required
 `human:kevin`. They are not actor identity. Writer provenance — who actually
 ran the command — is recorded separately in the event envelope: the writer
 `actorId` (from local Git config, or an explicit `actor:agent:<name>` set via
-`SHORE_ACTOR_ID`) and the `producer` that wrote the event. The human a resolved
-agent acts on behalf of comes from the checked-in `.shore/delegates.json` map at
+`POINTBREAK_ACTOR_ID`) and the `producer` that wrote the event. The human a resolved
+agent acts on behalf of comes from the checked-in `.pointbreak/delegates.json` map at
 read time. Pick track names that group facts the way you want to read them back,
 then let provenance take care of itself.
 
@@ -515,49 +515,49 @@ cd ~/src/myproject
 git status
 
 # 1. Capture a revision. This freezes the current diff as a snapshot.
-#    `shore capture` emits compact JSON only; pipe through jq if you
+#    `pointbreak capture` emits compact JSON only; pipe through jq if you
 #    want to read it.
-shore capture | jq .
+pointbreak capture | jq .
 
 # 2. Read the captured revision (composite view, narrative + snapshot).
-shore revision show --format json-pretty | less
+pointbreak revision show --format json-pretty | less
 
 # 3. Record observations as you read the diff.
-shore observation add \
+pointbreak observation add \
   --track agent:codex \
   --title "Check error handling near IO boundary" \
   --file src/io.rs --start-line 88 --end-line 104 \
   --body "The new branch swallows io::ErrorKind::Interrupted silently."
 
-shore observation add \
+pointbreak observation add \
   --track human:kevin \
   --title "Unit test for the new retry path" \
   --file src/io.rs --start-line 120 --end-line 135
 
-shore observation list --format json-pretty
+pointbreak observation list --format json-pretty
 
 # 4. Open an input request when you need a decision from someone else.
-shore input-request open \
+pointbreak input-request open \
   --track human:kevin \
   --title "Approve schema migration before landing" \
   --reason manual-decision-required \
   --file db/migrations/0042_users.sql
 
 # Someone reads the open queue and responds to it.
-shore input-request list --status open
-shore input-request respond <input-request-id> \
+pointbreak input-request list --status open
+pointbreak input-request respond <input-request-id> \
   --outcome approved \
   --reason "verified backfill plan with on-call DBA"
 
 # 5. Record the final assessment for the revision.
-shore assessment add \
+pointbreak assessment add \
   --track human:kevin \
   --assessment accepted-with-follow-up \
   --summary "ship it; follow up on the retry-path unit test"
 
 # 6. Verify the durable record.
-shore assessment show --format json-pretty
-shore history --format json-pretty | less
+pointbreak assessment show --format json-pretty
+pointbreak history --format json-pretty | less
 ```
 
 That is the full V1 workflow. Anything beyond it — notifications, daemons,

@@ -6,15 +6,17 @@ log-structured backend would be compared against for the file backend: whole-log
 (100 / 1k / 10k events) are generated in-process and need nothing external — anyone can run them, and
 they carry the portable baseline.
 
-## Real-world read-all sample: `SHORE_BENCH_FIXTURE`
+## Real-world read-all sample: `POINTBREAK_BENCH_FIXTURE`
 
-The `read_all/fixture` group runs only when `SHORE_BENCH_FIXTURE` points at a **store directory** — the
+The `read_all/fixture` group runs only when `POINTBREAK_BENCH_FIXTURE` points at a **store directory** — the
 directory that contains `events/`. For a captured repo that is the shared common-dir store at
-`<repo>/.git/shore`. When the variable is unset, or the store does not read back, the group is **skipped,
+`<git-common-dir>/pointbreak`. When the variable is unset, or the store does not read back, the group is **skipped,
 not failed**, so the harness has no baked-in paths.
 
 The API-level benches (`revision_overviews`, `freshness`) instead want a repo root: set
-`SHORE_BENCH_REPO=<repo>`, or let it be derived from a `<repo>/.git/shore` value of `SHORE_BENCH_FIXTURE`.
+`POINTBREAK_BENCH_REPO=<repo>`, or, for the standard `<repo>/.git/pointbreak` layout, let it be
+derived from `POINTBREAK_BENCH_FIXTURE`. Linked worktrees and separate Git directories must set
+`POINTBREAK_BENCH_REPO` explicitly.
 
 ## Schema currency matters
 
@@ -33,16 +35,17 @@ Two things guard against that:
 
 ## Getting a current-schema fixture
 
-Generate one on demand with `build_bench_fixture.sh` in the `shoreline-fixtures` collection, then point
-the benchmark at the store directory it prints:
+Capture a current-schema repository, ask Pointbreak for its canonical common store, and point the
+benchmark at that directory:
 
 ```sh
-SHORE=/path/to/shore ./build_bench_fixture.sh
-export SHORE_BENCH_FIXTURE=<printed store dir>   # e.g. <repo>/.git/shore
+REPO=/path/to/captured/repo
+export POINTBREAK_BENCH_REPO="$REPO"
+export POINTBREAK_BENCH_FIXTURE="$(pointbreak store paths --repo "$REPO" --format json | jq -r .commonStore)"
 cargo bench --features bench
 ```
 
-Re-run the generator after any store-schema break to keep the fixture current.
+Re-capture or regenerate the source repository after any store-schema break to keep the fixture current.
 
 > A future alternate backend must be measured on the **same** filesystem as the file backend — disk
 > amplification is filesystem-specific (~8× on APFS for sub-block event files). See

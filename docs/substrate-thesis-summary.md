@@ -149,7 +149,7 @@ commands unless the term is genuinely clearer than the domain term.
 ## What This Does Not Authorize
 
 - Productizing task supervision.
-- Adding a `shore task` command family.
+- Adding a `pointbreak task` command family.
 - Factoring a substrate crate or SDK.
 - Adding hard leases, schedulers, write gates, or daemon-owned workflow state.
 - Renaming review-domain code and commands outside a focused follow-up plan.

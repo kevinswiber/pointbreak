@@ -5,18 +5,18 @@ show the shape of the workflow, not every option.
 
 ## 1. Install Pointbreak
 
-Install the `pointbreak` crate; it provides the `shore` command:
+Install the `pointbreak` crate; it provides the `pointbreak` command:
 
 ```bash
 cargo install pointbreak
-shore --help
+pointbreak --help
 ```
 
 When working from a source checkout instead, build the release binary and use it directly:
 
 ```bash
 cargo build --release
-./target/release/shore --help
+./target/release/pointbreak --help
 ```
 
 ## 2. Create A Scratch Change
@@ -64,28 +64,32 @@ git diff
 ## 3. Capture The Revision
 
 ```bash
-shore capture
+pointbreak capture
 ```
 
 The capture freezes the current diff as a local revision. Pointbreak writes immutable event files to
 the store's `events/` log, stores captured object artifacts under `artifacts/`, and rebuilds
-`state.json` as a projection. By default the store is the shared common-dir store at `.git/shore` —
+`state.json` as a projection. By default the store is the shared common-dir store at `<git-common-dir>/pointbreak` —
 the same store for every worktree of the clone — and an ephemeral worktree keeps a worktree-local
-`.shore/data/` store instead.
+`.pointbreak/data/` store instead.
 
 Default capture matches `git diff HEAD` for untracked files: untracked files are ignored unless you
-opt in with `shore capture --include-untracked`. A capture whose selected source has no changed
+opt in with `pointbreak capture --include-untracked`. A capture whose selected source has no changed
 files fails with a suggestion instead of recording an accidental empty revision; pass
 `--allow-empty` only when an empty revision is intentional.
 
 Those files are local storage. Use command output as the integration surface instead of depending
-on internal file paths.
+on internal file paths. To inspect the canonical placements without guessing Git layout, run:
+
+```bash
+pointbreak store paths --format text
+```
 
 To review a repository's first commit before there is a later baseline, capture the committed tree
 against Git's empty tree:
 
 ```bash
-shore capture --root
+pointbreak capture --root
 ```
 
 Add `--target <rev>` to review an older or explicit commit this way; `--path <pathspec>` can scope
@@ -94,7 +98,7 @@ the root capture to selected files.
 ## 4. Inspect The Review
 
 ```bash
-shore revision show --format json-pretty
+pointbreak revision show --format json-pretty
 ```
 
 This shows the composite revision view: captured files and rows, plus any observations, input
@@ -103,7 +107,7 @@ requests, assessments, and imported notes already recorded for the same revision
 For a chronological event log, use:
 
 ```bash
-shore history --format json-pretty
+pointbreak history --format json-pretty
 ```
 
 ## 5. Record Review Facts
@@ -111,7 +115,7 @@ shore history --format json-pretty
 Add an observation for something you noticed while reading the diff:
 
 ```bash
-shore observation add \
+pointbreak observation add \
   --track human:local \
   --title "Fallback name should be intentional" \
   --file src/example.rs \
@@ -123,7 +127,7 @@ Open an input request when another reviewer, agent, or future you needs to answe
 the review can proceed:
 
 ```bash
-shore input-request open \
+pointbreak input-request open \
   --track human:local \
   --title "Confirm fallback wording" \
   --reason manual-decision-required \
@@ -136,7 +140,7 @@ shore input-request open \
 Record the current assessment:
 
 ```bash
-shore assessment add \
+pointbreak assessment add \
   --track human:local \
   --assessment needs-clarification \
   --summary "Implementation is small, but fallback wording needs a decision."
@@ -145,12 +149,12 @@ shore assessment add \
 Read the updated revision:
 
 ```bash
-shore revision show --format json-pretty --include-body
+pointbreak revision show --format json-pretty --include-body
 ```
 
 ## 6. Where To Go Next
 
-- Run `shore inspect --open` to browse this store in a local web UI: an event timeline,
+- Run `pointbreak inspect --open` to browse this store in a local web UI: an event timeline,
   per-revision pages, supersession threads, and captured diffs annotated with their review facts.
 - [CLI reference](cli-reference.md) lists commands, options, output schemas, and V1 limitations.
 - [Review workflow](review-workflow.md) explains when to use capture, observations, input requests,

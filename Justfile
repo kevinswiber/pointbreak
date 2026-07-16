@@ -138,7 +138,7 @@ commit-check range='origin/main..HEAD':
 run *args:
     cargo +stable run --bin pointbreak -- {{ args }}
 
-# Fold a worktree-local .shore/data store into the common-dir store (.git/shore).
+# Fold a worktree-local .pointbreak/data store into the Git-common-dir pointbreak store.
 # Non-destructive + idempotent; refuses an ephemeral/sensitive worktree unless
 # you pass include-ephemeral=true. This IS a shipped subcommand (pointbreak store migrate).
 migrate-store-common-dir repo="." include-ephemeral="false":
@@ -156,7 +156,7 @@ extension-install:
 extension-check:
     cd extensions/vscode && npm run check
 
-# Build a host-only VSIX with its matching shore binary for local dogfood.
+# Build a host-only VSIX with its matching pointbreak binary for local dogfood.
 extension-package:
     node extensions/vscode/scripts/package-local.mjs
 

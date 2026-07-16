@@ -1,6 +1,6 @@
 # Installation
 
-Pointbreak Review publishes prebuilt `shore` binaries for macOS, Linux, and Windows. The install
+Pointbreak Review publishes prebuilt `pointbreak` binaries for macOS, Linux, and Windows. The install
 scripts select the archive for the current platform and verify it against the release's
 `checksums.txt` before writing the binary.
 
@@ -17,7 +17,7 @@ names the appropriate zsh or bash configuration file for a permanent change. Run
 verify the result:
 
 ```sh
-shore --version
+pointbreak --version
 ```
 
 The script also supports `wget` when run from a local checkout.
@@ -28,11 +28,11 @@ Pass installer options after `sh -s --`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/install.sh \
-  | sh -s -- --version=v0.6.0 --prefix="$HOME/bin"
+  | sh -s -- --version=v0.7.0 --prefix="$HOME/bin"
 ```
 
 `--version` accepts a release with or without its leading `v`. The default is the latest published,
-non-prerelease GitHub release. `--prefix` names the directory that will contain `shore`.
+non-prerelease GitHub release. `--prefix` names the directory that will contain `pointbreak`.
 
 ## Windows PowerShell
 
@@ -46,7 +46,7 @@ The installer adds that directory to your user `PATH` when necessary. Restart th
 running:
 
 ```powershell
-shore --version
+pointbreak --version
 ```
 
 To pin a version, choose another install directory, or leave `PATH` unchanged, invoke the downloaded
@@ -54,12 +54,12 @@ script as a script block:
 
 ```powershell
 $Install = [scriptblock]::Create((irm https://raw.githubusercontent.com/withpointbreak/pointbreak/main/scripts/install.ps1))
-& $Install -Version v0.6.0 -InstallDir "$HOME\bin" -NoModifyPath
+& $Install -Version v0.7.0 -InstallDir "$HOME\bin" -NoModifyPath
 ```
 
 ## Checksum verification
 
-Verification is on by default and fails closed. The installer stops without replacing `shore` if:
+Verification is on by default and fails closed. The installer stops without replacing `pointbreak` if:
 
 - `checksums.txt` cannot be downloaded;
 - the selected archive has no valid entry;
@@ -88,14 +88,43 @@ Get-Content .\install.ps1
 
 ## Install with Cargo
 
-The published crate is named `pointbreak` and installs the `shore` command:
+The published crate is named `pointbreak` and installs the `pointbreak` command:
 
 ```sh
 cargo install pointbreak
-shore --version
+pointbreak --version
 ```
 
 This path builds from source and requires a current Rust toolchain. The release installers do not.
+
+## Upgrading to 0.7.0
+
+Release `0.7.0` is a one-release hard cutover. Before its first use:
+
+1. Stop every process that can write Review state.
+2. Move owner-controlled state and config offline, preserving the directory contents:
+
+   | pre-`0.7.0` operational location | `0.7.0` location |
+   | --- | --- |
+   | `<repo>/.shore/` | `<repo>/.pointbreak/` |
+   | `<git-common-dir>/shore/` | `<git-common-dir>/pointbreak/` |
+   | `<git-common-dir>/shore.link.json` | `<git-common-dir>/pointbreak.link.json` |
+   | `$XDG_DATA_HOME/shore` | `$XDG_DATA_HOME/pointbreak` |
+   | `$HOME/.shore` | `$HOME/.pointbreak` |
+   | `%APPDATA%\shore` | `%APPDATA%\pointbreak` |
+
+   Move a linked clone's shared common-directory store once, not once per worktree. If you set an
+   explicit user home, move that directory to the location now selected by `POINTBREAK_HOME`.
+3. Update environment and configuration references to the canonical `POINTBREAK_*` names and
+   Pointbreak paths.
+4. Run `pointbreak store paths --repo <path> --format json` to confirm the canonical repository,
+   common-directory, binding, home, and key locations, then verify readback with commands such as
+   `pointbreak revision list` and `pointbreak history`.
+
+Rollback is the inverse filesystem move performed while writers remain stopped. Pointbreak provides
+no runtime fallback, compatibility alias, automatic migration, migration CLI, or dual read/write
+window. The existing `pointbreak store migrate` command serves an older Pointbreak store-topology
+change; it does not perform this `0.7.0` namespace cutover.
 
 ## Supported platforms
 
@@ -121,7 +150,7 @@ Download the archive for your target and `checksums.txt` from the
 silicon macOS:
 
 ```sh
-VERSION=0.6.0
+VERSION=0.7.0
 TARGET=darwin-arm64
 ARCHIVE="pointbreak-${VERSION}-${TARGET}.tar.gz"
 BASE="https://github.com/withpointbreak/pointbreak/releases/download/v${VERSION}"
@@ -130,15 +159,15 @@ curl -fsSLO "${BASE}/${ARCHIVE}"
 curl -fsSLO "${BASE}/checksums.txt"
 grep "  ${ARCHIVE}$" checksums.txt | shasum -a 256 -c -
 tar -xzf "$ARCHIVE"
-install -m 0755 shore "$HOME/.local/bin/shore"
+install -m 0755 pointbreak "$HOME/.local/bin/pointbreak"
 ```
 
-On Linux, replace `shasum -a 256` with `sha256sum`. Windows archives contain `shore.exe` and can be
+On Linux, replace `shasum -a 256` with `sha256sum`. Windows archives contain `pointbreak.exe` and can be
 verified with `Get-FileHash -Algorithm SHA256` before using `Expand-Archive`.
 
 Archives downloaded with `curl` on macOS normally need no quarantine adjustment. If a browser adds
 the quarantine attribute, remove it from the extracted binary with:
 
 ```sh
-xattr -d com.apple.quarantine ./shore
+xattr -d com.apple.quarantine ./pointbreak
 ```

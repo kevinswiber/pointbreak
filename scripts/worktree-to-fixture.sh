@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# Snapshot a git worktree plus its `.git/shore` review data into a self-contained
+# Snapshot a git worktree plus its Git-common-dir `pointbreak` review data into a self-contained
 # Pointbreak test fixture. Worktrees come and go; this preserves the review
 # context (the exact tree that was reviewed, the base it was reviewed against,
 # and the captured Pointbreak store) so it survives the worktree's deletion.
 #
-# Since the common-dir store collapse (ADR-0015 / plan 0075) the durable store
-# lives at `<git-common-dir>/shore` — i.e. `<repo>/.git/shore`, INSIDE `.git`.
+# The durable store lives at `<git-common-dir>/pointbreak`, normally
+# `<repo>/.git/pointbreak`, inside `.git`.
 # The working-tree copy below excludes `/.git`, so the store is copied
 # separately into the fixture's own resolved store location.
 #
@@ -28,6 +28,9 @@
 #                        with the source repo's default branch.
 #   --tool-repo <dir>    Pointbreak repo used for the review. Default: this
 #                        script's repo root.
+#   --pointbreak-bin <path>
+#                        Pointbreak executable. Default: --tool-repo release
+#                        build, then pointbreak from PATH.
 #   --tool-commit <sha>  Pointbreak tool commit. Default: HEAD of --tool-repo.
 #   --pr <num>           Associated Pointbreak PR number (recorded; looked up
 #                        via `gh` if available).
@@ -44,6 +47,15 @@ set -euo pipefail
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 note() { printf '  %s\n' "$*"; }
 
+common_store_for_repo() {
+  local repo="$1" output store
+  output="$("$POINTBREAK_BIN" store paths --repo "$repo" --format text)" \
+    || die "pointbreak store paths failed for $repo"
+  store="$(printf '%s\n' "$output" | sed -n 's/^common store: //p')"
+  [ -n "$store" ] || die "pointbreak store paths returned no common store for $repo"
+  printf '%s\n' "$store"
+}
+
 show_help() { sed -n '2,/^set -euo pipefail/p' "$0" | sed 's/^# \{0,1\}//; s/^#$//' | sed '$d'; }
 
 # ---- defaults -------------------------------------------------------------
@@ -54,6 +66,7 @@ OUT_DIR="${SHORELINE_FIXTURES_DIR:-$HOME/src/shoreline-fixtures}"
 NAME=""
 BASE_REF=""
 TOOL_REPO="$REPO_ROOT"
+POINTBREAK_BIN=""
 TOOL_COMMIT=""
 PR_NUM=""
 INCLUDE_TARGET=0
@@ -68,6 +81,7 @@ while [ $# -gt 0 ]; do
     --name) NAME="$2"; shift 2 ;;
     --base) BASE_REF="$2"; shift 2 ;;
     --tool-repo) TOOL_REPO="$2"; shift 2 ;;
+    --pointbreak-bin) POINTBREAK_BIN="$2"; shift 2 ;;
     --tool-commit) TOOL_COMMIT="$2"; shift 2 ;;
     --pr) PR_NUM="$2"; shift 2 ;;
     --include-target) INCLUDE_TARGET=1; shift ;;
@@ -84,6 +98,16 @@ command -v rsync >/dev/null 2>&1 || die "rsync not found"
 [ -d "$WT" ] || die "worktree path not found: $WT"
 WT="$(cd "$WT" && pwd)"
 git -C "$WT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not a git worktree: $WT"
+[ -d "$TOOL_REPO" ] || die "Pointbreak tool repo not found: $TOOL_REPO"
+TOOL_REPO="$(cd "$TOOL_REPO" && pwd)"
+
+if [ -z "$POINTBREAK_BIN" ] && [ -x "$TOOL_REPO/target/release/pointbreak" ]; then
+  POINTBREAK_BIN="$TOOL_REPO/target/release/pointbreak"
+elif [ -z "$POINTBREAK_BIN" ]; then
+  POINTBREAK_BIN="$(command -v pointbreak || true)"
+fi
+[ -n "$POINTBREAK_BIN" ] || die "pointbreak not found; build --tool-repo with 'just release' or pass --pointbreak-bin"
+[ -x "$POINTBREAK_BIN" ] || die "pointbreak executable is not runnable: $POINTBREAK_BIN"
 
 [ -n "$NAME" ] || NAME="$(basename "$WT")"
 DEST="$OUT_DIR/$NAME"
@@ -190,35 +214,23 @@ RSYNC_EXCLUDES=(--exclude='/.git')
 [ "$INCLUDE_TARGET" -eq 1 ] || RSYNC_EXCLUDES+=(--exclude='/target/')
 rsync -a "${RSYNC_EXCLUDES[@]}" "$WT/" "$DEST/"
 
-# Copy the durable Pointbreak store. Since the common-dir store collapse
-# (ADR-0015 / plan 0075) the store lives at `<git-common-dir>/shore` — i.e.
-# inside `.git` — so the rsync above (which excludes `/.git`) never copies it.
-# Copy it explicitly into the fixture's OWN resolved store location (the fixture
-# is its own `git init`'d repo, so its common-dir is `<dest>/.git`).
-SRC_STORE="$COMMON_DIR/shore"
+# Copy the canonical common-dir store. Resolve both paths through the public
+# Pointbreak seam so linked-worktree Git layouts are never reconstructed here.
+SRC_STORE="$(common_store_for_repo "$WT")"
 STORE_SOURCE="common-dir ($SRC_STORE)"
 if [ ! -d "$SRC_STORE" ]; then
-  if [ -d "$WT/.shore/data" ]; then
-    # Legacy pre-0075 fixtures kept the store in the working tree at .shore/data.
-    SRC_STORE="$WT/.shore/data"
-    STORE_SOURCE="legacy ($SRC_STORE)"
-    printf 'warning: no common-dir store at %s/shore; falling back to legacy %s\n' \
-      "$COMMON_DIR" "$SRC_STORE" >&2
-  else
-    SRC_STORE=""
-    STORE_SOURCE="none"
-    printf 'warning: no Pointbreak store found (neither %s/shore nor %s/.shore/data)\n' \
-      "$COMMON_DIR" "$WT" >&2
-  fi
+  SRC_STORE=""
+  STORE_SOURCE="none"
+  printf 'warning: no Pointbreak common-dir store found for %s\n' "$WT" >&2
 fi
 
-DEST_STORE="$(git -C "$DEST" rev-parse --path-format=absolute --git-common-dir)/shore"
+DEST_STORE="$(common_store_for_repo "$DEST")"
 if [ -n "$SRC_STORE" ]; then
   mkdir -p "$DEST_STORE"
   cp -R "$SRC_STORE/." "$DEST_STORE/"
 fi
 
-# Post-copy assertion: a fixture with no store is useless — `shore inspect`
+# Post-copy assertion: a fixture with no store is useless — `pointbreak inspect`
 # would report threadCount 0. Fail loudly so we never again silently produce
 # an empty fixture (the bug that excluded the .git-resident store via rsync).
 DEST_EVENTS=0
@@ -232,29 +244,29 @@ fi
 git -C "$DEST" remote remove origin 2>/dev/null || true
 [ "$BRANCH" != "HEAD" ] && git -C "$DEST" branch --unset-upstream 2>/dev/null || true
 
-# Replicate the source repo's local excludes (so `.shore/*.local.json` and any
-# legacy working-tree `.shore/data` stay ignored as in the original), then
-# exclude this fixture's metadata file. The durable store lives in `.git/shore`,
+# Replicate the source repo's local excludes (so `.pointbreak/*.local.json` and any
+# worktree-local `.pointbreak/data` stay ignored as in the original), then
+# exclude this fixture's metadata file. The durable store lives in `.git/pointbreak`,
 # which is never part of the working tree, so it needs no exclude.
 DEST_EXCLUDE="$DEST/.git/info/exclude"
 : > "$DEST_EXCLUDE"
 if [ -f "$COMMON_DIR/info/exclude" ]; then
   cat "$COMMON_DIR/info/exclude" >> "$DEST_EXCLUDE"
 fi
-grep -qxF '.shore/data' "$DEST_EXCLUDE" 2>/dev/null || printf '%s\n' '.shore/data' >> "$DEST_EXCLUDE"
+grep -qxF '.pointbreak/data' "$DEST_EXCLUDE" 2>/dev/null || printf '%s\n' '.pointbreak/data' >> "$DEST_EXCLUDE"
 grep -qxF 'FIXTURE.md' "$DEST_EXCLUDE" 2>/dev/null || printf '%s\n' 'FIXTURE.md' >> "$DEST_EXCLUDE"
 
 # ---- store summary --------------------------------------------------------
-# Read from the fixture's resolved store (`.git/shore`), populated above.
-SHORE_DIR="$DEST_STORE"
-SHORE_SUMMARY="(no store found in worktree)"
-if [ -d "$SHORE_DIR" ]; then
-  SJ="$SHORE_DIR/state.json"
-  EVENTS_N="$(ls "$SHORE_DIR/events" 2>/dev/null | wc -l | tr -d ' ')"
+# Read from the fixture's resolved common store, populated above.
+STORE_DIR="$DEST_STORE"
+STORE_SUMMARY="(no store found in worktree)"
+if [ -d "$STORE_DIR" ]; then
+  SJ="$STORE_DIR/state.json"
+  EVENTS_N="$(ls "$STORE_DIR/events" 2>/dev/null | wc -l | tr -d ' ')"
   if [ -f "$SJ" ] && command -v jq >/dev/null 2>&1; then
-    SHORE_SUMMARY="$(jq -r '"\(.eventCount) events, \(.revisionCount) revisions, \(.observationCount) observations, \(.assessmentCount) assessments, \(.inputRequestCount) input requests" + (if (.diagnostics // []) | length > 0 then "; diagnostics: " + ((.diagnostics | map(.code)) | join(", ")) else "" end) + "\n  eventSetHash: \(.eventSetHash)"' "$SJ")"
+    STORE_SUMMARY="$(jq -r '"\(.eventCount) events, \(.revisionCount) revisions, \(.observationCount) observations, \(.assessmentCount) assessments, \(.inputRequestCount) input requests" + (if (.diagnostics // []) | length > 0 then "; diagnostics: " + ((.diagnostics | map(.code)) | join(", ")) else "" end) + "\n  eventSetHash: \(.eventSetHash)"' "$SJ")"
   elif [ -f "$SJ" ] && command -v python3 >/dev/null 2>&1; then
-    SHORE_SUMMARY="$(python3 - "$SJ" <<'PY'
+    STORE_SUMMARY="$(python3 - "$SJ" <<'PY'
 import json,sys
 d=json.load(open(sys.argv[1]))
 diag=", ".join(x.get("code","") for x in d.get("diagnostics",[]))
@@ -266,7 +278,7 @@ print(s)
 PY
 )"
   else
-    SHORE_SUMMARY="$EVENTS_N events (install jq or python3 for full stats)"
+    STORE_SUMMARY="$EVENTS_N events (install jq or python3 for full stats)"
   fi
 fi
 
@@ -275,7 +287,7 @@ TODAY="$(date +%Y-%m-%d)"
 TOOL_ORIGIN="$(git -C "$TOOL_REPO" remote get-url origin 2>/dev/null || echo '(unknown)')"
 {
   printf '# Fixture: %s\n\n' "$NAME"
-  printf 'A snapshot of a git worktree plus its `.git/shore` review data, captured for\n'
+  printf 'A snapshot of a git worktree plus its `.git/pointbreak` review data, captured for\n'
   printf 'testing Pointbreak. The source worktree was *copied*, so this fixture stays\n'
   printf 'valid after the original worktree is deleted.\n\n'
   printf '> Excluded from the git working tree (see `.git/info/exclude`) so `git status`\n'
@@ -296,9 +308,9 @@ TOOL_ORIGIN="$(git -C "$TOOL_REPO" remote get-url origin 2>/dev/null || echo '(u
   [ -n "$PR_LINE" ] && printf -- '- Associated PR: %s\n' "$PR_LINE"
   printf -- '- Captured into fixture: %s\n' "$TODAY"
   printf -- '- target/ build artifacts: %s\n\n' "$([ "$INCLUDE_TARGET" -eq 1 ] && echo included || echo excluded)"
-  printf '## .git/shore review data\n\n'
+  printf '## Pointbreak review data at .git/pointbreak\n\n'
   printf -- '- Store source: %s\n' "${STORE_SOURCE:-none}"
-  printf -- '- %s\n\n' "$SHORE_SUMMARY"
+  printf -- '- %s\n\n' "$STORE_SUMMARY"
   printf '## Notes\n\n'
   printf -- '- Standalone git repo (origin removed): `git log`/`diff`/`rev-parse`/`status` work without the source repo present.\n'
   printf -- '- Built by `scripts/worktree-to-fixture.sh`.\n'
@@ -310,7 +322,7 @@ if [ ! -f "$INDEX" ]; then
   {
     printf '# shoreline-fixtures\n\n'
     printf 'Local snapshots of review sessions for testing Pointbreak. Each fixture is a\n'
-    printf 'standalone copy of a source worktree plus its `.git/shore` store; see each\n'
+    printf 'standalone copy of a source worktree plus its `.git/pointbreak` store; see each\n'
     printf "fixture's \`FIXTURE.md\` for provenance. These may contain private review data\n"
     printf -- '— do not commit them into the Pointbreak source repo.\n\n'
     printf '## Fixtures\n\n'

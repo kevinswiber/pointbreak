@@ -4,7 +4,7 @@
 
 V1 has a local durable input-request ledger. Pointbreak can record `input_request_opened` events,
 append `input_request_responded` events, and expose polling read surfaces through
-`shore input-request list` and `shore input-request show`.
+`pointbreak input-request list` and `pointbreak input-request show`.
 
 This document describes the model around that V1 surface. Prompt delivery, watch mode, daemon
 behavior, notification transport, UI prompts, and automatic cancellation are deferred.
@@ -80,22 +80,22 @@ advisory expiry, but it should not silently unblock a client.
 The command surface is:
 
 ```bash
-shore input-request open --track human:kevin --title "Need approval" \
+pointbreak input-request open --track human:kevin --title "Need approval" \
   --reason manual-decision-required [--mode operative|advisory]
-shore input-request list [--status open|responded|ambiguous|all]
-shore input-request show <input-request-id> [--include-body]
-shore input-request respond <input-request-id> --outcome approved [--reason "approved"]
+pointbreak input-request list [--status open|responded|ambiguous|all]
+pointbreak input-request show <input-request-id> [--include-body]
+pointbreak input-request respond <input-request-id> --outcome approved [--reason "approved"]
 ```
 
-The V1 read surface is polling-oriented. `list` and `fetch` replay `.shore/data/events/`; they do not
-depend on `state.json` as authority. Bodies and response reasons may use internal
+The V1 read surface is polling-oriented. `list` and `show` replay events from the resolved store;
+they do not depend on `state.json` as authority. Bodies and response reasons may use internal
 `shore.note-body` artifacts, but command output does not expose artifact paths.
 
-Open input requests also surface in `shore attention list` — operative requests as primary
+Open input requests also surface in `pointbreak attention list` — operative requests as primary
 attention items, advisory requests as secondary — alongside the other review state that needs an
 actor's judgment. That surface guides, never gates (ADR-0019): it never blocks a write.
 
-`list` and `fetch` project semantic IDs, not raw event count. `idempotencyKey` decides whether a
+`list` and `show` project semantic IDs, not raw event count. `idempotencyKey` decides whether a
 write is the same event-file retry; `inputRequestId` and `inputRequestResponseId` decide whether
 read output represents one logical request or response. Duplicate semantic IDs are preserved in
 storage and reported through diagnostics rather than silently hidden.
@@ -108,9 +108,10 @@ openInputRequestCount
 openOperativeInputRequestCount
 ```
 
-The authoritative store is the `.shore/data/events/` event log plus any body or object artifacts under
-`.shore/data/artifacts/`. `state.json`, command-output views, and future read indexes are rebuildable
-projections derived from that durable storage.
+The authoritative store is the event log plus any body or object artifacts in the resolved store.
+`state.json`, command-output views, and future read indexes are rebuildable projections derived from
+that durable storage. Use `pointbreak store paths` to discover the active common or ephemeral
+location.
 
 ## Design Constraints For Local Durable State
 
@@ -132,13 +133,13 @@ but the core model should keep them separate.
 
 Native assessments may relate to input requests through `--related-input-request`, but that
 relationship is evidence, not lifecycle. An assessment does not close an input request. Use
-`shore input-request respond` to append the explicit closure event.
+`pointbreak input-request respond` to append the explicit closure event.
 
 A review follow-up that expects a *decision or disposition* ("fix now or track separately?") is an
 **advisory input request**, not a plain observation: it can target the observation or range and carries
 the `open → responded` lifecycle. Reserve plain observations for facts that need no response. To
 acknowledge or dispose of another observation non-destructively — without opening a request and without
-removing the target from the current set — use `responds_to` (`shore observation add --responds-to
+removing the target from the current set — use `responds_to` (`pointbreak observation add --responds-to
 <observation-id>`; see [ADR-0026](adr/adr-0026-fact-to-fact-response-relationship.md)). Use `--supersedes`
 only for a destructive correction that retires the target from the current set; do not use it to
 acknowledge.
@@ -146,6 +147,6 @@ acknowledge.
 ## Legacy Intervention Events
 
 Earlier development versions of Pointbreak wrote intervention events and exposed a
-`shore review intervention` command family. Current Pointbreak uses input request events and
-`shore input-request` instead. Because Pointbreak has not released this storage contract, the
-supported migration is to discard the old local `.shore/data/` directory and recapture the review.
+a nested `review intervention` command family beneath `pointbreak`. Current Pointbreak uses input request events and
+`pointbreak input-request` instead. Because Pointbreak has not released this storage contract, the
+supported migration is to discard the old local `.pointbreak/data/` directory and recapture the review.

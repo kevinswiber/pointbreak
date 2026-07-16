@@ -12,13 +12,14 @@ caller would see them.
 ## Conventions
 
 - Use a release build for representative timings: `cargo build --release` and run
-  `./target/release/shore`. A debug build works for behavior checks if you prefer.
-- All commands below assume `shore` resolves to that binary. Set `SHORE=$(pwd)/target/release/shore`
-  in your shell and substitute `"$SHORE"` if you do not want to install it on `PATH`.
+  `./target/release/pointbreak`. A debug build works for behavior checks if you prefer.
+- All commands below assume `pointbreak` resolves to that binary. Set
+  `POINTBREAK=$(pwd)/target/release/pointbreak` in your shell and substitute `"$POINTBREAK"` if you
+  do not want to install it on `PATH`.
 - Use a fresh temp directory per test so storage state does not bleed across cases. Default
-  `shore capture` captures `HEAD` to the working tree when `HEAD` exists, and Git's empty tree to
+  `pointbreak capture` captures `HEAD` to the working tree when `HEAD` exists, and Git's empty tree to
   the working tree in a repository with no commits. It excludes untracked files unless
-  `--include-untracked` is passed. §B uses `shore capture --root` to review a committed first commit
+  `--include-untracked` is passed. §B uses `pointbreak capture --root` to review a committed first commit
   against Git's empty tree. A capture with zero changed files fails unless `--allow-empty` is passed.
   For ordinary default worktree capture, include a baseline commit in the setup:
 
@@ -30,7 +31,7 @@ caller would see them.
   git config user.name "Manual Test"
   git config commit.gpgsign false
 
-  # Baseline commit — required so default `shore capture` has a HEAD to diff against.
+  # Baseline commit — required so default `pointbreak capture` has a HEAD to diff against.
   echo "placeholder" > README
   git add README && git commit -q -m "baseline"
   ```
@@ -38,28 +39,28 @@ caller would see them.
   Each section below then layers real changes on top of that baseline (modify tracked files, add
   new ones, stage them, leave them unstaged, etc.) so the captured diff is non-empty.
 
-- `shore capture` and the write commands emit **compact JSON only**. Pipe through `jq` or
+- `pointbreak capture` and the write commands emit **compact JSON only**. Pipe through `jq` or
   `python3 -m json.tool` if you want to read them. Most read commands accept `--format json-pretty`.
-- `shore` resolves one of three durable stores, and every command in this playbook reads and writes
+- `pointbreak` resolves one of three durable stores, and every command in this playbook reads and writes
   whichever one is resolved:
-  - **Default — the clone's common-dir store at `.git/shore/`.** Automatic, no setup, shared by the
+  - **Default — the clone's common-dir store at `<git-common-dir>/pointbreak/`.** Automatic, no setup, shared by the
     main worktree and every linked worktree of the clone. It lives entirely inside `.git/`, so it
-    never appears in `git status` and never adds rows to a captured snapshot, and no `.shore/`
+    never appears in `git status` and never adds rows to a captured snapshot, and no `.pointbreak/`
     directory is created. The walkthroughs below use this default unless they say otherwise.
-  - **Ephemeral opt-in — a discardable worktree-local store at `.shore/data/`.** Enabled per
-    worktree with `shore store mode ephemeral`; Pointbreak also writes a `.shore/store.json` marker
-    and a generated `.shore/.gitignore` (ignoring `data/` and `*.local.json`). Remove the worktree
+  - **Ephemeral opt-in — a discardable worktree-local store at `.pointbreak/data/`.** Enabled per
+    worktree with `pointbreak store mode ephemeral`; Pointbreak also writes a `.pointbreak/store.json` marker
+    and a generated `.pointbreak/.gitignore` (ignoring `data/` and `*.local.json`). Remove the worktree
     and the review facts vanish with it. §I opts into this mode to poke at the store's files
     directly.
-  - **Family opt-in — a machine-wide store at `<shore-home>/stores/<slug>/`.** Enabled per physical
-    clone with `shore store link <slug>` so review facts survive removing any one clone and are
+  - **Family opt-in — a machine-wide store at `<pointbreak-home>/stores/<slug>/`.** Enabled per physical
+    clone with `pointbreak store link <slug>` so review facts survive removing any one clone and are
     shared across a repository family, offline. The "Family store" walkthrough exercises the loop.
 
   See [storage-model.md](./storage-model.md#shared-common-dir-store-selection) for the default and
   ephemeral tiers and [the family-store tier](./storage-model.md#user-level-family-store-tier) for
   depth. After a manual test you can remove the temp directory (and, for the family walkthrough, its
-  throwaway `SHORE_HOME`); nothing escapes them.
-- **How to run these.** Sections A and D–H share **one** repo: §A does the single `shore capture`
+  throwaway `POINTBREAK_HOME`); nothing escapes them.
+- **How to run these.** Sections A and D–H share **one** repo: §A does the single `pointbreak capture`
   that the later sections annotate, so keep working in the same temp repo through §H. Bare review
   commands need exactly one captured revision — a second capture triggers
   `multiple captured revisions; pass --revision` — so §B (root capture), §C (untracked files),
@@ -68,9 +69,9 @@ caller would see them.
 
 ## A. Basic capture of tracked changes
 
-**Goal.** Confirm that `shore capture` records a `work_object_proposed` event (plus the
+**Goal.** Confirm that `pointbreak capture` records a `work_object_proposed` event (plus the
 `revision_ref_associated` event that binds the revision ref), writes a snapshot artifact, and
-rebuilds `.git/shore/state.json`.
+rebuilds `<git-common-dir>/pointbreak/state.json`.
 
 ```bash
 # Add a tracked file on top of the baseline commit, then modify it so the
@@ -79,9 +80,10 @@ echo -e "alpha\nbeta\ngamma" > src.txt
 git add src.txt && git commit -q -m "add src"
 echo -e "alpha\nbeta-modified\ngamma\ndelta" > src.txt
 
-shore capture | jq .
-ls -la .git/shore/
-ls .git/shore/events/ .git/shore/artifacts/objects/
+pointbreak capture | jq .
+STORE=$(pointbreak store paths --format json | jq -r .commonStore)
+ls -la "$STORE/"
+ls "$STORE/events/" "$STORE/artifacts/objects/"
 ```
 
 **Expect.**
@@ -89,18 +91,18 @@ ls .git/shore/events/ .git/shore/artifacts/objects/
 - One JSON document with `schema: "pointbreak.review-capture"`; under `revision` it carries `id`,
   `revisionId`, `objectId`, and `objectArtifactContentHash`. It also reports `eventsCreated: 2` and
   `eventsCreatedByType: { "work_object_proposed": 1, "revision_ref_associated": 1 }`.
-- `.git/shore/events/` contains exactly two event files — one `work_object_proposed` and one
+- `<git-common-dir>/pointbreak/events/` contains exactly two event files — one `work_object_proposed` and one
   `revision_ref_associated`.
-- `.git/shore/artifacts/objects/` contains exactly one snapshot artifact.
-- `.git/shore/state.json` exists and reports `revisionCount: 1` with `eventCount: 2`.
-- Nothing lands in the working tree: the default store is inside `.git/`, so no `.shore/` directory
+- `<git-common-dir>/pointbreak/artifacts/objects/` contains exactly one snapshot artifact.
+- `<git-common-dir>/pointbreak/state.json` exists and reports `revisionCount: 1` with `eventCount: 2`.
+- Nothing lands in the working tree: the default store is inside `.git/`, so no `.pointbreak/` directory
   is created, the root `.gitignore` is untouched, and `git status --short` shows only your own
-  change (` M src.txt`). (An ephemeral-mode worktree instead materializes `.shore/data/` guarded by
-  a generated `.shore/.gitignore`; see §I.)
+  change (` M src.txt`). (An ephemeral-mode worktree instead materializes `.pointbreak/data/` guarded by
+  a generated `.pointbreak/.gitignore`; see §I.)
 
 ## B. Root capture of a one-commit repository
 
-**Goal.** Confirm `shore capture --root` records the first commit as files added from Git's empty
+**Goal.** Confirm `pointbreak capture --root` records the first commit as files added from Git's empty
 tree, without needing an orphan-branch workaround.
 
 Run §B in its **own** fresh temp repo:
@@ -117,9 +119,9 @@ mkdir -p src
 echo "hello root" > src/first.txt
 git add src/first.txt && git commit -q -m "initial"
 
-shore capture --root \
+pointbreak capture --root \
   | jq '{schema, base: .revision.base.kind, target: .revision.target.kind, diffstat}'
-shore revision show --format json-pretty | jq '[.rows[] | select(.kind == "file_header") | .filePath]'
+pointbreak revision show --format json-pretty | jq '[.rows[] | select(.kind == "file_header") | .filePath]'
 ```
 
 **Expect.**
@@ -127,8 +129,8 @@ shore revision show --format json-pretty | jq '[.rows[] | select(.kind == "file_
 - The capture JSON has `schema: "pointbreak.review-capture"`, `base: "git_tree"`,
   `target: "git_commit"`, and `diffstat.addedFiles: 1`.
 - The shown revision has one file header for `src/first.txt`, captured as an added file.
-- `shore capture --root --target <rev>` captures an explicit commit the same way, and
-  `shore capture --root --path src` scopes the root capture through Git pathspecs.
+- `pointbreak capture --root --target <rev>` captures an explicit commit the same way, and
+  `pointbreak capture --root --path src` scopes the root capture through Git pathspecs.
 
 ## C. Capture with untracked files
 
@@ -141,9 +143,9 @@ revision and the later sections' single-revision commands are unaffected:
 ```bash
 # Fresh temp repo with only the baseline commit (see setup), then add one untracked file:
 echo "fresh content" > new-file.txt
-shore capture 2>&1 || true
-shore capture --include-untracked | jq .diffstat
-shore revision show --format json-pretty | jq '[.rows[] | select(.kind == "file_header") | .filePath]'
+pointbreak capture 2>&1 || true
+pointbreak capture --include-untracked | jq .diffstat
+pointbreak revision show --format json-pretty | jq '[.rows[] | select(.kind == "file_header") | .filePath]'
 ```
 
 **Expect.**
@@ -155,7 +157,7 @@ shore revision show --format json-pretty | jq '[.rows[] | select(.kind == "file_
 - One `file_header` row, for `new-file.txt`, after the `--include-untracked` capture — the untracked
   file is captured as `added`.
 - Nothing Pointbreak-owned appears in the snapshot or in `git status`: the default store lives inside
-  `.git/`, so there is no `.shore/` directory and no store rows in the captured diff, and Pointbreak
+  `.git/`, so there is no `.pointbreak/` directory and no store rows in the captured diff, and Pointbreak
   never edits the root `.gitignore` (`git status --short` shows only `?? new-file.txt`).
 
 ## D. Observations — add and list
@@ -164,21 +166,21 @@ shore revision show --format json-pretty | jq '[.rows[] | select(.kind == "file_
 can be filtered by track or tag on read.
 
 ```bash
-shore observation add \
+pointbreak observation add \
   --track agent:codex \
   --title "Check epsilon handling" \
   --tag correctness
 
-shore observation add \
+pointbreak observation add \
   --track human:kevin \
   --title "Worth a unit test" \
   --file src.txt --start-line 4 --end-line 4 \
   --body "epsilon line was added in this revision"
 
-shore observation list --format json-pretty
-shore observation list --format json-pretty --track agent:codex
-shore observation list --format json-pretty --tag correctness
-shore observation list --format json-pretty --include-body
+pointbreak observation list --format json-pretty
+pointbreak observation list --format json-pretty --track agent:codex
+pointbreak observation list --format json-pretty --tag correctness
+pointbreak observation list --format json-pretty --include-body
 ```
 
 **Expect.**
@@ -196,22 +198,22 @@ shore observation list --format json-pretty --include-body
 **Goal.** Confirm the durable pause/decision lifecycle.
 
 ```bash
-REQUEST_OUT=$(shore input-request open \
+REQUEST_OUT=$(pointbreak input-request open \
   --track human:kevin \
   --title "Need approval before landing" \
   --reason manual-decision-required)
 echo "$REQUEST_OUT" | jq .
 INPUT_REQUEST_ID=$(echo "$REQUEST_OUT" | jq -r .inputRequestId)
 
-shore input-request list --format json-pretty
-shore input-request list --format json-pretty --status all
-shore input-request show "$INPUT_REQUEST_ID" --format json-pretty --include-body
+pointbreak input-request list --format json-pretty
+pointbreak input-request list --format json-pretty --status all
+pointbreak input-request show "$INPUT_REQUEST_ID" --format json-pretty --include-body
 
-shore input-request respond "$INPUT_REQUEST_ID" \
+pointbreak input-request respond "$INPUT_REQUEST_ID" \
   --outcome approved \
   --reason "verified plan with on-call DBA"
 
-shore input-request list --format json-pretty --status all
+pointbreak input-request list --format json-pretty --status all
 ```
 
 **Expect.**
@@ -231,24 +233,24 @@ shore input-request list --format json-pretty --status all
 an older assessment from the current set.
 
 ```bash
-shore assessment add \
+pointbreak assessment add \
   --track human:kevin \
   --assessment accepted \
   --summary "looks good, ship it"
 
-shore assessment show --format json-pretty
-shore assessment show --format json-pretty --include-summary
+pointbreak assessment show --format json-pretty
+pointbreak assessment show --format json-pretty --include-summary
 
 # Replacing example
-ASSESS_OLD=$(shore assessment show | jq -r '.current.assessmentId')
-shore assessment add \
+ASSESS_OLD=$(pointbreak assessment show | jq -r '.current.assessmentId')
+pointbreak assessment add \
   --track human:kevin \
   --assessment accepted-with-follow-up \
   --summary "second pass; follow-up filed" \
   --replaces "$ASSESS_OLD"
 
-shore assessment show --format json-pretty
-shore assessment show --format json-pretty --all
+pointbreak assessment show --format json-pretty
+pointbreak assessment show --format json-pretty --all
 ```
 
 **Expect.**
@@ -262,16 +264,16 @@ shore assessment show --format json-pretty --all
 
 ## G. Review history with filters
 
-**Goal.** Confirm `shore history` is chronological, preserves duplicate semantic events,
+**Goal.** Confirm `pointbreak history` is chronological, preserves duplicate semantic events,
 and applies filters without changing freshness metadata.
 
 ```bash
-shore history --format json-pretty | jq '.eventCount, .historyCount'
-shore history --format json-pretty --event-type review-observation-recorded \
+pointbreak history --format json-pretty | jq '.eventCount, .historyCount'
+pointbreak history --format json-pretty --event-type review-observation-recorded \
   | jq '.eventCount, .historyCount'
-shore history --format json-pretty --track human:kevin \
+pointbreak history --format json-pretty --track human:kevin \
   | jq '.eventCount, .historyCount'
-shore history --format json-pretty --include-body \
+pointbreak history --format json-pretty --include-body \
   | jq '.entries[] | select(.eventType=="review_observation_recorded") | .summary.body'
 ```
 
@@ -292,15 +294,15 @@ shore history --format json-pretty --include-body \
 revision view returns narrative facts before the snapshot remainder with body text omitted by
 default.
 
-### `shore revision list`
+### `pointbreak revision list`
 
-`shore revision list` projects `work_object_proposed` events into a flat directory of
-revisions. Reach for it whenever `shore revision show` errors with
+`pointbreak revision list` projects `work_object_proposed` events into a flat directory of
+revisions. Reach for it whenever `pointbreak revision show` errors with
 `multiple captured revisions; pass --revision`.
 
 ```bash
-shore revision list --format json-pretty | jq '{eventSetHash, revisionCount, ids: [.entries[].revisionId]}'
-shore revision list --format json-pretty | jq '.entries[] | {revisionId, capturedAt, objectArtifactContentHash}'
+pointbreak revision list --format json-pretty | jq '{eventSetHash, revisionCount, ids: [.entries[].revisionId]}'
+pointbreak revision list --format json-pretty | jq '.entries[] | {revisionId, capturedAt, objectArtifactContentHash}'
 ```
 
 **Expect.**
@@ -311,9 +313,9 @@ shore revision list --format json-pretty | jq '.entries[] | {revisionId, capture
   `target`, and `objectArtifactContentHash` and no event paths, artifact paths, or `statePath`.
 - Entries are sorted by `capturedAt`, so the newest revision appears last.
 
-### `shore revision show`
+### `pointbreak revision show`
 
-`shore revision show` puts each revision fact in two places:
+`pointbreak revision show` puts each revision fact in two places:
 
 - top-level `observations[]`, `inputRequests[]`, and `assessments[]` carry the
   hydrated facts (including `body` / `summary` / `reason` when `--include-body` is passed).
@@ -323,18 +325,18 @@ shore revision list --format json-pretty | jq '.entries[] | {revisionId, capture
   or `"snapshot_remainder"`. Body text is **not** carried on rows.
 
 ```bash
-shore revision show --format json-pretty | jq '.eventSetHash, .summary'
-shore revision show --format json-pretty | jq '[.rows[].kind] | unique'
-shore revision show --format json-pretty \
+pointbreak revision show --format json-pretty | jq '.eventSetHash, .summary'
+pointbreak revision show --format json-pretty | jq '[.rows[].kind] | unique'
+pointbreak revision show --format json-pretty \
   | jq '[.rows[] | {kind, projectionPhase}] | group_by(.projectionPhase) | map({phase: .[0].projectionPhase, count: length})'
 
 # Bodies are omitted by default and live on the top-level fact lists when hydrated.
-shore revision show --format json-pretty | jq '.observations[] | {title, body}'
-shore revision show --format json-pretty --include-body | jq '.observations[] | {title, body}'
-shore revision show --format json-pretty --include-body | jq '.assessments[] | {assessment, summary}'
+pointbreak revision show --format json-pretty | jq '.observations[] | {title, body}'
+pointbreak revision show --format json-pretty --include-body | jq '.observations[] | {title, body}'
+pointbreak revision show --format json-pretty --include-body | jq '.assessments[] | {assessment, summary}'
 
 # Track filter narrows narrative material but leaves the snapshot remainder intact.
-shore revision show --format json-pretty --track agent:codex \
+pointbreak revision show --format json-pretty --track agent:codex \
   | jq '{
       observations: [.observations[].trackId] | unique,
       input_requests_count: (.inputRequests | length),
@@ -358,13 +360,13 @@ shore revision show --format json-pretty --track agent:codex \
 
 ## I. Storage soundness — events, artifacts, and projection rebuildability
 
-**Goal.** Confirm that `.shore/data/events/` and `.shore/data/artifacts/` together are the authoritative
-durable store, and that `.shore/data/state.json` is a pure projection that can be deleted and
+**Goal.** Confirm that `.pointbreak/data/events/` and `.pointbreak/data/artifacts/` together are the authoritative
+durable store, and that `.pointbreak/data/state.json` is a pure projection that can be deleted and
 regenerated.
 
 This section runs in its **own** fresh temp repo switched to **ephemeral** mode, so the store lands
-at a visible, worktree-local `.shore/data/` you can list and delete directly. (The default store
-holds the same layout inside `.git/shore/`; ephemeral just surfaces it in the working tree.)
+at a visible, worktree-local `.pointbreak/data/` you can list and delete directly. (The default store
+holds the same layout inside `<git-common-dir>/pointbreak/`; ephemeral just surfaces it in the working tree.)
 
 ```bash
 # Fresh temp repo with the baseline commit (see setup). Add a tracked file, then modify it so the
@@ -373,48 +375,48 @@ echo -e "alpha\nbeta\ngamma" > src.txt
 git add src.txt && git commit -q -m "add src"
 echo -e "alpha\nbeta-modified\ngamma\ndelta" > src.txt
 
-shore store mode ephemeral                                # store now resolves to .shore/data/
-shore capture >/dev/null
-shore observation add --track agent:codex --title "seed one" >/dev/null
-shore observation add --track human:kevin --title "seed two" >/dev/null
+pointbreak store mode ephemeral                                # store now resolves to .pointbreak/data/
+pointbreak capture >/dev/null
+pointbreak observation add --track agent:codex --title "seed one" >/dev/null
+pointbreak observation add --track human:kevin --title "seed two" >/dev/null
 ```
 
 The authority split (see [storage-model.md](./storage-model.md#shared-common-dir-store-selection),
-shown here with the ephemeral `.shore/data/` paths):
+shown here with the ephemeral `.pointbreak/data/` paths):
 
-- `.shore/data/events/` — append-only immutable per-fact events.
-- `.shore/data/artifacts/` — immutable support records that events bind to: captured revision
+- `.pointbreak/data/events/` — append-only immutable per-fact events.
+- `.pointbreak/data/artifacts/` — immutable support records that events bind to: captured revision
   snapshots (`artifacts/objects/`), and content-addressed bodies for large observation,
   input request, and assessment payloads (`artifacts/notes/`). `revision show` reads the
   snapshot artifact for the selected revision; the event log alone cannot reconstruct snapshot
   rows or large note bodies.
-- `.shore/data/state.json` — rebuildable projection summary. Reads do not depend on its existence;
+- `.pointbreak/data/state.json` — rebuildable projection summary. Reads do not depend on its existence;
   writes regenerate it.
 
 ```bash
-ls .shore/data/events/
-ls .shore/data/artifacts/objects/
-ls .shore/data/artifacts/notes/        # only populated for large-body events
+ls .pointbreak/data/events/
+ls .pointbreak/data/artifacts/objects/
+ls .pointbreak/data/artifacts/notes/        # only populated for large-body events
 
 # Read commands work without state.json
-HASH_BEFORE=$(jq -r .eventSetHash .shore/data/state.json)
-rm .shore/data/state.json
-shore history --format json-pretty | jq -r .eventSetHash    # same hash
-shore revision show --format json-pretty >/dev/null
-test -f .shore/data/state.json && echo "rebuilt" || echo "still missing (expected for reads)"
+HASH_BEFORE=$(jq -r .eventSetHash .pointbreak/data/state.json)
+rm .pointbreak/data/state.json
+pointbreak history --format json-pretty | jq -r .eventSetHash    # same hash
+pointbreak revision show --format json-pretty >/dev/null
+test -f .pointbreak/data/state.json && echo "rebuilt" || echo "still missing (expected for reads)"
 
 # A write command rebuilds the projection
-shore observation add --track agent:codex --title "trigger rebuild" >/dev/null
-jq '.eventCount, .eventSetHash' .shore/data/state.json
+pointbreak observation add --track agent:codex --title "trigger rebuild" >/dev/null
+jq '.eventCount, .eventSetHash' .pointbreak/data/state.json
 ```
 
 **Expect.**
 
-- `shore history` and `shore revision show` both succeed without `state.json` present.
+- `pointbreak history` and `pointbreak revision show` both succeed without `state.json` present.
   Their `eventSetHash` matches the value that was in the deleted projection.
-- After the next write command, `.shore/data/state.json` exists again and reports a higher
+- After the next write command, `.pointbreak/data/state.json` exists again and reports a higher
   `eventCount` and a new `eventSetHash`.
-- Event files in `.shore/data/events/` are never moved, renamed, or removed during any of this. You can
+- Event files in `.pointbreak/data/events/` are never moved, renamed, or removed during any of this. You can
   list them before and after and confirm the set only grows.
 
 If you want to confirm idempotency directly, re-run the same `observation add` with
@@ -423,40 +425,40 @@ and the same `observationId` and `eventId` as the first call.
 
 ## Family store — link, capture, status, unlink
 
-**Goal.** Confirm the opt-in user-level family store: `shore store link` promotes a clone to a
-machine-wide store at `<shore-home>/stores/<slug>/`, `shore store status` reports the family
-placement, captures write there while linked, and `shore store unlink` detaches without moving data.
+**Goal.** Confirm the opt-in user-level family store: `pointbreak store link` promotes a clone to a
+machine-wide store at `<pointbreak-home>/stores/<slug>/`, `pointbreak store status` reports the family
+placement, captures write there while linked, and `pointbreak store unlink` detaches without moving data.
 
-Run this in its **own** fresh temp repo, and point `SHORE_HOME` at a throwaway directory so the
-family store never touches your real `~/.shore`:
+Run this in its **own** fresh temp repo, and point `POINTBREAK_HOME` at a throwaway directory so the
+family store never touches your real `~/.pointbreak`:
 
 ```bash
 # Fresh temp repo with the baseline commit (see setup). Set a throwaway family-store home first:
-export SHORE_HOME="$(mktemp -d)"
+export POINTBREAK_HOME="$(mktemp -d)"
 echo -e "alpha\nbeta\ngamma" > src.txt
 git add src.txt && git commit -q -m "add src"
 echo -e "alpha\nbeta-modified\ngamma\ndelta" > src.txt
-shore capture >/dev/null                    # a fact in the clone-local .git/shore store, to fold forward
+pointbreak capture >/dev/null                    # a fact in the clone-local <git-common-dir>/pointbreak store, to fold forward
 
-shore store status | jq '{mode, storeRef}'                     # before link
-shore store link demo-family --dry-run | jq '{schema}'         # preview only; writes nothing, exits 0
-shore store link demo-family | jq '{schema, familyRef, createdFamily, foldedEventsCreated}'
-shore store status | jq '{mode, storeRef, liveCloneCount, orphaned}'   # after link
-echo "later change" >> src.txt && shore capture >/dev/null     # now writes into the family store
-shore store unlink | jq '{schema, previousFamilyRef, deregistered}'
-shore store status | jq '{mode, storeRef}'                     # back to clone-local
+pointbreak store status | jq '{mode, storeRef}'                     # before link
+pointbreak store link demo-family --dry-run | jq '{schema}'         # preview only; writes nothing, exits 0
+pointbreak store link demo-family | jq '{schema, familyRef, createdFamily, foldedEventsCreated}'
+pointbreak store status | jq '{mode, storeRef, liveCloneCount, orphaned}'   # after link
+echo "later change" >> src.txt && pointbreak capture >/dev/null     # now writes into the family store
+pointbreak store unlink | jq '{schema, previousFamilyRef, deregistered}'
+pointbreak store status | jq '{mode, storeRef}'                     # back to clone-local
 ```
 
 **Expect.**
 
 - Before link, `store status` reports `mode: "local"` and `storeRef: "local"` (the clone-local
-  `.git/shore` default).
+  `<git-common-dir>/pointbreak` default).
 - `store link … --dry-run` emits a `pointbreak.store-link-preview` document and exits 0 without writing
   anything; the real `store link` emits `pointbreak.store-link` with `familyRef: "demo-family"`,
   `createdFamily: true`, and `foldedEventsCreated: 2` (the clone-local history folded forward).
 - After link, `store status` reports `mode: "user-level"`, `storeRef: "demo-family"`,
   `liveCloneCount: 1`, `orphaned: false`, and the family directory exists at
-  `$SHORE_HOME/stores/demo-family/` with `events/` and `artifacts/`.
+  `$POINTBREAK_HOME/stores/demo-family/` with `events/` and `artifacts/`.
 - Capturing while linked writes into the family store — its `events/` grows to four (the two folded
   events plus the two from the new capture).
 - `store unlink` emits `pointbreak.store-unlink` with `previousFamilyRef: "demo-family"` and
@@ -491,7 +493,7 @@ cargo run -- inspect --repo "$EXAMPLE_REPO" --open
 - The source test passes, and the inspector shows current `accepted` with the earlier
   `needs_changes` assessment retained as `replaced`.
 - The materialized repository owns a newly ingested local store; the pack itself contains no
-  `.git/shore`, `.shore/data`, or `state.json` compatibility surface.
+  `<git-common-dir>/pointbreak`, `.pointbreak/data`, or `state.json` compatibility surface.
 
 Maintainers refresh the pack from an explicit source repository only after the source record has
 been reviewed:
@@ -527,14 +529,14 @@ When refactoring storage, projections, or CLI surfaces, also look at:
 - **Event file count**: each `add`/`request`/`resolve`/`apply` call should create exactly one new
   event file unless it is a same-key idempotent retry.
 - **Artifact dedup**: writing two observations with the same **large** body string should yield
-  one file in `.git/shore/artifacts/notes/` (content-addressed) and two events that both reference it
+  one file in `<git-common-dir>/pointbreak/artifacts/notes/` (content-addressed) and two events that both reference it
   by content hash. Bodies under roughly 4 KiB stay inline in the event payload and do not produce
   an artifact at all, so use a body well over that threshold to exercise this path —
   `python3 -c "print('x'*5000)" > big-body.txt` and pass `--body-file big-body.txt` to two
   separate `observation add` calls.
-- **Exit codes**: piping `shore revision show` or `shore history` through
+- **Exit codes**: piping `pointbreak revision show` or `pointbreak history` through
   `jq -e 'has("schema")'` should always exit 0 for successful runs.
-- **Tracing**: passing `--log debug --log-file /tmp/shore.log` to any command should write spans to
+- **Tracing**: passing `--log debug --log-file /tmp/pointbreak.log` to any command should write spans to
   that file and not corrupt the JSON on stdout. (`--log info` emits no spans, so the file stays
   empty; use `debug` or `trace` to exercise this path.)
 
@@ -542,7 +544,7 @@ When refactoring storage, projections, or CLI surfaces, also look at:
 
 - Performance benchmarking or stress tests.
 - Multi-writer coordination — V1 is intentionally single-writer per resolved store (the default
-  `.git/shore`, an ephemeral `.shore/data`, or a linked family store).
+  `<git-common-dir>/pointbreak`, an ephemeral `.pointbreak/data`, or a linked family store).
 - Daemon, notification, or delivery-queue behavior — none of those exist in V1.
 
 If a workflow you exercise during real review reveals a gap that is not covered here, add a short

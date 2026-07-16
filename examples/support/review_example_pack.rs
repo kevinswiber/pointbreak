@@ -161,7 +161,12 @@ pub fn verify_pack(pack: &Path) -> PackResult<()> {
         manifest.classification == CLASSIFICATION,
         "manifest.classification",
     )?;
-    require(manifest.producer.name == "shore", "producer.name")?;
+    // Checked-in packs retain the producer recorded when they were created;
+    // newly exported packs use the current Pointbreak producer name.
+    require(
+        matches!(manifest.producer.name.as_str(), "shore" | "pointbreak"),
+        "producer.name",
+    )?;
     require(
         manifest.producer.version.split('.').count() == 3,
         "producer.version",
@@ -399,7 +404,7 @@ fn build_pack(source_repo: &Path, stage: &Path) -> PackResult<()> {
         name: NAME.to_owned(),
         classification: CLASSIFICATION.to_owned(),
         producer: ProducerManifest {
-            name: "shore".to_owned(),
+            name: "pointbreak".to_owned(),
             version: env!("CARGO_PKG_VERSION").to_owned(),
             commit: git_output(
                 Path::new(env!("CARGO_MANIFEST_DIR")),

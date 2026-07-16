@@ -66,7 +66,7 @@ with millisecond precision (`YYYY-MM-DDTHH:MM:SS.mmmZ`).
 
 - Infixes (`worktree:`, `git:`) are owned by the mint site, not the prefix: the registry
   freezes only the leading token.
-- `actor:agent:<name>` and `actor:env:<…>` arrive from user configuration (`SHORE_ACTOR_ID`)
+- `actor:agent:<name>` and `actor:env:<…>` arrive from user configuration (`POINTBREAK_ACTOR_ID`)
   and are validated, never minted.
 - `review:default` and `journal:default` are fixed sentinels — structural values with no
   digest payload. One consumer string-compares `journal:default`
