@@ -543,11 +543,12 @@ and refused rather than migrated; see
 repository family so review facts survive removing any one clone. The binding is recorded **per
 physical clone** in the git common dir (`pointbreak.link.json` under `.git/`), so it never travels in a
 commit and a single `pointbreak store link` binds the main checkout and every current and future
-`git worktree` of that clone. (A legacy per-worktree `.pointbreak/store.local.json` binding from before
-this is still honored as a fallback; a worktree can still opt out locally with `pointbreak store mode
-ephemeral`.) When a worktree writes to its clone-local store while a sibling worktree of the same
-clone is linked, `pointbreak store status` and `pointbreak capture` surface a one-line advisory pointing at
-`pointbreak store link <slug>` — the split is signalled, never silent. Before any family write,
+`git worktree` of that clone. The per-worktree `.pointbreak/store.local.json` file is mode-only:
+a `familyRef` or `cloneRef` there is rejected with guidance to run `pointbreak store link <slug>`.
+A worktree can still opt out locally with `pointbreak store mode ephemeral`. When a worktree writes
+to its clone-local store while a sibling worktree of the same clone is linked, `pointbreak store
+status` and `pointbreak capture` surface a one-line advisory pointing at `pointbreak store link
+<slug>` — the split is signalled, never silent. Before any family write,
 `link` runs its gates in order: it refuses an ephemeral worktree (override `--include-ephemeral`) and
 a sensitivity-flagged worktree (override `--include-sensitive`), refuses a slug already stamped for a
 different family, and warns (without blocking) on a sync-managed filesystem path or when the clone

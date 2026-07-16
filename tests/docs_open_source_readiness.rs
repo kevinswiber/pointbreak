@@ -135,6 +135,15 @@ fn public_docs_cover_the_shared_common_dir_store() {
         ],
     );
 
+    assert!(
+        cli.contains("The per-worktree `.pointbreak/store.local.json` file is mode-only"),
+        "CLI reference must match the Git-common-dir binding authority"
+    );
+    assert!(
+        !cli.contains("legacy per-worktree `.pointbreak/store.local.json` binding"),
+        "CLI reference must not claim that retired per-worktree bindings still resolve"
+    );
+
     for token in [
         "<git-common-dir>/pointbreak",
         "pointbreak.link.json",
