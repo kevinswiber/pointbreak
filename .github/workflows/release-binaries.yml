@@ -1,6 +1,6 @@
 name: Release Binaries
 
-# Builds and publishes prebuilt shore binaries for all supported targets.
+# Builds and publishes prebuilt pointbreak binaries for all supported targets.
 # The target matrix lives in .github/binary-targets.json (single source of truth,
 # also consumed by downstream packaging workflows).
 #
@@ -115,9 +115,9 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.builder }}" = "zigbuild" ]; then
-            cargo zigbuild --release --target "${{ matrix.rust-target }}" --locked
+            cargo zigbuild --release --bin pointbreak --target "${{ matrix.rust-target }}" --locked
           else
-            cargo build --release --target "${{ matrix.rust-target }}" --locked
+            cargo build --release --bin pointbreak --target "${{ matrix.rust-target }}" --locked
           fi
       - name: Package
         shell: bash
@@ -127,7 +127,6 @@ jobs:
           scripts/package-release-archive.sh \
             "${{ matrix.target }}" \
             "$VERSION" \
-            "${{ matrix.archive }}" \
             "target/${{ matrix.rust-target }}/release"
       - uses: actions/upload-artifact@v7
         with:
@@ -148,17 +147,11 @@ jobs:
           path: dist
           pattern: bin-*
           merge-multiple: true
-      - name: Checksums
-        working-directory: dist
+      - name: Verify archives and write checksums
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          shopt -s nullglob
-          archives=(pointbreak-*.tar.gz pointbreak-*.zip)
-          if [ "${#archives[@]}" -ne 8 ]; then
-            echo "expected 8 archives, found ${#archives[@]}" >&2
-            exit 1
-          fi
-          sha256sum "${archives[@]}" > checksums.txt
-          sha256sum -c checksums.txt
+          scripts/verify-release-archives.sh "$VERSION" dist --write-checksums
       - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}

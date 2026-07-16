@@ -63,6 +63,11 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - uses: taiki-e/install-action@just
+
+      - name: Verify package and archive contract
+        run: just package-archive-selftest
+
       - name: Set up Node (app.js verify)
         uses: actions/setup-node@v6
         with:

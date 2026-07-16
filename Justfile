@@ -25,19 +25,9 @@ build *args:
 release *args:
     cargo +stable build --release {{ args }}
 
-# Self-test the release archive packaging script against a host debug build.
+# Self-test Cargo installation and all release archive layouts without publishing.
 package-archive-selftest:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cargo +stable build --bin shore
-    out="$(./scripts/package-release-archive.sh local 0.0.0 tar.gz target/debug)"
-    if [ "$out" != "pointbreak-0.0.0-local.tar.gz" ]; then
-        echo "wrong archive name: $out" >&2
-        exit 1
-    fi
-    tar tzf "$out" | sort | diff - <(printf 'LICENSE\nNOTICE\nshore\n')
-    rm -f "$out"
-    echo "package-archive selftest ok"
+    ./scripts/package-release-selftest.sh
 
 # Exercise the release installer for the current host platform without network access.
 installer-selftest:
@@ -53,23 +43,46 @@ workflow-actionlint:
 workflow-lint-assertions:
     #!/usr/bin/env bash
     set -euo pipefail
-    shellcheck scripts/package-release-archive.sh scripts/install.sh scripts/install-selftest.sh
+    shellcheck \
+      scripts/package-release-archive.sh \
+      scripts/package-release-selftest.sh \
+      scripts/verify-release-archives.sh \
+      scripts/install.sh \
+      scripts/install-selftest.sh
     expected="$(cat <<'EOF'
     [
-      {"archive":"tar.gz","builder":"cargo","os":"macos-latest","rust-target":"x86_64-apple-darwin","target":"darwin-x64"},
-      {"archive":"tar.gz","builder":"cargo","os":"macos-latest","rust-target":"aarch64-apple-darwin","target":"darwin-arm64"},
-      {"archive":"tar.gz","builder":"zigbuild","os":"ubuntu-latest","rust-target":"x86_64-unknown-linux-gnu","target":"linux-x64"},
-      {"archive":"tar.gz","builder":"zigbuild","os":"ubuntu-latest","rust-target":"aarch64-unknown-linux-gnu","target":"linux-arm64"},
-      {"archive":"tar.gz","builder":"zigbuild","os":"ubuntu-latest","rust-target":"x86_64-unknown-linux-musl","target":"alpine-x64"},
-      {"archive":"tar.gz","builder":"zigbuild","os":"ubuntu-latest","rust-target":"aarch64-unknown-linux-musl","target":"alpine-arm64"},
-      {"archive":"zip","builder":"cargo","os":"windows-latest","rust-target":"x86_64-pc-windows-msvc","target":"win32-x64"},
-      {"archive":"zip","builder":"cargo","os":"windows-latest","rust-target":"aarch64-pc-windows-msvc","target":"win32-arm64"}
+      {"archive":"tar.gz","builder":"cargo","executable":"pointbreak","os":"macos-latest","rust-target":"x86_64-apple-darwin","target":"darwin-x64"},
+      {"archive":"tar.gz","builder":"cargo","executable":"pointbreak","os":"macos-latest","rust-target":"aarch64-apple-darwin","target":"darwin-arm64"},
+      {"archive":"tar.gz","builder":"zigbuild","executable":"pointbreak","os":"ubuntu-latest","rust-target":"x86_64-unknown-linux-gnu","target":"linux-x64"},
+      {"archive":"tar.gz","builder":"zigbuild","executable":"pointbreak","os":"ubuntu-latest","rust-target":"aarch64-unknown-linux-gnu","target":"linux-arm64"},
+      {"archive":"tar.gz","builder":"zigbuild","executable":"pointbreak","os":"ubuntu-latest","rust-target":"x86_64-unknown-linux-musl","target":"alpine-x64"},
+      {"archive":"tar.gz","builder":"zigbuild","executable":"pointbreak","os":"ubuntu-latest","rust-target":"aarch64-unknown-linux-musl","target":"alpine-arm64"},
+      {"archive":"zip","builder":"cargo","executable":"pointbreak.exe","os":"windows-latest","rust-target":"x86_64-pc-windows-msvc","target":"win32-x64"},
+      {"archive":"zip","builder":"cargo","executable":"pointbreak.exe","os":"windows-latest","rust-target":"aarch64-pc-windows-msvc","target":"win32-arm64"}
     ]
     EOF
     )"
     jq -e --argjson expected "$expected" \
-      'map(to_entries | sort_by(.key) | from_entries) == $expected' \
+      'length == 8
+       and (map(.target) | unique | length) == 8
+       and (map(."rust-target") | unique | length) == 8
+       and map(to_entries | sort_by(.key) | from_entries) == $expected' \
       .github/binary-targets.json > /dev/null
+    grep -Fq -- '--bin pointbreak' .github/workflows/release-binaries.yml
+    grep -Fq -- 'verify-release-archives.sh' .github/workflows/release-binaries.yml
+    grep -Fq -- 'package-archive-selftest' .github/workflows/release-plan.yml
+    grep -Fq -- 'package-archive-selftest' .github/workflows/release.yml
+    grep -Fq -- 'package-archive-selftest' scripts/run-release-plan.sh
+    if rg -n 'shore(\.exe)?|--bin shore' \
+      .github/binary-targets.json \
+      .github/workflows/release-binaries.yml \
+      .github/workflows/release-plan.yml \
+      .github/workflows/release.yml \
+      scripts/package-release-archive.sh \
+      scripts/run-release-plan.sh; then
+        echo "release surfaces still reference the retired executable" >&2
+        exit 1
+    fi
     for t in $(jq -r '.[].target' .github/binary-targets.json); do
       grep -q -- "$t" docs/installation.md || { echo "installation docs missing target: $t" >&2; exit 1; }
     done
