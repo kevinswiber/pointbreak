@@ -6,6 +6,12 @@
 # Bump to upgrade the agentskills.io validator; review the diff at https://github.com/agentskills/agentskills/compare/<old-sha>...<new-sha> before bumping.
 export SKILLS_REF_REV := env_var_or_default("SKILLS_REF_REV", "5d4c1fda3f786fff826c7f56b6cb3341e7f3a911")
 
+# Recipes are written for a POSIX shell. Git for Windows bundles one but does not
+# put it on PATH, so name it explicitly (the default install location, which the
+# GitHub windows runners share). Without this, every recipe fails from
+# PowerShell/cmd with "could not find the shell `sh`".
+set windows-shell := ["C:/Program Files/Git/bin/sh.exe", "-cu"]
+
 # List available recipes.
 [group('help')]
 default:
