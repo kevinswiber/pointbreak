@@ -48,6 +48,10 @@ Summaries may come from `--summary`, `--summary-file`, or `--summary-stdin`. Lar
 same Pointbreak-owned `shore.note-body` artifact path as other note-shaped bodies; command output keeps
 artifact paths private.
 
+An `accepted-with-follow-up` with no open input request standing on the revision carries an
+advisory `assessment_unlinked_follow_up` diagnostic on the write's result document — the label
+alone creates no Attention state; the durable follow-up is an open advisory input request.
+
 `--replaces <assessment-id>` is the only relationship that removes an older assessment from the
 current set. It points the new assessment forward at the one it supersedes — the same forward-pointer
 shape that a capture's `--supersedes` uses to evolve past an earlier revision — so an assessment is

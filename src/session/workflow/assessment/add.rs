@@ -265,6 +265,8 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
         &writer.actor_id,
         &replaces_assessment_ids,
     );
+    let unlinked_follow_up =
+        unlinked_follow_up_diagnostic(&validation_events, &resolved.revision_id, assessment);
     let source_key = options
         .idempotency_key
         .as_deref()
@@ -332,6 +334,7 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
     let mut diagnostics = state.diagnostics;
     diagnostics.extend(competing_candidates);
     diagnostics.extend(cross_actor_replacement);
+    diagnostics.extend(unlinked_follow_up);
 
     let result = AssessmentAddResult {
         revision_id: resolved.revision_id,
@@ -357,6 +360,66 @@ pub fn record_assessment(options: AssessmentAddOptions) -> Result<AssessmentAddR
 /// already recorded when this is computed, and it decorates only the write's
 /// result document, never the store.
 pub const ASSESSMENT_COMPETING_CANDIDATES_CODE: &str = "assessment_competing_candidates";
+
+/// The advisory diagnostic emitted when `accepted-with-follow-up` is recorded
+/// while no open input request stands on the revision: the follow-up label
+/// alone creates no durable actionable state (nothing enters Attention), so
+/// the described loop can silently end. Advisory and never blocking — the
+/// label may deliberately be prose-only; the diagnostic decorates only the
+/// write's result document, never the store.
+pub const ASSESSMENT_UNLINKED_FOLLOW_UP_CODE: &str = "assessment_unlinked_follow_up";
+
+fn unlinked_follow_up_diagnostic(
+    events: &[ShoreEvent],
+    revision_id: &RevisionId,
+    assessment: ReviewAssessment,
+) -> Option<ProjectionDiagnostic> {
+    if assessment != ReviewAssessment::AcceptedWithFollowUp {
+        return None;
+    }
+    match open_input_request_count(events, revision_id) {
+        Ok(0) => Some(ProjectionDiagnostic {
+            code: ASSESSMENT_UNLINKED_FOLLOW_UP_CODE.to_owned(),
+            message: format!(
+                "accepted-with-follow-up recorded with no open input request on revision {}: \
+                 the follow-up label alone creates no durable actionable state — open the \
+                 follow-up with `input-request open --mode advisory`, or leave the label \
+                 deliberately as prose",
+                revision_id.as_str(),
+            ),
+        }),
+        _ => None,
+    }
+}
+
+/// Count the revision's input requests that are still open (opened with no
+/// recorded response). Response events are matched by request id across the
+/// whole log; a response's own subject shape never gates the join.
+fn open_input_request_count(events: &[ShoreEvent], revision_id: &RevisionId) -> Result<usize> {
+    let mut opened = std::collections::BTreeSet::new();
+    for event in events
+        .iter()
+        .filter(|event| event.event_type == EventType::InputRequestOpened)
+    {
+        if event.subject_revision_id()?.as_ref() != Some(revision_id) {
+            continue;
+        }
+        let payload = decode_input_request_opened_payload(event.payload.clone())?;
+        opened.insert(payload.input_request_id);
+    }
+    if opened.is_empty() {
+        return Ok(0);
+    }
+    for event in events
+        .iter()
+        .filter(|event| event.event_type == EventType::InputRequestResponded)
+    {
+        let payload: crate::session::event::InputRequestRespondedPayload =
+            serde_json::from_value(event.payload.clone())?;
+        opened.remove(&payload.input_request_id);
+    }
+    Ok(opened.len())
+}
 
 /// The advisory diagnostic emitted when an assessment explicitly replaces an
 /// assessment written by another actor. The relationship is allowed:

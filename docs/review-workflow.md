@@ -375,7 +375,11 @@ pointbreak assessment show --all --include-summary
 ```
 
 `--replaces` is the only V1 relationship that removes an older assessment
-from the current set.
+from the current set. An `accepted-with-follow-up` recorded while no input
+request is open on the revision carries an advisory
+`assessment_unlinked_follow_up` diagnostic: the label alone creates no durable
+actionable state, so open the follow-up as an advisory input request unless
+the label is deliberately prose-only.
 `--related-observation` and `--related-input-request` record evidence links;
 they do not mutate observations or close input requests (use
 `pointbreak input-request respond` for the input-request lifecycle).
@@ -549,11 +553,21 @@ pointbreak input-request respond <input-request-id> \
   --outcome approved \
   --reason "verified backfill plan with on-call DBA"
 
-# 5. Record the final assessment for the revision.
+# 5. Record the final assessment for the revision. A follow-up worth acting on
+#    is opened as an advisory input request first, so it stands as durable,
+#    answerable state — the label alone creates no Attention item, and an
+#    accepted-with-follow-up recorded with no open input request on the
+#    revision carries an `assessment_unlinked_follow_up` advisory diagnostic.
+pointbreak input-request open \
+  --track human:kevin \
+  --title "Add the retry-path unit test" \
+  --reason manual-decision-required \
+  --mode advisory \
+  --body "Shipping without it; the retry path still needs direct coverage."
 pointbreak assessment add \
   --track human:kevin \
   --assessment accepted-with-follow-up \
-  --summary "ship it; follow up on the retry-path unit test"
+  --summary "ship it; the open request carries the retry-path follow-up"
 
 # 6. Verify the durable record.
 pointbreak assessment show --format json-pretty
