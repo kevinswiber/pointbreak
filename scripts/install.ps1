@@ -87,6 +87,24 @@ function Copy-ReleaseAsset {
     }
 }
 
+function Get-FileSha256 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+        $sha256 = [Security.Cryptography.SHA256]::Create()
+        try {
+            return ([BitConverter]::ToString($sha256.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+        }
+        finally {
+            $sha256.Dispose()
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
 function Get-ExpectedChecksum {
     param(
         [Parameter(Mandatory = $true)][string]$ChecksumsPath,
@@ -263,7 +281,7 @@ function Install-Pointbreak {
         $expectedChecksum = Get-ExpectedChecksum `
             -ChecksumsPath $checksumsPath `
             -ArchiveName $archiveName
-        $actualChecksum = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $actualChecksum = Get-FileSha256 -Path $archivePath
         if ($actualChecksum -ne $expectedChecksum) {
             throw "Checksum mismatch for $archiveName"
         }

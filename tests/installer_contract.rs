@@ -23,3 +23,16 @@ fn windows_installer_selftest_uses_the_documented_powershell_runtime() {
         "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/install-selftest.ps1"
     ));
 }
+
+#[test]
+fn windows_installer_checksum_does_not_require_get_file_hash() {
+    let installer =
+        std::fs::read_to_string("scripts/install.ps1").expect("read Windows installer source");
+    let selftest = std::fs::read_to_string("scripts/install-selftest.ps1")
+        .expect("read Windows installer self-test source");
+
+    for source in [&installer, &selftest] {
+        assert!(!source.contains("Get-FileHash"));
+        assert!(source.contains("[Security.Cryptography.SHA256]::Create()"));
+    }
+}
