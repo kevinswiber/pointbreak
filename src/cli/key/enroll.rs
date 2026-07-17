@@ -71,9 +71,27 @@ pub(super) fn run(
         path: path.display().to_string(),
         added,
     };
-    let document = DiagnosticDocument::new("pointbreak.key-enroll", body, Vec::new());
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    let text =
+        matches!(format.format, output::OutputFormat::Text).then(|| render_key_enroll_text(&body));
+    let document = DiagnosticDocument::new("pointbreak.key-enroll", body, Vec::new());
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
+}
+
+/// Bespoke text lane for `key enroll`: a one-line receipt for the staged
+/// working-tree edit (the human's commit is the authorization), or an
+/// `already enrolled` line on an idempotent re-run.
+fn render_key_enroll_text(body: &EnrollBody) -> String {
+    if body.added {
+        format!(
+            "staged enrollment of {} for {} · commit {} to authorize",
+            body.signer_id, body.actor_id, body.path
+        )
+    } else {
+        format!("already enrolled: {} for {}", body.signer_id, body.actor_id)
+    }
 }
 
 /// Resolve the signer to enroll. A direct `--signer` is already public trust

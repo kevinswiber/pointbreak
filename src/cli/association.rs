@@ -14,7 +14,7 @@ use pointbreak::session::{
     effective_integration_ref, enrich_liveness, list_associations, withdraw_commit, withdraw_ref,
 };
 
-use crate::cli::common::{SignableOptions, SigningSkip};
+use crate::cli::common::{SignableOptions, SigningSkip, count_label};
 use crate::cli::id_resolver::{IdKind, IdResolver};
 use crate::cli::output;
 
@@ -404,12 +404,6 @@ fn source_label(source: CommitEdgeSource) -> &'static str {
         CommitEdgeSource::CaptureTarget => "capture_target",
         CommitEdgeSource::Association => "association",
     }
-}
-
-/// `N noun`, singular when `count == 1`.
-fn count_label(count: usize, singular: &str, plural: &str) -> String {
-    let noun = if count == 1 { singular } else { plural };
-    format!("{count} {noun}")
 }
 
 /// Apply the `--revision` selection shared by the write verbs. The four

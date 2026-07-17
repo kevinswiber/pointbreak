@@ -11,7 +11,7 @@ use pointbreak::keys::{
 use pointbreak::model::ActorId;
 use serde::Serialize;
 
-use crate::cli::common::discover_trust_set;
+use crate::cli::common::{count_label, discover_trust_set};
 use crate::cli::output;
 
 #[derive(Debug, Args)]
@@ -89,7 +89,60 @@ pub(super) fn run(
         diagnostics: filtered_diagnostics(discovery.diagnostics, has_candidates),
     };
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    output::write_document(stdout, format, &document, || {
+        render_key_discover_text(&document)
+    })
+}
+
+/// Bespoke text lane for `key discover`: a count headline, one line per
+/// candidate — signer, where the evidence came from, the suggested key name,
+/// and its enrollment state — then the advisory diagnostics as hints. No
+/// candidates renders a `no enrollment candidates` line, never silence.
+fn render_key_discover_text(document: &DiscoverDocument) -> String {
+    let mut lines = Vec::new();
+    if document.candidates.is_empty() {
+        lines.push("no enrollment candidates".to_owned());
+    } else {
+        lines.push(format!(
+            "{}:",
+            count_label(
+                document.candidates.len(),
+                "enrollment candidate",
+                "enrollment candidates"
+            )
+        ));
+        for candidate in &document.candidates {
+            let mut line = format!(
+                "  {} · {} · suggested name {}",
+                candidate.signer_id,
+                candidate_source_label(&candidate.source),
+                candidate.suggested_name,
+            );
+            if candidate.enrolled_actors.is_empty() {
+                line.push_str(" · not enrolled");
+            } else {
+                line.push_str(&format!(
+                    " · enrolled for {}",
+                    candidate.enrolled_actors.join(", ")
+                ));
+            }
+            lines.push(line);
+        }
+    }
+    for diagnostic in &document.diagnostics {
+        lines.push(format!("hint: {}", diagnostic.message));
+    }
+    lines.join("\n")
+}
+
+/// Short readable label for where a candidate's signing evidence was found.
+fn candidate_source_label(source: &EnrollmentCandidateSource) -> String {
+    match source {
+        EnrollmentCandidateSource::GitUserSigningKey => "git user.signingKey".to_owned(),
+        EnrollmentCandidateSource::GitAllowedSignersFile { path, line } => {
+            format!("allowed-signers {}:{line}", path.display())
+        }
+    }
 }
 
 impl DiscoverRenderContext {

@@ -268,3 +268,102 @@ fn compact_with_yes_skips_a_drifted_blob_and_reports_mismatch() {
         "a compact_hash_mismatch diagnostic is surfaced: {json}"
     );
 }
+
+#[test]
+fn text_store_compact_digest_reports_erasure_receipt() {
+    let repo = modified_repo();
+    let captured = capture(repo.path());
+    let snapshot_id = captured["revision"]["objectId"].as_str().unwrap();
+    remove_snapshot(repo.path(), snapshot_id);
+
+    // Cover the `gc` alias on the erase pass; it shares `compact`'s lane.
+    let output = pointbreak([
+        "store",
+        "gc",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--yes",
+        "--format",
+        "text",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("erased 1 blob"), "erase receipt: {stdout}");
+    assert!(stdout.contains("reclaimed"), "reclaimed bytes: {stdout}");
+    assert!(stdout.contains("B"), "byte suffix: {stdout}");
+}
+
+#[test]
+fn text_store_compact_dry_run_digest_previews() {
+    let repo = modified_repo();
+    let captured = capture(repo.path());
+    let snapshot_id = captured["revision"]["objectId"].as_str().unwrap();
+    remove_snapshot(repo.path(), snapshot_id);
+
+    let output = pointbreak([
+        "store",
+        "compact",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--dry-run",
+        "--format",
+        "text",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("dry run"), "names the dry run: {stdout}");
+    assert!(stdout.contains("would be erased"), "preview verb: {stdout}");
+    assert_eq!(object_blob_count(repo.path()), 1, "nothing deleted");
+}
+
+#[test]
+fn text_store_compact_consent_digest_points_at_yes() {
+    let repo = modified_repo();
+    let captured = capture(repo.path());
+    let snapshot_id = captured["revision"]["objectId"].as_str().unwrap();
+    remove_snapshot(repo.path(), snapshot_id);
+
+    let output = pointbreak([
+        "store",
+        "compact",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--format",
+        "text",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(
+        stdout.contains("would be erased"),
+        "preview, not erasure: {stdout}"
+    );
+    assert!(stdout.contains("--yes"), "consent pointer: {stdout}");
+    assert_eq!(object_blob_count(repo.path()), 1, "nothing deleted");
+}

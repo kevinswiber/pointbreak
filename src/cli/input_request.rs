@@ -17,7 +17,7 @@ use pointbreak::session::{
     open_input_request, respond_input_request,
 };
 
-use crate::cli::common::{ContentTypeArg, SideArg, read_body_input};
+use crate::cli::common::{ContentTypeArg, SideArg, read_body_input, wire_label};
 use crate::cli::output;
 
 #[derive(Debug, Args)]
@@ -358,16 +358,6 @@ fn render_input_request_respond_text(result: &InputRequestRespondResult) -> Stri
         wire_label(&result.outcome),
         output::short_ref(result.input_request_id.as_str()),
     )
-}
-
-/// The snake_case wire spelling of a simple serde enum, for disposable text
-/// labels (INV-3) — `Approved` → `approved`, `ManualDecisionRequired` →
-/// `manual_decision_required`.
-fn wire_label<T: serde::Serialize>(value: &T) -> String {
-    serde_json::to_value(value)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_default()
 }
 
 fn status_filter_label(filter: InputRequestStatusFilter) -> &'static str {

@@ -472,3 +472,38 @@ fn store_remove_selectors_resolve_short_ids() {
     );
     assert_eq!(parse_json(&rev_output.stdout)["eventsCreated"], 1);
 }
+
+#[test]
+fn text_store_remove_digest_reports_claim_receipt() {
+    let repo = modified_repo();
+    let captured = capture(repo.path());
+    let snapshot_id = captured["revision"]["objectId"].as_str().unwrap();
+
+    let output = pointbreak([
+        "store",
+        "remove",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--snapshot",
+        snapshot_id,
+        "--format",
+        "text",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(
+        stdout.contains("1 removal claim"),
+        "count headline: {stdout}"
+    );
+    assert!(stdout.contains("sha256:"), "content hash: {stdout}");
+    assert!(stdout.contains("event"), "event receipt: {stdout}");
+}

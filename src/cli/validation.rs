@@ -5,10 +5,11 @@ use clap::{Args, Subcommand, ValueEnum};
 use pointbreak::documents::{validation_add_document, validation_list_document};
 use pointbreak::model::{RevisionId, ValidationStatus, ValidationTrigger};
 use pointbreak::session::{
-    ValidationAddOptions, ValidationListOptions, list_validation_checks, record_validation_check,
+    ValidationAddOptions, ValidationListOptions, ValidationListResult, list_validation_checks,
+    record_validation_check,
 };
 
-use crate::cli::common::{ContentTypeArg, read_body_input};
+use crate::cli::common::{ContentTypeArg, count_label, read_body_input, wire_label};
 use crate::cli::output;
 
 #[derive(Debug, Args)]
@@ -175,11 +176,64 @@ fn review_validation_list(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let format_explicit = args.format_args.explicit();
     let repo = args.repo.clone();
-    let result = list_validation_checks(validation_list_options(args)?);
+    let result = list_validation_checks(validation_list_options(args)?)?;
     let delegation_map = crate::cli::common::discover_delegation_map(&repo);
-    let document = validation_list_document(result?, delegation_map.as_ref());
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    // `validation_list_document` consumes the result by value; render the digest
+    // up front on the text lane only, so the machine lanes pay nothing extra.
+    let text = matches!(format.format, output::OutputFormat::Text)
+        .then(|| render_validation_list_text(&result));
+    let document = validation_list_document(result, delegation_map.as_ref());
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
+}
+
+/// Bespoke text lane for `validation list`: a count headline naming the
+/// revision and any active filters, then one scannable line per check — short
+/// id, check name, status (with exit code when recorded), trigger, track, and a
+/// `stale` marker when the checked revision has been superseded. An empty
+/// listing renders a `no validation checks` line, never silence.
+fn render_validation_list_text(result: &ValidationListResult) -> String {
+    let mut scope = format!("on {}", output::short_ref(result.revision_id.as_str()));
+    if let Some(track_id) = &result.filters.track_id {
+        scope.push_str(&format!(" · track {}", track_id.as_str()));
+    }
+    if let Some(status) = &result.filters.status {
+        scope.push_str(&format!(" · status {}", wire_label(status)));
+    }
+    if result.validation_checks.is_empty() {
+        return format!("no validation checks {scope}");
+    }
+    let mut lines = vec![format!(
+        "{} {scope}:",
+        count_label(
+            result.validation_checks.len(),
+            "validation check",
+            "validation checks"
+        )
+    )];
+    for view in &result.validation_checks {
+        let mut line = format!(
+            "  {} · {} · {}",
+            output::short_ref(view.id.as_str()),
+            view.check_name,
+            wire_label(&view.status),
+        );
+        if let Some(exit_code) = view.exit_code {
+            line.push_str(&format!(" (exit {exit_code})"));
+        }
+        line.push_str(&format!(
+            " · {} · {}",
+            wire_label(&view.trigger),
+            view.track_id.as_str(),
+        ));
+        if !view.superseded_by_revisions.is_empty() {
+            line.push_str(" · stale");
+        }
+        lines.push(line);
+    }
+    lines.join("\n")
 }
 
 fn validation_add_options(

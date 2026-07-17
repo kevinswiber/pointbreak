@@ -5,11 +5,13 @@ use clap::{Args, Subcommand, ValueEnum};
 use pointbreak::documents::{observation_add_document, observation_list_document};
 use pointbreak::model::{ObservationId, RevisionId};
 use pointbreak::session::{
-    ObservationAddOptions, ObservationListOptions, ObservationTargetSelector, list_observations,
-    record_observation,
+    ObservationAddOptions, ObservationListOptions, ObservationListResult,
+    ObservationTargetSelector, list_observations, record_observation,
 };
 
-use crate::cli::common::{ContentTypeArg, SideArg, read_body_input};
+use crate::cli::common::{
+    ContentTypeArg, SideArg, clamp_title, count_label, read_body_input, wire_label,
+};
 use crate::cli::output;
 
 #[derive(Debug, Args)]
@@ -170,11 +172,58 @@ fn review_observation_list(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let format_explicit = args.format_args.explicit();
     let repo = args.repo.clone();
-    let result = list_observations(observation_list_options(args)?);
+    let result = list_observations(observation_list_options(args)?)?;
     let delegation_map = crate::cli::common::discover_delegation_map(&repo);
-    let document = observation_list_document(result?, delegation_map.as_ref());
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    // `observation_list_document` consumes the result by value; render the digest
+    // up front on the text lane only, so the machine lanes pay nothing extra.
+    let text = matches!(format.format, output::OutputFormat::Text)
+        .then(|| render_observation_list_text(&result));
+    let document = observation_list_document(result, delegation_map.as_ref());
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
+}
+
+/// Bespoke text lane for `observation list`: a count headline naming the
+/// revision and any active filters, then one scannable line per observation —
+/// short id, clamped title, track, status, confidence, tags. An empty listing
+/// renders a `no observations` line, never silence.
+fn render_observation_list_text(result: &ObservationListResult) -> String {
+    let mut scope = format!("on {}", output::short_ref(result.revision_id.as_str()));
+    if let Some(track_id) = &result.filters.track_id {
+        scope.push_str(&format!(" · track {}", track_id.as_str()));
+    }
+    if let Some(file) = &result.filters.file {
+        scope.push_str(&format!(" · file {file}"));
+    }
+    if !result.filters.tags.is_empty() {
+        scope.push_str(&format!(" · tags {}", result.filters.tags.join(", ")));
+    }
+    if result.observations.is_empty() {
+        return format!("no observations {scope}");
+    }
+    let mut lines = vec![format!(
+        "{} {scope}:",
+        count_label(result.observations.len(), "observation", "observations")
+    )];
+    for view in &result.observations {
+        let mut line = format!(
+            "  {} · \"{}\" · {} · {}",
+            output::short_ref(view.id.as_str()),
+            clamp_title(&view.title),
+            view.track_id.as_str(),
+            wire_label(&view.status),
+        );
+        if let Some(confidence) = &view.confidence {
+            line.push_str(&format!(" · {confidence}"));
+        }
+        if !view.tags.is_empty() {
+            line.push_str(&format!(" · tags {}", view.tags.join(", ")));
+        }
+        lines.push(line);
+    }
+    lines.join("\n")
 }
 
 fn observation_add_options(

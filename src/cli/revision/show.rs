@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::Args;
 use pointbreak::documents::revision_show_document;
-use pointbreak::model::{EventId, ReviewEndpoint, RevisionId};
+use pointbreak::model::{EventId, RevisionId};
 use pointbreak::session::event::AssertionMode;
 use pointbreak::session::{
     CurrentAssessmentStatus, EventVerificationPolicy, EventVerificationStatus, InputRequestStatus,
@@ -12,6 +12,7 @@ use pointbreak::session::{
     effective_integration_ref, enrich_liveness, show_revision,
 };
 
+use crate::cli::common::{count_label, endpoint_label};
 use crate::cli::output;
 
 /// Show the composite view of a captured revision.
@@ -205,33 +206,10 @@ fn signed_by_enrolled_key(result: &RevisionShowResult, event_id: &EventId) -> St
     }
 }
 
-/// `N noun`, singular when `count == 1`.
-fn count_label(count: usize, singular: &str, plural: &str) -> String {
-    let noun = if count == 1 { singular } else { plural };
-    format!("{count} {noun}")
-}
-
 fn mode_label(mode: AssertionMode) -> &'static str {
     match mode {
         AssertionMode::Advisory => "advisory",
         AssertionMode::Operative => "operative",
-    }
-}
-
-/// Short readable label for a review endpoint, matching the capture ack's endpoint
-/// vocabulary (commit short ref vs. working tree).
-fn endpoint_label(endpoint: &ReviewEndpoint) -> String {
-    match endpoint {
-        ReviewEndpoint::GitCommit { commit_oid, .. } => {
-            format!("{} (commit)", output::short_ref(commit_oid))
-        }
-        ReviewEndpoint::GitTree { tree_oid } => {
-            format!("{} (tree)", output::short_ref(tree_oid))
-        }
-        ReviewEndpoint::GitIndex { tree_oid } => {
-            format!("{} (index)", output::short_ref(tree_oid))
-        }
-        ReviewEndpoint::GitWorkingTree { .. } => "worktree".to_owned(),
     }
 }
 

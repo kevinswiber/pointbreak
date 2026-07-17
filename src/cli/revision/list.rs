@@ -10,6 +10,7 @@ use pointbreak::session::{
     revision_supersession_classification, show_revision_overviews,
 };
 
+use crate::cli::common::{count_label, endpoint_label};
 use crate::cli::output;
 
 /// List captured revisions.
@@ -130,9 +131,48 @@ pub(super) fn run(
 
     apply_revision_filter(&args.repo, args.filter.as_deref(), &mut result)?;
 
-    let document = revision_list_document(result);
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    // `revision_list_document` consumes the result by value; render the digest
+    // up front on the text lane only, so the machine lanes pay nothing extra.
+    let text = matches!(format.format, output::OutputFormat::Text)
+        .then(|| render_revision_list_text(&result));
+    let document = revision_list_document(result);
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
+}
+
+/// Bespoke text lane for `revision list`: a count headline, then one scannable
+/// line per listed row — short id, endpoints, merge status, capture time, and
+/// the member count for a grouped row. An empty listing renders a
+/// `no revisions` line, never silence.
+fn render_revision_list_text(result: &pointbreak::session::RevisionListResult) -> String {
+    if result.entries.is_empty() {
+        return "no revisions".to_owned();
+    }
+    let mut lines = vec![format!(
+        "{}:",
+        count_label(result.revision_count, "revision", "revisions")
+    )];
+    for entry in &result.entries {
+        let mut line = format!(
+            "  {} · base {} → {} · {} · {}",
+            output::short_ref(entry.revision_id.as_str()),
+            endpoint_label(&entry.base),
+            endpoint_label(&entry.target),
+            entry.merge_status,
+            entry.captured_at,
+        );
+        let members = entry.grouped_revision_ids.len();
+        if members > 1 {
+            line.push_str(&format!(
+                " · stands for {}",
+                count_label(members, "revision", "revisions")
+            ));
+        }
+        lines.push(line);
+    }
+    lines.join("\n")
 }
 
 /// Apply the review filter grammar on the revision surface, in place. A no-op

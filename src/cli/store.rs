@@ -17,8 +17,8 @@ use pointbreak::session::{
 };
 
 use crate::cli::common::{
-    SigningSkip, apply_resolved_signer, discover_trust_set, resolve_and_surface_signer,
-    surface_best_effort_skip,
+    SigningSkip, apply_resolved_signer, count_label, discover_trust_set,
+    resolve_and_surface_signer, surface_best_effort_skip,
 };
 use crate::cli::{json, output};
 
@@ -642,12 +642,6 @@ fn render_store_status_text(body: &StoreStatusBody) -> String {
     lines.join("\n")
 }
 
-/// `N noun`, singular when `count == 1`.
-fn count_label(count: usize, singular: &str, plural: &str) -> String {
-    let noun = if count == 1 { singular } else { plural };
-    format!("{count} {noun}")
-}
-
 fn mode(args: StoreModeArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
     let span = tracing::info_span!("shore.store.mode");
     let _entered = span.enter();
@@ -692,9 +686,52 @@ fn migrate(
             ),
         });
     }
-    let document = json::DiagnosticDocument::new("pointbreak.store-migrate", body, diagnostics);
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    let text = matches!(format.format, output::OutputFormat::Text)
+        .then(|| render_store_migrate_text(&body));
+    let document = json::DiagnosticDocument::new("pointbreak.store-migrate", body, diagnostics);
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
+}
+
+/// Bespoke text lane for `store migrate`: a bounded fold receipt — created vs.
+/// existing counts, the verification tally, and the conditional outcomes
+/// (empty/retired source, content-less folds, sensitivity exclusions).
+fn render_store_migrate_text(body: &StoreMigrateBody) -> String {
+    let mut lines = vec![
+        format!(
+            "folded {} ({} existing) · {} ({} existing)",
+            count_label(body.events_created, "event", "events"),
+            body.events_existing,
+            count_label(body.artifacts_created, "artifact", "artifacts"),
+            body.artifacts_existing,
+        ),
+        format!(
+            "verified {} · {}",
+            count_label(body.verified_events, "event", "events"),
+            count_label(body.verified_artifacts, "artifact", "artifacts"),
+        ),
+    ];
+    if body.source_empty {
+        lines.push("source store was empty".to_owned());
+    }
+    if body.source_retired {
+        lines.push("source store retired".to_owned());
+    }
+    if body.folded_absent_artifact_count > 0 {
+        lines.push(format!(
+            "{} absent from the source · folded without content",
+            count_label(body.folded_absent_artifact_count, "artifact", "artifacts"),
+        ));
+    }
+    if let Some(count) = body.sensitivity_excluded_path_count {
+        lines.push(format!(
+            "sensitivity: {} excluded",
+            count_label(count, "path", "paths")
+        ));
+    }
+    lines.join("\n")
 }
 
 fn link(args: StoreLinkArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
@@ -891,13 +928,48 @@ fn remove(
     }
     let result = remove_content(options)?;
     surface_best_effort_skip(&skip, stderr);
-    let document = json::DiagnosticDocument::new(
-        "pointbreak.store-remove",
-        StoreRemoveBody::from(result),
-        vec![],
-    );
+    let body = StoreRemoveBody::from(result);
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    let text = matches!(format.format, output::OutputFormat::Text)
+        .then(|| render_store_remove_text(&body));
+    let document = json::DiagnosticDocument::new("pointbreak.store-remove", body, vec![]);
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
+}
+
+/// Bespoke text lane for `store remove`: a claim-receipt headline, then one
+/// line per targeted content hash — recorded vs. already claimed, plus the
+/// co-referencing units a shared blob would also affect.
+fn render_store_remove_text(body: &StoreRemoveBody) -> String {
+    if body.removed.is_empty() {
+        return "no removal claims recorded".to_owned();
+    }
+    let mut lines = vec![format!(
+        "{} · {} created ({} existing)",
+        count_label(body.removed.len(), "removal claim", "removal claims"),
+        count_label(body.events_created, "event", "events"),
+        body.events_existing,
+    )];
+    for removed in &body.removed {
+        let mut line = format!(
+            "  {} · {}",
+            output::short_ref(&removed.content_hash),
+            if removed.created {
+                "recorded"
+            } else {
+                "already claimed"
+            },
+        );
+        if !removed.co_referencing_units.is_empty() {
+            line.push_str(&format!(
+                " · co-referenced by {}",
+                count_label(removed.co_referencing_units.len(), "unit", "units")
+            ));
+        }
+        lines.push(line);
+    }
+    lines.join("\n")
 }
 
 fn compact(
@@ -961,13 +1033,64 @@ fn compact(
         }
     }
 
-    let document = json::DiagnosticDocument::new(
-        "pointbreak.store-compact",
-        StoreCompactBody::from(result),
-        diagnostics,
-    );
+    let body = StoreCompactBody::from(result);
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    let text = matches!(format.format, output::OutputFormat::Text)
+        .then(|| render_store_compact_text(&body, args.dry_run));
+    let document = json::DiagnosticDocument::new("pointbreak.store-compact", body, diagnostics);
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
+}
+
+/// Bespoke text lane for `store compact` (and its `gc` alias): a one-line
+/// erasure receipt. A performing run reports what was erased and reclaimed; an
+/// explicit `--dry-run` previews; a bare run previews and points at `--yes`
+/// (the consent gate). Withheld blobs surface as bounded clauses.
+fn render_store_compact_text(body: &StoreCompactBody, explicit_dry_run: bool) -> String {
+    let erased = body
+        .swept
+        .iter()
+        .filter(|blob| blob.outcome == "removed")
+        .count();
+    let mismatched = body
+        .swept
+        .iter()
+        .filter(|blob| blob.outcome == "hash_mismatch_skipped")
+        .count();
+    let mut clauses = Vec::new();
+    if body.dry_run {
+        clauses.push(format!(
+            "{} would be erased",
+            count_label(erased, "blob", "blobs")
+        ));
+    } else {
+        clauses.push(format!("erased {}", count_label(erased, "blob", "blobs")));
+        clauses.push(format!(
+            "reclaimed {}",
+            output::format_bytes(body.bytes_reclaimed)
+        ));
+    }
+    if mismatched > 0 {
+        clauses.push(format!(
+            "{} withheld (hash mismatch)",
+            count_label(mismatched, "blob", "blobs")
+        ));
+    }
+    if !body.skipped_ineligible.is_empty() {
+        clauses.push(format!(
+            "{} not erase-eligible",
+            count_label(body.skipped_ineligible.len(), "removal", "removals")
+        ));
+    }
+    let line = clauses.join(" · ");
+    if body.dry_run && explicit_dry_run {
+        format!("dry run: {line}")
+    } else if body.dry_run {
+        format!("{line} · re-run with --yes to erase (--dry-run previews)")
+    } else {
+        line
+    }
 }
 
 /// Map a skipped removal's reason to its public `removal_claim_*` code, matching

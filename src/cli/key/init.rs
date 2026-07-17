@@ -39,7 +39,22 @@ pub(super) fn run(
         did_key: handle.signer_id().as_str().to_owned(),
         path: handle.private_key_path().to_owned(),
     };
-    let document = json::DiagnosticDocument::new("pointbreak.key-init", body, vec![]);
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    let text =
+        matches!(format.format, output::OutputFormat::Text).then(|| render_key_init_text(&body));
+    let document = json::DiagnosticDocument::new("pointbreak.key-init", body, vec![]);
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
+}
+
+/// Bespoke text lane for `key init`: a one-line receipt naming the new key, its
+/// did:key, and where the seed landed.
+fn render_key_init_text(body: &InitBody) -> String {
+    format!(
+        "created key \"{}\" · {} · {}",
+        body.name,
+        body.did_key,
+        body.path.display()
+    )
 }

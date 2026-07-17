@@ -3,12 +3,13 @@ use std::path::PathBuf;
 
 use clap::Args;
 use pointbreak::documents::capture_document;
-use pointbreak::model::{ReviewEndpoint, RevisionId};
+use pointbreak::model::RevisionId;
 use pointbreak::session::{
     CaptureOptions, CaptureResult, CommitRangeSpec, RootCommitSpec, StagedSpec, UnstagedSpec,
     WorktreeSpec, capture_review,
 };
 
+use crate::cli::common::endpoint_label;
 use crate::cli::output;
 use crate::cli_tracing::TracingArgs;
 
@@ -163,23 +164,6 @@ fn render_capture_text(result: &CaptureResult) -> String {
         ),
     ]
     .join("\n")
-}
-
-/// Short readable label for a capture endpoint, matching the document's endpoint
-/// vocabulary (commit vs. working tree).
-fn endpoint_label(endpoint: &ReviewEndpoint) -> String {
-    match endpoint {
-        ReviewEndpoint::GitCommit { commit_oid, .. } => {
-            format!("{} (commit)", output::short_ref(commit_oid))
-        }
-        ReviewEndpoint::GitTree { tree_oid } => {
-            format!("{} (tree)", output::short_ref(tree_oid))
-        }
-        ReviewEndpoint::GitIndex { tree_oid } => {
-            format!("{} (index)", output::short_ref(tree_oid))
-        }
-        ReviewEndpoint::GitWorkingTree { .. } => "worktree".to_owned(),
-    }
 }
 
 fn capture_options(

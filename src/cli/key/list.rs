@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use clap::Args;
 use pointbreak::keys::{KeyCustody, agent_has_key, list_keys};
 
-use crate::cli::common::discover_trust_set;
+use crate::cli::common::{count_label, discover_trust_set};
 use crate::cli::{json, output};
 
 #[derive(Debug, Args)]
@@ -70,7 +70,43 @@ pub(super) fn run(
             }
         })
         .collect();
-    let document = json::DiagnosticDocument::new("pointbreak.key-list", ListBody { keys }, vec![]);
+    let body = ListBody { keys };
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    let text =
+        matches!(format.format, output::OutputFormat::Text).then(|| render_key_list_text(&body));
+    let document = json::DiagnosticDocument::new("pointbreak.key-list", body, vec![]);
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
+}
+
+/// Bespoke text lane for `key list`: a count headline, then one line per key —
+/// name, did:key, enrollment under the repository's committed trust, custody
+/// (with the best-effort agent probe when it answered). An empty keystore
+/// renders a `no keys` line, never silence.
+fn render_key_list_text(body: &ListBody) -> String {
+    if body.keys.is_empty() {
+        return "no keys".to_owned();
+    }
+    let mut lines = vec![format!("{}:", count_label(body.keys.len(), "key", "keys"))];
+    for key in &body.keys {
+        let mut line = format!(
+            "  {} · {} · {} · {}",
+            key.name,
+            key.did_key,
+            if key.enrolled {
+                "enrolled"
+            } else {
+                "not enrolled"
+            },
+            key.custody,
+        );
+        match key.agent_loaded {
+            Some(true) => line.push_str(" (loaded)"),
+            Some(false) => line.push_str(" (not loaded)"),
+            None => {}
+        }
+        lines.push(line);
+    }
+    lines.join("\n")
 }

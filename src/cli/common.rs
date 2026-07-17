@@ -9,7 +9,7 @@ use pointbreak::keys::{
     generate_key_in, load_key_material, load_key_material_in, load_signer, load_signer_from_path,
     load_signer_in, preflight_ssh_agent_signer,
 };
-use pointbreak::model::{ActorId, Side};
+use pointbreak::model::{ActorId, ReviewEndpoint, Side};
 use pointbreak::session::{
     ActorAttributesMap, AssessmentAddOptions, AssociateCommitOptions, AssociateRefOptions,
     BestEffortSkipSink, BodyContentType, CaptureOptions, CurrentAssessmentStatus, DelegationMap,
@@ -32,6 +32,40 @@ pub(crate) fn clamp_title(title: &str) -> String {
     }
     let clamped: String = flattened.chars().take(MAX - 1).collect();
     format!("{clamped}…")
+}
+
+/// `N noun`, singular when `count == 1`. Shared by the text digests.
+pub(crate) fn count_label(count: usize, singular: &str, plural: &str) -> String {
+    let noun = if count == 1 { singular } else { plural };
+    format!("{count} {noun}")
+}
+
+/// Short readable label for a review endpoint, matching the capture ack's
+/// endpoint vocabulary (commit short ref vs. working tree). Shared by the
+/// capture, revision-show, and revision-list digests.
+pub(crate) fn endpoint_label(endpoint: &ReviewEndpoint) -> String {
+    match endpoint {
+        ReviewEndpoint::GitCommit { commit_oid, .. } => {
+            format!("{} (commit)", crate::cli::output::short_ref(commit_oid))
+        }
+        ReviewEndpoint::GitTree { tree_oid } => {
+            format!("{} (tree)", crate::cli::output::short_ref(tree_oid))
+        }
+        ReviewEndpoint::GitIndex { tree_oid } => {
+            format!("{} (index)", crate::cli::output::short_ref(tree_oid))
+        }
+        ReviewEndpoint::GitWorkingTree { .. } => "worktree".to_owned(),
+    }
+}
+
+/// The snake_case wire spelling of a simple serde enum, for disposable text
+/// labels (INV-3) — `Approved` → `approved`, `ManualDecisionRequired` →
+/// `manual_decision_required`.
+pub(crate) fn wire_label<T: serde::Serialize>(value: &T) -> String {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_default()
 }
 
 /// The inspector's current-assessment header line (`detail.ts:250`), shared by

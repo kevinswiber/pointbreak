@@ -890,3 +890,63 @@ where
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn text_revision_list_digest_is_one_line_per_revision() {
+    let repo = modified_repo();
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+
+    let output = pointbreak([
+        "revision",
+        "list",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--format",
+        "text",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("1 revision"), "count headline: {stdout}");
+    assert!(stdout.contains("rev:"), "short revision id: {stdout}");
+    assert!(stdout.contains("worktree"), "target endpoint: {stdout}");
+    assert_eq!(
+        stdout.trim_end().lines().count(),
+        2,
+        "header plus one line per revision: {stdout}"
+    );
+}
+
+#[test]
+fn text_revision_list_digest_reports_an_empty_store() {
+    let repo = modified_repo();
+
+    let output = pointbreak([
+        "revision",
+        "list",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--format",
+        "text",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("no revisions"), "empty line: {stdout}");
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+}

@@ -304,3 +304,41 @@ fn store_migrate_refuses_ephemeral_without_include_ephemeral() {
         String::from_utf8_lossy(&forced.stderr)
     );
 }
+
+#[test]
+fn text_store_migrate_digest_reports_fold_receipt() {
+    let repo = repo_with_pending_change();
+    let path = repo.path().to_str().unwrap();
+
+    // Same seeding as the fold test: capture into an ephemeral worktree-local
+    // store, then flip back to shared so migrate has a source to fold.
+    assert!(
+        pointbreak(["store", "mode", "ephemeral", "--repo", path])
+            .status
+            .success()
+    );
+    assert!(pointbreak(["capture", "--repo", path]).status.success());
+    assert!(
+        pointbreak(["store", "mode", "shared", "--repo", path])
+            .status
+            .success()
+    );
+
+    let output = pointbreak(["store", "migrate", "--repo", path, "--format", "text"]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("folded"), "fold receipt verb: {stdout}");
+    assert!(stdout.contains("events"), "event counts: {stdout}");
+    assert!(stdout.contains("artifact"), "artifact counts: {stdout}");
+    assert!(stdout.contains("verified"), "verification line: {stdout}");
+    assert!(stdout.lines().count() <= 6, "digest is bounded: {stdout}");
+}

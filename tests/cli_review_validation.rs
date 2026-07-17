@@ -255,3 +255,89 @@ fn modified_repo() -> GitRepo {
     repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
     repo
 }
+
+#[test]
+fn text_validation_list_digest_lists_checks_one_line_each() {
+    let repo = modified_repo();
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let add = pointbreak([
+        "validation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "human:kevin",
+        "--check-name",
+        "unit-tests",
+        "--status",
+        "passed",
+    ]);
+    assert!(
+        add.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+
+    let output = pointbreak([
+        "validation",
+        "list",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--format",
+        "text",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(
+        stdout.contains("1 validation check"),
+        "count headline: {stdout}"
+    );
+    assert!(stdout.contains("validation:"), "short check id: {stdout}");
+    assert!(stdout.contains("unit-tests"), "check name: {stdout}");
+    assert!(stdout.contains("passed"), "status: {stdout}");
+    assert!(stdout.contains("manual"), "trigger: {stdout}");
+    assert_eq!(
+        stdout.trim_end().lines().count(),
+        2,
+        "header plus one line per check: {stdout}"
+    );
+}
+
+#[test]
+fn text_validation_list_digest_reports_empty() {
+    let repo = modified_repo();
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+
+    let output = pointbreak([
+        "validation",
+        "list",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--format",
+        "text",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("no validation checks"),
+        "empty line, never silence: {stdout}"
+    );
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+}

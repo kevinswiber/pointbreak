@@ -59,7 +59,24 @@ pub(super) fn run(
         did_key,
         public_key,
     };
-    let document = json::DiagnosticDocument::new("pointbreak.key-show", body, vec![]);
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    let text =
+        matches!(format.format, output::OutputFormat::Text).then(|| render_key_show_text(&body));
+    let document = json::DiagnosticDocument::new("pointbreak.key-show", body, vec![]);
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
+}
+
+/// Bespoke text lane for `key show`: the key name plus whichever identity
+/// fields the flags selected, on one line.
+fn render_key_show_text(body: &ShowBody) -> String {
+    let mut parts = vec![body.name.clone()];
+    if let Some(did_key) = &body.did_key {
+        parts.push(did_key.clone());
+    }
+    if let Some(public_key) = &body.public_key {
+        parts.push(format!("pubkey {public_key}"));
+    }
+    parts.join(" · ")
 }

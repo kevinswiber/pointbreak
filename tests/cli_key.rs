@@ -1384,3 +1384,237 @@ fn keys_family_is_retired() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+#[test]
+fn text_key_list_digest_reports_enrollment_and_custody() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
+    let _ = pointbreak_env(["key", "init", "--name", "default"], &env);
+    let _ = pointbreak_env(["key", "init", "--name", "work"], &env);
+
+    let repo = support::git_repo::GitRepo::new();
+    let out = pointbreak_env(
+        [
+            "key",
+            "list",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--format",
+            "text",
+        ],
+        &env,
+    );
+    assert!(
+        out.status.success(),
+        "list stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("2 keys"), "count headline: {stdout}");
+    assert!(stdout.contains("default"), "key name: {stdout}");
+    assert!(stdout.contains("did:key:z"), "signer identity: {stdout}");
+    assert!(
+        stdout.contains("not enrolled"),
+        "enrollment glance: {stdout}"
+    );
+    assert!(stdout.contains("file"), "custody: {stdout}");
+    assert_eq!(
+        stdout.trim_end().lines().count(),
+        3,
+        "header plus one line per key: {stdout}"
+    );
+}
+
+#[test]
+fn text_key_list_digest_reports_empty_keystore() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
+    let repo = support::git_repo::GitRepo::new();
+    let out = pointbreak_env(
+        [
+            "key",
+            "list",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--format",
+            "text",
+        ],
+        &env,
+    );
+    assert!(out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("no keys"), "empty line: {stdout}");
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+}
+
+#[test]
+fn text_key_init_digest_is_a_one_line_receipt() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let out = pointbreak_env(
+        ["key", "init", "--name", "default", "--format", "text"],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
+    );
+    assert!(
+        out.status.success(),
+        "init stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("created key"), "receipt verb: {stdout}");
+    assert!(stdout.contains("default"), "key name: {stdout}");
+    assert!(stdout.contains("did:key:z"), "signer identity: {stdout}");
+}
+
+#[test]
+fn text_key_show_digest_names_key_and_did() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let env = [("POINTBREAK_HOME", home.path().to_str().unwrap())];
+    let _ = pointbreak_env(["key", "init", "--name", "default"], &env);
+
+    let out = pointbreak_env(["key", "show", "default", "--format", "text"], &env);
+    assert!(
+        out.status.success(),
+        "show stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("default"), "key name: {stdout}");
+    assert!(stdout.contains("did:key:z"), "did:key: {stdout}");
+}
+
+#[test]
+fn text_key_enroll_digest_reports_staged_and_already_enrolled() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let home_str = home.path().to_str().unwrap();
+    let _ = pointbreak_env(
+        ["key", "init", "--name", "default"],
+        &[("POINTBREAK_HOME", home_str)],
+    );
+    let repo = support::git_repo::GitRepo::new();
+    let env = [
+        ("POINTBREAK_HOME", home_str),
+        ("POINTBREAK_ACTOR_ID", "actor:agent:claude-code"),
+    ];
+
+    let first = pointbreak_env(
+        [
+            "key",
+            "enroll",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--format",
+            "text",
+        ],
+        &env,
+    );
+    assert!(
+        first.status.success(),
+        "enroll stderr:\n{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let stdout = String::from_utf8(first.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("did:key:z"), "signer identity: {stdout}");
+    assert!(
+        stdout.contains("actor:agent:claude-code"),
+        "enrolled actor: {stdout}"
+    );
+
+    let second = pointbreak_env(
+        [
+            "key",
+            "enroll",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--format",
+            "text",
+        ],
+        &env,
+    );
+    assert!(second.status.success());
+    let rerun = String::from_utf8(second.stdout).unwrap();
+    assert!(
+        rerun.contains("already enrolled"),
+        "idempotent re-run says so: {rerun}"
+    );
+}
+
+#[test]
+fn text_key_use_ssh_digest_is_a_one_line_receipt() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let out = pointbreak_env(
+        [
+            "key",
+            "use-ssh",
+            &ssh_ed25519_key_literal(),
+            "--name",
+            "agent-key",
+            "--format",
+            "text",
+        ],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
+    );
+    assert!(
+        out.status.success(),
+        "use-ssh stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("agent-key"), "key name: {stdout}");
+    assert!(stdout.contains("did:key:z"), "signer identity: {stdout}");
+}
+
+#[test]
+fn text_key_discover_digest_reports_no_candidates() {
+    let home = tempfile::tempdir().expect("create keystore home");
+    let repo = support::git_repo::GitRepo::new();
+    mask_git_signing_config(&repo);
+
+    let out = pointbreak_env(
+        [
+            "key",
+            "discover",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--format",
+            "text",
+        ],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
+    );
+    assert!(
+        out.status.success(),
+        "discover stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(
+        stdout.contains("no enrollment candidates"),
+        "empty line, never silence: {stdout}"
+    );
+}

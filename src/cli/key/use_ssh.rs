@@ -64,9 +64,13 @@ pub(super) fn run(
         did_key: handle.signer_id().as_str().to_owned(),
         path: handle.private_key_path().to_owned(),
     };
-    let document = json::DiagnosticDocument::new("pointbreak.key-use-ssh", body, vec![]);
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)?;
+    let text =
+        matches!(format.format, output::OutputFormat::Text).then(|| render_key_use_ssh_text(&body));
+    let document = json::DiagnosticDocument::new("pointbreak.key-use-ssh", body, vec![]);
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })?;
 
     // Enrollment hint on stderr (the JSON document is the machine-readable stdout
     // contract; this is human guidance), mirroring the agent-keygen notice.
@@ -76,4 +80,10 @@ pub(super) fn run(
         handle.signer_id().as_str()
     );
     Ok(())
+}
+
+/// Bespoke text lane for `key use-ssh`: a one-line receipt naming the
+/// agent-backed key and its did:key.
+fn render_key_use_ssh_text(body: &UseSshBody) -> String {
+    format!("adopted SSH key \"{}\" · {}", body.name, body.did_key)
 }
