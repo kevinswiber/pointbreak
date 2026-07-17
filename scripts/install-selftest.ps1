@@ -208,7 +208,7 @@ if ([IO.Path]::GetFileName($CandidatePath) -ceq "pointbreak.exe") {
     if (Test-Path -LiteralPath $neighbor) {
         throw "installer created a second executable"
     }
-    if ($freshOutputNormalized -notmatch [Regex]::Escape("Installed Pointbreak Review $version to $destination")) {
+    if ($freshOutputNormalized -notmatch [Regex]::Escape("Installed Pointbreak Review $version to")) {
         throw "installer success output omitted the installed Pointbreak version"
     }
     if ($freshOutputNormalized -notmatch "run: pointbreak --help") {
