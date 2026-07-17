@@ -3,6 +3,67 @@
 Release entries are managed with Cocogitto.
 
 - - -
+## [v0.7.0](https://github.com/withpointbreak/pointbreak/compare/a13d270b6a5788c898587286f6bb17b4a36d73f8..v0.7.0) - 2026-07-17
+#### Features
+- rebuild the VS Code bundle for pointbreak - ([34fbe8b](https://github.com/withpointbreak/pointbreak/commit/34fbe8b9861bfc947d5c77892e75e71479fd93cb)) - [@kevinswiber](https://github.com/kevinswiber)
+- install pointbreak atomically - ([f650a1d](https://github.com/withpointbreak/pointbreak/commit/f650a1dbf814cab1853f455dc3cc487e9fc545c0)) - [@kevinswiber](https://github.com/kevinswiber)
+- package pointbreak release artifacts - ([25a28b8](https://github.com/withpointbreak/pointbreak/commit/25a28b8f19a3743b70d4cfc249ecfcde2bc313b8)) - [@kevinswiber](https://github.com/kevinswiber)
+- make pointbreak the sole native executable - ([c68a058](https://github.com/withpointbreak/pointbreak/commit/c68a058e717ef594961e8fd2770f166172450602)) - [@kevinswiber](https://github.com/kevinswiber)
+- centralize runtime naming authority - ([7599fa5](https://github.com/withpointbreak/pointbreak/commit/7599fa57f22cc555dfe685e8e8882b955653227c)) - [@kevinswiber](https://github.com/kevinswiber)
+- add VS Code task validation workflow - ([b767f0d](https://github.com/withpointbreak/pointbreak/commit/b767f0d7c1b2d8c7496eea3bb547d8cea8548290)) - [@kevinswiber](https://github.com/kevinswiber)
+- add Problems observation workflow - ([b8c65dc](https://github.com/withpointbreak/pointbreak/commit/b8c65dcc70e145b4899cda3c1069ec508558c926)) - [@kevinswiber](https://github.com/kevinswiber)
+- add attention judgment actions - ([b5a663e](https://github.com/withpointbreak/pointbreak/commit/b5a663e560c22f688e2600495a6af703b88fae5a)) - [@kevinswiber](https://github.com/kevinswiber)
+- add exact revision and identity contracts - ([0fe0ac2](https://github.com/withpointbreak/pointbreak/commit/0fe0ac2f7648f2c02e42852892665d986025e133)) - [@kevinswiber](https://github.com/kevinswiber)
+- add release installers - ([93a907a](https://github.com/withpointbreak/pointbreak/commit/93a907aa09dda3bd866df1fac3e25ac460993d5c)) - [@kevinswiber](https://github.com/kevinswiber)
+- refresh active reviews from freshness markers - ([194e8dc](https://github.com/withpointbreak/pointbreak/commit/194e8dc36a27730f2a22bfda93941a8e9128e5d2)) - [@kevinswiber](https://github.com/kevinswiber)
+- organize inspector controls into disclosures - ([0aa26a8](https://github.com/withpointbreak/pointbreak/commit/0aa26a8911c07294d10c728cd6068dc53ecfa34b)) - [@kevinswiber](https://github.com/kevinswiber)
+- add source mapping and observation flow - ([0d3e211](https://github.com/withpointbreak/pointbreak/commit/0d3e211ef1de20816f1157463fc6736618e7f922)) - [@kevinswiber](https://github.com/kevinswiber)
+- add the annotated diff panel - ([460c8e7](https://github.com/withpointbreak/pointbreak/commit/460c8e76a4ef75efef3f0b6b9fa1d679cd5fa486)) - [@kevinswiber](https://github.com/kevinswiber)
+- add renderer webview bundle - ([55aa5c3](https://github.com/withpointbreak/pointbreak/commit/55aa5c3115d324406c13264a8b50b63d3d6ec182)) - [@kevinswiber](https://github.com/kevinswiber)
+- add authenticated inspect diff data source - ([b06236c](https://github.com/withpointbreak/pointbreak/commit/b06236c14db36fbf3efe902b73226de83434b7b0)) - [@kevinswiber](https://github.com/kevinswiber)
+- add window-owned inspect connection manager - ([e5a97ec](https://github.com/withpointbreak/pointbreak/commit/e5a97ec04f5b3854da55db28e366adc79ac15759)) - [@kevinswiber](https://github.com/kevinswiber)
+- add timeline follow mode with stream position controls - ([5d2e259](https://github.com/withpointbreak/pointbreak/commit/5d2e2599d419fe8cdbdb5d7ea5cc7effefcf788b)) - [@kevinswiber](https://github.com/kevinswiber)
+- converge history windowing onto one pipeline and add --tail - ([cba3ae3](https://github.com/withpointbreak/pointbreak/commit/cba3ae383560a7424872be4b84078fb31a149d58)) - [@kevinswiber](https://github.com/kevinswiber)
+- authenticate all inspect surfaces - ([fe4e2a9](https://github.com/withpointbreak/pointbreak/commit/fe4e2a91a2a027e3e1b39aac674786ad960f14ae)) - [@kevinswiber](https://github.com/kevinswiber)
+- add authenticated inspect contracts - ([83eb9ac](https://github.com/withpointbreak/pointbreak/commit/83eb9ac4437be78662762dcec7f7491592a176f2)) - [@kevinswiber](https://github.com/kevinswiber)
+- extend density to cards and medium-tier field visibility - ([36283df](https://github.com/withpointbreak/pointbreak/commit/36283dfffdf0b67e9b88893358826311125619d9)) - [@kevinswiber](https://github.com/kevinswiber)
+- add a filter-aware new-event count since a history cursor - ([c2dc312](https://github.com/withpointbreak/pointbreak/commit/c2dc3129ed45adf540b029a7a927dc7fe606ca46)) - [@kevinswiber](https://github.com/kevinswiber)
+- restore VS Code Review servers per workspace - ([5ece74c](https://github.com/withpointbreak/pointbreak/commit/5ece74cb1c989fad6bc4f09e8fae6deabb909662)) - [@kevinswiber](https://github.com/kevinswiber)
+- add search autocomplete backed by store-wide distinct values - ([1212442](https://github.com/withpointbreak/pointbreak/commit/121244272da4e9a9c121cc4721dd96aaedf93bfa)) - [@kevinswiber](https://github.com/kevinswiber)
+- add VS Code review workflows - ([3094c4d](https://github.com/withpointbreak/pointbreak/commit/3094c4d3ac9d0ca62047b69f7783e8b67322c5ce)) - [@kevinswiber](https://github.com/kevinswiber)
+- replace the diff nav filter buttons with a file-search query grammar - ([467975b](https://github.com/withpointbreak/pointbreak/commit/467975b6ecca0ca2c1831172edc8e2c1ce220a22)) - [@kevinswiber](https://github.com/kevinswiber)
+- add a filter grammar flag to the history and revision list CLIs - ([ac47e26](https://github.com/withpointbreak/pointbreak/commit/ac47e2682af041e4350b632e9b98f31bfbc9bbf0)) - [@kevinswiber](https://github.com/kevinswiber)
+- add applied-filter chips and collapse the type pills into a facet menu - ([6598690](https://github.com/withpointbreak/pointbreak/commit/6598690b8d1f01ac064c24bf0971719a37b7cf98)) - [@kevinswiber](https://github.com/kevinswiber)
+- extend the filter grammar to revision records in both runtimes - ([7f1ee7f](https://github.com/withpointbreak/pointbreak/commit/7f1ee7f81678fdfabd6029c8917d91dcced61781)) - [@kevinswiber](https://github.com/kevinswiber)
+- add VS Code extension foundation - ([8e3ac3d](https://github.com/withpointbreak/pointbreak/commit/8e3ac3dbe10767cf5ab2dbc67338d3c1ae81d5a1)) - [@kevinswiber](https://github.com/kevinswiber)
+- add CLI version handshake and store identities - ([4607e40](https://github.com/withpointbreak/pointbreak/commit/4607e40e17b518e9a8c29d4d612dafad9ead9e02)) - [@kevinswiber](https://github.com/kevinswiber)
+- split the track lane from the writer actor across record and inspector - ([2a0d077](https://github.com/withpointbreak/pointbreak/commit/2a0d077282e3f97236449b581296ed257e390461)) - [@kevinswiber](https://github.com/kevinswiber)
+#### Bug Fixes
+- preserve revisions with unavailable snapshots - ([a1fb9b0](https://github.com/withpointbreak/pointbreak/commit/a1fb9b025d3b353e2525606d5c339c603049814a)) - [@kevinswiber](https://github.com/kevinswiber)
+- keep recorded revisions visible - ([302d777](https://github.com/withpointbreak/pointbreak/commit/302d7773301ae28b402d9479bfa66991080a5880)) - [@kevinswiber](https://github.com/kevinswiber)
+- resolve ambiguous assessments explicitly - ([ce63816](https://github.com/withpointbreak/pointbreak/commit/ce63816c4a03aabe1fe1bd6ea64d895ef0cc11ea)) - [@kevinswiber](https://github.com/kevinswiber)
+- generate changelog links for canonical repository (#535) - ([f51a68c](https://github.com/withpointbreak/pointbreak/commit/f51a68ceb3d52a2a3ca35bc839eb6435ed85e457)) - [@kevinswiber](https://github.com/kevinswiber)
+- preserve modified VS Code shortcuts - ([f76a17c](https://github.com/withpointbreak/pointbreak/commit/f76a17c973826d3282d8008743cfd659cc3d8dda)) - [@kevinswiber](https://github.com/kevinswiber)
+- remove capability from navigation timing - ([d68dd46](https://github.com/withpointbreak/pointbreak/commit/d68dd4650976176660ad12eea12c37cd9e6b9c92)) - [@kevinswiber](https://github.com/kevinswiber)
+- handle review shortcuts from document focus (#530) - ([f0bea54](https://github.com/withpointbreak/pointbreak/commit/f0bea543623d86c96967a9b1cb890ede8d6eaaf9)) - [@kevinswiber](https://github.com/kevinswiber)
+- submit reconnect token with Enter - ([f57b2af](https://github.com/withpointbreak/pointbreak/commit/f57b2afbf9f17de153f25de2463b812f5d9699de)) - [@kevinswiber](https://github.com/kevinswiber)
+- keep visible review refreshes current - ([f3c5365](https://github.com/withpointbreak/pointbreak/commit/f3c53655cad66828f9572cf8c672dc8f0ca45d0c)) - [@kevinswiber](https://github.com/kevinswiber)
+- distinguish annotated diff tab titles - ([03b857e](https://github.com/withpointbreak/pointbreak/commit/03b857ebb56eeb6ce6021b727370ab15e41f6c6e)) - [@kevinswiber](https://github.com/kevinswiber)
+- key annotated diff tabs by revision - ([3daef63](https://github.com/withpointbreak/pointbreak/commit/3daef63d1db8d4a42f7ba3050e4c9a80ad6bc7d5)) - [@kevinswiber](https://github.com/kevinswiber)
+- keep timeline following during scrollback - ([a52c425](https://github.com/withpointbreak/pointbreak/commit/a52c42511e965aeb51e8815656cbcb3e9766076e)) - [@kevinswiber](https://github.com/kevinswiber)
+- emit new/deleted file mode metadata in shore diff output - ([bfe5779](https://github.com/withpointbreak/pointbreak/commit/bfe577965d98d07db2dc248ecf4d554d75b826a5)) - [@kevinswiber](https://github.com/kevinswiber)
+- keep a parked timeline window across freshness reloads - ([72f471e](https://github.com/withpointbreak/pointbreak/commit/72f471ea0d159bffefd1d8f0a9fd3900d001ef0d)) - [@kevinswiber](https://github.com/kevinswiber)
+- mask producer versions in fixture normalizers - ([a13d270](https://github.com/withpointbreak/pointbreak/commit/a13d270b6a5788c898587286f6bb17b4a36d73f8)) - [@kevinswiber](https://github.com/kevinswiber)
+#### Documentation
+- align binding guidance with resolver - ([63bbebe](https://github.com/withpointbreak/pointbreak/commit/63bbebe94e6b8272deb21f6d056ef3452fdaa830)) - [@kevinswiber](https://github.com/kevinswiber)
+- teach the pointbreak hard cutover - ([eb7dcd8](https://github.com/withpointbreak/pointbreak/commit/eb7dcd8b69b8b977007994823bfff66c19f37726)) - [@kevinswiber](https://github.com/kevinswiber)
+- remove stale README positioning - ([5b23396](https://github.com/withpointbreak/pointbreak/commit/5b23396db77abd95b91ee31ae2a0684082c6926b)) - [@kevinswiber](https://github.com/kevinswiber)
+- add durable decision positioning - ([c81fced](https://github.com/withpointbreak/pointbreak/commit/c81fceda3befa4f32dc6626d0ce2abb960897df2)) - [@kevinswiber](https://github.com/kevinswiber)
+- move updated screenshots to the readme path locations - ([89d97d8](https://github.com/withpointbreak/pointbreak/commit/89d97d899b413dd2c1fb32e6e3e80497d5dff3b4)) - [@kevinswiber](https://github.com/kevinswiber)
+- update readme screenshots - ([7131fc1](https://github.com/withpointbreak/pointbreak/commit/7131fc1112695b84d0b214a19e45025c6729b30c)) - [@kevinswiber](https://github.com/kevinswiber)
+
+- - -
+
 ## [v0.6.0](https://github.com/kevinswiber/pointbreak/compare/c9de74a7ae9479de9e4d8e8c51e3d1a915f31fb7..v0.6.0) - 2026-07-12
 #### Features
 - add the surface-aware filter grammar core in both runtimes - ([a9f9780](https://github.com/kevinswiber/pointbreak/commit/a9f9780759d6d372f21d1e89ac0fcdfbdc82753e)) - [@kevinswiber](https://github.com/kevinswiber)

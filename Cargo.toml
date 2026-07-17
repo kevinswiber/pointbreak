@@ -1,6 +1,6 @@
 [package]
 name = "pointbreak"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 description = "Durable terminal code review for changes humans and coding agents collaborate on together"
 rust-version = "1.95"
