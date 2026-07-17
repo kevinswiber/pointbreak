@@ -372,8 +372,17 @@ fn review_input_request_respond(
     let document = input_request_respond_document(result);
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
     output::write_document(stdout, format, &document, || {
-        render_input_request_respond_text(&text_source)
+        respond_receipt_text(&text_source)
     })
+}
+
+/// The full respond receipt for the text lane: the rendered confirmation plus
+/// one `advisory:` line per projection diagnostic the write document carries.
+fn respond_receipt_text(result: &InputRequestRespondResult) -> String {
+    crate::cli::common::with_advisory_lines(
+        render_input_request_respond_text(result),
+        &result.diagnostics,
+    )
 }
 
 /// Bespoke text lane for `input-request list` (INV-5): a header naming the
@@ -612,5 +621,47 @@ impl From<InputRequestOutcomeArg> for InputRequestResponseOutcome {
             InputRequestOutcomeArg::Superseded => InputRequestResponseOutcome::Superseded,
             InputRequestOutcomeArg::Abandoned => InputRequestResponseOutcome::Abandoned,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use pointbreak::model::{EventId, InputRequestId, InputRequestResponseId};
+    use pointbreak::session::ProjectionDiagnostic;
+    use pointbreak::session::event::InputRequestResponseOutcome;
+
+    use super::*;
+
+    /// The respond receipt must not silently drop what the JSON write document
+    /// carries: every projection diagnostic surfaces as an `advisory:` line.
+    #[test]
+    fn respond_receipt_surfaces_projection_diagnostics() {
+        let result = InputRequestRespondResult {
+            input_request_id: InputRequestId::new(format!(
+                "input-request:sha256:{}",
+                "ab".repeat(32)
+            )),
+            input_request_response_id: InputRequestResponseId::new(format!(
+                "input-request-response:sha256:{}",
+                "ab".repeat(32)
+            )),
+            event_id: EventId::new(format!("evt:sha256:{}", "ab".repeat(32))),
+            outcome: InputRequestResponseOutcome::Approved,
+            reason_content_hash: None,
+            events_created: 1,
+            events_existing: 0,
+            events_created_by_type: BTreeMap::new(),
+            diagnostics: vec![ProjectionDiagnostic {
+                code: "example_projection_diagnostic".to_owned(),
+                message: "a standing store condition worth a human glance".to_owned(),
+            }],
+        };
+        let receipt = respond_receipt_text(&result);
+        assert!(
+            receipt.contains("advisory: a standing store condition"),
+            "diagnostics surface on the receipt: {receipt}"
+        );
     }
 }

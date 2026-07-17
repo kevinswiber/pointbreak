@@ -111,8 +111,14 @@ pub(super) fn run(
     let document = capture_document(capture);
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
     output::write_document(stdout, format, &document, || {
-        render_capture_text(&text_source)
+        capture_receipt_text(&text_source)
     })
+}
+
+/// The full capture receipt for the text lane: the rendered ack plus one
+/// `advisory:` line per projection diagnostic the write document carries.
+fn capture_receipt_text(result: &CaptureResult) -> String {
+    crate::cli::common::with_advisory_lines(render_capture_text(result), &result.diagnostics)
 }
 
 /// Text capture ack: a few-line confirmation shaped on the inspector's
@@ -237,4 +243,55 @@ fn unstaged_spec(args: &CaptureArgs) -> UnstagedSpec {
         unstaged = unstaged.with_include_untracked();
     }
     unstaged
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use pointbreak::model::{
+        EngagementId, JournalId, ObjectId, ReviewEndpoint, RevisionId, RevisionSource,
+        WorktreeCaptureMode,
+    };
+    use pointbreak::session::{CaptureDiffstat, CaptureResult, ProjectionDiagnostic};
+
+    use super::*;
+
+    /// The capture receipt must not silently drop what the JSON write document
+    /// carries: every projection diagnostic surfaces as an `advisory:` line.
+    #[test]
+    fn capture_receipt_surfaces_projection_diagnostics() {
+        let result = CaptureResult {
+            journal_id: JournalId::new("journal:default"),
+            revision_id: RevisionId::new(format!("rev:sha256:{}", "ab".repeat(32))),
+            object_id: ObjectId::new(format!("obj:sha256:{}", "ab".repeat(32))),
+            engagement_id: EngagementId::new(format!("engagement:sha256:{}", "ab".repeat(32))),
+            source: RevisionSource::GitWorktree {
+                mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
+                include_untracked: false,
+                pathspecs: Vec::new(),
+            },
+            base: ReviewEndpoint::GitCommit {
+                commit_oid: "ab".repeat(20),
+                tree_oid: "cd".repeat(20),
+            },
+            target: ReviewEndpoint::GitWorkingTree {
+                worktree_root: "/repo".to_owned(),
+            },
+            object_artifact_content_hash: format!("sha256:{}", "ab".repeat(32)),
+            events_created: 1,
+            events_existing: 0,
+            events_created_by_type: BTreeMap::new(),
+            diagnostics: vec![ProjectionDiagnostic {
+                code: "ref_association_auto_record_skipped".to_owned(),
+                message: "capture-time ref association was not recorded: boom".to_owned(),
+            }],
+            diffstat: CaptureDiffstat::default(),
+        };
+        let receipt = capture_receipt_text(&result);
+        assert!(
+            receipt.contains("advisory: capture-time ref association was not recorded"),
+            "diagnostics surface on the receipt: {receipt}"
+        );
+    }
 }
