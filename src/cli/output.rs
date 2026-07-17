@@ -133,19 +133,17 @@ where
     Ok(())
 }
 
-/// Interim text lane for commands with no bespoke digest yet: indented JSON,
-/// plus a one-line stderr notice so the caller who asked for text learns the
-/// fallback happened instead of mistaking the JSON document for the digest.
-/// The stdout contract is unchanged; the notice is human guidance on stderr,
-/// like the key-adoption hint.
+/// Text lane for commands with no bespoke digest: indented JSON, silently and
+/// deliberately. No stderr notice accompanies the fallback — pipelines that
+/// capture stderr (`2>&1 | jq`) and scripts running under an ambient
+/// `POINTBREAK_FORMAT=text` must keep parsing cleanly, so the fallback is the
+/// documented, intended text-lane behavior until a command grows a digest
+/// (replacing it with one is not a break; the text lane is disposable).
 pub(super) fn write_document_json_fallback<T: serde::Serialize>(
     stdout: &mut dyn Write,
     format: ResolvedFormat,
     document: &T,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if matches!(format.format, OutputFormat::Text) {
-        eprintln!("pointbreak: no text digest for this command yet; showing the JSON document");
-    }
     write_document(stdout, format, document, || {
         serde_json::to_string_pretty(document).unwrap_or_default()
     })
