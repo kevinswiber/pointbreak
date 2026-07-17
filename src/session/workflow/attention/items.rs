@@ -357,10 +357,10 @@ impl ValidationRecord<'_> {
 /// accepting judgment on the revision (`assessment_subsumes_failure` — Rule B
 /// of the judgment-subsumption amendment to ADR-0019); a superseded revision
 /// does not report (staleness is the stale-assessment builder's job);
-/// `skipped` never reports and never clears. Heads-only + latest-per-check is deliberately
-/// stricter than the inspector's `failed_validation_count` rollup, which never
-/// clears — the two surfaces will converge on this projection later, not the
-/// reverse.
+/// `skipped` never reports and never clears. Heads-only plus judgment subsumption
+/// is deliberately stricter than the inspector's validation-continuity rollup:
+/// both clear on a strictly later pass, while only Attention is suppressed by a
+/// later unanimously accepting judgment.
 fn failed_validation_items(
     events: &[ShoreEvent],
     supersession: &SupersessionView,

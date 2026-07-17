@@ -219,6 +219,26 @@ fn api_unit_serves_validation_checks_and_count() {
     assert_eq!(failed["status"], "failed");
     assert_eq!(failed["exitCode"], 1);
     assert_eq!(failed["command"], "cargo clippy -- -D warnings");
+
+    let continuity = &unit["validationContinuity"];
+    assert_eq!(continuity["summary"]["outstandingFailedCount"], 1);
+    assert_eq!(continuity["summary"]["passedCount"], 1);
+    assert_eq!(
+        continuity["checks"].as_object().unwrap().len(),
+        checks.len()
+    );
+    assert_eq!(
+        continuity["checks"][failed["id"].as_str().unwrap()],
+        "outstanding"
+    );
+    let passed = checks
+        .iter()
+        .find(|c| c["checkName"] == "cargo test")
+        .expect("passed check");
+    assert_eq!(
+        continuity["checks"][passed["id"].as_str().unwrap()],
+        "current"
+    );
 }
 
 #[test]

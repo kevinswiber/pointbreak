@@ -58,6 +58,64 @@ fn withdraw(repo: &GitRepo, association_id: &str) {
     ]);
 }
 
+fn record_validation(repo: &GitRepo, revision_id: &str, status: &str, completed_at: &str) -> Value {
+    run_json(&[
+        "validation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--revision",
+        revision_id,
+        "--track",
+        "agent:test",
+        "--check-name",
+        "cargo test",
+        "--status",
+        status,
+        "--completed-at",
+        completed_at,
+    ])
+}
+
+#[test]
+fn recovered_validation_changes_effective_attention_without_rewriting_evidence() {
+    let repo = GitRepo::new();
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 1 }\n");
+    repo.commit_all("base");
+    repo.write("src/lib.rs", "pub fn value() -> u32 { 2 }\n");
+    let revision_id = capture(&repo, &[]);
+
+    let failed = record_validation(&repo, &revision_id, "failed", "2026-07-16T10:00:00Z");
+    let passed = record_validation(&repo, &revision_id, "passed", "2026-07-16T10:01:00Z");
+
+    let inspector = Inspector::spawn(repo.path());
+    let overview_payload = inspector.get_json("/api/revisions");
+    let overview = &overview_payload["entries"][0]["overview"];
+    assert_eq!(overview["attention"]["failedValidationCount"], 0);
+    assert_eq!(overview["attention"]["erroredValidationCount"], 0);
+    assert_eq!(overview["counts"]["validationChecks"], 2);
+    assert_eq!(overview["validationContinuity"]["recoveredCount"], 1);
+
+    let detail = inspector.get_json(&format!("/api/revisions/{}", urlencode(&revision_id)));
+    assert_eq!(detail["schema"], "pointbreak.review-revision");
+    assert_eq!(detail["version"], 2);
+    assert_eq!(detail["summary"]["validationCheckCount"], 2);
+    assert_eq!(detail["validationChecks"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        detail["validationContinuity"]["summary"]["recoveredCount"],
+        1
+    );
+    assert_eq!(
+        detail["validationContinuity"]["checks"][failed["validationCheckId"].as_str().unwrap()],
+        "resolved_by_later_pass"
+    );
+    assert_eq!(
+        detail["validationContinuity"]["checks"][passed["validationCheckId"].as_str().unwrap()],
+        "current"
+    );
+    assert_eq!(detail["currentAssessment"]["status"], "unassessed");
+}
+
 #[test]
 fn detail_distinguishes_floating_revision_from_anchored_capture_target() {
     let floating = GitRepo::new();

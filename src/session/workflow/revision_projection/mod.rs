@@ -41,6 +41,7 @@ mod rows;
 mod search;
 mod snapshot;
 mod summary_cache;
+mod validation_continuity;
 
 use self::identity::principal_diagnostics;
 pub use self::identity::{
@@ -61,6 +62,10 @@ use self::snapshot::{
     SnapshotContent, load_bound_object_artifact_from_backend, resolve_snapshot_content,
 };
 pub use self::summary_cache::{SnapshotSummaryCache, SnapshotSummaryCounts};
+pub use self::validation_continuity::{
+    ValidationCheckDisposition, ValidationContinuitySummary, ValidationContinuityView,
+    classify_validation_continuity,
+};
 use crate::session::projection::body_content::{BodyRemovalLens, body_content_diagnostics};
 
 /// A removal is recorded for the bound snapshot content, but its bytes are still

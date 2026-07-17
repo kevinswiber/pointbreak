@@ -360,6 +360,13 @@ fn api_units_include_additive_overview_summary() {
     assert_eq!(attention["erroredValidationCount"], 0);
     assert_eq!(attention["staleFactCount"], 0);
 
+    let validation_continuity = &overview["validationContinuity"];
+    assert_eq!(validation_continuity["outstandingFailedCount"], 1);
+    assert_eq!(validation_continuity["outstandingErroredCount"], 0);
+    assert_eq!(validation_continuity["recoveredCount"], 0);
+    assert_eq!(validation_continuity["passedCount"], 1);
+    assert_eq!(validation_continuity["skippedOnlyCount"], 0);
+
     let counts = &overview["counts"];
     assert_eq!(counts["files"], revision["summary"]["fileCount"]);
     assert_eq!(counts["rows"], revision["summary"]["rowCount"]);

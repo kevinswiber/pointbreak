@@ -57,7 +57,14 @@
           "title": "cargo clippy"
         },
         "tags": [],
-        "tracks": ["agent:codex", "human:kevin"]
+        "tracks": ["agent:codex", "human:kevin"],
+        "validationContinuity": {
+          "outstandingErroredCount": 0,
+          "outstandingFailedCount": 1,
+          "passedCount": 1,
+          "recoveredCount": 0,
+          "skippedOnlyCount": 0
+        }
       },
       "revisionId": "rev:sha256:9a7626ca7cb2801721ed992402184460210477aadfd4f7228628b65ff11a6efd",
       "snapshotContentHash": "sha256:32161336d3627d277a7a5917abe2e2694edec4f3621dbf939bf22091b40e0871",

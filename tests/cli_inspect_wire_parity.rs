@@ -36,6 +36,7 @@ use std::path::PathBuf;
 use pointbreak::session::parse_event_instant;
 use serde_json::Value;
 use support::inspect::{Inspector, representative_store, urlencode};
+use support::pointbreak;
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(concat!(
@@ -404,4 +405,60 @@ fn api_payloads_match_committed_fixtures() {
         ),
     ];
     assert_or_bless(&inspector, &fixtures);
+}
+
+#[test]
+fn shared_revision_document_stays_v2_and_excludes_private_continuity() {
+    let store = representative_store();
+    let repo = store.repo.path().to_str().unwrap();
+    let output = pointbreak([
+        "revision",
+        "show",
+        "--repo",
+        repo,
+        &store.revision_id,
+        "--include-body",
+    ]);
+    assert!(
+        output.status.success(),
+        "revision show failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let shared: Value = serde_json::from_slice(&output.stdout).expect("revision show JSON");
+
+    assert_eq!(shared["schema"], "pointbreak.review-revision");
+    assert_eq!(shared["version"], 2);
+    assert!(shared.get("validationContinuity").is_none());
+    let keys = shared
+        .as_object()
+        .expect("shared revision document is an object")
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        keys,
+        std::collections::BTreeSet::from([
+            "assessments",
+            "commitRange",
+            "currentAssessment",
+            "diagnostics",
+            "eventCount",
+            "eventSetHash",
+            "filters",
+            "inputRequests",
+            "observations",
+            "revision",
+            "rows",
+            "schema",
+            "summary",
+            "validationChecks",
+            "version",
+        ]),
+        "a shared-document addition requires an explicit schema decision"
+    );
+
+    let inspector = Inspector::spawn(store.repo.path());
+    let private = inspector.get_json(&format!("/api/revisions/{}", urlencode(&store.revision_id)));
+    assert!(private["validationContinuity"].is_object());
+    assert_eq!(private["validationChecks"], shared["validationChecks"]);
 }

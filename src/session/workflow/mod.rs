@@ -90,9 +90,10 @@ pub use revision_projection::{
     MemberReadback, RevisionOverview, RevisionOverviewsOptions, RevisionProjectionIdentity,
     RevisionProjectionRow, RevisionProjectionSummary, RevisionRecordInputs, RevisionSearchRecord,
     RevisionShowFilters, RevisionShowOptions, RevisionShowResult, SnapshotContentState,
-    SnapshotOrder, SnapshotSummaryCache, SnapshotSummaryCounts, build_revision_search_record,
-    current_assessment_includes_follow_up, show_revision, show_revision_overviews,
-    stale_review_fact_count,
+    SnapshotOrder, SnapshotSummaryCache, SnapshotSummaryCounts, ValidationCheckDisposition,
+    ValidationContinuitySummary, ValidationContinuityView, build_revision_search_record,
+    classify_validation_continuity, current_assessment_includes_follow_up, show_revision,
+    show_revision_overviews, stale_review_fact_count,
 };
 pub use store_family::{
     StoreForgetOptions, StoreForgetResult, StoreListEntry, StoreListResult, forget_family_store,

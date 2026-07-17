@@ -550,5 +550,18 @@
       }
     }
   ],
+  "validationContinuity": {
+    "checks": {
+      "validation:sha256:6eacfb816ebdc508f4ffa46e13c4df7576702ad93e36521e276f4382b5553469": "current",
+      "validation:sha256:ad56705a57d1c3904835705d2e0aa49a1dc127ae0970ce34d88507497692b743": "outstanding"
+    },
+    "summary": {
+      "outstandingErroredCount": 0,
+      "outstandingFailedCount": 1,
+      "passedCount": 1,
+      "recoveredCount": 0,
+      "skippedOnlyCount": 0
+    }
+  },
   "version": 2
 }

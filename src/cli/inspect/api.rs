@@ -16,9 +16,7 @@ use pointbreak::documents::{
     InspectFreshnessDocument, review_snapshot_document, revision_show_document,
 };
 use pointbreak::git::git_commit_subjects;
-use pointbreak::model::{
-    EventId, ObjectId, ReviewEndpoint, RevisionId, RevisionSource, ValidationStatus,
-};
+use pointbreak::model::{EventId, ObjectId, ReviewEndpoint, RevisionId, RevisionSource};
 use pointbreak::session::event::ReviewAssessment;
 use pointbreak::session::{
     AssessmentRecordStatus, AssessmentView, AttentionItem, AttentionListOptions,
@@ -28,7 +26,8 @@ use pointbreak::session::{
     ReviewHistoryEntry, RevisionCommitRangeView, RevisionListEntry, RevisionListOptions,
     RevisionOverview, RevisionOverviewsOptions, RevisionShowOptions, RevisionShowResult,
     SessionState, SnapshotSummaryCache, StoreIdentity, StoreIdentityOptions, SupersessionView,
-    TrustSet, apply_history_query, commit_graph_stamp, compare_event_instants, count_new_since,
+    TrustSet, ValidationContinuitySummary, ValidationContinuityView, apply_history_query,
+    classify_validation_continuity, commit_graph_stamp, compare_event_instants, count_new_since,
     current_assessment_includes_follow_up, default_history_page_projection,
     diagnose_ref_continuity, effective_integration_ref, enrich_liveness, event_log_head_marker,
     history_base_projection, list_attention, list_revisions, read_bound_object_artifact,
@@ -263,6 +262,7 @@ struct RevisionEntryOverviewDocument {
 struct RevisionOverviewDocument {
     current_assessment: RevisionOverviewAssessmentDocument,
     attention: RevisionAttentionDocument,
+    validation_continuity: ValidationContinuitySummary,
     counts: RevisionOverviewCounts,
     latest_activity: Option<RevisionLatestActivityDocument>,
     /// The per-revision fact-meta aggregation the client's revision search
@@ -733,6 +733,7 @@ fn revision_overview_document(
         tracks.insert(check.track_id.as_str().to_owned());
         actors.insert(check.writer.actor_id.as_str().to_owned());
     }
+    let validation_continuity = classify_validation_continuity(&result.validation_checks);
     RevisionOverviewDocument {
         current_assessment: overview_current_assessment(&result.current_assessment.status),
         attention: RevisionAttentionDocument {
@@ -750,18 +751,11 @@ fn revision_overview_document(
                 .iter()
                 .filter(|request| request.status == InputRequestStatus::Responded)
                 .count(),
-            failed_validation_count: result
-                .validation_checks
-                .iter()
-                .filter(|check| check.status == ValidationStatus::Failed)
-                .count(),
-            errored_validation_count: result
-                .validation_checks
-                .iter()
-                .filter(|check| check.status == ValidationStatus::Errored)
-                .count(),
+            failed_validation_count: validation_continuity.summary.outstanding_failed_count,
+            errored_validation_count: validation_continuity.summary.outstanding_errored_count,
             stale_fact_count: stale_review_fact_count(&result.superseded_by, summary),
         },
+        validation_continuity: validation_continuity.summary,
         counts: RevisionOverviewCounts {
             files: summary.file_count,
             rows: summary.row_count,
@@ -1726,6 +1720,19 @@ fn splice_revision_supersession(
     Ok(())
 }
 
+fn splice_validation_continuity(
+    value: &mut serde_json::Value,
+    continuity: ValidationContinuityView,
+) -> Result<(), String> {
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "validationContinuity".to_owned(),
+            serde_json::to_value(continuity).map_err(|error| error.to_string())?,
+        );
+    }
+    Ok(())
+}
+
 /// Reuses the exact `pointbreak.review-revision` document the `pointbreak revision show`
 /// command builds (`revision_show_document`), so the inspector renders the same
 /// authoritative composite — current-assessment status, duplicate-collapsed
@@ -1779,6 +1786,7 @@ pub(super) fn revision_json(repo: &Path, revision_id: &str) -> Result<String, St
     // Build the inspector-private fact graphs while `result` is still live; it is
     // moved into `revision_show_document` below.
     let fact_supersession = fact_supersession_document(&result);
+    let validation_continuity = classify_validation_continuity(&result.validation_checks);
     // The revision-level supersession component, from the same event read
     // `threads_json` performs. Advisory like the fact graphs: a read or layout
     // failure omits the block, never fails the composite page.
@@ -1795,6 +1803,7 @@ pub(super) fn revision_json(repo: &Path, revision_id: &str) -> Result<String, St
     let document = revision_show_document(result);
     let mut value = serde_json::to_value(&document).map_err(|error| error.to_string())?;
     splice_target_display(&mut value, target_display)?;
+    splice_validation_continuity(&mut value, validation_continuity)?;
     splice_fact_supersession(&mut value, fact_supersession)?;
     splice_revision_supersession(&mut value, revision_supersession)?;
 
@@ -2844,6 +2853,7 @@ mod tests {
                 errored_validation_count: 0,
                 stale_fact_count: 0,
             },
+            validation_continuity: ValidationContinuitySummary::default(),
             counts: RevisionOverviewCounts {
                 files: 1,
                 rows: 1,
