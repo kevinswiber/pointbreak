@@ -1046,7 +1046,9 @@ fn compact(
 /// Bespoke text lane for `store compact` (and its `gc` alias): a one-line
 /// erasure receipt. A performing run reports what was erased and reclaimed; an
 /// explicit `--dry-run` previews; a bare run previews and points at `--yes`
-/// (the consent gate). Withheld blobs surface as bounded clauses.
+/// (the consent gate). Every non-erased sweep outcome is accounted for as a
+/// bounded clause — already-absent blobs, hash-mismatch withholds, and
+/// not-erase-eligible removals — so the receipt never under-counts silently.
 fn render_store_compact_text(body: &StoreCompactBody, explicit_dry_run: bool) -> String {
     let erased = body
         .swept
@@ -1057,6 +1059,11 @@ fn render_store_compact_text(body: &StoreCompactBody, explicit_dry_run: bool) ->
         .swept
         .iter()
         .filter(|blob| blob.outcome == "hash_mismatch_skipped")
+        .count();
+    let missing = body
+        .swept
+        .iter()
+        .filter(|blob| blob.outcome == "missing")
         .count();
     let mut clauses = Vec::new();
     if body.dry_run {
@@ -1069,6 +1076,12 @@ fn render_store_compact_text(body: &StoreCompactBody, explicit_dry_run: bool) ->
         clauses.push(format!(
             "reclaimed {}",
             output::format_bytes(body.bytes_reclaimed)
+        ));
+    }
+    if missing > 0 {
+        clauses.push(format!(
+            "{} already absent",
+            count_label(missing, "blob", "blobs")
         ));
     }
     if mismatched > 0 {
@@ -1313,5 +1326,59 @@ impl From<SweptBlob> for SweptBlobBody {
             }
             .to_owned(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn swept(outcome: &str) -> SweptBlobBody {
+        SweptBlobBody {
+            content_hash: format!("sha256:{}", "ab".repeat(32)),
+            outcome: outcome.to_owned(),
+        }
+    }
+
+    /// Every sweep outcome is accounted for in the compact receipt — including
+    /// `missing`, which the CLI's filesystem backend cannot produce in an
+    /// integration fixture (a physically absent blob drops out of `list_refs`
+    /// before the sweep classifies it, so only a race or a non-filesystem
+    /// backend yields it).
+    #[test]
+    fn compact_receipt_accounts_for_every_sweep_outcome() {
+        let body = StoreCompactBody {
+            swept: vec![
+                swept("removed"),
+                swept("removed"),
+                swept("missing"),
+                swept("hash_mismatch_skipped"),
+            ],
+            bytes_reclaimed: 2_048,
+            dry_run: false,
+            skipped_ineligible: vec![],
+        };
+        assert_eq!(
+            render_store_compact_text(&body, false),
+            "erased 2 blobs · reclaimed 2.0 KB · 1 blob already absent · 1 blob withheld (hash mismatch)"
+        );
+    }
+
+    #[test]
+    fn compact_receipt_distinguishes_dry_run_from_consent_preview() {
+        let body = StoreCompactBody {
+            swept: vec![swept("removed"), swept("missing")],
+            bytes_reclaimed: 0,
+            dry_run: true,
+            skipped_ineligible: vec![],
+        };
+        assert_eq!(
+            render_store_compact_text(&body, true),
+            "dry run: 1 blob would be erased · 1 blob already absent"
+        );
+        assert_eq!(
+            render_store_compact_text(&body, false),
+            "1 blob would be erased · 1 blob already absent · re-run with --yes to erase (--dry-run previews)"
+        );
     }
 }
