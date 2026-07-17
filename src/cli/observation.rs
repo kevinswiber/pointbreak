@@ -166,13 +166,16 @@ fn review_observation_add(
     // Bespoke text lane: a one-line receipt naming the recorded fact. Rendered
     // before the document builder consumes the result; machine lanes pay nothing.
     let text = matches!(format.format, output::OutputFormat::Text).then(|| {
-        format!(
-            "recorded observation {} · \"{}\" · track {} · {} created ({} existing)",
-            output::short_ref(result.observation_id.as_str()),
-            clamp_title(&title),
-            result.track_id.as_str(),
-            count_label(result.events_created, "event", "events"),
-            result.events_existing,
+        crate::cli::common::with_advisory_lines(
+            format!(
+                "recorded observation {} · \"{}\" · track {} · {} created ({} existing)",
+                output::short_ref(result.observation_id.as_str()),
+                clamp_title(&title),
+                result.track_id.as_str(),
+                count_label(result.events_created, "event", "events"),
+                result.events_existing,
+            ),
+            &result.diagnostics,
         )
     });
     let document = observation_add_document(result);

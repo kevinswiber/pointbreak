@@ -1150,3 +1150,146 @@ fn text_assessment_add_receipt_names_the_call() {
     assert!(stdout.contains("rev:"), "short revision id: {stdout}");
     assert!(stdout.contains("human:kevin"), "track: {stdout}");
 }
+
+#[test]
+fn text_assessment_receipt_surfaces_competing_candidates_advisory() {
+    let repo = support::dump_repo();
+    let path = repo.path().to_str().unwrap();
+    pointbreak(["capture", "--repo", path]);
+    let first = pointbreak([
+        "assessment",
+        "add",
+        "--repo",
+        path,
+        "--track",
+        "human:kevin",
+        "--assessment",
+        "needs-changes",
+        "--summary",
+        "first pass",
+    ]);
+    assert!(
+        first.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    // A second assessment on the same revision without --replaces leaves the
+    // first standing; the JSON document already carries the competing-candidates
+    // advisory, and the text receipt must not silently drop it.
+    let second = pointbreak([
+        "assessment",
+        "add",
+        "--repo",
+        path,
+        "--track",
+        "human:kevin",
+        "--assessment",
+        "accepted",
+        "--summary",
+        "revised call",
+        "--format",
+        "text",
+    ]);
+    assert!(
+        second.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let stdout = String::from_utf8(second.stdout).unwrap();
+    assert!(
+        stdout.contains("advisory:"),
+        "diagnostics surface on the receipt: {stdout}"
+    );
+    assert!(
+        stdout.contains("--replaces"),
+        "replacement recovery named: {stdout}"
+    );
+}
+
+#[test]
+fn unlinked_accepted_with_follow_up_carries_an_advisory() {
+    let repo = support::dump_repo();
+    let path = repo.path().to_str().unwrap();
+    pointbreak(["capture", "--repo", path]);
+
+    // No open input request stands on the revision, so the follow-up label
+    // creates no durable actionable state — advisory, never blocking.
+    let unlinked = pointbreak([
+        "assessment",
+        "add",
+        "--repo",
+        path,
+        "--track",
+        "human:kevin",
+        "--assessment",
+        "accepted-with-follow-up",
+        "--summary",
+        "ship it, tidy later",
+    ]);
+    assert!(
+        unlinked.status.success(),
+        "advisory never blocks: {}",
+        String::from_utf8_lossy(&unlinked.stderr)
+    );
+    let json = parse_json(&unlinked.stdout);
+    assert!(
+        json["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "assessment_unlinked_follow_up"),
+        "unlinked follow-up advisory present: {json:#}"
+    );
+}
+
+#[test]
+fn follow_up_with_an_open_input_request_carries_no_unlinked_advisory() {
+    let repo = support::dump_repo();
+    let path = repo.path().to_str().unwrap();
+    pointbreak(["capture", "--repo", path]);
+    let open = pointbreak([
+        "input-request",
+        "open",
+        "--repo",
+        path,
+        "--track",
+        "human:kevin",
+        "--title",
+        "tidy the helper later",
+        "--reason",
+        "manual-decision-required",
+        "--mode",
+        "advisory",
+        "--body",
+        "split the cleanup?",
+    ]);
+    assert!(
+        open.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&open.stderr)
+    );
+
+    let linked = pointbreak([
+        "assessment",
+        "add",
+        "--repo",
+        path,
+        "--track",
+        "human:kevin",
+        "--assessment",
+        "accepted-with-follow-up",
+        "--summary",
+        "ship it; the open request carries the follow-up",
+    ]);
+    assert!(linked.status.success());
+    let json = parse_json(&linked.stdout);
+    assert!(
+        !json["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "assessment_unlinked_follow_up"),
+        "an open request on the revision is durable actionable state: {json:#}"
+    );
+}

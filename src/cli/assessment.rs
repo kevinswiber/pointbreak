@@ -192,12 +192,15 @@ fn review_assessment_add(
     // Bespoke text lane: a one-line receipt naming the recorded call. Rendered
     // before the document builder consumes the result; machine lanes pay nothing.
     let text = matches!(format.format, output::OutputFormat::Text).then(|| {
-        format!(
-            "recorded {} · {} on {} · track {}",
-            crate::cli::common::wire_label(&result.assessment),
-            output::short_ref(result.assessment_id.as_str()),
-            output::short_ref(result.revision_id.as_str()),
-            result.track_id.as_str(),
+        crate::cli::common::with_advisory_lines(
+            format!(
+                "recorded {} · {} on {} · track {}",
+                crate::cli::common::wire_label(&result.assessment),
+                output::short_ref(result.assessment_id.as_str()),
+                output::short_ref(result.revision_id.as_str()),
+                result.track_id.as_str(),
+            ),
+            &result.diagnostics,
         )
     });
     let document = assessment_add_document("pointbreak.review-assessment-add", result);

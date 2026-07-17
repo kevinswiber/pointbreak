@@ -170,12 +170,15 @@ fn review_validation_add(
     // Bespoke text lane: a one-line receipt naming the recorded check. Rendered
     // before the document builder consumes the result; machine lanes pay nothing.
     let text = matches!(format.format, output::OutputFormat::Text).then(|| {
-        format!(
-            "recorded validation {} · {} · {} · track {}",
-            output::short_ref(result.validation_check_id.as_str()),
-            check_name,
-            wire_label(&result.status),
-            result.track_id.as_str(),
+        crate::cli::common::with_advisory_lines(
+            format!(
+                "recorded validation {} · {} · {} · track {}",
+                output::short_ref(result.validation_check_id.as_str()),
+                check_name,
+                wire_label(&result.status),
+                result.track_id.as_str(),
+            ),
+            &result.diagnostics,
         )
     });
     let document = validation_add_document(result);

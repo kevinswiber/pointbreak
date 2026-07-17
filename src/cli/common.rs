@@ -58,6 +58,21 @@ pub(crate) fn endpoint_label(endpoint: &ReviewEndpoint) -> String {
     }
 }
 
+/// Append a write result's projection diagnostics to a text receipt, one
+/// `advisory: …` line each, so the text lane never silently drops what the
+/// JSON document carries (competing assessment candidates, unlinked
+/// follow-ups, cross-actor replacements, …).
+pub(crate) fn with_advisory_lines(
+    receipt: String,
+    diagnostics: &[pointbreak::session::ProjectionDiagnostic],
+) -> String {
+    let mut lines = vec![receipt];
+    for diagnostic in diagnostics {
+        lines.push(format!("advisory: {}", diagnostic.message));
+    }
+    lines.join("\n")
+}
+
 /// The snake_case wire spelling of a simple serde enum, for disposable text
 /// labels (INV-3) — `Approved` → `approved`, `ManualDecisionRequired` →
 /// `manual_decision_required`.

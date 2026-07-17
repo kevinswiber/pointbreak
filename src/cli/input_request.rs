@@ -265,13 +265,16 @@ fn review_input_request_open(
     // Bespoke text lane: a one-line receipt naming the opened request. Rendered
     // before the document builder consumes the result; machine lanes pay nothing.
     let text = matches!(format.format, output::OutputFormat::Text).then(|| {
-        format!(
-            "opened {} input request {} · \"{}\" · {} · track {}",
-            wire_label(&result.assertion_mode),
-            output::short_ref(result.input_request_id.as_str()),
-            crate::cli::common::clamp_title(&title),
-            wire_label(&result.reason_code),
-            result.track_id.as_str(),
+        crate::cli::common::with_advisory_lines(
+            format!(
+                "opened {} input request {} · \"{}\" · {} · track {}",
+                wire_label(&result.assertion_mode),
+                output::short_ref(result.input_request_id.as_str()),
+                crate::cli::common::clamp_title(&title),
+                wire_label(&result.reason_code),
+                result.track_id.as_str(),
+            ),
+            &result.diagnostics,
         )
     });
     let document = input_request_open_document(result);

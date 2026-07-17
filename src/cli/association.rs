@@ -210,7 +210,7 @@ fn record_run(
             crate::cli::common::surface_best_effort_skip(&skip, stderr);
             // Bespoke text lane: a one-line receipt; an idempotent re-run says so.
             let text = matches!(format.format, output::OutputFormat::Text).then(|| {
-                if result.events_created > 0 {
+                let receipt = if result.events_created > 0 {
                     format!(
                         "associated commit {} with {} · {} created",
                         output::short_ref(&result.commit_oid),
@@ -223,7 +223,8 @@ fn record_run(
                         output::short_ref(&result.commit_oid),
                         output::short_ref(result.revision_id.as_str()),
                     )
-                }
+                };
+                crate::cli::common::with_advisory_lines(receipt, &result.diagnostics)
             });
             let document = associate_commit_document(result);
             output::write_document(stdout, format, &document, || {
@@ -239,7 +240,7 @@ fn record_run(
             let result = associate_ref(options)?;
             crate::cli::common::surface_best_effort_skip(&skip, stderr);
             let text = matches!(format.format, output::OutputFormat::Text).then(|| {
-                if result.events_created > 0 {
+                let receipt = if result.events_created > 0 {
                     format!(
                         "associated ref {} @ {} with {} · {} created",
                         result.ref_name,
@@ -254,7 +255,8 @@ fn record_run(
                         output::short_ref(&result.head_oid),
                         output::short_ref(result.revision_id.as_str()),
                     )
-                }
+                };
+                crate::cli::common::with_advisory_lines(receipt, &result.diagnostics)
             });
             let document = associate_ref_document(result);
             output::write_document(stdout, format, &document, || {
@@ -286,7 +288,7 @@ fn withdraw_run(
         let result = withdraw_commit(options)?;
         crate::cli::common::surface_best_effort_skip(&skip, stderr);
         let text = matches!(format.format, output::OutputFormat::Text).then(|| {
-            if result.events_created > 0 {
+            let receipt = if result.events_created > 0 {
                 format!(
                     "withdrew commit association {} from {}",
                     output::short_ref(result.commit_association_id.as_str()),
@@ -298,7 +300,8 @@ fn withdraw_run(
                     output::short_ref(result.commit_association_id.as_str()),
                     output::short_ref(result.revision_id.as_str()),
                 )
-            }
+            };
+            crate::cli::common::with_advisory_lines(receipt, &result.diagnostics)
         });
         let document = withdraw_commit_document(result);
         output::write_document(stdout, format, &document, || {
@@ -313,7 +316,7 @@ fn withdraw_run(
         let result = withdraw_ref(options)?;
         crate::cli::common::surface_best_effort_skip(&skip, stderr);
         let text = matches!(format.format, output::OutputFormat::Text).then(|| {
-            if result.events_created > 0 {
+            let receipt = if result.events_created > 0 {
                 format!(
                     "withdrew ref association {} from {}",
                     output::short_ref(result.ref_association_id.as_str()),
@@ -325,7 +328,8 @@ fn withdraw_run(
                     output::short_ref(result.ref_association_id.as_str()),
                     output::short_ref(result.revision_id.as_str()),
                 )
-            }
+            };
+            crate::cli::common::with_advisory_lines(receipt, &result.diagnostics)
         });
         let document = withdraw_ref_document(result);
         output::write_document(stdout, format, &document, || {
