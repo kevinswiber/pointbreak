@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::path::Path;
 
 /// The complete shipped product workflow set, in handoff order:
@@ -113,6 +114,60 @@ fn shipped_primary_skill_set_is_exactly_the_three_workflow_roles() {
         shipped, expected,
         "skills/ must ship exactly the three primary product workflow skills"
     );
+}
+
+#[test]
+fn supported_install_command_pins_exactly_the_three_product_skills() {
+    // The repository root is the installer's discovery surface and it also
+    // contains development-only skills, so the supported install command must
+    // select the product set explicitly.
+    for skill in PRIMARY_SKILLS {
+        assert_contains("skills/README.md", &format!("--skill {skill}"));
+    }
+    assert_contains("skills/README.md", "development-only skills");
+
+    // Every SKILL.md in the repository lives either in the product
+    // distribution directory (exactly the three roles) or under the
+    // repository's own development tooling. A skill anywhere else would leak
+    // into installer discovery unreviewed.
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut skill_dirs = Vec::new();
+    collect_skill_dirs(repo_root, repo_root, &mut skill_dirs);
+    for dir in skill_dirs {
+        assert!(
+            dir.starts_with(".claude/skills/")
+                || PRIMARY_SKILLS
+                    .iter()
+                    .any(|skill| dir == format!("skills/{skill}")),
+            "unexpected skill directory in installer discovery surface: {dir}"
+        );
+    }
+}
+
+fn collect_skill_dirs(repo_root: &Path, dir: &Path, found: &mut Vec<String>) {
+    for entry in
+        std::fs::read_dir(dir).unwrap_or_else(|error| panic!("read {}: {error}", dir.display()))
+    {
+        let entry = entry.expect("read repository entry");
+        let path = entry.path();
+        let name = entry.file_name();
+        if !path.is_dir()
+            || [".git", "target", "node_modules"]
+                .map(OsStr::new)
+                .contains(&&*name)
+        {
+            continue;
+        }
+        if path.join("SKILL.md").is_file() {
+            let relative = path
+                .strip_prefix(repo_root)
+                .expect("skill directory under repository root")
+                .to_string_lossy()
+                .replace('\\', "/");
+            found.push(relative);
+        }
+        collect_skill_dirs(repo_root, &path, found);
+    }
 }
 
 #[test]

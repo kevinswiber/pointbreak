@@ -10,8 +10,15 @@ service, or a vendor-specific agent runtime.
 The supported route installs all three skills into the agent environment where they should run:
 
 ```bash
-npx skills add withpointbreak/pointbreak
+npx skills add withpointbreak/pointbreak \
+  --skill pointbreak-author \
+  --skill pointbreak-reviewer \
+  --skill pointbreak-author-response
 ```
+
+The repository also carries development-only skills under `.claude/skills/` for working on
+Pointbreak itself; they are not part of the product path, and the pinned `--skill` flags keep the
+supported install to exactly the three workflow skills.
 
 Install ahead of the work session where a skill should trigger, not after the implementation is
 already finished. Installing a skill does not run it: each skill triggers from its own description
