@@ -158,12 +158,27 @@ fn review_observation_add(
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let format_explicit = args.format_args.explicit();
+    let title = args.title.clone();
     let (options, skip) = observation_add_options(args, stderr)?;
     let result = record_observation(options)?;
     crate::cli::common::surface_best_effort_skip(&skip, stderr);
-    let document = observation_add_document(result);
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    // Bespoke text lane: a one-line receipt naming the recorded fact. Rendered
+    // before the document builder consumes the result; machine lanes pay nothing.
+    let text = matches!(format.format, output::OutputFormat::Text).then(|| {
+        format!(
+            "recorded observation {} · \"{}\" · track {} · {} created ({} existing)",
+            output::short_ref(result.observation_id.as_str()),
+            clamp_title(&title),
+            result.track_id.as_str(),
+            count_label(result.events_created, "event", "events"),
+            result.events_existing,
+        )
+    });
+    let document = observation_add_document(result);
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
 }
 
 fn review_observation_list(

@@ -13,8 +13,8 @@ use pointbreak::session::event::{
 use pointbreak::session::{
     InputRequestFetchOptions, InputRequestListOptions, InputRequestListResult,
     InputRequestOpenOptions, InputRequestRespondOptions, InputRequestRespondResult,
-    InputRequestStatusFilter, InputRequestTargetSelector, fetch_input_request, list_input_requests,
-    open_input_request, respond_input_request,
+    InputRequestStatusFilter, InputRequestTargetSelector, InputRequestView, fetch_input_request,
+    list_input_requests, open_input_request, respond_input_request,
 };
 
 use crate::cli::common::{ContentTypeArg, SideArg, read_body_input, wire_label};
@@ -257,12 +257,27 @@ fn review_input_request_open(
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let format_explicit = args.format_args.explicit();
+    let title = args.title.clone();
     let (options, skip) = input_request_open_options(args, stderr)?;
     let result = open_input_request(options)?;
     crate::cli::common::surface_best_effort_skip(&skip, stderr);
-    let document = input_request_open_document(result);
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    // Bespoke text lane: a one-line receipt naming the opened request. Rendered
+    // before the document builder consumes the result; machine lanes pay nothing.
+    let text = matches!(format.format, output::OutputFormat::Text).then(|| {
+        format!(
+            "opened {} input request {} · \"{}\" · {} · track {}",
+            wire_label(&result.assertion_mode),
+            output::short_ref(result.input_request_id.as_str()),
+            crate::cli::common::clamp_title(&title),
+            wire_label(&result.reason_code),
+            result.track_id.as_str(),
+        )
+    });
+    let document = input_request_open_document(result);
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
 }
 
 fn review_input_request_list(
@@ -299,10 +314,46 @@ fn input_request_show(
         InputRequestFetchOptions::new(&args.repo, InputRequestId::new(input_request_id))
             .with_trust_set(crate::cli::common::discover_trust_set(&args.repo))
             .with_include_body(args.include_body),
-    );
-    let document = input_request_fetch_document(result?, delegation_map.as_ref());
+    )?;
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    // `input_request_fetch_document` consumes the result by value; render the
+    // digest up front on the text lane only, so the machine lanes pay nothing.
+    let text = matches!(format.format, output::OutputFormat::Text)
+        .then(|| render_input_request_show_text(&result.input_request));
+    let document = input_request_fetch_document(result, delegation_map.as_ref());
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
+}
+
+/// Bespoke text lane for `input-request show`: the request's list-style line,
+/// one line per recorded response, and the hydrated body when `--include-body`
+/// resolved one (the caller asked for it, so it prints in full).
+fn render_input_request_show_text(view: &InputRequestView) -> String {
+    let mut lines = vec![format!(
+        "{} · \"{}\" · {} · {} · {} · track {}",
+        output::short_ref(view.id.as_str()),
+        crate::cli::common::clamp_title(&view.title),
+        wire_label(&view.mode),
+        wire_label(&view.reason_code),
+        view.status.as_str(),
+        view.track_id.as_str(),
+    )];
+    for response in &view.responses {
+        let mut line = format!(
+            "  response {} · {}",
+            wire_label(&response.outcome),
+            response.created_at
+        );
+        if let Some(reason) = &response.reason {
+            line.push_str(&format!(" · {}", crate::cli::common::clamp_title(reason)));
+        }
+        lines.push(line);
+    }
+    if let Some(body) = &view.body {
+        lines.push(format!("body: {body}"));
+    }
+    lines.join("\n")
 }
 
 fn review_input_request_respond(

@@ -95,7 +95,35 @@ pub(super) fn run(
         local: args.local,
         changed,
     };
-    let document = DiagnosticDocument::new("pointbreak.identity-attest", body, Vec::new());
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    // Bespoke text lane: a one-line staging receipt; an unchanged re-run says so.
+    let text = matches!(format.format, output::OutputFormat::Text)
+        .then(|| render_identity_attest_text(&body));
+    let document = DiagnosticDocument::new("pointbreak.identity-attest", body, Vec::new());
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
+}
+
+/// Bespoke text lane for `identity attest`: the actor, its attested kind and
+/// roles, and the staged file (the human's commit is the authorization).
+fn render_identity_attest_text(body: &AttestBody) -> String {
+    let mut line = if body.changed {
+        format!("staged attributes: {} · kind {}", body.actor, body.kind)
+    } else {
+        format!(
+            "attributes already current: {} · kind {}",
+            body.actor, body.kind
+        )
+    };
+    if !body.roles.is_empty() {
+        line.push_str(&format!(" · roles {}", body.roles.join(", ")));
+    }
+    if body.local {
+        line.push_str(" · local override");
+    }
+    if body.changed {
+        line.push_str(&format!(" · commit {} to authorize", body.path));
+    }
+    line
 }

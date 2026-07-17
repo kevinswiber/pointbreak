@@ -212,3 +212,49 @@ fn identity_enroll_is_unregistered() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+#[test]
+fn text_identity_delegate_receipt_and_rerun() {
+    let repo = GitRepo::new();
+    let args = [
+        "identity",
+        "delegate",
+        "actor:agent:claude-code",
+        "--principal",
+        "actor:git-email:kevin@swiber.dev",
+        "--from",
+        "2026-06-10T00:00:00Z",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--format",
+        "text",
+    ];
+    let first = pointbreak_env(args, &[]);
+    assert!(
+        first.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let stdout = String::from_utf8(first.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("delegation"), "receipt noun: {stdout}");
+    assert!(
+        stdout.contains("actor:agent:claude-code"),
+        "agent named: {stdout}"
+    );
+    assert!(
+        stdout.contains("actor:git-email:kevin@swiber.dev"),
+        "principal named: {stdout}"
+    );
+
+    let rerun = pointbreak_env(args, &[]);
+    assert!(rerun.status.success());
+    let rerun_out = String::from_utf8(rerun.stdout).unwrap();
+    assert!(
+        rerun_out.contains("already"),
+        "idempotent re-run says so: {rerun_out}"
+    );
+}

@@ -94,7 +94,20 @@ pub(super) fn run(
         events_created: result.events_created,
         events_existing: result.events_existing,
     };
-    let document = DiagnosticDocument::new("pointbreak.review-endorse", body, Vec::new());
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    // Bespoke text lane: a one-line receipt naming the endorsed event and the
+    // attesting signer.
+    let text = matches!(format.format, output::OutputFormat::Text).then(|| {
+        format!(
+            "endorsed {} · signer {} · {} created ({} existing)",
+            output::short_ref(&body.target_event_id),
+            body.attesting_signer,
+            crate::cli::common::count_label(body.events_created, "event", "events"),
+            body.events_existing,
+        )
+    });
+    let document = DiagnosticDocument::new("pointbreak.review-endorse", body, Vec::new());
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
 }

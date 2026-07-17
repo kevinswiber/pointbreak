@@ -208,7 +208,27 @@ fn record_run(
                 apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
             let result = associate_commit(options)?;
             crate::cli::common::surface_best_effort_skip(&skip, stderr);
-            output::write_document_json_fallback(stdout, format, &associate_commit_document(result))
+            // Bespoke text lane: a one-line receipt; an idempotent re-run says so.
+            let text = matches!(format.format, output::OutputFormat::Text).then(|| {
+                if result.events_created > 0 {
+                    format!(
+                        "associated commit {} with {} · {} created",
+                        output::short_ref(&result.commit_oid),
+                        output::short_ref(result.revision_id.as_str()),
+                        count_label(result.events_created, "event", "events"),
+                    )
+                } else {
+                    format!(
+                        "commit {} already associated with {}",
+                        output::short_ref(&result.commit_oid),
+                        output::short_ref(result.revision_id.as_str()),
+                    )
+                }
+            });
+            let document = associate_commit_document(result);
+            output::write_document(stdout, format, &document, || {
+                text.expect("text lane resolves the digest source")
+            })
         }
         RecordAxis::Ref { ref_name, head } => {
             let mut options =
@@ -218,7 +238,28 @@ fn record_run(
                 apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
             let result = associate_ref(options)?;
             crate::cli::common::surface_best_effort_skip(&skip, stderr);
-            output::write_document_json_fallback(stdout, format, &associate_ref_document(result))
+            let text = matches!(format.format, output::OutputFormat::Text).then(|| {
+                if result.events_created > 0 {
+                    format!(
+                        "associated ref {} @ {} with {} · {} created",
+                        result.ref_name,
+                        output::short_ref(&result.head_oid),
+                        output::short_ref(result.revision_id.as_str()),
+                        count_label(result.events_created, "event", "events"),
+                    )
+                } else {
+                    format!(
+                        "ref {} @ {} already associated with {}",
+                        result.ref_name,
+                        output::short_ref(&result.head_oid),
+                        output::short_ref(result.revision_id.as_str()),
+                    )
+                }
+            });
+            let document = associate_ref_document(result);
+            output::write_document(stdout, format, &document, || {
+                text.expect("text lane resolves the digest source")
+            })
         }
     }
 }
@@ -244,7 +285,25 @@ fn withdraw_run(
         let (options, skip) = apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
         let result = withdraw_commit(options)?;
         crate::cli::common::surface_best_effort_skip(&skip, stderr);
-        output::write_document_json_fallback(stdout, format, &withdraw_commit_document(result))
+        let text = matches!(format.format, output::OutputFormat::Text).then(|| {
+            if result.events_created > 0 {
+                format!(
+                    "withdrew commit association {} from {}",
+                    output::short_ref(result.commit_association_id.as_str()),
+                    output::short_ref(result.revision_id.as_str()),
+                )
+            } else {
+                format!(
+                    "commit association {} already withdrawn from {}",
+                    output::short_ref(result.commit_association_id.as_str()),
+                    output::short_ref(result.revision_id.as_str()),
+                )
+            }
+        });
+        let document = withdraw_commit_document(result);
+        output::write_document(stdout, format, &document, || {
+            text.expect("text lane resolves the digest source")
+        })
     } else {
         let mut options =
             WithdrawRefOptions::new(&args.repo, RefAssociationId::new(association_id))
@@ -253,7 +312,25 @@ fn withdraw_run(
         let (options, skip) = apply_signer(options, &args.repo, args.sign_key.as_deref(), stderr);
         let result = withdraw_ref(options)?;
         crate::cli::common::surface_best_effort_skip(&skip, stderr);
-        output::write_document_json_fallback(stdout, format, &withdraw_ref_document(result))
+        let text = matches!(format.format, output::OutputFormat::Text).then(|| {
+            if result.events_created > 0 {
+                format!(
+                    "withdrew ref association {} from {}",
+                    output::short_ref(result.ref_association_id.as_str()),
+                    output::short_ref(result.revision_id.as_str()),
+                )
+            } else {
+                format!(
+                    "ref association {} already withdrawn from {}",
+                    output::short_ref(result.ref_association_id.as_str()),
+                    output::short_ref(result.revision_id.as_str()),
+                )
+            }
+        });
+        let document = withdraw_ref_document(result);
+        output::write_document(stdout, format, &document, || {
+            text.expect("text lane resolves the digest source")
+        })
     }
 }
 

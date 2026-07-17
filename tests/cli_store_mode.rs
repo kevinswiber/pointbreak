@@ -132,3 +132,29 @@ fn store_mode_set_ephemeral_makes_capture_resolve_worktree_local() {
 fn parse_json(stdout: &[u8]) -> Value {
     serde_json::from_slice(stdout).expect("stdout is json")
 }
+
+#[test]
+fn text_store_mode_digest_reports_mode_and_source() {
+    let repo = support::git_repo::GitRepo::new();
+    let output = support::pointbreak([
+        "store",
+        "mode",
+        "show",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--format",
+        "text",
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("shared"), "resolved mode: {stdout}");
+    assert!(stdout.contains("default"), "mode source: {stdout}");
+}

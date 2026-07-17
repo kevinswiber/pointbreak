@@ -341,3 +341,41 @@ fn text_validation_list_digest_reports_empty() {
         "text lane is not JSON: {stdout}"
     );
 }
+
+#[test]
+fn text_validation_add_receipt_names_check_and_status() {
+    let repo = modified_repo();
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+
+    let output = pointbreak([
+        "validation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "human:kevin",
+        "--check-name",
+        "unit-tests",
+        "--status",
+        "passed",
+        "--format",
+        "text",
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(
+        stdout.contains("recorded validation"),
+        "receipt verb: {stdout}"
+    );
+    assert!(stdout.contains("unit-tests"), "check name: {stdout}");
+    assert!(stdout.contains("passed"), "status: {stdout}");
+    assert!(stdout.contains("validation:"), "short check id: {stdout}");
+}

@@ -162,12 +162,26 @@ fn review_validation_add(
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let format_explicit = args.format_args.explicit();
+    let check_name = args.check_name.clone();
     let (options, skip) = validation_add_options(args, stderr)?;
     let result = record_validation_check(options)?;
     crate::cli::common::surface_best_effort_skip(&skip, stderr);
-    let document = validation_add_document(result);
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    // Bespoke text lane: a one-line receipt naming the recorded check. Rendered
+    // before the document builder consumes the result; machine lanes pay nothing.
+    let text = matches!(format.format, output::OutputFormat::Text).then(|| {
+        format!(
+            "recorded validation {} · {} · {} · track {}",
+            output::short_ref(result.validation_check_id.as_str()),
+            check_name,
+            wire_label(&result.status),
+            result.track_id.as_str(),
+        )
+    });
+    let document = validation_add_document(result);
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
 }
 
 fn review_validation_list(

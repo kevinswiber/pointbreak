@@ -1115,3 +1115,38 @@ where
         .wait_with_output()
         .expect("wait for pointbreak binary")
 }
+
+#[test]
+fn text_assessment_add_receipt_names_the_call() {
+    let repo = support::dump_repo();
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+
+    let output = pointbreak([
+        "assessment",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "human:kevin",
+        "--assessment",
+        "accepted",
+        "--summary",
+        "looks good",
+        "--format",
+        "text",
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("accepted"), "the call: {stdout}");
+    assert!(stdout.contains("assess:"), "short assessment id: {stdout}");
+    assert!(stdout.contains("rev:"), "short revision id: {stdout}");
+    assert!(stdout.contains("human:kevin"), "track: {stdout}");
+}

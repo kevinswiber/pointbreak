@@ -28,8 +28,7 @@ pub use self::search::{
     parse_search_query, parse_search_query_for,
 };
 pub(crate) use self::search::{enum_wire, tag_index_tokens, wrap_set};
-pub use self::summary::ReviewHistoryEntry;
-use self::summary::ReviewHistorySummary;
+pub use self::summary::{ReviewHistoryEntry, ReviewHistorySummary};
 use crate::error::{Result, ShoreError};
 use crate::session::EventStore;
 use crate::session::observation::validated_track_id;

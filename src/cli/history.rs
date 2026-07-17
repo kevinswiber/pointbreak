@@ -8,9 +8,11 @@ use pointbreak::model::RevisionId;
 use pointbreak::session::event::EventType;
 use pointbreak::session::{
     EventVerificationPolicy, HistoryCursor, HistoryOrder, LivenessToken, RefFilterMode,
-    ReviewHistoryOptions, read_events_for_display, review_history,
+    ReviewHistoryEntry, ReviewHistoryOptions, ReviewHistoryResult, ReviewHistorySummary,
+    read_events_for_display, review_history,
 };
 
+use crate::cli::common::{clamp_title, count_label, endpoint_label, wire_label};
 use crate::cli::output;
 
 /// List the durable review event history, optionally filtered.
@@ -138,9 +140,164 @@ fn render_once(
     if present_reverse(args) {
         result.entries.reverse();
     }
-    let document = history_document(result);
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    // `history_document` consumes the result by value; render the digest up
+    // front on the text lane only, so the machine lanes pay nothing extra.
+    let text =
+        matches!(format.format, output::OutputFormat::Text).then(|| render_history_text(&result));
+    let document = history_document(result);
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
+}
+
+/// Bespoke text lane for `history`: a count headline naming the active filters,
+/// then one scannable line per event — timestamp, event label, track, and the
+/// fact headline — plus a continuation line when a window left more behind. An
+/// empty listing renders a `no events` line, never silence.
+fn render_history_text(result: &ReviewHistoryResult) -> String {
+    let filters = &result.filters;
+    let mut scope = String::new();
+    if let Some(revision_id) = &filters.revision_id {
+        scope.push_str(&format!(
+            " · revision {}",
+            output::short_ref(revision_id.as_str())
+        ));
+    }
+    if let Some(track_id) = &filters.track_id {
+        scope.push_str(&format!(" · track {}", track_id.as_str()));
+    }
+    if !filters.event_types.is_empty() {
+        scope.push_str(&format!(
+            " · {}",
+            count_label(
+                filters.event_types.len(),
+                "event-type filter",
+                "event-type filters"
+            )
+        ));
+    }
+    if result.entries.is_empty() {
+        return format!("no events{scope}");
+    }
+    let mut lines = vec![format!(
+        "{}{scope}:",
+        count_label(result.entries.len(), "event", "events")
+    )];
+    for entry in &result.entries {
+        lines.push(format!(
+            "  {} · {}",
+            entry.occurred_at,
+            history_entry_label(entry)
+        ));
+    }
+    if result.next_cursor.is_some() {
+        lines.push("… more events remain (continue with --cursor)".to_owned());
+    }
+    lines.join("\n")
+}
+
+/// One-line label for a history entry: the event kind, the writing track when
+/// present, and the entry's own headline (title, check name, call, or ids).
+fn history_entry_label(entry: &ReviewHistoryEntry) -> String {
+    let track = entry
+        .track_id
+        .as_ref()
+        .map(|track_id| format!(" · {}", track_id.as_str()))
+        .unwrap_or_default();
+    match &entry.summary {
+        ReviewHistorySummary::ReviewInitialized {} => format!("review initialized{track}"),
+        ReviewHistorySummary::RevisionCaptured {
+            revision_id,
+            base,
+            target,
+            ..
+        } => {
+            let mut label = format!("captured {}", output::short_ref(revision_id.as_str()));
+            if let (Some(base), Some(target)) = (base, target) {
+                label.push_str(&format!(
+                    " · base {} → {}",
+                    endpoint_label(base),
+                    endpoint_label(target)
+                ));
+            }
+            label
+        }
+        ReviewHistorySummary::ReviewObservationRecorded {
+            observation_id,
+            title,
+            ..
+        } => format!(
+            "observation {}{track} · \"{}\"",
+            output::short_ref(observation_id.as_str()),
+            clamp_title(title)
+        ),
+        ReviewHistorySummary::InputRequestOpened {
+            input_request_id,
+            mode,
+            title,
+            ..
+        } => format!(
+            "input request {} ({}){track} · \"{}\"",
+            output::short_ref(input_request_id.as_str()),
+            wire_label(mode),
+            clamp_title(title)
+        ),
+        ReviewHistorySummary::InputRequestResponded {
+            input_request_id,
+            outcome,
+            ..
+        } => format!(
+            "response {} to {}{track}",
+            wire_label(outcome),
+            output::short_ref(input_request_id.as_str())
+        ),
+        ReviewHistorySummary::ReviewAssessmentRecorded {
+            assessment_id,
+            assessment,
+            ..
+        } => format!(
+            "assessment {}{track} · {}",
+            output::short_ref(assessment_id.as_str()),
+            wire_label(assessment)
+        ),
+        ReviewHistorySummary::ReviewNoteImported {} => format!("note imported (retired){track}"),
+        ReviewHistorySummary::ValidationCheckRecorded {
+            validation_check_id,
+            check_name,
+            status,
+            ..
+        } => format!(
+            "validation {}{track} · {} {}",
+            output::short_ref(validation_check_id.as_str()),
+            check_name,
+            wire_label(status)
+        ),
+        ReviewHistorySummary::RevisionRefAssociated {
+            ref_name, head_oid, ..
+        } => format!(
+            "ref associated{track} · {} @ {}",
+            ref_name,
+            output::short_ref(head_oid)
+        ),
+        ReviewHistorySummary::RevisionRefWithdrawn {
+            ref_association_id, ..
+        } => format!(
+            "ref withdrawn{track} · {}",
+            output::short_ref(ref_association_id.as_str())
+        ),
+        ReviewHistorySummary::RevisionCommitAssociated { commit_oid, .. } => format!(
+            "commit associated{track} · {}",
+            output::short_ref(commit_oid)
+        ),
+        ReviewHistorySummary::RevisionCommitWithdrawn {
+            commit_association_id,
+            ..
+        } => format!(
+            "commit withdrawn{track} · {}",
+            output::short_ref(commit_association_id.as_str())
+        ),
+    }
 }
 
 /// Client-side liveness poll: re-render only when the store's liveness moves —

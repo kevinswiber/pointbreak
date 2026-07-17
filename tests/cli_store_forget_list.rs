@@ -120,3 +120,47 @@ fn store_list_with_an_empty_home_prints_an_empty_result() {
     assert_eq!(json["schema"], "pointbreak.store-list");
     assert!(json["families"].as_array().unwrap().is_empty());
 }
+
+#[test]
+fn text_store_list_digest_reports_families() {
+    let home = tempfile::tempdir().unwrap();
+    let home_str = home.path().to_str().unwrap();
+    let _repo = linked_repo(home_str);
+
+    let out = pointbreak_env(
+        ["store", "list", "--format", "text"],
+        &[("POINTBREAK_HOME", home_str)],
+    );
+    assert!(
+        out.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(
+        stdout.contains("1 family store"),
+        "count headline: {stdout}"
+    );
+    assert!(stdout.contains("acme"), "family named: {stdout}");
+    assert!(stdout.contains("clone"), "clone count: {stdout}");
+}
+
+#[test]
+fn text_store_list_digest_reports_empty_home() {
+    let home = tempfile::tempdir().unwrap();
+    let out = pointbreak_env(
+        ["store", "list", "--format", "text"],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
+    );
+    assert!(out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("no family stores"), "empty line: {stdout}");
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+}

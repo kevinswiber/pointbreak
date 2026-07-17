@@ -219,3 +219,42 @@ fn endorse_is_idempotent_for_the_same_signer_and_target() {
         "same signer over same target → same carrier"
     );
 }
+
+#[test]
+fn text_endorse_receipt_names_target_and_signer() {
+    let home = tempfile::tempdir().unwrap();
+    let home_str = home.path().to_str().unwrap();
+    let _ = pointbreak_env(
+        ["key", "init", "--name", "default"],
+        &[("POINTBREAK_HOME", home_str)],
+    );
+
+    let (repo, target) = capture_target(home_str);
+    let out = pointbreak_env(
+        [
+            "endorse",
+            &target,
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--format",
+            "text",
+        ],
+        &[
+            ("POINTBREAK_HOME", home_str),
+            ("POINTBREAK_ACTOR_ID", "actor:git-email:kevin@swiber.dev"),
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "endorse stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("endorsed"), "receipt verb: {stdout}");
+    assert!(stdout.contains("evt:"), "short target event id: {stdout}");
+    assert!(stdout.contains("did:key:z"), "attesting signer: {stdout}");
+}

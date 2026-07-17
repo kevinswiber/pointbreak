@@ -187,3 +187,41 @@ fn attest_never_commits() {
         .unwrap();
     assert_eq!(String::from_utf8_lossy(&log.stdout).trim(), "0");
 }
+
+#[test]
+fn text_identity_attest_receipt_names_actor_and_kind() {
+    let repo = GitRepo::new();
+    let out = pointbreak_env(
+        [
+            "identity",
+            "attest",
+            "actor:git-email:kevin@swiber.dev",
+            "--kind",
+            "human",
+            "--role",
+            "author",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--format",
+            "text",
+        ],
+        &[],
+    );
+    assert!(
+        out.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("attributes"), "receipt noun: {stdout}");
+    assert!(
+        stdout.contains("actor:git-email:kevin@swiber.dev"),
+        "actor named: {stdout}"
+    );
+    assert!(stdout.contains("human"), "kind: {stdout}");
+    assert!(stdout.contains("author"), "roles: {stdout}");
+}

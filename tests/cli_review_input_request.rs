@@ -1332,3 +1332,74 @@ fn missing_reason_artifact_on_an_unrelated_request_does_not_poison_other_reads()
         String::from_utf8_lossy(&show.stderr)
     );
 }
+
+#[test]
+fn text_input_request_open_receipt_names_the_request() {
+    let repo = modified_repo();
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let output = pointbreak([
+        "input-request",
+        "open",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "human:kevin",
+        "--title",
+        "Need approval",
+        "--reason",
+        "manual-decision-required",
+        "--body",
+        "approve this path?",
+        "--format",
+        "text",
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("opened"), "receipt verb: {stdout}");
+    assert!(stdout.contains("Need approval"), "title: {stdout}");
+    assert!(stdout.contains("input-request:"), "short id: {stdout}");
+    assert!(stdout.contains("operative"), "default mode named: {stdout}");
+}
+
+#[test]
+fn text_input_request_show_digest_renders_request_and_body() {
+    let repo = modified_repo();
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let requested = request_with_body(&repo, "Need details", "full request body");
+    let id = requested["inputRequestId"].as_str().unwrap();
+
+    let output = pointbreak([
+        "input-request",
+        "show",
+        id,
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--include-body",
+        "--format",
+        "text",
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("Need details"), "title: {stdout}");
+    assert!(stdout.contains("open"), "status: {stdout}");
+    assert!(
+        stdout.contains("full request body"),
+        "hydrated body under --include-body: {stdout}"
+    );
+}

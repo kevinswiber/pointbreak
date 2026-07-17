@@ -660,9 +660,19 @@ fn mode(args: StoreModeArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::
         mode: outcome.mode,
         source: outcome.source,
     };
-    let document = json::DiagnosticDocument::new("pointbreak.store-mode", body, vec![]);
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    // Bespoke text lane: the resolved mode and where it came from, on one line.
+    let text = matches!(format.format, output::OutputFormat::Text).then(|| {
+        format!(
+            "mode: {} ({})",
+            crate::cli::common::wire_label(&body.mode),
+            crate::cli::common::wire_label(&body.source),
+        )
+    });
+    let document = json::DiagnosticDocument::new("pointbreak.store-mode", body, vec![]);
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
 }
 
 fn migrate(
@@ -787,9 +797,13 @@ fn link(args: StoreLinkArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::
                 message: warning.clone(),
             });
         }
+        let text = matches!(format.format, output::OutputFormat::Text)
+            .then(|| render_store_link_preview_text(&body));
         let document =
             json::DiagnosticDocument::new("pointbreak.store-link-preview", body, diagnostics);
-        return output::write_document_json_fallback(stdout, format, &document);
+        return output::write_document(stdout, format, &document, || {
+            text.expect("text lane resolves the digest source")
+        });
     }
 
     let result = link_store_to_family(options)?;
@@ -858,13 +872,23 @@ fn unlink(args: StoreUnlinkArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn s
     let span = tracing::info_span!("shore.store.unlink");
     let _entered = span.enter();
     let result = unlink_store_from_family(StoreUnlinkOptions::new(args.repo))?;
-    let document = json::DiagnosticDocument::new(
-        "pointbreak.store-unlink",
-        StoreUnlinkBody::from(result),
-        vec![],
-    );
+    let body = StoreUnlinkBody::from(result);
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    // Bespoke text lane: a one-line detachment receipt; a no-op says so.
+    let text = matches!(format.format, output::OutputFormat::Text).then(|| {
+        if body.deregistered {
+            match &body.previous_family_ref {
+                Some(previous) => format!("unlinked from {previous}"),
+                None => "unlinked".to_owned(),
+            }
+        } else {
+            "not linked · nothing to unlink".to_owned()
+        }
+    });
+    let document = json::DiagnosticDocument::new("pointbreak.store-unlink", body, vec![]);
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
 }
 
 fn forget(args: StoreForgetArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::error::Error>> {
@@ -905,9 +929,80 @@ fn list(args: StoreListArgs, stdout: &mut dyn Write) -> Result<(), Box<dyn std::
     let _entered = span.enter();
     let result = list_family_stores()?;
     let body = StoreListBody::from(result);
-    let document = json::DiagnosticDocument::new("pointbreak.store-list", body, vec![]);
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    let text =
+        matches!(format.format, output::OutputFormat::Text).then(|| render_store_list_text(&body));
+    let document = json::DiagnosticDocument::new("pointbreak.store-list", body, vec![]);
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
+}
+
+/// Bespoke text lane for `store list`: a count headline, then one line per
+/// family store — ref, live clones, inventory counts and size, an `orphaned`
+/// marker, and the last write time. An empty machine renders a
+/// `no family stores` line, never silence.
+fn render_store_list_text(body: &StoreListBody) -> String {
+    if body.families.is_empty() {
+        return "no family stores".to_owned();
+    }
+    let mut lines = vec![format!(
+        "{}:",
+        count_label(body.families.len(), "family store", "family stores")
+    )];
+    for family in &body.families {
+        let inventory = &family.inventory;
+        let mut line = format!(
+            "  {} · {} · {} · {} · {}",
+            family.family_ref,
+            count_label(family.live_clone_count, "clone", "clones"),
+            count_label(inventory.event_count, "event", "events"),
+            count_label(inventory.artifact_count, "artifact", "artifacts"),
+            output::format_bytes(inventory.total_bytes),
+        );
+        if family.orphaned {
+            line.push_str(" · orphaned");
+        }
+        if let Some(last_write) = &family.last_write {
+            line.push_str(&format!(" · last write {last_write}"));
+        }
+        lines.push(line);
+    }
+    lines.join("\n")
+}
+
+/// Bespoke text lane for `store link --dry-run`: what the link would do —
+/// family, fold volume, export fidelity — plus any preflight warnings. Deletes
+/// nothing and says so through the `would` phrasing throughout.
+fn render_store_link_preview_text(body: &StoreLinkPreviewBody) -> String {
+    let mut lines = vec![format!(
+        "dry run: would link {} → {}",
+        body.clone_ref, body.family_ref
+    )];
+    if body.would_create_family {
+        lines.push("would create the family store".to_owned());
+    }
+    lines.push(format!(
+        "would fold {} ({} existing) · {} ({} existing)",
+        count_label(body.folded_events_to_create, "event", "events"),
+        body.folded_events_existing,
+        count_label(body.folded_artifacts_to_create, "artifact", "artifacts"),
+        body.folded_artifacts_existing,
+    ));
+    lines.push(format!("export fidelity: {}", body.export_fidelity));
+    if body.folded_absent_artifact_count > 0 {
+        lines.push(format!(
+            "{} absent from the source · would fold without content",
+            count_label(body.folded_absent_artifact_count, "artifact", "artifacts"),
+        ));
+    }
+    if let Some(warning) = &body.filesystem_warning {
+        lines.push(format!("warning: {warning}"));
+    }
+    if let Some(warning) = &body.history_overlap_warning {
+        lines.push(format!("warning: {warning}"));
+    }
+    lines.join("\n")
 }
 
 fn remove(

@@ -275,3 +275,108 @@ fn store_link_without_a_slug_surfaces_the_workflow_suggestion_error() {
     let stderr = String::from_utf8_lossy(&link.stderr);
     assert!(stderr.contains("slug"), "names the missing input: {stderr}");
 }
+
+#[test]
+fn text_store_unlink_digest_reports_detachment() {
+    let repo = captured_repo();
+    let repo_arg = repo.path().to_str().unwrap().to_owned();
+    let home = tempfile::tempdir().unwrap();
+    let home_str = home.path().to_str().unwrap();
+    let env = [("POINTBREAK_HOME", home_str)];
+    assert!(
+        pointbreak_env(["capture", "--repo", &repo_arg], &env)
+            .status
+            .success()
+    );
+    assert!(
+        pointbreak_env(["store", "link", "acme", "--repo", &repo_arg], &env)
+            .status
+            .success()
+    );
+
+    let out = pointbreak_env(
+        ["store", "unlink", "--repo", &repo_arg, "--format", "text"],
+        &env,
+    );
+    assert!(
+        out.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("unlinked"), "detachment verb: {stdout}");
+    assert!(stdout.contains("acme"), "previous family named: {stdout}");
+}
+
+#[test]
+fn text_store_unlink_digest_reports_not_linked() {
+    let repo = captured_repo();
+    let home = tempfile::tempdir().unwrap();
+    let out = pointbreak_env(
+        [
+            "store",
+            "unlink",
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--format",
+            "text",
+        ],
+        &[("POINTBREAK_HOME", home.path().to_str().unwrap())],
+    );
+    assert!(
+        out.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("not linked"), "no-op case: {stdout}");
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+}
+
+#[test]
+fn text_store_link_dry_run_digest_previews() {
+    let repo = captured_repo();
+    let repo_arg = repo.path().to_str().unwrap().to_owned();
+    let home = tempfile::tempdir().unwrap();
+    let home_str = home.path().to_str().unwrap();
+    let env = [("POINTBREAK_HOME", home_str)];
+    assert!(
+        pointbreak_env(["capture", "--repo", &repo_arg], &env)
+            .status
+            .success()
+    );
+
+    let dry = pointbreak_env(
+        [
+            "store",
+            "link",
+            "acme",
+            "--dry-run",
+            "--repo",
+            &repo_arg,
+            "--format",
+            "text",
+        ],
+        &env,
+    );
+    assert!(
+        dry.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&dry.stderr)
+    );
+    let stdout = String::from_utf8(dry.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("would link"), "preview verb: {stdout}");
+    assert!(stdout.contains("acme"), "family named: {stdout}");
+    assert!(stdout.contains("would fold"), "fold preview: {stdout}");
+}

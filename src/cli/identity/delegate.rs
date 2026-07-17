@@ -120,7 +120,37 @@ pub(super) fn run(
         added,
         local_shadows_committed,
     };
-    let document = DiagnosticDocument::new("pointbreak.identity-delegate", body, Vec::new());
     let format = output::resolve_format(args.format_args.explicit(), output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    // Bespoke text lane: a one-line staging receipt; an idempotent re-run says so.
+    let text = matches!(format.format, output::OutputFormat::Text)
+        .then(|| render_identity_delegate_text(&body));
+    let document = DiagnosticDocument::new("pointbreak.identity-delegate", body, Vec::new());
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
+}
+
+/// Bespoke text lane for `identity delegate`: who answers for whom, the window,
+/// and the staged file (the human's commit is the authorization).
+fn render_identity_delegate_text(body: &DelegateBody) -> String {
+    if !body.added {
+        return format!("already delegated: {} → {}", body.agent, body.principal);
+    }
+    let mut line = format!(
+        "staged delegation: {} → {} · from {}",
+        body.agent, body.principal, body.valid_from
+    );
+    if let Some(until) = &body.valid_until {
+        line.push_str(&format!(" · until {until}"));
+    }
+    if body.local {
+        line.push_str(" · local override");
+        if let Some(shadows) = body.local_shadows_committed
+            && shadows > 0
+        {
+            line.push_str(&format!(" (shadows {shadows} committed)"));
+        }
+    }
+    line.push_str(&format!(" · commit {} to authorize", body.path));
+    line
 }

@@ -54,17 +54,6 @@ fn legacy_pretty_and_compact_flags_are_removed() {
 }
 
 #[test]
-fn format_text_falls_back_to_indented_json_pre_digest() {
-    let repo = support::dump_repo();
-    let path = repo.path().to_str().unwrap();
-    let output = support::pointbreak(["history", "--repo", path, "--format", "text"]);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    // Pre-digest fallback: indented JSON (multi-line), same schema tag visible.
-    assert!(stdout.lines().count() > 1);
-    assert!(stdout.contains("pointbreak.review-history"));
-}
-
-#[test]
 fn invalid_shore_format_is_a_hard_error() {
     let repo = support::dump_repo();
     let path = repo.path().to_str().unwrap();
@@ -94,20 +83,18 @@ fn write_acks_accept_format_json() {
 }
 
 #[test]
-fn json_fallback_on_the_text_lane_is_silent_pure_json() {
+fn text_lane_emits_no_stderr_chatter() {
     let repo = support::dump_repo();
     let path = repo.path().to_str().unwrap();
     let output = support::pointbreak(["history", "--repo", path, "--format", "text"]);
     assert!(output.status.success());
-    // Intended behavior, not an oversight: a command with no bespoke digest
-    // keeps indented JSON on stdout and emits NO advisory chatter on stderr.
-    // Pipelines that capture stderr (`2>&1 | jq`) and scripts running with an
-    // ambient POINTBREAK_FORMAT=text must keep parsing cleanly.
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("pointbreak.review-history"));
+    // Owner-decided posture: the text lane never chatters on stderr — pipelines
+    // that capture stderr (`2>&1 | jq`-style) and scripts running with an
+    // ambient POINTBREAK_FORMAT=text must keep parsing cleanly. This held for
+    // the retired JSON fallback and holds for the digests that replaced it.
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.is_empty(),
-        "the JSON fallback must stay silent on stderr: {stderr}"
+        "the text lane must stay silent on stderr: {stderr}"
     );
 }

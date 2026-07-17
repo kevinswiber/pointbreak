@@ -1163,3 +1163,40 @@ fn text_observation_list_digest_reports_empty_with_filter() {
         "text lane is not JSON: {stdout}"
     );
 }
+
+#[test]
+fn text_observation_add_receipt_names_the_fact() {
+    let repo = modified_repo();
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+
+    let output = pointbreak([
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "human:kevin",
+        "--title",
+        "wave three receipt",
+        "--body",
+        "detail",
+        "--format",
+        "text",
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(
+        stdout.contains("recorded observation"),
+        "receipt verb: {stdout}"
+    );
+    assert!(stdout.contains("wave three receipt"), "title: {stdout}");
+    assert!(stdout.contains("obs:"), "short observation id: {stdout}");
+}

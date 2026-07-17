@@ -188,9 +188,22 @@ fn review_assessment_add(
     let (options, skip) = assessment_add_options(args, stderr)?;
     let result = record_assessment(options)?;
     crate::cli::common::surface_best_effort_skip(&skip, stderr);
-    let document = assessment_add_document("pointbreak.review-assessment-add", result);
     let format = output::resolve_format(format_explicit, output::OutputFormat::Json)?;
-    output::write_document_json_fallback(stdout, format, &document)
+    // Bespoke text lane: a one-line receipt naming the recorded call. Rendered
+    // before the document builder consumes the result; machine lanes pay nothing.
+    let text = matches!(format.format, output::OutputFormat::Text).then(|| {
+        format!(
+            "recorded {} · {} on {} · track {}",
+            crate::cli::common::wire_label(&result.assessment),
+            output::short_ref(result.assessment_id.as_str()),
+            output::short_ref(result.revision_id.as_str()),
+            result.track_id.as_str(),
+        )
+    });
+    let document = assessment_add_document("pointbreak.review-assessment-add", result);
+    output::write_document(stdout, format, &document, || {
+        text.expect("text lane resolves the digest source")
+    })
 }
 
 fn review_assessment_show(

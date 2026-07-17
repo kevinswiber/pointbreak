@@ -969,3 +969,181 @@ fn association_verbs_reject_a_replaces_flag() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn text_association_record_commit_receipt_and_rerun() {
+    let repo = modified_repo();
+    capture(&repo);
+    let repo_path = repo.path().to_str().unwrap();
+
+    let first = pointbreak([
+        "association",
+        "record",
+        "--repo",
+        repo_path,
+        "--track",
+        "agent:codex",
+        "--commit",
+        "HEAD",
+        "--format",
+        "text",
+    ]);
+    assert!(
+        first.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let stdout = String::from_utf8(first.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(
+        stdout.contains("associated commit"),
+        "receipt verb: {stdout}"
+    );
+    assert!(stdout.contains("rev:"), "short revision id: {stdout}");
+
+    let rerun = pointbreak([
+        "association",
+        "record",
+        "--repo",
+        repo_path,
+        "--track",
+        "agent:codex",
+        "--commit",
+        "HEAD",
+        "--format",
+        "text",
+    ]);
+    assert!(rerun.status.success());
+    let rerun_out = String::from_utf8(rerun.stdout).unwrap();
+    assert!(
+        rerun_out.contains("already"),
+        "idempotent re-run says so: {rerun_out}"
+    );
+}
+
+#[test]
+fn text_association_record_ref_receipt() {
+    let repo = modified_repo();
+    capture(&repo);
+    let head_oid = repo.git(["rev-parse", "HEAD"]).stdout.trim().to_owned();
+
+    let output = pointbreak([
+        "association",
+        "record",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "agent:codex",
+        "--ref",
+        "refs/heads/feat/x",
+        "--head",
+        &head_oid,
+        "--format",
+        "text",
+    ]);
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("associated ref"), "receipt verb: {stdout}");
+    assert!(stdout.contains("refs/heads/feat/x"), "ref name: {stdout}");
+}
+
+#[test]
+fn text_association_withdraw_receipts() {
+    let repo = modified_repo();
+    capture(&repo);
+    let repo_path = repo.path().to_str().unwrap();
+
+    let commit_id = parse_json(
+        &pointbreak([
+            "association",
+            "record",
+            "--repo",
+            repo_path,
+            "--track",
+            "agent:codex",
+            "--commit",
+            "HEAD",
+        ])
+        .stdout,
+    )["commitAssociationId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let withdraw_commit = pointbreak([
+        "association",
+        "withdraw",
+        &commit_id,
+        "--repo",
+        repo_path,
+        "--track",
+        "agent:codex",
+        "--format",
+        "text",
+    ]);
+    assert!(
+        withdraw_commit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&withdraw_commit.stderr)
+    );
+    let commit_out = String::from_utf8(withdraw_commit.stdout).unwrap();
+    assert!(
+        !commit_out.contains("\"schema\""),
+        "text lane is not JSON: {commit_out}"
+    );
+    assert!(
+        commit_out.contains("withdrew commit association"),
+        "receipt verb: {commit_out}"
+    );
+
+    let head_oid = repo.git(["rev-parse", "HEAD"]).stdout.trim().to_owned();
+    let ref_id = parse_json(
+        &pointbreak([
+            "association",
+            "record",
+            "--repo",
+            repo_path,
+            "--track",
+            "agent:codex",
+            "--ref",
+            "refs/heads/feat/x",
+            "--head",
+            &head_oid,
+        ])
+        .stdout,
+    )["refAssociationId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let withdraw_ref = pointbreak([
+        "association",
+        "withdraw",
+        &ref_id,
+        "--repo",
+        repo_path,
+        "--track",
+        "agent:codex",
+        "--format",
+        "text",
+    ]);
+    assert!(
+        withdraw_ref.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&withdraw_ref.stderr)
+    );
+    let ref_out = String::from_utf8(withdraw_ref.stdout).unwrap();
+    assert!(
+        ref_out.contains("withdrew ref association"),
+        "receipt verb: {ref_out}"
+    );
+}

@@ -1115,3 +1115,87 @@ fn respond_to_input_request(repo: &GitRepo, input_request_id: &str, reason: &str
         .stdout,
     )
 }
+
+#[test]
+fn text_history_digest_lists_events_one_line_each() {
+    let repo = modified_repo();
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+    let add = pointbreak([
+        "observation",
+        "add",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "human:kevin",
+        "--title",
+        "wave three headline",
+        "--body",
+        "detail",
+    ]);
+    assert!(
+        add.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+
+    let output = pointbreak([
+        "history",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--format",
+        "text",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+    assert!(stdout.contains("events"), "count headline: {stdout}");
+    assert!(stdout.contains("captured"), "capture entry: {stdout}");
+    assert!(
+        stdout.contains("observation"),
+        "observation entry: {stdout}"
+    );
+    assert!(
+        stdout.contains("wave three headline"),
+        "fact headline: {stdout}"
+    );
+    assert!(stdout.contains("rev:"), "short revision id: {stdout}");
+}
+
+#[test]
+fn text_history_digest_reports_empty_filter_result() {
+    let repo = modified_repo();
+    pointbreak(["capture", "--repo", repo.path().to_str().unwrap()]);
+
+    let output = pointbreak([
+        "history",
+        "--repo",
+        repo.path().to_str().unwrap(),
+        "--track",
+        "agent:nobody",
+        "--format",
+        "text",
+    ]);
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("no events"),
+        "empty line, never silence: {stdout}"
+    );
+    assert!(
+        !stdout.contains("\"schema\""),
+        "text lane is not JSON: {stdout}"
+    );
+}

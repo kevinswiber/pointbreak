@@ -115,6 +115,14 @@ fn env_format() -> Result<Option<OutputFormat>, Box<dyn std::error::Error>> {
 
 /// Lane dispatch: `Json` and `JsonPretty` emit the machine document byte-for-byte
 /// through `write_json`; `Text` writes the rendered view.
+///
+/// Every current document command renders a bespoke text digest. A future
+/// command that ships before its digest should emit the machine JSON on the
+/// text lane, silently — no stderr notice, so pipelines that capture stderr
+/// (`2>&1 | jq`) and scripts under an ambient `POINTBREAK_FORMAT=text` keep
+/// parsing (the retired `write_document_json_fallback` seam did exactly that;
+/// resurrect it from history if needed). The text lane stays disposable:
+/// replacing interim JSON with a digest is not a break.
 pub(super) fn write_document<T, F>(
     stdout: &mut dyn Write,
     format: ResolvedFormat,
@@ -131,22 +139,6 @@ where
         OutputFormat::Text => writeln!(stdout, "{}", render_text())?,
     }
     Ok(())
-}
-
-/// Text lane for commands with no bespoke digest: indented JSON, silently and
-/// deliberately. No stderr notice accompanies the fallback — pipelines that
-/// capture stderr (`2>&1 | jq`) and scripts running under an ambient
-/// `POINTBREAK_FORMAT=text` must keep parsing cleanly, so the fallback is the
-/// documented, intended text-lane behavior until a command grows a digest
-/// (replacing it with one is not a break; the text lane is disposable).
-pub(super) fn write_document_json_fallback<T: serde::Serialize>(
-    stdout: &mut dyn Write,
-    format: ResolvedFormat,
-    document: &T,
-) -> Result<(), Box<dyn std::error::Error>> {
-    write_document(stdout, format, document, || {
-        serde_json::to_string_pretty(document).unwrap_or_default()
-    })
 }
 
 /// Git-style short form of an opaque id, ported from the inspector's `shortRef`
