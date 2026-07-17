@@ -74,7 +74,8 @@ revision under your summary, with the changed file and rows. That is the first u
 notice what it did not require: no actor id, no track, no signing setup, no trust configuration,
 and no reading of raw JSON.
 
-Keep Review open in this browser tab; each step below appears there after a refresh.
+`inspect` is a foreground server: leave it running, keep Review open in this browser tab, and run
+every later command in a second terminal. Each step below appears in Review after a refresh.
 
 ## 3. Read The Review In Five Stages
 
@@ -161,8 +162,8 @@ record:
 pointbreak observation add \
   --exact-revision "$REVISION_ID" \
   --track "$REVIEWER_TRACK" \
-  --title "Fallback wording is user-visible" \
-  --body "The changed line is behavior a reader will quote; the wording should be deliberate." \
+  --title "The added sentence is user-visible" \
+  --body "The added line is wording a reader will quote; it should be deliberate." \
   --format json
 
 git diff --check

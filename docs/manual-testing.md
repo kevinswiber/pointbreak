@@ -603,10 +603,17 @@ must explain filter recovery rather than suggesting a new capture. Any mismatch 
 defect: stop the run, fix it at the surface that owns it, and restart the protocol from a fresh
 disposable setup — do not patch mid-run.
 
+End the check by stopping this Inspector (`Ctrl+C`). The Inspector is a foreground server holding
+the default port, so the rehearsal instance must exit before the short path starts the
+walkthrough's own server; a second `inspect` against the same port fails with
+`Address already in use`.
+
 ### Short path (Clock B-short)
 
-Keep Review open in the browser and run commands in a second terminal. Start a screen recording or
-timestamped journal, then start Clock B-short immediately before this capture:
+The `inspect --open` below starts the walkthrough's only Review server and opens the browser; keep
+it running for the rest of the walkthrough and run every later command in a second terminal. Start
+a screen recording or timestamped journal, then start Clock B-short immediately before this
+capture:
 
 ```bash
 "$POINTBREAK_BINARY" capture \
