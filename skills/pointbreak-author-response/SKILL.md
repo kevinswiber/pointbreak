@@ -52,6 +52,10 @@ agent_name="<agent-name>"
 export POINTBREAK_ACTOR_ID="actor:agent:${agent_name}"
 ```
 
+Use the capture `summary` to identify the intended existing revision, then retain its exact
+`revisionId` for every response write. If a legacy capture has no summary, use its endpoints and
+capture time; never guess from a short opaque ID and never recapture merely to add a label.
+
 Set `agent_name` to the **same canonical spelling** the original author run used (`claude-code`,
 never also `claude`): the actor id is inherited per-agent, not per-run, so this response pass writes
 under the same durable identity that authored the change. It carries no run id; `/` inside the agent

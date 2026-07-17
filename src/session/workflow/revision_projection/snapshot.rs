@@ -297,6 +297,7 @@ mod tests {
             .expect("capture event");
         RevisionProjectionIdentity {
             id: captured.revision_id.clone(),
+            summary: captured.summary.clone(),
             journal_id: captured.journal_id.clone(),
             source: captured.source.clone(),
             base: captured.base.clone(),

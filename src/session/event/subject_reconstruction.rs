@@ -252,6 +252,7 @@ mod tests {
                         object_id: ObjectId::new("obj:sha256:o"),
                         git_provenance: None,
                     },
+                    summary: None,
                     object_artifact_content_hash: "sha256:a".to_owned(),
                     supersedes: vec![],
                 },

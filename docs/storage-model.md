@@ -125,9 +125,9 @@ Revision capture follows the same authority split:
 - full captured snapshots live as Pointbreak-owned immutable **object artifacts** under
   `artifacts/objects/`
 - `work_object_proposed` events bind to the internal object artifact's canonical `contentHash`;
-  the event/projection — not the artifact body — is the source of `revisionId`, `objectId`, `source`,
-  `base`, and `target` (the content-only object artifact carries none of the revision's identity or
-  endpoints)
+  the event/projection — not the artifact body — is the source of `revisionId`, optional capture
+  `summary`, `objectId`, `source`, `base`, and `target` (the content-only object artifact carries
+  none of the revision's identity, discovery label, or endpoints)
 - the separation is deliberate: the **revision id** is the captured unit's identity and the **object
   id** is a hash of its captured content alone, so two clones capturing identical content converge on
   one object while keeping distinct revisions
@@ -135,8 +135,8 @@ Revision capture follows the same authority split:
   is not the source of revision identity or snapshot content
 
 `pointbreak capture` returns `pointbreak.review-capture` JSON as the command-output contract. The
-command reports the revision and object IDs plus the object artifact content hash, without making
-object artifact paths a user-facing API.
+command reports the revision and object IDs, optional capture summary, and object artifact content
+hash without making object artifact paths a user-facing API.
 
 Revision succession follows the same event/projection split. A capture records `supersedes` forward
 pointers naming the already-stored revisions it evolves past; it never edits captured revision payloads

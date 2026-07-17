@@ -45,6 +45,8 @@ pub struct RevisionListBody {
 #[serde(rename_all = "camelCase")]
 struct ShowRevisionDocument {
     id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
     journal_id: String,
     revision_id: String,
     object_id: String,
@@ -215,6 +217,7 @@ impl From<RevisionProjectionIdentity> for ShowRevisionDocument {
     fn from(identity: RevisionProjectionIdentity) -> Self {
         Self {
             id: identity.id.as_str().to_owned(),
+            summary: identity.summary,
             journal_id: identity.journal_id.as_str().to_owned(),
             revision_id: identity.revision_id.as_str().to_owned(),
             object_id: identity.object_id.as_str().to_owned(),

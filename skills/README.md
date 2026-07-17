@@ -16,7 +16,8 @@ already finished.
 ## Included skills
 
 - `pointbreak-author` records a durable author handoff at the end of a coherent implementation
-  change, including advisory validation evidence for checks the author actually ran.
+  change, including a concise capture summary and advisory validation evidence for checks the author
+  actually ran.
 - `pointbreak-reviewer` reviews another agent's handoff, reads author validation evidence as context,
   records reviewer findings and reviewer-run checks, responds to operative requests, opens advisory
   requests for author decisions, and records one assessment.

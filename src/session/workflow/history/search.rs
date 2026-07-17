@@ -744,7 +744,10 @@ fn entry_title(entry: &ReviewHistoryEntry) -> String {
         ReviewHistorySummary::InputRequestResponded { outcome, .. } => {
             return enum_wire(outcome);
         }
-        ReviewHistorySummary::RevisionCaptured { base, .. } => {
+        ReviewHistorySummary::RevisionCaptured { summary, base, .. } => {
+            if let Some(summary) = summary.as_ref().filter(|summary| !summary.is_empty()) {
+                return summary.clone();
+            }
             let commit_oid = match base {
                 Some(ReviewEndpoint::GitCommit { commit_oid, .. }) => commit_oid.as_str(),
                 _ => "",

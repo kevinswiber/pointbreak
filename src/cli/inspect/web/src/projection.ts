@@ -35,6 +35,7 @@ import {
 /** A revision as served by `/api/revisions` (the fields the pure layer reads). */
 export interface Revision {
   revisionId?: string;
+  summary?: string;
   snapshotId?: string;
   overview?: Overview;
   targetDisplay?: TargetDisplay;
@@ -52,15 +53,21 @@ export interface Revision {
 
 const SNAPSHOT_CONTENT_UNAVAILABLE = "snapshot_content_unavailable";
 
+interface RevisionDiagnosticsCarrier {
+  diagnostics?: ProjectionDiagnostic[];
+}
+
 /** Whether this revision's captured snapshot cannot currently be read. */
-export function revisionSnapshotUnavailable(r: Revision): boolean {
+export function revisionSnapshotUnavailable(
+  r: RevisionDiagnosticsCarrier,
+): boolean {
   return (r.diagnostics ?? []).some(
     (diagnostic) => diagnostic.code === SNAPSHOT_CONTENT_UNAVAILABLE,
   );
 }
 
 /** The diagnostics scoped to one revision, rendered on that revision's card. */
-export function revisionDiagnostics(r: Revision): string {
+export function revisionDiagnostics(r: RevisionDiagnosticsCarrier): string {
   const diagnostics = r.diagnostics ?? [];
   return diagnostics
     .map(
@@ -183,6 +190,7 @@ export function entryTitle(e: HistoryEntry): string {
   if (s.outcome) return s.outcome;
   if (s.reasonCode) return s.reasonCode;
   if (e.eventType === "work_object_proposed") {
+    if (s.summary) return s.summary;
     const base = s.base?.commitOid || "";
     return base ? `capture · base ${shortId(base)}` : "capture";
   }
@@ -381,6 +389,7 @@ export function revisionSearchIndex(
   const text = [
     r.revisionId,
     r.snapshotId,
+    r.summary,
     target.label,
     target.workLabel?.text,
     head.label,

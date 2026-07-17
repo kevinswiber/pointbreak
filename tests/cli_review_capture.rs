@@ -1094,6 +1094,8 @@ fn text_capture_ack_shows_short_revision_and_diffstat() {
         "capture",
         "--repo",
         repo.path().to_str().unwrap(),
+        "--summary",
+        "Readable capture label",
         "--format",
         "text",
     ]);
@@ -1104,6 +1106,10 @@ fn text_capture_ack_shows_short_revision_and_diffstat() {
     assert!(stdout.contains("rev:"), "stdout:\n{stdout}");
     // modified_repo changes exactly one file.
     assert!(stdout.contains("1 file"), "stdout:\n{stdout}");
+    assert!(
+        stdout.contains("summary: Readable capture label"),
+        "stdout:\n{stdout}"
+    );
     // Bespoke rendering, not the JSON fallback.
     assert!(!stdout.contains("\"schema\""), "stdout:\n{stdout}");
     assert!(stdout.lines().count() <= 8, "stdout:\n{stdout}");
@@ -1342,6 +1348,68 @@ fn scoped_capture_surfaces_its_pathspecs_in_show_revisions_and_history() {
         .find(|entry| entry["summary"]["kind"] == "revision_captured")
         .expect("capture entry in history");
     assert_eq!(capture_entry["summary"]["source"]["pathspecs"][0], "a");
+}
+
+#[test]
+fn capture_summary_surfaces_in_capture_revision_list_and_history() {
+    let repo = two_dir_repo();
+    let repo_path = repo.path().to_str().unwrap();
+    let summary = "Make revision discovery readable";
+    let captured = parse_json(
+        &pointbreak([
+            "capture",
+            "--repo",
+            repo_path,
+            "--path",
+            "a",
+            "--summary",
+            summary,
+        ])
+        .stdout,
+    );
+    let revision_id = captured["revision"]["id"].as_str().unwrap();
+    assert_eq!(captured["revision"]["summary"], summary);
+
+    let listed = parse_json(&pointbreak(["revision", "list", "--repo", repo_path]).stdout);
+    assert_eq!(listed["entries"][0]["summary"], summary);
+
+    let history =
+        parse_json(&pointbreak(["history", "--repo", repo_path, "--revision", revision_id]).stdout);
+    let capture_entry = history["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["summary"]["kind"] == "revision_captured")
+        .expect("capture entry in history");
+    assert_eq!(capture_entry["summary"]["summary"], summary);
+
+    let shown =
+        parse_json(&pointbreak(["revision", "show", revision_id, "--repo", repo_path]).stdout);
+    assert_eq!(shown["revision"]["summary"], summary);
+
+    let text = String::from_utf8(
+        pointbreak(["revision", "list", "--repo", repo_path, "--format", "text"]).stdout,
+    )
+    .unwrap();
+    assert!(text.contains(&format!("\"{summary}\"")), "stdout:\n{text}");
+
+    let text = String::from_utf8(
+        pointbreak([
+            "revision",
+            "show",
+            revision_id,
+            "--repo",
+            repo_path,
+            "--format",
+            "text",
+        ])
+        .stdout,
+    )
+    .unwrap();
+    assert!(
+        text.contains(&format!("summary: {summary}")),
+        "stdout:\n{text}"
+    );
 }
 
 #[test]

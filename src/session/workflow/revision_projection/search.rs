@@ -172,6 +172,7 @@ pub fn build_revision_search_record(inputs: RevisionRecordInputs<'_>) -> Revisio
     let mut parts: Vec<String> = vec![
         entry.revision_id.as_str().to_owned(),
         entry.object_id.as_str().to_owned(),
+        entry.summary.clone().unwrap_or_default(),
         overview.current_assessment.status.as_str().to_owned(),
         assessment,
     ];
@@ -253,6 +254,7 @@ mod tests {
         RevisionListEntry {
             captured_at: captured_at.to_owned(),
             revision_id: RevisionId::new(revision),
+            summary: None,
             object_id: ObjectId::new(snapshot),
             source: RevisionSource::GitWorktree {
                 mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
@@ -673,11 +675,13 @@ mod tests {
         let mut overview =
             overview_with_observations(vec![observation("agent:codex", "actor:agent:codex", &[])]);
         overview.input_requests = vec![input_request(InputRequestStatus::Open)];
-        let e = entry("rev:sha256:ONE", "snap:sha256:one", "2026-05-13T10:00:00Z");
+        let mut e = entry("rev:sha256:ONE", "snap:sha256:one", "2026-05-13T10:00:00Z");
+        e.summary = Some("Readable capture label".to_owned());
         let record = record_of(&e, &overview, "head", false);
         for piece in [
             "rev:sha256:one",
             "snap:sha256:one",
+            "readable capture label",
             "obs",
             "req",
             "attention",

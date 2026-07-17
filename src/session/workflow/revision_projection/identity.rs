@@ -234,6 +234,7 @@ impl RevisionShowResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RevisionProjectionIdentity {
     pub id: RevisionId,
+    pub summary: Option<String>,
     pub journal_id: JournalId,
     pub source: RevisionSource,
     pub base: ReviewEndpoint,

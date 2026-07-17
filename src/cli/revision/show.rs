@@ -135,6 +135,12 @@ fn render_revision_digest(result: &RevisionShowResult) -> String {
         endpoint_label(&identity.base),
         endpoint_label(&identity.target),
     ));
+    if let Some(summary) = &identity.summary {
+        lines.push(format!(
+            "summary: {}",
+            crate::cli::common::clamp_title(summary)
+        ));
+    }
 
     lines.push(crate::cli::common::current_call_line(
         &result.current_assessment.status,

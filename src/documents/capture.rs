@@ -32,6 +32,8 @@ struct CaptureDiffstatDocument {
 #[serde(rename_all = "camelCase")]
 struct CaptureRevisionDocument {
     id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
     base: ReviewEndpoint,
     target: ReviewEndpoint,
     revision_id: String,
@@ -46,6 +48,7 @@ pub fn capture_document(result: CaptureResult) -> EventWriteDocument<CaptureBody
         CaptureBody {
             revision: CaptureRevisionDocument {
                 id: result.revision_id.as_str().to_owned(),
+                summary: result.summary,
                 base: result.base,
                 target: result.target,
                 revision_id: result.revision_id.as_str().to_owned(),
@@ -89,6 +92,7 @@ mod tests {
             revision_id: RevisionId::new("rev:sha256:abc123"),
             object_id: ObjectId::new("obj:sha256:def456"),
             engagement_id: EngagementId::new("engagement:default"),
+            summary: None,
             source: RevisionSource::GitWorktree {
                 mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
                 include_untracked: false,
@@ -130,5 +134,6 @@ mod tests {
         assert_eq!(value["diffstat"]["removedLines"], 5);
         // The consumed hard-core path stays present.
         assert!(value["revision"]["id"].is_string());
+        assert!(value["revision"].get("summary").is_none());
     }
 }

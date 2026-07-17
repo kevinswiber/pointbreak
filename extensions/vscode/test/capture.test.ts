@@ -12,6 +12,7 @@ import { workspaceFolder } from "./helpers/vscodeMock";
 
 const vscodeMocks = vi.hoisted(() => ({
   showErrorMessage: vi.fn(),
+  showInputBox: vi.fn(),
   showInformationMessage: vi.fn(),
   showQuickPick: vi.fn(),
   showWarningMessage: vi.fn(),
@@ -21,6 +22,8 @@ vi.mock("vscode", () => ({ window: vscodeMocks }));
 
 beforeEach(() => {
   vscodeMocks.showErrorMessage.mockReset();
+  vscodeMocks.showInputBox.mockReset();
+  vscodeMocks.showInputBox.mockResolvedValue("");
   vscodeMocks.showInformationMessage.mockReset();
   vscodeMocks.showQuickPick.mockReset();
   vscodeMocks.showWarningMessage.mockReset();
@@ -102,6 +105,44 @@ describe("runCaptureCommand", () => {
     expect(refresh).toHaveBeenCalledOnce();
     expect(vscodeMocks.showInformationMessage).toHaveBeenCalledWith(
       "Captured revision 1234567890ab",
+    );
+  });
+
+  it("records an optional summary and includes it in the completion notice", async () => {
+    const capture = vi.fn(async () => ({
+      schema: "pointbreak.review-capture" as const,
+      version: 1 as const,
+      revision: {
+        id: "rev:sha256:1234567890abcdef",
+        summary: "Make revision discovery readable",
+      },
+      diagnostics: [],
+    }));
+    vscodeMocks.showQuickPick.mockResolvedValueOnce({
+      label: "Staged only",
+      choice: "staged",
+    });
+    vscodeMocks.showInputBox.mockResolvedValueOnce(
+      "  Make revision discovery readable  ",
+    );
+
+    await runCaptureCommand(
+      { capture } as unknown as PointbreakCli,
+      [resolved()],
+      {
+        pick: vi.fn(async (items) => items[0] as never),
+        humanWrites: humanWrites(vi.fn(async () => undefined)),
+      },
+    );
+
+    expect(capture).toHaveBeenCalledWith("/repo", {
+      choice: "staged",
+      includeUntracked: false,
+      allowEmpty: false,
+      summary: "Make revision discovery readable",
+    });
+    expect(vscodeMocks.showInformationMessage).toHaveBeenCalledWith(
+      "Captured “Make revision discovery readable” (1234567890ab)",
     );
   });
 

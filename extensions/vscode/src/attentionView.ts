@@ -15,6 +15,7 @@ import type {
   PointbreakCli,
   RevisionListDoc,
 } from "./cli";
+import { revisionDiscoveryDisplay } from "./idDisplay";
 import { newestRevisionEntries } from "./revisionOrder";
 import type { TargetResolution } from "./targetResolver";
 
@@ -370,10 +371,9 @@ function deriveTargetChildren(
     .slice(0, 5)
     .map((entry) => ({
       kind: "revision-item",
-      label: shortRevisionId(entry.revisionId),
+      ...revisionDiscoveryDisplay(entry),
       targetKey: resolution.target.key,
       folder: resolution.folder,
-      description: entry.mergeStatus,
       revisionId: entry.revisionId,
       command: "pointbreak.openAnnotatedDiff",
     }));
@@ -430,10 +430,6 @@ function repairNode(
     message: resolution.message,
     folder: resolution.folder,
   };
-}
-
-function shortRevisionId(revisionId: string): string {
-  return revisionId.split(":").at(-1)?.slice(0, 12) ?? revisionId;
 }
 
 function errorMessage(error: unknown): string {

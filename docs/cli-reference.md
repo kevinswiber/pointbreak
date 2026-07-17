@@ -254,7 +254,7 @@ from the snapshot wire (there is nothing to redact). Endpoint/target display liv
 ```bash
 pointbreak capture [--repo <path>] [--base <rev> | --root | --staged | --unstaged] \
   [--target <rev>] [--include-untracked] [--allow-empty] \
-  [--path <pathspec>]... [--supersedes <revision-id>]...
+  [--summary <text>] [--path <pathspec>]... [--supersedes <revision-id>]...
 ```
 
 `pointbreak capture` records the current V1 revision: the base endpoint, target endpoint, and
@@ -271,6 +271,14 @@ By default, a selected source that produces zero changed files is an error. The 
 likely source flags such as `--include-untracked`, `--staged`, or `--unstaged` when they might
 explain the empty result. Use `--allow-empty` to intentionally record an empty revision.
 
+`--summary <text>` attaches an optional human-readable discovery label to the immutable capture
+event. It is projected into `revision list`, `history`, the Inspector, and the VS Code extension so
+people and agents can select the intended revision without interpreting opaque IDs. The summary is
+descriptive metadata and does not affect revision or object identity. An omitted
+summary stays absent from the event and read documents for backward compatibility. Because the
+capture event is immutable, rerunning the same content with a different summary is a conflicting
+proposal rather than an edit; choose the label on the initial capture.
+
 - With `--base <rev>`, capture instead records the committed range from `<rev>` to `--target`
   (default `HEAD`) as a `git_commit_range` source. Both revs are resolved with `git rev-parse` to
   commit OIDs at capture time: annotated tags peel to their commit, and a rev that does not exist or
@@ -279,7 +287,8 @@ explain the empty result. Use `--allow-empty` to intentionally record an empty r
   endpoints serialize as `git_commit` and no worktree path appears in the output. `--target`
   defaults to `HEAD` under `--base`. Re-capturing the same range is idempotent and reports
   `eventsExisting`, and an equivalent rev spelling (`HEAD~1` versus the resolved OID) captures the
-  same revision because rev spellings are never stored. Like worktree capture, a range capture lands
+  same revision because rev spellings are never stored (and the same summary, when supplied, keeps
+  the proposal byte-identical). Like worktree capture, a range capture lands
   in the shared common-dir store, so it is immediately visible from sibling worktrees (see below).
 - With `--root`, capture records Git's empty tree to `--target` (default `HEAD`) as a
   `git_root_commit` source. The base endpoint serializes as `git_tree`; the target endpoint
@@ -1100,7 +1109,8 @@ pointbreak revision list [--repo <path>] [--object <object-id>] [--ref <name> [-
 `pointbreak revision list` is the discovery surface for captured revisions. It emits
 `pointbreak.review-revision-list` JSON with `eventSetHash`, `eventCount`, `revisionCount`, and entries
 sorted by capture time. Each entry carries the revision id, the content-only object id, the capture
-endpoints, and `objectArtifactContentHash`.
+endpoints, the optional capture `summary`, and `objectArtifactContentHash`. Text output places the
+summary beside the short revision id; Inspector and VS Code use it as the primary selection label.
 
 - `--object <object-id>` lists only the revisions that share one content object. Coincident content
   may span supersession threads, so this is a listing/grouping lens, never a head selector.

@@ -239,6 +239,8 @@ struct FactGraphDocument {
 struct RevisionEntryDocument {
     captured_at: String,
     revision_id: RevisionId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
     snapshot_id: ObjectId,
     source: RevisionSource,
     base: ReviewEndpoint,
@@ -607,6 +609,7 @@ fn to_unit_entry_documents(
             let RevisionListEntry {
                 captured_at,
                 revision_id,
+                summary,
                 object_id,
                 source,
                 base,
@@ -628,6 +631,7 @@ fn to_unit_entry_documents(
             Ok(RevisionEntryDocument {
                 captured_at,
                 revision_id,
+                summary,
                 snapshot_id: object_id,
                 source,
                 base,
@@ -2809,6 +2813,7 @@ mod tests {
         RevisionListEntry {
             captured_at: "2026-05-13T10:00:00Z".to_owned(),
             revision_id: RevisionId::new("rev:sha256:abc"),
+            summary: None,
             object_id: ObjectId::new("snap:sha256:abc"),
             source: RevisionSource::GitWorktree {
                 mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
@@ -2871,10 +2876,12 @@ mod tests {
 
     #[test]
     fn units_document_splices_target_display_additively() {
-        let entries = vec![entry(
+        let mut summary_entry = entry(
             "/Users/x/worktrees/boardwalk/plan-0006",
             "545b0eb81463aaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        )];
+        );
+        summary_entry.summary = Some("Make revision discovery readable".to_owned());
+        let entries = vec![summary_entry];
         let overviews = BTreeMap::from([(
             "rev:sha256:abc".to_owned(),
             RevisionEntryOverviewDocument {
@@ -2909,6 +2916,7 @@ mod tests {
         );
         assert_eq!(json["capturedAt"], "2026-05-13T10:00:00Z");
         assert_eq!(json["revisionId"], "rev:sha256:abc");
+        assert_eq!(json["summary"], "Make revision discovery readable");
         assert_eq!(json["snapshotId"], "snap:sha256:abc");
         assert!(
             json.get("objectId").is_none() && json.get("objectArtifactContentHash").is_none(),
@@ -2977,6 +2985,7 @@ mod tests {
                         },
                     }),
                 },
+                summary: None,
                 object_artifact_content_hash: "sha256:artifact:legacy".to_owned(),
                 supersedes: vec![],
             },

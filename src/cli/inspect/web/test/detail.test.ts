@@ -317,10 +317,24 @@ describe("the #detail open-diff delegate (installed once, delegates to diff/cont
 
 describe("openRevision / renderRevisionPage (the composite page, fetched via http)", () => {
   it("fetches the revision and paints the composite page sections", async () => {
+    const response = structuredClone(revisionJson) as unknown as {
+      revision: { summary?: string };
+    };
+    response.revision.summary = "Make revision discovery readable";
+    setCompositeResponse(response);
     store.commit({ selected: { kind: "revision", id: REV } });
     await detail.openRevision(REV);
     const el = detailEl();
     expect(el.querySelector(".unit-page")).not.toBeNull();
+    expect(el.querySelector(".unit-page-title")?.textContent).toBe(
+      "Make revision discovery readable",
+    );
+    const summaryLabel = Array.from(el.querySelectorAll("dt")).find(
+      (node) => node.textContent === "summary",
+    );
+    expect(summaryLabel?.nextElementSibling?.textContent).toBe(
+      "Make revision discovery readable",
+    );
     const text = el.textContent ?? "";
     expect(text).toContain("Revision");
     expect(text).toContain("Current assessment");

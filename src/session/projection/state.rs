@@ -869,6 +869,7 @@ mod tests {
                             },
                         }),
                     },
+                    summary: None,
                     object_artifact_content_hash: "sha256:artifact".to_owned(),
                     supersedes: vec![],
                 },

@@ -89,6 +89,7 @@ mod tests {
                         object_id: ObjectId::new(format!("obj:sha256:{suffix}")),
                         git_provenance,
                     },
+                    summary: None,
                     object_artifact_content_hash: format!("sha256:artifact:{suffix}"),
                     supersedes: vec![],
                 },

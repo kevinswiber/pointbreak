@@ -1,6 +1,7 @@
 import { window } from "vscode";
 import type { AttentionItemNode, RevisionItemNode } from "../attentionView";
 import type { PointbreakCli } from "../cli";
+import { revisionDiscoveryDisplay } from "../idDisplay";
 import type { ReviewPanelManager } from "../reviewPanel";
 import { newestRevisionEntries } from "../revisionOrder";
 import {
@@ -83,8 +84,7 @@ async function pickLocation(
   try {
     const revisions = await cli.revisionList(resolution.folder.uri.fsPath);
     const items = newestRevisionEntries(revisions.entries).map((entry) => ({
-      label: shortRevisionId(entry.revisionId),
-      description: entry.mergeStatus,
+      ...revisionDiscoveryDisplay(entry),
       detail: entry.capturedAt,
       revisionId: entry.revisionId,
     }));
@@ -104,8 +104,4 @@ async function pickLocation(
     );
     return undefined;
   }
-}
-
-function shortRevisionId(revisionId: string): string {
-  return revisionId.split(":").at(-1)?.slice(0, 12) ?? revisionId;
 }

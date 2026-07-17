@@ -559,6 +559,7 @@ mod tests {
                                 },
                             }),
                         },
+                        summary: None,
                         object_artifact_content_hash: format!("sha256:artifact:{suffix}"),
                         supersedes,
                     },

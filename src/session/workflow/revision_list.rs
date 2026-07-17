@@ -120,6 +120,8 @@ impl RevisionListOptions {
 pub struct RevisionListEntry {
     pub captured_at: String,
     pub revision_id: RevisionId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
     pub object_id: ObjectId,
     pub source: RevisionSource,
     pub base: ReviewEndpoint,
@@ -619,6 +621,7 @@ fn entry_from_event(
     let payload: WorkObjectProposedPayload = serde_json::from_value(event.payload.clone())?;
     let WorkObjectProposal::Revision {
         revision,
+        summary,
         object_artifact_content_hash,
         ..
     } = payload.work_object
@@ -640,6 +643,7 @@ fn entry_from_event(
     Ok(Some(RevisionListEntry {
         captured_at: event.occurred_at.clone(),
         revision_id: revision_id.clone(),
+        summary,
         object_id: revision.object_id,
         source: provenance.source,
         base: provenance.base,
@@ -820,6 +824,7 @@ mod tests {
                         },
                     }),
                 },
+                summary: None,
                 object_artifact_content_hash: format!("sha256:artifact:{suffix}"),
                 supersedes: vec![],
             },
@@ -1017,6 +1022,7 @@ mod tests {
                         },
                     }),
                 },
+                summary: None,
                 object_artifact_content_hash: format!("sha256:artifact:{suffix}"),
                 supersedes: vec![],
             },
@@ -1408,6 +1414,7 @@ mod tests {
                         },
                     }),
                 },
+                summary: None,
                 object_artifact_content_hash: format!("sha256:artifact:{}", unit.as_str()),
                 supersedes: vec![],
             },
@@ -1485,6 +1492,7 @@ mod tests {
                         },
                     }),
                 },
+                summary: None,
                 object_artifact_content_hash: format!("sha256:artifact:{suffix}"),
                 supersedes: vec![],
             },
@@ -1532,6 +1540,7 @@ mod tests {
                         },
                     }),
                 },
+                summary: None,
                 object_artifact_content_hash: format!("sha256:artifact:{suffix}"),
                 supersedes: vec![],
             },

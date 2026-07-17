@@ -102,6 +102,7 @@ import {
 /** The revision record on the `/api/revisions/{id}` document (keyed on `id`, not `revisionId`). */
 interface RevisionPageRevision {
   id?: string;
+  summary?: string;
   base?: EntryBase;
   // Shared `pointbreak.review-revision` vocabulary: the member doc keeps `objectId`
   // and `objectArtifactContentHash` on the wire, unlike the snapshot-named
@@ -972,6 +973,7 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
   const revisionId = ru.id ?? "";
   const badge = supersessionBadge(revisionId);
   const title =
+    ru.summary ||
     ru.targetDisplay?.workLabel?.text ||
     `${shortId(ru.id)}${base.commitOid ? ` · base ${shortId(base.commitOid)}` : ""}`;
   const staleContext = staleFactSectionContext(revisionId);
@@ -994,6 +996,7 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
 
   sections.push(`<section><h2>Revision</h2><dl class="${CLASS.upIdentity}">
     <dt>id</dt><dd>${linkify(ru.id)}</dd>
+    <dt>summary</dt><dd>${escapeHtml(ru.summary ?? "—")}</dd>
     <dt>work</dt><dd>${workLabelText(ru.targetDisplay)}</dd>
     <dt>base</dt><dd>${base.commitOid ? linkify(base.commitOid) : "—"} ${base.kind ? `<span class="${CLASS.factStatus}">${escapeHtml(base.kind)}</span>` : ""}</dd>
     <dt>target</dt><dd>${targetDisplayLabel(ru.targetDisplay)}${targetHeadBadge(ru.targetDisplay)}</dd>

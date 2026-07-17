@@ -92,6 +92,26 @@ describe("renderRevisionList (the flat revision list lens)", () => {
     expect(card?.textContent).toContain(OBJ.split(":").at(-1)?.slice(0, 12));
   });
 
+  it("uses the capture summary as the primary revision heading", () => {
+    seedFixtures();
+    const current = store.getState().revisions as RevisionsDoc;
+    store.commit({
+      revisions: {
+        ...current,
+        entries: current.entries.map((entry) => ({
+          ...entry,
+          summary: "Make revision discovery readable",
+        })),
+      },
+    });
+    mountListBody();
+    revisions.renderRevisionList();
+
+    expect(
+      document.querySelector<HTMLElement>("#units .unit-card h3")?.textContent,
+    ).toBe("Make revision discovery readable");
+  });
+
   it("keeps an incomplete revision visible and disables its unavailable snapshot", () => {
     seedFixtures();
     const current = store.getState().revisions as RevisionsDoc;

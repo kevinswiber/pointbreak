@@ -102,6 +102,7 @@ it("offers every revision newest-first in the explicit picker", async () => {
   const target = resolution();
   const entries = Array.from({ length: 25 }, (_, index) => ({
     revisionId: `rev:sha256:${String(index + 1).padStart(2, "0")}`,
+    summary: index === 24 ? "Newest readable revision" : undefined,
     mergeStatus: "open",
     capturedAt: `2026-07-${String(index + 1).padStart(2, "0")}T00:00:00Z`,
   }));
@@ -122,7 +123,11 @@ it("offers every revision newest-first in the explicit picker", async () => {
 
   const items = vscodeMocks.showQuickPick.mock.calls[0][0];
   expect(items).toHaveLength(25);
-  expect(items[0]).toMatchObject({ revisionId: "rev:sha256:25" });
+  expect(items[0]).toMatchObject({
+    revisionId: "rev:sha256:25",
+    label: "Newest readable revision",
+    description: "25 · open",
+  });
   expect(open).toHaveBeenCalledWith(
     { resolution: target, revisionId: "rev:sha256:25" },
     { preserveFocus: false },

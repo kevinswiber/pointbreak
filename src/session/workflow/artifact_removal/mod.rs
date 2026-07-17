@@ -830,6 +830,7 @@ mod tests {
                             target: original.target.clone(),
                         }),
                     },
+                    summary: None,
                     object_artifact_content_hash: original.object_artifact_content_hash.clone(),
                     supersedes: vec![],
                 },

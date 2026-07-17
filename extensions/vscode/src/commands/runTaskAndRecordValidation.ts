@@ -10,7 +10,7 @@ import type {
   HumanWriteContext,
   HumanWriteCoordinator,
 } from "../humanWriteCoordinator";
-import { shortReferenceId } from "../idDisplay";
+import { revisionDiscoveryDisplay } from "../idDisplay";
 import { newestRevisionEntries } from "../revisionOrder";
 import {
   pickFolder,
@@ -389,8 +389,7 @@ function revisionPickItems(
   ).length;
   return newestRevisionEntries(entries)
     .map((entry) => ({
-      label: shortReferenceId(entry.revisionId),
-      description: entry.mergeStatus,
+      ...revisionDiscoveryDisplay(entry),
       detail: `${entry.revisionId} · captured ${entry.capturedAt}`,
       picked: openCount === 1 && entry.mergeStatus === "open",
       entry,

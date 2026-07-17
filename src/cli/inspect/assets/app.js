@@ -1087,6 +1087,7 @@
     if (s.outcome) return s.outcome;
     if (s.reasonCode) return s.reasonCode;
     if (e.eventType === "work_object_proposed") {
+      if (s.summary) return s.summary;
       const base = s.base?.commitOid || "";
       return base ? `capture · base ${shortId(base)}` : "capture";
     }
@@ -1231,6 +1232,7 @@
     const text = [
       r.revisionId,
       r.snapshotId,
+      r.summary,
       target.label,
       target.workLabel?.text,
       head.label,
@@ -4611,7 +4613,7 @@
     const s = d.summary ?? {};
     const revisionId = ru.id ?? "";
     const badge = supersessionBadge(revisionId);
-    const title = ru.targetDisplay?.workLabel?.text || `${shortId(ru.id)}${base.commitOid ? ` · base ${shortId(base.commitOid)}` : ""}`;
+    const title = ru.summary || ru.targetDisplay?.workLabel?.text || `${shortId(ru.id)}${base.commitOid ? ` · base ${shortId(base.commitOid)}` : ""}`;
     const staleContext = staleFactSectionContext(revisionId);
     const observationContext = renderFactSupersessionBlock(
       d.factSupersession?.observations,
@@ -4623,6 +4625,7 @@
     const sections = [];
     sections.push(`<section><h2>Revision</h2><dl class="${CLASS.upIdentity}">
     <dt>id</dt><dd>${linkify(ru.id)}</dd>
+    <dt>summary</dt><dd>${escapeHtml(ru.summary ?? "—")}</dd>
     <dt>work</dt><dd>${workLabelText(ru.targetDisplay)}</dd>
     <dt>base</dt><dd>${base.commitOid ? linkify(base.commitOid) : "—"} ${base.kind ? `<span class="${CLASS.factStatus}">${escapeHtml(base.kind)}</span>` : ""}</dd>
     <dt>target</dt><dd>${targetDisplayLabel(ru.targetDisplay)}${targetHeadBadge(ru.targetDisplay)}</dd>
@@ -6319,7 +6322,7 @@
       const targetCell = `<span>target</span><b>${targetDisplayLabel(u.targetDisplay)}${targetHeadBadge(u.targetDisplay)}</b>`;
       return `<div class="${CLASS.unitCard}" data-revision-id="${escapeHtml(revisionId)}"${isSelected ? ' aria-selected="true"' : ""} title="${escapeHtml(revisionId)}
 click to open the revision page">
-      <h3>${workLabelText(u.targetDisplay)}</h3>
+      <h3>${typeof u.summary === "string" && u.summary ? escapeHtml(u.summary) : workLabelText(u.targetDisplay)}</h3>
       ${badge ? `<div class="${CLASS.supersessionBadges}">${badge}</div>` : ""}
       ${renderRevisionOverview(u, overview)}
       <div class="${CLASS.kv} ${CLASS.tierMedium}">${rows.map(kv).join("")}${targetCell}${tail.map(kv).join("")}</div>

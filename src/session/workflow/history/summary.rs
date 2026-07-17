@@ -53,6 +53,8 @@ pub enum ReviewHistorySummary {
         object_id: ObjectId,
         engagement_id: EngagementId,
         #[serde(skip_serializing_if = "Option::is_none")]
+        summary: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         source: Option<RevisionSource>,
         #[serde(skip_serializing_if = "Option::is_none")]
         base: Option<ReviewEndpoint>,

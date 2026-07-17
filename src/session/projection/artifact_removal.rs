@@ -342,6 +342,7 @@ mod tests {
                         object_id: ObjectId::new(object_id),
                         git_provenance: None,
                     },
+                    summary: None,
                     object_artifact_content_hash: content_hash.to_owned(),
                     supersedes: vec![],
                 },

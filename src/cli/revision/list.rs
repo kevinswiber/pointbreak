@@ -157,8 +157,14 @@ fn render_revision_list_text(result: &pointbreak::session::RevisionListResult) -
     )];
     for entry in &result.entries {
         let mut line = format!(
-            "  {} · base {} → {} · {} · {}",
+            "  {}{} · base {} → {} · {} · {}",
             output::short_ref(entry.revision_id.as_str()),
+            entry
+                .summary
+                .as_deref()
+                .map(crate::cli::common::clamp_title)
+                .map(|summary| format!(" · \"{summary}\""))
+                .unwrap_or_default(),
             endpoint_label(&entry.base),
             endpoint_label(&entry.target),
             entry.merge_status,

@@ -45,6 +45,11 @@ pub struct Revision {
 pub enum WorkObjectProposal {
     Revision {
         revision: Revision,
+        /// Human-authored label for distinguishing this capture from other
+        /// revisions in discovery surfaces. Descriptive only: it is carried by
+        /// the proposal event and does not participate in revision identity.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        summary: Option<String>,
         /// Content hash of the stored object artifact this revision's object
         /// was captured into. A binding fact about the artifact (not part of
         /// revision identity); the artifact-transfer layer resolves the
@@ -120,6 +125,7 @@ mod tests {
                     object_id: ObjectId::new("obj:sha256:o"),
                     git_provenance: Some(git_provenance()),
                 },
+                summary: None,
                 object_artifact_content_hash: "sha256:artifact".to_owned(),
                 supersedes: vec![],
             },
@@ -139,11 +145,29 @@ mod tests {
             json["workObject"]["objectArtifactContentHash"],
             "sha256:artifact"
         );
+        assert!(json["workObject"].get("summary").is_none());
         assert_eq!(
             json["workObject"]["revision"]["gitProvenance"]["source"]["kind"],
             "git_worktree"
         );
 
+        let parsed: WorkObjectProposedPayload = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed, payload);
+    }
+
+    #[test]
+    fn revision_arm_round_trips_an_optional_summary() {
+        let mut payload = revision_payload();
+        let WorkObjectProposal::Revision { summary, .. } = &mut payload.work_object else {
+            unreachable!("fixture is a revision proposal");
+        };
+        *summary = Some("Make revision discovery readable".to_owned());
+
+        let json = serde_json::to_value(&payload).unwrap();
+        assert_eq!(
+            json["workObject"]["summary"],
+            "Make revision discovery readable"
+        );
         let parsed: WorkObjectProposedPayload = serde_json::from_value(json).unwrap();
         assert_eq!(parsed, payload);
     }
@@ -158,6 +182,7 @@ mod tests {
                     object_id: ObjectId::new("obj:sha256:o"),
                     git_provenance: None,
                 },
+                summary: None,
                 object_artifact_content_hash: "sha256:artifact".to_owned(),
                 supersedes: vec![],
             },
@@ -251,6 +276,7 @@ mod tests {
                     object_id: ObjectId::new("obj:sha256:o"),
                     git_provenance: Some(provenance),
                 },
+                summary: None,
                 object_artifact_content_hash: "sha256:artifact".to_owned(),
                 supersedes: vec![],
             },
@@ -310,6 +336,7 @@ mod tests {
                     object_id: ObjectId::new("obj:sha256:o"),
                     git_provenance: None,
                 },
+                summary: None,
                 object_artifact_content_hash: "sha256:artifact".to_owned(),
                 supersedes: vec![
                     RevisionId::new("rev:sha256:a"),
@@ -350,6 +377,7 @@ mod tests {
                             object_id: ObjectId::new("obj:sha256:o"),
                             git_provenance: None,
                         },
+                        summary: None,
                         object_artifact_content_hash: "sha256:artifact".to_owned(),
                         supersedes,
                     },

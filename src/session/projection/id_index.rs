@@ -140,6 +140,7 @@ mod tests {
                         object_id: ObjectId::new(object_id),
                         git_provenance: None,
                     },
+                    summary: None,
                     object_artifact_content_hash: "sha256:artifact".to_owned(),
                     supersedes: vec![],
                 },

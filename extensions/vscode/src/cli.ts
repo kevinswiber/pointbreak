@@ -67,6 +67,7 @@ export interface RevisionDoc extends DiagnosticDocument {
   version: 2;
   revision: {
     id: string;
+    summary?: string;
     objectId?: string;
     objectArtifactContentHash?: string;
     [field: string]: unknown;
@@ -235,6 +236,7 @@ export interface RevisionListDoc extends DiagnosticDocument {
   version: 1;
   entries: Array<{
     revisionId: string;
+    summary?: string;
     capturedAt: string;
     mergeStatus: string;
     [field: string]: unknown;
@@ -266,7 +268,7 @@ export interface StoreStatusDoc extends DiagnosticDocument {
 export interface CaptureDoc extends DiagnosticDocument {
   schema: "pointbreak.review-capture";
   version: 1;
-  revision: { id: string };
+  revision: { id: string; summary?: string };
 }
 
 export type CaptureChoice = "worktree" | "staged" | "unstaged";
@@ -275,6 +277,7 @@ export interface CaptureOptions {
   choice: CaptureChoice;
   includeUntracked: boolean;
   allowEmpty: boolean;
+  summary?: string;
   supersedes?: readonly string[];
 }
 
@@ -722,6 +725,9 @@ export function captureArgs(opts: CaptureOptions): string[] {
   }
   if (opts.allowEmpty) {
     args.push("--allow-empty");
+  }
+  if (opts.summary !== undefined) {
+    args.push("--summary", opts.summary);
   }
   for (const revisionId of opts.supersedes ?? []) {
     args.push("--supersedes", revisionId);

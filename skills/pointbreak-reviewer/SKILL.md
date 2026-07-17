@@ -49,6 +49,10 @@ revision_id="<revision-id>"
 author_track="<author-track>"
 ```
 
+Use each entry's `summary` as the primary discovery label and confirm it describes the requested
+change before copying its exact `revisionId`. If a legacy capture has no summary, fall back to its
+endpoints and capture time. Never choose among multiple revisions from short opaque IDs alone.
+
 If the author track is not supplied, use the bounded read surfaces to find the track that contains
 the authored handoff:
 

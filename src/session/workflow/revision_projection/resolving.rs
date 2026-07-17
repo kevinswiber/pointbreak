@@ -39,6 +39,7 @@ pub(super) fn selected_revision_capture(
         let payload = decode_work_object_proposed(&event.payload)?;
         let WorkObjectProposal::Revision {
             revision,
+            summary,
             object_artifact_content_hash,
             ..
         } = payload.work_object
@@ -62,6 +63,7 @@ pub(super) fn selected_revision_capture(
             };
             return Ok(RevisionProjectionIdentity {
                 id: revision.id.clone(),
+                summary,
                 journal_id: event.target.journal_id.clone(),
                 source,
                 base,
@@ -107,6 +109,7 @@ fn revision_identity_from_capture_event(
     let payload = decode_work_object_proposed(&event.payload)?;
     let WorkObjectProposal::Revision {
         revision,
+        summary,
         object_artifact_content_hash,
         ..
     } = payload.work_object
@@ -126,6 +129,7 @@ fn revision_identity_from_capture_event(
     };
     Ok(Some(RevisionProjectionIdentity {
         id: revision.id.clone(),
+        summary,
         journal_id: event.target.journal_id.clone(),
         source,
         base,
@@ -178,6 +182,7 @@ mod tests {
                     object_id: ObjectId::new("obj:sha256:o"),
                     git_provenance: None,
                 },
+                summary: None,
                 object_artifact_content_hash: "sha256:current".to_owned(),
                 supersedes: vec![],
             },

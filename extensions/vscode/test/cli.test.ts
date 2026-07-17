@@ -85,6 +85,7 @@ describe("captureArgs", () => {
         choice: "unstaged",
         includeUntracked: true,
         allowEmpty: true,
+        summary: "Describe the captured change",
         supersedes: ["rev:sha256:two", "rev:sha256:one"],
       }),
     ).toEqual([
@@ -92,6 +93,8 @@ describe("captureArgs", () => {
       "--unstaged",
       "--include-untracked",
       "--allow-empty",
+      "--summary",
+      "Describe the captured change",
       "--supersedes",
       "rev:sha256:two",
       "--supersedes",

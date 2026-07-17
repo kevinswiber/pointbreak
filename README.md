@@ -61,7 +61,7 @@ The short path is:
 
 ```bash
 cd path/to/git-worktree
-pointbreak capture
+pointbreak capture --summary "Explain the fallback behavior"
 pointbreak revision show --format json-pretty
 ```
 

@@ -209,11 +209,15 @@ fn history_entry_label(entry: &ReviewHistoryEntry) -> String {
         ReviewHistorySummary::ReviewInitialized {} => format!("review initialized{track}"),
         ReviewHistorySummary::RevisionCaptured {
             revision_id,
+            summary,
             base,
             target,
             ..
         } => {
             let mut label = format!("captured {}", output::short_ref(revision_id.as_str()));
+            if let Some(summary) = summary {
+                label.push_str(&format!(" · \"{}\"", clamp_title(summary)));
+            }
             if let (Some(base), Some(target)) = (base, target) {
                 label.push_str(&format!(
                     " · base {} → {}",

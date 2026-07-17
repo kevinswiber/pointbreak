@@ -90,10 +90,20 @@ export async function runCaptureCommand(
     includeUntracked = untracked.includeUntracked;
   }
 
+  const summary = await window.showInputBox({
+    prompt: "Add a short summary so this revision is easy to find later",
+    placeHolder: "What changed? (optional)",
+    ignoreFocusOut: true,
+  });
+  if (summary === undefined) {
+    return;
+  }
+
   const options: CaptureOptions = {
     choice: choice.choice,
     includeUntracked,
     allowEmpty: false,
+    ...(summary.trim() ? { summary: summary.trim() } : {}),
   };
   const humanWrites = dependencies.humanWrites;
   if (!humanWrites) {
@@ -124,7 +134,9 @@ export async function runCaptureCommand(
       return;
     }
     void window.showInformationMessage(
-      `Captured revision ${shortRevisionId(result.document.revision.id)}`,
+      result.document.revision.summary
+        ? `Captured “${result.document.revision.summary}” (${shortRevisionId(result.document.revision.id)})`
+        : `Captured revision ${shortRevisionId(result.document.revision.id)}`,
     );
   } catch (error) {
     await window.showErrorMessage(captureErrorMessage(error));

@@ -350,6 +350,7 @@ mod tests {
                             target: capture.target.clone(),
                         }),
                     },
+                    summary: None,
                     object_artifact_content_hash: capture.object_artifact_content_hash.clone(),
                     supersedes: vec![],
                 },

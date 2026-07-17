@@ -512,6 +512,7 @@ pub(super) fn history_entry_from_event(
             match payload.work_object {
                 WorkObjectProposal::Revision {
                     revision,
+                    summary,
                     object_artifact_content_hash,
                     ..
                 } => {
@@ -527,6 +528,7 @@ pub(super) fn history_entry_from_event(
                         revision_id: revision.id,
                         object_id: revision.object_id,
                         engagement_id: payload.engagement_id,
+                        summary,
                         source,
                         base,
                         target,

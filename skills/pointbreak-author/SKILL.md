@@ -21,7 +21,8 @@ reports the canonical paths, including the Git-common-dir store shared by linked
 
 ```text
 1. Confirm the full task change you intend to hand off — uncommitted in the worktree, or landed in commits.
-2. Capture the revision: `pointbreak capture`, or `pointbreak capture --base <rev>` for a landed range.
+2. Capture the revision with a concise `--summary`: `pointbreak capture --summary <text>`, or add
+   `--base <rev>` for a landed range.
 3. Choose one author track for this handoff.
 4. Add observations on that track for what changed, why, and review risks.
 5. Record validation evidence on that track for checks you actually ran.
@@ -42,6 +43,12 @@ to the working tree. Default worktree capture excludes untracked files to match 
 use `pointbreak capture --include-untracked` when the intended change includes new files that are not
 staged.
 
+Always pass a concise `--summary` that names the coherent change in human terms. This is the primary
+discovery label in revision lists, the Inspector, VS Code, and review loops. It does not change the
+revision ID, but it is immutable capture metadata, so do not omit it expecting to add it on a later
+recapture. Prefer an imperative phrase specific enough to distinguish this handoff from neighboring
+work, such as `Add capture summaries to revision discovery`.
+
 If the task is committed, capture the landed range with `pointbreak capture --base <rev>`. That captures
 the tree diff from `<rev>` to `--target` (default `HEAD`) without reading the working tree or
 untracked files. `--base` resolves any rev — a branch, tag, `HEAD~N`, or commit OID — so point it at
@@ -52,13 +59,13 @@ git status --short
 
 # Uncommitted task in the worktree.
 capture_file=$(mktemp)
-pointbreak capture | tee "$capture_file" | jq .
+pointbreak capture --summary "<concise change summary>" | tee "$capture_file" | jq .
 revision_id=$(jq -r '.revision.id' "$capture_file")
 rm "$capture_file"
 
 # Committed task: capture the landed range from the task's starting commit.
 capture_file=$(mktemp)
-pointbreak capture --base <commit-before-task> | tee "$capture_file" | jq .
+pointbreak capture --base <commit-before-task> --summary "<concise change summary>" | tee "$capture_file" | jq .
 revision_id=$(jq -r '.revision.id' "$capture_file")
 rm "$capture_file"
 ```

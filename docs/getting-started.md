@@ -64,10 +64,12 @@ git diff
 ## 3. Capture The Revision
 
 ```bash
-pointbreak capture
+pointbreak capture --summary "Explain the fallback behavior"
 ```
 
-The capture freezes the current diff as a local revision. Pointbreak writes immutable event files to
+The capture freezes the current diff as a local revision. The optional summary is a discovery label
+shown by revision lists, the Inspector, and the VS Code extension; it does not change revision
+identity. Pointbreak writes immutable event files to
 the store's `events/` log, stores captured object artifacts under `artifacts/`, and rebuilds
 `state.json` as a projection. By default the store is the shared common-dir store at `<git-common-dir>/pointbreak` —
 the same store for every worktree of the clone — and an ephemeral worktree keeps a worktree-local

@@ -266,6 +266,15 @@ describe("entryTitle", () => {
     expect(entryTitle({ eventType: "work_object_proposed" })).toBe("capture");
   });
 
+  it("uses a capture summary as the timeline title", () => {
+    expect(
+      entryTitle({
+        eventType: "work_object_proposed",
+        summary: { summary: "Make revision discovery readable" },
+      }),
+    ).toBe("Make revision discovery readable");
+  });
+
   it("renders a validation check as `name · status`", () => {
     expect(entryTitle(entryOfType("validation_check_recorded"))).toBe(
       "cargo test · passed",
@@ -537,6 +546,17 @@ describe("revisionSearchIndex", () => {
     };
     const index = revisionSearchIndex(labeled);
     expect(index.text).toContain("review landing truth");
+    expect(index.revision).toBe(revision.revisionId);
+    expect(index.snapshot).toBe(revision.snapshotId);
+  });
+
+  it("indexes the capture summary without replacing immutable identity", () => {
+    const summarized = {
+      ...revision,
+      summary: "Make revision discovery readable",
+    };
+    const index = revisionSearchIndex(summarized);
+    expect(index.text).toContain("make revision discovery readable");
     expect(index.revision).toBe(revision.revisionId);
     expect(index.snapshot).toBe(revision.snapshotId);
   });

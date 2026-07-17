@@ -74,8 +74,8 @@ writes the hidden `.git/info/exclude` anymore.
 ## 2. Capture a revision
 
 ```bash
-pointbreak capture
-pointbreak capture --include-untracked
+pointbreak capture --summary "Explain the fallback behavior"
+pointbreak capture --include-untracked --summary "Add the initial untracked files"
 ```
 
 `pointbreak capture` records a `work_object_proposed` event and writes the
@@ -83,17 +83,20 @@ captured snapshot as an immutable Pointbreak-owned object artifact. The output d
 `pointbreak.review-capture` JSON and includes:
 
 - the revision ID
+- the optional human-readable summary used by discovery surfaces
 - the object ID (the content-only identity)
 - the object artifact's canonical content hash
 
 You can pin later commands to the captured revision with `--revision
 <id>`. When only one revision exists in the store, commands that need a
 current revision pick it automatically. When multiple exist, list them with
-`pointbreak revision list` and pass either the exact revision ID or seed a
+`pointbreak revision list`, use each entry's `summary` to identify the intended capture, and pass
+either the exact revision ID or seed a
 supersession thread with `--revision <id>`.
 
-The snapshot is now frozen. Re-running `pointbreak capture` later creates a
-new revision; it does not mutate the previous one.
+The snapshot and capture summary are now frozen. Capturing changed content later creates a new
+revision; it does not mutate the previous one. Rerunning identical content with a different summary
+is rejected because immutable capture metadata cannot be edited in place.
 
 Default worktree capture is a combined `HEAD` to working-tree capture: staged
 and unstaged tracked changes are both included because both differ from `HEAD`.

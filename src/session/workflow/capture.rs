@@ -155,6 +155,7 @@ pub struct CaptureOptions {
     excluded_helper_paths: Vec<PathBuf>,
     actor_id: Option<ActorId>,
     supersedes: Vec<RevisionId>,
+    summary: Option<String>,
     pathspecs: Vec<String>,
     allow_empty: bool,
     signing: EventSigningOptions,
@@ -168,6 +169,7 @@ impl CaptureOptions {
             excluded_helper_paths: Vec::new(),
             actor_id: None,
             supersedes: Vec::new(),
+            summary: None,
             pathspecs: Vec::new(),
             allow_empty: false,
             signing: EventSigningOptions::default(),
@@ -232,6 +234,13 @@ impl CaptureOptions {
         self
     }
 
+    /// Attach a human-authored discovery label to the immutable capture event.
+    /// The summary is descriptive metadata and does not affect revision identity.
+    pub fn with_summary(mut self, summary: impl Into<String>) -> Self {
+        self.summary = Some(summary.into());
+        self
+    }
+
     /// Scope the capture to the given native git pathspec(s), applied to both
     /// the tracked diff and untracked-file synthesis. The set is canonicalized
     /// (sorted, deduped, trailing slashes stripped from non-magic entries) and
@@ -286,6 +295,7 @@ pub struct CaptureResult {
     pub revision_id: RevisionId,
     pub object_id: ObjectId,
     pub engagement_id: EngagementId,
+    pub summary: Option<String>,
     pub source: RevisionSource,
     pub base: ReviewEndpoint,
     pub target: ReviewEndpoint,
@@ -437,6 +447,7 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
                 object_id: fingerprint.object_id.clone(),
                 git_provenance: Some(fingerprint.git_provenance()),
             },
+            summary: options.summary.clone(),
             object_artifact_content_hash: artifact.content_hash.clone(),
             supersedes,
         },
@@ -515,6 +526,7 @@ pub fn capture_review(options: CaptureOptions) -> Result<CaptureResult> {
         revision_id: fingerprint.revision_id,
         object_id: fingerprint.object_id,
         engagement_id,
+        summary: options.summary,
         source: fingerprint.source,
         base: fingerprint.base,
         target: fingerprint.target,

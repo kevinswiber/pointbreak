@@ -90,7 +90,7 @@ export function renderRevisionList(): void {
       return `<div class="${CLASS.unitCard}" data-revision-id="${escapeHtml(revisionId)}"${
         isSelected ? ' aria-selected="true"' : ""
       } title="${escapeHtml(revisionId)}\nclick to open the revision page">
-      <h3>${workLabelText(u.targetDisplay)}</h3>
+      <h3>${typeof u.summary === "string" && u.summary ? escapeHtml(u.summary) : workLabelText(u.targetDisplay)}</h3>
       ${badge ? `<div class="${CLASS.supersessionBadges}">${badge}</div>` : ""}
       ${renderRevisionOverview(u, overview)}
       <div class="${CLASS.kv} ${CLASS.tierMedium}">${rows.map(kv).join("")}${targetCell}${tail.map(kv).join("")}</div>

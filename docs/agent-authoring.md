@@ -115,7 +115,7 @@ An agent-authored handoff looks like this:
 ```bash
 git status --short
 capture_file=$(mktemp)
-pointbreak capture | tee "$capture_file" | jq .
+pointbreak capture --summary "Add the new parser token form" | tee "$capture_file" | jq .
 revision_id=$(jq -r '.revision.id' "$capture_file")
 rm "$capture_file"
 agent_name="<agent-name>"

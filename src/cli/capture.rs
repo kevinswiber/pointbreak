@@ -54,6 +54,10 @@ pub(super) struct CaptureArgs {
     #[arg(long = "supersedes")]
     supersedes: Vec<String>,
 
+    /// Short human-readable label shown by revision discovery surfaces.
+    #[arg(long)]
+    summary: Option<String>,
+
     /// Scope the capture to the given git pathspec(s): both the tracked diff
     /// and untracked-file synthesis include only matching files. May be
     /// repeated; the recorded set is order-independent. Pathspecs are
@@ -156,20 +160,26 @@ fn render_capture_text(result: &CaptureResult) -> String {
         diff_line.push_str(&format!(" · {} mode-only", stat.mode_only_files));
     }
 
-    [
-        format!(
-            "captured {} · base {} → {}",
-            output::short_ref(result.revision_id.as_str()),
-            endpoint_label(&result.base),
-            endpoint_label(&result.target),
-        ),
+    let mut lines = vec![format!(
+        "captured {} · base {} → {}",
+        output::short_ref(result.revision_id.as_str()),
+        endpoint_label(&result.base),
+        endpoint_label(&result.target),
+    )];
+    if let Some(summary) = &result.summary {
+        lines.push(format!(
+            "summary: {}",
+            crate::cli::common::clamp_title(summary)
+        ));
+    }
+    lines.extend([
         diff_line,
         format!(
             "events: {} created, {} existing",
             result.events_created, result.events_existing
         ),
-    ]
-    .join("\n")
+    ]);
+    lines.join("\n")
 }
 
 fn capture_options(
@@ -196,6 +206,9 @@ fn capture_options(
             supersedes.push(RevisionId::new(ids.rev(raw)?));
         }
         options = options.with_supersedes(supersedes);
+    }
+    if let Some(summary) = &args.summary {
+        options = options.with_summary(summary.clone());
     }
     if !args.paths.is_empty() {
         options = options.with_pathspecs(args.paths.clone());
@@ -266,6 +279,7 @@ mod tests {
             revision_id: RevisionId::new(format!("rev:sha256:{}", "ab".repeat(32))),
             object_id: ObjectId::new(format!("obj:sha256:{}", "ab".repeat(32))),
             engagement_id: EngagementId::new(format!("engagement:sha256:{}", "ab".repeat(32))),
+            summary: None,
             source: RevisionSource::GitWorktree {
                 mode: WorktreeCaptureMode::CombinedHeadToWorkingTree,
                 include_untracked: false,
