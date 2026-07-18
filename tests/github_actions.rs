@@ -76,12 +76,23 @@ fn release_workflows_bind_the_reviewed_parent_and_keep_published_state_immutable
     assert!(release_plan.contains("Existing tag conflict"));
     assert!(release_plan.contains("Existing crate conflict"));
     assert!(release_plan.contains("Existing GitHub release conflict"));
-    assert!(release_plan.contains("token: ${{ secrets.RELEASE_PUSH_TOKEN }}"));
+    assert!(
+        release_plan.contains(
+            "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3"
+        )
+    );
+    assert!(release_plan.contains("client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}"));
+    assert!(release_plan.contains("private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}"));
+    assert!(release_plan.contains("permission-contents: write"));
+    assert!(release_plan.contains("token: ${{ steps.release-token.outputs.token }}"));
+    assert!(!release_plan.contains("RELEASE_PUSH_TOKEN"));
     assert!(release_plan.contains("select(.headSha == $expected)"));
     assert!(release_plan.contains("unexpected crates.io status"));
     assert!(release_plan.contains("pointbreak-release-workflow/1.0"));
     assert!(release_plan.contains("unexpected GitHub release status"));
-    assert!(docs.contains("RELEASE_PUSH_TOKEN"));
+    assert!(docs.contains("RELEASE_APP_CLIENT_ID"));
+    assert!(docs.contains("RELEASE_APP_PRIVATE_KEY"));
+    assert!(!docs.contains("RELEASE_PUSH_TOKEN"));
 
     assert!(helper.contains("<plan|release> <version> --expected-source <full-sha>"));
     assert!(helper.contains("expected_source_commit=${EXPECTED_SOURCE_COMMIT}"));

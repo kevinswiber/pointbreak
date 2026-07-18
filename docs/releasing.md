@@ -57,18 +57,20 @@ Use `--output <directory>` with `run-release-verification.sh` to retain all plat
 GitHub repository settings:
 
 - Actions workflow permissions must allow **Read and write permissions**.
-- Branch protection on `main` must allow this release workflow to push the Cocogitto version commit
-  and tag, or the workflow must run with a token/account that is allowed to bypass the protection.
+- Install the release GitHub App on this repository with **Contents: Read and write** permission.
+- Branch protection on `main` must accept the release workflow's signed, fast-forward Cocogitto
+  version commit. The App does not need a bypass for deletion, signed-commit, or force-push rules.
 
 Repository secrets:
 
 - `CARGO_REGISTRY_TOKEN` - crates.io API token with publish access for `pointbreak`.
 - `GPG_PRIVATE_KEY` - private key used by the Release Plan workflow to sign the Cocogitto version
   commit and tag.
-- `RELEASE_PUSH_TOKEN` - fine-grained personal access token with repository Contents write permission,
-  used only by release mode to push the signed version commit and tag. GitHub suppresses workflow runs
-  for refs pushed with `GITHUB_TOKEN`; this separate credential lets the tag push start the tag-only
-  publication workflows. Its account must also be allowed through `main` branch protection.
+- `RELEASE_APP_CLIENT_ID` - client ID for the installed release GitHub App.
+- `RELEASE_APP_PRIVATE_KEY` - complete PEM private key for the release GitHub App. Release mode uses
+  it to mint a short-lived, repository-scoped installation token with Contents write permission for
+  the signed version commit and tag pushes. Unlike refs pushed with `GITHUB_TOKEN`, those pushes start
+  the tag-only publication workflows.
 
 No Homebrew, npm, or binary-asset secrets are needed for Pointbreak.
 
