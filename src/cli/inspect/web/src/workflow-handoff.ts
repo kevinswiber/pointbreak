@@ -35,8 +35,10 @@ const CALLS =
 
 // Shell-safe characters that need no quoting; anything else is single-quoted
 // with embedded single quotes escaped. The one quote path for every
-// interpolated authoritative value.
-const SHELL_SAFE = /^[A-Za-z0-9@%+=:,._/-]+$/;
+// interpolated authoritative value. `=` is deliberately excluded: zsh expands
+// a leading-= word to a command path (`=echo` -> /bin/echo), so any value
+// containing it is quoted.
+const SHELL_SAFE = /^[A-Za-z0-9@%+:,._/-]+$/;
 
 function shellQuote(value: string): string {
   if (SHELL_SAFE.test(value)) return value;

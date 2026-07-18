@@ -271,6 +271,20 @@ describe("attentionHandoffs (kind-specific, authoritative ids only)", () => {
     expect(attentionHandoffs(item({ kind: "future_kind" }))).toEqual([]);
   });
 
+  it("quotes a leading-= value so zsh cannot expand it to a command path", () => {
+    // zsh =word expansion: an unquoted `=echo` becomes /bin/echo, so a check
+    // name with a leading = must leave the safe charset and be quoted.
+    const handoffs = attentionHandoffs(
+      item({
+        kind: "failed_validation",
+        revisionId: REV,
+        trackId: "agent:codex",
+        checkName: "=echo",
+      }),
+    );
+    expect(handoffs[0].command).toContain("--check-name '=echo'");
+  });
+
   it("shell-escapes hostile authoritative values through the one quote path", () => {
     const hostile = 'rev:sha256:x"; rm -rf ~';
     const handoffs = attentionHandoffs(

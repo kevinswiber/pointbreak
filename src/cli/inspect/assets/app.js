@@ -4125,7 +4125,7 @@
   var OUTCOMES = "<approved|rejected|dismissed|superseded|abandoned>";
   var STATUSES = "<passed|failed|errored|skipped>";
   var CALLS = "<accepted|accepted-with-follow-up|needs-changes|needs-clarification>";
-  var SHELL_SAFE = /^[A-Za-z0-9@%+=:,._/-]+$/;
+  var SHELL_SAFE = /^[A-Za-z0-9@%+:,._/-]+$/;
   function shellQuote(value) {
     if (SHELL_SAFE.test(value)) return value;
     return `'${value.replace(/'/g, `'\\''`)}'`;
