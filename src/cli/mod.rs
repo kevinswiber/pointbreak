@@ -79,7 +79,7 @@ Recovery:
 #[command(
     name = "pointbreak",
     bin_name = "pointbreak",
-    version,
+    version = pointbreak::documents::VERSION_DISPLAY,
     about = "Durable, local-first review record for code changes",
     long_about = ROOT_LONG_ABOUT
 )]

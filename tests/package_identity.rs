@@ -71,6 +71,7 @@ fn cargo_install_exposes_only_pointbreak_executable() {
         .args(["install", "--path", env!("CARGO_MANIFEST_DIR"), "--root"])
         .arg(install_root.path())
         .arg("--debug")
+        .env("CARGO_TARGET_DIR", install_root.path().join("target"))
         .output()
         .expect("run cargo install");
     assert!(
@@ -137,16 +138,6 @@ fn cli_help_uses_pointbreak_and_keeps_the_flat_command_tree() {
 #[test]
 fn cli_version_uses_pointbreak_and_preserves_the_version_document() {
     let command = env!("CARGO_BIN_EXE_pointbreak");
-    let version = Command::new(command)
-        .arg("--version")
-        .output()
-        .expect("run pointbreak --version");
-    assert!(version.status.success());
-    assert_eq!(
-        String::from_utf8(version.stdout).expect("version is utf8"),
-        format!("pointbreak {}\n", env!("CARGO_PKG_VERSION"))
-    );
-
     let document = Command::new(command)
         .args(["version", "--format", "json"])
         .output()
@@ -156,6 +147,45 @@ fn cli_version_uses_pointbreak_and_preserves_the_version_document() {
         serde_json::from_slice(&document.stdout).expect("version document is JSON");
     assert_eq!(document["schema"], "pointbreak.version");
     assert_eq!(document["version"], 1);
+    assert_eq!(document["cliVersion"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(document["build"]["source"], env!("POINTBREAK_BUILD_SOURCE"));
+    match env!("POINTBREAK_BUILD_SOURCE") {
+        "git" => {
+            let commit = document["build"]["commit"].as_str().expect("git commit");
+            assert_eq!(commit.len(), 40);
+            assert!(commit.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        }
+        "package" => assert!(document["build"]["commit"].is_null()),
+        source => panic!("unexpected build source {source:?}"),
+    }
+    let describe = document["build"]["describe"]
+        .as_str()
+        .expect("build describe");
+    assert!(document["build"]["dirty"].is_boolean());
+
+    let version = Command::new(command)
+        .arg("--version")
+        .output()
+        .expect("run pointbreak --version");
+    assert!(version.status.success());
+    assert_eq!(
+        String::from_utf8(version.stdout).expect("version is utf8"),
+        format!("pointbreak {} ({describe})\n", env!("CARGO_PKG_VERSION"))
+    );
+
+    let text = Command::new(command)
+        .args(["version", "--format", "text"])
+        .output()
+        .expect("run pointbreak version text");
+    assert!(text.status.success());
+    assert!(
+        String::from_utf8(text.stdout)
+            .expect("text version is utf8")
+            .starts_with(&format!(
+                "pointbreak {} ({describe})\n",
+                env!("CARGO_PKG_VERSION")
+            ))
+    );
 }
 
 #[cfg(unix)]

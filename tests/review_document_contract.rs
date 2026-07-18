@@ -203,6 +203,39 @@ fn normalize_cli_version(text: &str) -> String {
     )
 }
 
+fn normalize_build_identity(text: &str) -> String {
+    let text = replace_prefixed(
+        text,
+        r#""build":{"source":"git","commit":""#,
+        r#""build":{"source":"git","commit":"<buildCommit>"#,
+        |rest| rest.find('"'),
+    );
+    let text = replace_prefixed(
+        &text,
+        r#""commit":"<buildCommit>","describe":""#,
+        r#""commit":"<buildCommit>","describe":"<buildDescribe>"#,
+        |rest| rest.find('"'),
+    );
+    let text = replace_prefixed(
+        &text,
+        r#""build":{"source":"package","commit":null,"describe":""#,
+        r#""build":{"source":"package","commit":null,"describe":"<buildDescribe>"#,
+        |rest| rest.find('"'),
+    );
+    let text = text.replace(
+        r#""describe":"<buildDescribe>","dirty":true"#,
+        r#""describe":"<buildDescribe>","dirty":false"#,
+    );
+    text.replace(
+        r#""build":{"source":"git","commit":"<buildCommit>""#,
+        r#""build":{"source":"<buildSource>","commit":null"#,
+    )
+    .replace(
+        r#""build":{"source":"package","commit":null"#,
+        r#""build":{"source":"<buildSource>","commit":null"#,
+    )
+}
+
 /// Normalize the nondeterministic substrings while preserving every key and the
 /// document's exact serialized field order.
 fn normalize(raw: &str, repo_path: &str) -> String {
@@ -217,6 +250,7 @@ fn normalize(raw: &str, repo_path: &str) -> String {
     let text = normalize_timestamps(&text);
     let text = normalize_producer_for_historical_snapshot(&text);
     let text = normalize_cli_version(&text);
+    let text = normalize_build_identity(&text);
     let text = normalize_git_oid(&text, "commitOid");
     let text = normalize_git_oid(&text, "treeOid");
     // `headOid` rides on auto-recorded ref associations (the capture-time branch

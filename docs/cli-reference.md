@@ -54,14 +54,28 @@ pointbreak version [--format <fmt>]
 ```
 
 `pointbreak version` emits the `pointbreak.version` version 1 compatibility document. Its hard core is
-`cliVersion`, the version of the running CLI, and `documents`, a schema-to-version map covering every
-CLI document in the handshake surface. Inspector API payloads are versioned separately. Clients use this
-handshake before decoding other command output.
+`cliVersion`, the semantic version of the running CLI; `build`, the build provenance described below; and
+`documents`, a schema-to-version map covering every CLI document in the handshake surface. Inspector API
+payloads are versioned separately. Clients use this handshake before decoding other command output.
+
+`build.source` is `git` when the crate's manifest root contains checkout metadata (including a linked
+worktree `.git` file). In that mode, `build.commit` is the full lowercase commit ID,
+`build.describe` is the result of `git describe --tags --always --dirty`, and `build.dirty` reports tracked
+index or worktree changes at build time. Invalid or partial manifest-root Git metadata fails the build.
+When a source package has no manifest-root `.git`, `build.source` is `package`, `build.commit` is `null`,
+`build.describe` is `package:<cliVersion>`, and `build.dirty` is `false`. A package directory nested beneath
+some other checkout does not inherit that parent's Git identity.
+
+JSON is authoritative for the full identity. A clean exact-tag binary has the exact tag in
+`build.describe`, its peeled full commit in `build.commit`, and `build.dirty=false`; semantic version alone
+does not establish release identity. Human `pointbreak --version` and `pointbreak version --format text`
+output append the concise build description in parentheses. Event producer versions remain semantic
+`cliVersion`; build provenance does not enter stored or signed event identity.
 
 The `documents` map is sorted by schema. New entries are additive soft-shell growth, so consumers
 must select the schemas they require and tolerate additional entries. `--format text` prints a short
 human digest; compact JSON remains the default machine contract. The separate `pointbreak --version` flag
-continues to print the human-facing CLI version.
+prints the same semantic version and concise build description.
 
 ## Actor Identity and Delegation
 

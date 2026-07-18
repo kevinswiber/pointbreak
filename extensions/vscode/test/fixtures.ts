@@ -6,6 +6,12 @@ export const VERSION_DOC: VersionDoc = {
   schema: "pointbreak.version",
   version: 1,
   cliVersion: "0.7.0",
+  build: {
+    source: "git",
+    commit: "d2bc01650076314897bb8c30ba57623640c0d257",
+    describe: "v0.7.0-34-gd2bc016",
+    dirty: false,
+  },
   documents: { ...REQUIRED_DOCUMENTS },
   diagnostics: [],
 };

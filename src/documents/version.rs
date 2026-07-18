@@ -5,11 +5,59 @@ use serde::Serialize;
 use super::DiagnosticDocument;
 
 pub const VERSION_SCHEMA: &str = "pointbreak.version";
+pub const VERSION_DISPLAY: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("POINTBREAK_BUILD_DESCRIBE"),
+    ")"
+);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BuildSourceV1 {
+    Git,
+    Package,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildIdentityV1 {
+    pub source: BuildSourceV1,
+    pub commit: Option<String>,
+    pub describe: String,
+    pub dirty: bool,
+}
+
+impl BuildIdentityV1 {
+    pub fn current() -> Self {
+        let source = match env!("POINTBREAK_BUILD_SOURCE") {
+            "git" => BuildSourceV1::Git,
+            "package" => BuildSourceV1::Package,
+            value => unreachable!("build.rs emitted unsupported build source {value:?}"),
+        };
+        let commit = match source {
+            BuildSourceV1::Git => Some(env!("POINTBREAK_BUILD_COMMIT").to_owned()),
+            BuildSourceV1::Package => None,
+        };
+        let dirty = match env!("POINTBREAK_BUILD_DIRTY") {
+            "true" => true,
+            "false" => false,
+            value => unreachable!("build.rs emitted unsupported dirty state {value:?}"),
+        };
+        Self {
+            source,
+            commit,
+            describe: env!("POINTBREAK_BUILD_DESCRIBE").to_owned(),
+            dirty,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionBody {
     pub cli_version: String,
+    pub build: BuildIdentityV1,
     pub documents: BTreeMap<&'static str, u32>,
 }
 
@@ -17,8 +65,13 @@ impl VersionBody {
     pub fn current() -> Self {
         Self {
             cli_version: env!("CARGO_PKG_VERSION").to_owned(),
+            build: BuildIdentityV1::current(),
             documents: super::document_registry().iter().copied().collect(),
         }
+    }
+
+    pub fn display_version(&self) -> String {
+        format!("{} ({})", self.cli_version, self.build.describe)
     }
 }
 
@@ -66,6 +119,14 @@ mod tests {
         let body = VersionBody::current();
         let value = serde_json::to_value(&body).unwrap();
         assert_eq!(value["cliVersion"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(value["build"]["source"], env!("POINTBREAK_BUILD_SOURCE"));
+        match env!("POINTBREAK_BUILD_SOURCE") {
+            "git" => assert_eq!(value["build"]["commit"].as_str().unwrap().len(), 40),
+            "package" => assert!(value["build"]["commit"].is_null()),
+            source => panic!("unexpected build source {source:?}"),
+        }
+        assert!(value["build"]["describe"].is_string());
+        assert!(value["build"]["dirty"].is_boolean());
         let documents = value["documents"].as_object().unwrap();
         assert!(documents.len() >= 5);
         let keys: Vec<_> = documents.keys().cloned().collect();
@@ -81,6 +142,10 @@ mod tests {
     fn naming_cutover_version_v1_bytes_are_frozen() {
         let mut actual = serde_json::to_value(version_document()).unwrap();
         actual["cliVersion"] = serde_json::Value::String("0.6.0".to_owned());
+        assert!(
+            actual.as_object_mut().unwrap().remove("build").is_some(),
+            "current v1 adds build without rewriting the historical v1 fixture"
+        );
         if let Some(store_paths) = actual["documents"]
             .as_object_mut()
             .unwrap()

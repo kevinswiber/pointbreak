@@ -65,7 +65,9 @@ pub use revision::{
 pub use validation::{
     ValidationAddBody, ValidationListBody, validation_add_document, validation_list_document,
 };
-pub use version::{VERSION_SCHEMA, VersionBody, version_document};
+pub use version::{
+    BuildIdentityV1, BuildSourceV1, VERSION_DISPLAY, VERSION_SCHEMA, VersionBody, version_document,
+};
 pub use view::{
     AssessmentViewDocument, CurrentAssessmentDocument, InputRequestAssertionModeDocument,
     InputRequestResponseViewDocument, InputRequestViewDocument, ObservationViewDocument,

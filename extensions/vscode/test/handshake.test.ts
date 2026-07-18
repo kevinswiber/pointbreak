@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import type { ResolvedBinary } from "../src/binary";
 import {
+  type BuildIdentityV1,
   type ExecFn,
   PointbreakCli,
   REQUIRED_DOCUMENTS,
@@ -53,6 +54,30 @@ it("accepts the exact Pointbreak 0.7 handshake through an arbitrary path", () =>
     ok: true,
     cliVersion: "0.7.0",
   });
+});
+
+it("tolerates additive build identity and unrelated soft-shell fields", () => {
+  const build: BuildIdentityV1 = {
+    source: "git",
+    commit: "d2bc01650076314897bb8c30ba57623640c0d257",
+    describe: "v0.7.0-34-gd2bc016",
+    dirty: false,
+  };
+
+  expect(
+    verifyHandshake({ ...VERSION_DOC, build, futureSoftShellField: true }),
+  ).toEqual({ ok: true, cliVersion: "0.7.0" });
+});
+
+it("still fails closed on an unknown version envelope with additive fields", () => {
+  const result = verifyHandshake({
+    ...VERSION_DOC,
+    version: 2,
+    futureSoftShellField: true,
+  } as unknown as typeof VERSION_DOC);
+
+  expect(result.ok).toBe(false);
+  expect(result.ok === false && result.reason).toMatch(/version 1/);
 });
 
 it("executes an arbitrary configured path only through the exact handshake", async () => {

@@ -302,6 +302,14 @@ fn authenticated_routes_include_the_shared_version_without_secret_disclosure() {
     let cli_version: Value = serde_json::from_slice(&cli_output.stdout).unwrap();
     assert_eq!(version, cli_version);
     assert_eq!(format!("{version_text}\n").as_bytes(), cli_output.stdout);
+    assert_eq!(version["build"]["source"], env!("POINTBREAK_BUILD_SOURCE"));
+    match env!("POINTBREAK_BUILD_SOURCE") {
+        "git" => assert_eq!(version["build"]["commit"].as_str().unwrap().len(), 40),
+        "package" => assert!(version["build"]["commit"].is_null()),
+        source => panic!("unexpected build source {source:?}"),
+    }
+    assert!(version["build"]["describe"].is_string());
+    assert!(version["build"]["dirty"].is_boolean());
 
     let snapshot_text =
         inspector.get_text(&format!("/api/snapshots/{}", urlencode(&store.snapshot_id)));

@@ -13,11 +13,20 @@ export interface DiagnosticDocument {
   diagnostics?: unknown[];
 }
 
+export interface BuildIdentityV1 {
+  source: "git" | "package";
+  commit: string | null;
+  describe: string;
+  dirty: boolean;
+}
+
 export interface VersionDoc extends DiagnosticDocument {
   schema: "pointbreak.version";
   version: 1;
   cliVersion: string;
+  build?: BuildIdentityV1;
   documents: Record<string, number>;
+  [field: string]: unknown;
 }
 
 export interface ReviewFactTarget {
