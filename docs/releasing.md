@@ -65,6 +65,10 @@ Repository secrets:
 - `CARGO_REGISTRY_TOKEN` - crates.io API token with publish access for `pointbreak`.
 - `GPG_PRIVATE_KEY` - private key used by the Release Plan workflow to sign the Cocogitto version
   commit and tag.
+- `RELEASE_PUSH_TOKEN` - fine-grained personal access token with repository Contents write permission,
+  used only by release mode to push the signed version commit and tag. GitHub suppresses workflow runs
+  for refs pushed with `GITHUB_TOKEN`; this separate credential lets the tag push start the tag-only
+  publication workflows. Its account must also be allowed through `main` branch protection.
 
 No Homebrew, npm, or binary-asset secrets are needed for Pointbreak.
 

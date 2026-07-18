@@ -69,6 +69,7 @@ fn installers_require_exact_release_build_identity_with_one_v070_transition() {
             "package-build",
             "short-commit",
             "malformed-document",
+            "null-build",
             "missing-build-after-v0.7.0",
             "legacy-v0.7.0",
             "additive-fields-and-order",

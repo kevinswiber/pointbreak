@@ -93,9 +93,26 @@ jobs:
           crate_conflict=false
           release_conflict=false
           git show-ref --verify --quiet "refs/tags/${TAG}" && tag_conflict=true
-          curl -fsS "https://crates.io/api/v1/crates/pointbreak/${NEXT_VERSION}" >/dev/null 2>&1 \
-            && crate_conflict=true
-          gh release view "$TAG" >/dev/null 2>&1 && release_conflict=true
+          crate_status=$(curl --silent --show-error \
+            --user-agent 'pointbreak-release-workflow/1.0 (https://github.com/withpointbreak/pointbreak)' \
+            --output /dev/null --write-out '%{http_code}' \
+            "https://crates.io/api/v1/crates/pointbreak/${NEXT_VERSION}") \
+            || { echo "crates.io probe failed" >&2; exit 1; }
+          case "$crate_status" in
+            200) crate_conflict=true ;;
+            404) ;;
+            *) echo "unexpected crates.io status: $crate_status" >&2; exit 1 ;;
+          esac
+          release_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}") \
+            || { echo "GitHub release probe failed" >&2; exit 1; }
+          case "$release_status" in
+            200) release_conflict=true ;;
+            404) ;;
+            *) echo "unexpected GitHub release status: $release_status" >&2; exit 1 ;;
+          esac
 
           {
             echo "# Release Plan"
@@ -144,9 +161,9 @@ jobs:
           } | out
           # jq expands its own fields.
           # shellcheck disable=SC2016
-          gh run list --branch "${GITHUB_REF_NAME}" --limit 20 \
-            --json name,conclusion,createdAt,headSha,status \
-            --jq '[group_by(.name)[] | sort_by(.createdAt) | last] | sort_by(.name)[] | "| \(.name) | \(if .conclusion != "" and .conclusion != null then .conclusion else .status end) | `\(.headSha[0:7])` |"' \
+          gh run list --limit 100 --json name,conclusion,createdAt,headSha,status \
+            | jq -r --arg expected "$EXPECTED_SOURCE_COMMIT" \
+              '[.[] | select(.headSha == $expected)] | [group_by(.name)[] | sort_by(.createdAt) | last] | sort_by(.name)[] | "| \(.name) | \(if .conclusion != "" and .conclusion != null then .conclusion else .status end) | `\(.headSha[0:7])` |"' \
             | out
 
           changelog=$(cog --config "$RELEASE_COG_CONFIG" changelog \
@@ -189,6 +206,7 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
           fetch-tags: true
+          token: ${{ secrets.RELEASE_PUSH_TOKEN }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -238,10 +256,26 @@ jobs:
           test "$(git rev-parse origin/main)" = "$EXPECTED_SOURCE_COMMIT"
           ! git show-ref --verify --quiet "refs/tags/${TAG}" \
             || { echo "Existing tag conflict: $TAG" >&2; exit 1; }
-          ! curl -fsS "https://crates.io/api/v1/crates/pointbreak/${TARGET_VERSION}" >/dev/null 2>&1 \
-            || { echo "Existing crate conflict: pointbreak $TARGET_VERSION" >&2; exit 1; }
-          ! gh release view "$TAG" >/dev/null 2>&1 \
-            || { echo "Existing GitHub release conflict: $TAG" >&2; exit 1; }
+          crate_status=$(curl --silent --show-error \
+            --user-agent 'pointbreak-release-workflow/1.0 (https://github.com/withpointbreak/pointbreak)' \
+            --output /dev/null --write-out '%{http_code}' \
+            "https://crates.io/api/v1/crates/pointbreak/${TARGET_VERSION}") \
+            || { echo "crates.io probe failed" >&2; exit 1; }
+          case "$crate_status" in
+            200) echo "Existing crate conflict: pointbreak $TARGET_VERSION" >&2; exit 1 ;;
+            404) ;;
+            *) echo "unexpected crates.io status: $crate_status" >&2; exit 1 ;;
+          esac
+          release_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}") \
+            || { echo "GitHub release probe failed" >&2; exit 1; }
+          case "$release_status" in
+            200) echo "Existing GitHub release conflict: $TAG" >&2; exit 1 ;;
+            404) ;;
+            *) echo "unexpected GitHub release status: $release_status" >&2; exit 1 ;;
+          esac
 
           RELEASE_COG_CONFIG="${RUNNER_TEMP}/cog-release.toml"
           cp cog.toml "$RELEASE_COG_CONFIG"

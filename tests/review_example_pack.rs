@@ -121,6 +121,11 @@ fn inspector_decision_continuity_browser_gate_uses_isolated_pointbreak_surfaces(
     assert!(justfile.contains("scripts/verify-inspector-decision-continuity.sh"));
     assert!(justfile.contains(r#"if [ -n "${POINTBREAK_BINARY:-}" ]"#));
     assert!(script.contains(r#"POINTBREAK_BINARY="$pointbreak_binary""#));
+    assert!(script.contains("[A-Za-z]:"));
+    let materializer =
+        fs::read_to_string(root.join("scripts/materialize-inspector-decision-matrix.sh"))
+            .expect("read decision matrix materializer");
+    assert!(materializer.contains("[A-Za-z]:"));
     assert!(script.contains("review-decision-matrix-materialize"));
 }
 

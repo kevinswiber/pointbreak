@@ -41,7 +41,8 @@ jobs:
           EXPECTED_SOURCE_COMMIT: ${{ inputs.expected_source_commit }}
         run: |
           set -euo pipefail
-          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "unsupported stable tag: $TAG" >&2; exit 1; }
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]] \
+            || { echo "unsupported release tag: $TAG" >&2; exit 1; }
           [[ "$EXPECTED_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] \
             || { echo "expected_source_commit must be full lowercase 40-hex" >&2; exit 1; }
           git fetch --force --tags origin
@@ -53,9 +54,18 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=all)"
 
           version="${TAG#v}"
+          prerelease=false
+          case "$version" in *-*) prerelease=true ;; esac
+          crate_status=$(curl --silent --show-error \
+            --user-agent 'pointbreak-release-workflow/1.0 (https://github.com/withpointbreak/pointbreak)' \
+            --output /dev/null --write-out '%{http_code}' \
+            "https://crates.io/api/v1/crates/pointbreak/${version}") \
+            || { echo "crates.io verification probe failed" >&2; exit 1; }
+          test "$crate_status" = 200 \
+            || { echo "published crate is missing or returned unexpected status: $crate_status" >&2; exit 1; }
           release_state=$(gh release view "$TAG" --json isDraft,isPrerelease,assets,tagName,url)
-          jq -e '.isDraft == false and .isPrerelease == false and .tagName == $tag' \
-            --arg tag "$TAG" <<<"$release_state" >/dev/null
+          jq -e '.isDraft == false and .isPrerelease == $prerelease and .tagName == $tag' \
+            --arg tag "$TAG" --argjson prerelease "$prerelease" <<<"$release_state" >/dev/null
 
           mkdir -p dist
           gh release download "$TAG" --dir dist

@@ -175,6 +175,7 @@ switch ($identity) {
     "package-build" { $document["build"] = [ordered]@{ source = "package"; commit = $null; describe = "package:$documentVersion"; dirty = $false } }
     "short-commit" { $document["build"] = [ordered]@{ source = "git"; commit = "0123456"; describe = "v$documentVersion"; dirty = $false } }
     "missing-build" { }
+    "null-build" { $document["build"] = $null }
     default { throw "unknown fixture identity: $identity" }
 }
 $document | ConvertTo-Json -Depth 8 -Compress
@@ -238,7 +239,7 @@ $document | ConvertTo-Json -Depth 8 -Compress
     Set-ValidChecksum
     Assert-InstallerFailure -Scenario "archive-layout-failure" -MessagePattern "invalid archive layout"
 
-    foreach ($scenario in @("wrong-tag", "dirty-build", "package-build", "short-commit", "malformed-document")) {
+    foreach ($scenario in @("wrong-tag", "dirty-build", "package-build", "short-commit", "malformed-document", "null-build")) {
         Reset-UpgradeFixture
         New-ReleaseArchive -CandidateVersion $version -InstalledVersion $version `
             -CandidateIdentity $scenario -InstalledIdentity $scenario
@@ -288,6 +289,12 @@ $document | ConvertTo-Json -Depth 8 -Compress
     Set-ValidChecksum
     Invoke-Installer | Out-Null
     Assert-NeighborUnchanged
+
+    Reset-UpgradeFixture
+    New-ReleaseArchive -CandidateVersion $version -InstalledVersion $version `
+        -CandidateIdentity null-build -InstalledIdentity null-build
+    Set-ValidChecksum
+    Assert-InstallerFailure -Scenario "legacy-null-build" -MessagePattern "version document did not match"
     $tag = $originalTag
     $version = $originalVersion
     $archive = $originalArchive

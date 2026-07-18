@@ -65,6 +65,7 @@ fn release_workflows_bind_the_reviewed_parent_and_keep_published_state_immutable
         std::fs::read_to_string("scripts/run-release-plan.sh").expect("read release helper");
     let identity = std::fs::read_to_string("scripts/assert-release-identity.sh")
         .expect("read release identity assertion");
+    let docs = std::fs::read_to_string("docs/releasing.md").expect("read release docs");
 
     assert!(release_plan.contains("expected_source_commit:"));
     assert!(release_plan.contains("required: true"));
@@ -75,6 +76,12 @@ fn release_workflows_bind_the_reviewed_parent_and_keep_published_state_immutable
     assert!(release_plan.contains("Existing tag conflict"));
     assert!(release_plan.contains("Existing crate conflict"));
     assert!(release_plan.contains("Existing GitHub release conflict"));
+    assert!(release_plan.contains("token: ${{ secrets.RELEASE_PUSH_TOKEN }}"));
+    assert!(release_plan.contains("select(.headSha == $expected)"));
+    assert!(release_plan.contains("unexpected crates.io status"));
+    assert!(release_plan.contains("pointbreak-release-workflow/1.0"));
+    assert!(release_plan.contains("unexpected GitHub release status"));
+    assert!(docs.contains("RELEASE_PUSH_TOKEN"));
 
     assert!(helper.contains("<plan|release> <version> --expected-source <full-sha>"));
     assert!(helper.contains("expected_source_commit=${EXPECTED_SOURCE_COMMIT}"));
@@ -85,6 +92,8 @@ fn release_workflows_bind_the_reviewed_parent_and_keep_published_state_immutable
         assert!(tag_only_workflow.contains("fetch-depth: 0"));
     }
     assert!(release.contains("GitHub release already exists"));
+    assert!(release.contains("unexpected crates.io status"));
+    assert!(release.contains("unexpected GitHub release status"));
     assert!(!release.contains("already published; skipping"));
     assert!(binaries.contains("fetch-tags: true"));
     assert!(binaries.contains("scripts/assert-release-identity.sh"));
@@ -104,6 +113,7 @@ fn release_workflows_bind_the_reviewed_parent_and_keep_published_state_immutable
         "scripts/install.sh",
         "scripts/install.ps1",
         "release-verification",
+        "isPrerelease == $prerelease",
     ] {
         assert!(
             verify.contains(required),

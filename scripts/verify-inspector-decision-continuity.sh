@@ -20,7 +20,7 @@ browser_program_template="$script_dir/verify-inspector-decision-continuity.mjs"
 [ -x "$pointbreak_binary" ] \
   || die "POINTBREAK_BINARY is not executable; provide an installed binary or build the worktree-local binary"
 case "$pointbreak_binary" in
-  /*) ;;
+  /* | [A-Za-z]:/* | [A-Za-z]:\\* | \\\\*) ;;
   *) die "POINTBREAK_BINARY must resolve to an absolute path" ;;
 esac
 [ -f "$browser_program_template" ] \

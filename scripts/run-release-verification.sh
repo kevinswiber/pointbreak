@@ -17,7 +17,9 @@ shift 2
 
 OUTPUT=""
 if [ "$#" -gt 0 ]; then
-  [ "$1" = "--output" ] && [ "$#" -eq 2 ] || usage
+  if [ "$1" != "--output" ] || [ "$#" -ne 2 ]; then
+    usage
+  fi
   OUTPUT="$2"
 fi
 

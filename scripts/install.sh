@@ -220,9 +220,9 @@ read_version_document() {
     printf '%s\n' "$document" \
         | grep -Eq '"version"[[:space:]]*:[[:space:]]*1([,}])' \
         || return 1
-    printf '%s\n' "$document" \
-        | grep -Eq '"cliVersion"[[:space:]]*:[[:space:]]*"'"$expected_version"'"' \
-        || return 1
+    cli_version=$(printf '%s\n' "$document" \
+        | sed -n 's/.*"cliVersion"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    [ "$cli_version" = "$expected_version" ] || return 1
     printf '%s\n' "$document" \
         | grep -Eq '"pointbreak\.version"[[:space:]]*:[[:space:]]*1([,}])' \
         || return 1
@@ -233,6 +233,7 @@ read_version_document() {
     build_object=$(printf '%s\n' "$document" \
         | sed -n 's/.*"build"[[:space:]]*:[[:space:]]*{\([^{}]*\)}.*/\1/p')
     if [ -z "$build_object" ]; then
+        printf '%s\n' "$document" | grep -Eq '"build"[[:space:]]*:' && return 1
         # v0.7.0 is the one published transition artifact whose binary predates
         # build provenance. No other release may omit the required tuple.
         [ "$expected_version" = "0.7.0" ] || return 1

@@ -87,6 +87,9 @@ case "\$identity" in
     missing-build)
         printf '{"schema":"pointbreak.version","version":1,"cliVersion":"%s","documents":{"pointbreak.version":1},"diagnostics":[]}\\n' "\$document_version"
         ;;
+    null-build)
+        printf '{"schema":"pointbreak.version","version":1,"cliVersion":"%s","build":null,"documents":{"pointbreak.version":1},"diagnostics":[]}\\n' "\$document_version"
+        ;;
     malformed-document)
         printf '{not-json\\n'
         ;;
@@ -242,7 +245,7 @@ write_checksum
 expect_failure archive-layout-failure run_installer
 grep -F 'invalid archive layout' "${temp_dir}/archive-layout-failure.log" >/dev/null
 
-for scenario in wrong-tag dirty-build package-build short-commit malformed-document; do
+for scenario in wrong-tag dirty-build package-build short-commit malformed-document null-build; do
     prepare_upgrade
     make_archive "$version" "$version" "$scenario" "$scenario" exact
     write_checksum
@@ -289,6 +292,12 @@ make_archive "$version" "$version" missing-build missing-build exact
 write_checksum
 run_installer >/dev/null
 assert_neighbor_unchanged
+
+# A present-but-null build is not the legacy no-build document.
+prepare_upgrade
+make_archive "$version" "$version" null-build null-build exact
+write_checksum
+expect_failure legacy-null-build run_installer
 tag=$original_tag
 version=$original_version
 archive=$original_archive

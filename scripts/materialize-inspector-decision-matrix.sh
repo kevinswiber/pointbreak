@@ -29,7 +29,7 @@ pointbreak_binary="${POINTBREAK_BINARY:-$repo_root/target/debug/pointbreak}"
 [ -x "$pointbreak_binary" ] \
   || die "POINTBREAK_BINARY is not executable; provide an absolute installed binary or run 'just build'"
 case "$pointbreak_binary" in
-  /*) ;;
+  /* | [A-Za-z]:/* | [A-Za-z]:\\* | \\\\*) ;;
   *) die "POINTBREAK_BINARY must resolve to an absolute path" ;;
 esac
 
