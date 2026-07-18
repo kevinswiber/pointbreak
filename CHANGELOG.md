@@ -3,6 +3,50 @@
 Release entries are managed with Cocogitto.
 
 - - -
+## [v0.8.0](https://github.com/withpointbreak/pointbreak/compare/5784301b2fd8369f684a831c5cace3f9249581b3..v0.8.0) - 2026-07-18
+#### Features
+- bind releases to exact build identity - ([1435bba](https://github.com/withpointbreak/pointbreak/commit/1435bbaf88a4312a39b04d588c008f002b21d8e6)) - [@kevinswiber](https://github.com/kevinswiber)
+- add truthful build provenance - ([51fd0e6](https://github.com/withpointbreak/pointbreak/commit/51fd0e62cb1f3d17fd0cfef06378a0fab1394fd2)) - [@kevinswiber](https://github.com/kevinswiber)
+- add copyable Review command handoffs - ([f8a5b26](https://github.com/withpointbreak/pointbreak/commit/f8a5b26287a77682417271cc38dc85beb357c48b)) - [@kevinswiber](https://github.com/kevinswiber)
+- render decision context in review diff - ([7f1a251](https://github.com/withpointbreak/pointbreak/commit/7f1a251d5e484acb9ca86f619fc07b16077bd486)) - [@kevinswiber](https://github.com/kevinswiber)
+- render validation continuity in review - ([08ddc36](https://github.com/withpointbreak/pointbreak/commit/08ddc360f02050846273e3b1b8e0775b05f785b9)) - [@kevinswiber](https://github.com/kevinswiber)
+- add capture summaries to revision discovery - ([3701ec4](https://github.com/withpointbreak/pointbreak/commit/3701ec478fa2278b9e32810ca8352d5610ed9097)) - [@kevinswiber](https://github.com/kevinswiber)
+- project validation continuity - ([38f1d0c](https://github.com/withpointbreak/pointbreak/commit/38f1d0c271935be0bf100c575b76804894662c56)) - [@kevinswiber](https://github.com/kevinswiber)
+- flag an accepted-with-follow-up that leaves nothing actionable - ([f6e2965](https://github.com/withpointbreak/pointbreak/commit/f6e2965bc1981b957d4fa8b2887844bcdb166eaf)) - [@kevinswiber](https://github.com/kevinswiber)
+- surface write advisories on the text receipts - ([080353a](https://github.com/withpointbreak/pointbreak/commit/080353ad0c49cbd96f9bb98c468cd71d41dd7175)) - [@kevinswiber](https://github.com/kevinswiber)
+- complete the text-digest surface across every document command - ([1d15b28](https://github.com/withpointbreak/pointbreak/commit/1d15b280655e39d6c018a5ef42ca01d003aa6eea)) - [@kevinswiber](https://github.com/kevinswiber)
+- surface exact review attribution - ([8954e92](https://github.com/withpointbreak/pointbreak/commit/8954e920863ea430025dab8fb15005d937d11ad1)) - [@kevinswiber](https://github.com/kevinswiber)
+- surface review work and landing truth - ([7c4fbc7](https://github.com/withpointbreak/pointbreak/commit/7c4fbc711d6660ea636599d83b492f1765d2fbd3)) - [@kevinswiber](https://github.com/kevinswiber)
+- notice on stderr when the text lane falls back to JSON - ([47af82a](https://github.com/withpointbreak/pointbreak/commit/47af82aab183164f561883d3885f08969ff2385e)) - [@kevinswiber](https://github.com/kevinswiber)
+- add text digests for revision, fact, key, and store receipt commands - ([8011c31](https://github.com/withpointbreak/pointbreak/commit/8011c31518b06463c9c3a8fe3d505f437b18622c)) - [@kevinswiber](https://github.com/kevinswiber)
+#### Bug Fixes
+- finalize Cocogitto release tag before push - ([4310c57](https://github.com/withpointbreak/pointbreak/commit/4310c5719567b3fcb300467ced53a616bb22b3f9)) - [@kevinswiber](https://github.com/kevinswiber)
+- authenticate release pushes with GitHub App - ([b339281](https://github.com/withpointbreak/pointbreak/commit/b33928165eb3199459409baac41c808b5d055fe7)) - [@kevinswiber](https://github.com/kevinswiber)
+- address release gate review findings - ([359f77b](https://github.com/withpointbreak/pointbreak/commit/359f77bf183d331a496dc637f5b1d9dffe02e356)) - [@kevinswiber](https://github.com/kevinswiber)
+- preserve detail context across refresh - ([d2bc016](https://github.com/withpointbreak/pointbreak/commit/d2bc01650076314897bb8c30ba57623640c0d257)) - [@kevinswiber](https://github.com/kevinswiber)
+- refresh detail from whole-document generation - ([0d0fdb2](https://github.com/withpointbreak/pointbreak/commit/0d0fdb2f19eba66a91d31167fc5baa974ffecd5d)) - [@kevinswiber](https://github.com/kevinswiber)
+- refresh open review detail after polling - ([5fd4fed](https://github.com/withpointbreak/pointbreak/commit/5fd4fed7ebbb71b973a1f8bd78ae476727b2c636)) - [@kevinswiber](https://github.com/kevinswiber)
+- quote leading-equals values in copyable commands - ([6994bb3](https://github.com/withpointbreak/pointbreak/commit/6994bb3e6529d13f280961cf78d37146fa886ab2)) - [@kevinswiber](https://github.com/kevinswiber)
+- suggest assessment replacement command - ([a0779e9](https://github.com/withpointbreak/pointbreak/commit/a0779e902516dacac57b5afa6de619c90fa2039f)) - [@kevinswiber](https://github.com/kevinswiber)
+- surface advisories on the capture and respond receipts too - ([cf2cf9c](https://github.com/withpointbreak/pointbreak/commit/cf2cf9cb1f0386d91ed75c0c099eb6d6d6a2a99a)) - [@kevinswiber](https://github.com/kevinswiber)
+- name valid recovery forms in the ambiguous-revision error - ([fc83917](https://github.com/withpointbreak/pointbreak/commit/fc839178ab63cce9acc35da8bf54f931f957e52c)) - [@kevinswiber](https://github.com/kevinswiber)
+- replace orphaned liveness status and diagnose amended refs - ([3922bb9](https://github.com/withpointbreak/pointbreak/commit/3922bb974624d61c6f8e068da05536cd069cd158)) - [@kevinswiber](https://github.com/kevinswiber)
+- account for already-absent blobs in the compact receipt - ([2bb15e2](https://github.com/withpointbreak/pointbreak/commit/2bb15e2f773f1f4ff44d3104f8926708d1500cd8)) - [@kevinswiber](https://github.com/kevinswiber)
+- enroll canonical agent signing keys - ([8b91c59](https://github.com/withpointbreak/pointbreak/commit/8b91c59f0a2f2aa2023c6613d3a47abb76ae6f77)) - [@kevinswiber](https://github.com/kevinswiber)
+- remove Windows checksum cmdlet dependency - ([ee67bea](https://github.com/withpointbreak/pointbreak/commit/ee67bea35d3aeb623159535811486f0197680a33)) - [@kevinswiber](https://github.com/kevinswiber)
+- harden release installer execution - ([5784301](https://github.com/withpointbreak/pointbreak/commit/5784301b2fd8369f684a831c5cace3f9249581b3)) - [@kevinswiber](https://github.com/kevinswiber)
+#### Revert
+- keep the text-lane JSON fallback silent - ([20815de](https://github.com/withpointbreak/pointbreak/commit/20815def86245af936c68b9987592f5ac16f1c74)) - [@kevinswiber](https://github.com/kevinswiber)
+#### Documentation
+- pin the supported skill install to the three product skills - ([af1e009](https://github.com/withpointbreak/pointbreak/commit/af1e009ca636d9d019949e0f190cf561975f942e)) - [@kevinswiber](https://github.com/kevinswiber)
+- clarify product skill role handoffs - ([60cf69e](https://github.com/withpointbreak/pointbreak/commit/60cf69eaec5f605f1806e5b2ae95b122525af2ee)) - [@kevinswiber](https://github.com/kevinswiber)
+- shorten inspect help and name the resolved store - ([633e055](https://github.com/withpointbreak/pointbreak/commit/633e05586b02b83341178ee5c410bdd15b8a2165)) - [@kevinswiber](https://github.com/kevinswiber)
+- route first Review from public help - ([8543daa](https://github.com/withpointbreak/pointbreak/commit/8543daa49c2d5e20849015bd58b1a19d06a5f1bc)) - [@kevinswiber](https://github.com/kevinswiber)
+- fix walkthrough server conflict and reviewer wording - ([258f355](https://github.com/withpointbreak/pointbreak/commit/258f355281a9421b97da4b0b4c44daec73adca5e)) - [@kevinswiber](https://github.com/kevinswiber)
+- add first useful Review onboarding - ([3ea1d4d](https://github.com/withpointbreak/pointbreak/commit/3ea1d4dd8ede36bce8115699106c15edeaae18b1)) - [@kevinswiber](https://github.com/kevinswiber)
+
+- - -
+
 ## [v0.7.0](https://github.com/withpointbreak/pointbreak/compare/a13d270b6a5788c898587286f6bb17b4a36d73f8..v0.7.0) - 2026-07-17
 #### Features
 - rebuild the VS Code bundle for pointbreak - ([34fbe8b](https://github.com/withpointbreak/pointbreak/commit/34fbe8b9861bfc947d5c77892e75e71479fd93cb)) - [@kevinswiber](https://github.com/kevinswiber)
