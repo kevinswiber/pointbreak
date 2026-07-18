@@ -1023,6 +1023,80 @@ describe("showComposite (shownCompositeId guards re-fetch)", () => {
     expect(detailEl().textContent).toContain("Freshly polled observation");
   });
 
+  it("keeps the current revision mounted while its fresh composite loads", async () => {
+    const initial = structuredClone(revisionJson) as unknown as RevisionPageDoc;
+    const initialObservation = initial.observations?.[0];
+    if (!initialObservation) throw new Error("expected observation fixture");
+    initialObservation.title = "Existing composite stays mounted";
+    setCompositeResponse(initial);
+    store.commit({
+      revisions: {
+        ...(store.getState().revisions as RevisionsDoc),
+        eventSetHash: "sha256:before-mounted-refresh",
+      },
+      selected: { kind: "revision", id: REV },
+      open: true,
+    });
+    await detail.showComposite(REV);
+    detailEl().scrollTop = 120;
+
+    const updated = structuredClone(revisionJson) as unknown as RevisionPageDoc;
+    const updatedObservation = updated.observations?.[0];
+    if (!updatedObservation) throw new Error("expected observation fixture");
+    updatedObservation.title = "Fresh composite replaces existing";
+
+    let resolveRefresh!: (response: Response) => void;
+    const refreshResponse = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    const baseFetch = globalThis.fetch;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (
+        new URL(url, "http://inspector.test").pathname.startsWith(
+          "/api/revisions/",
+        )
+      )
+        return refreshResponse;
+      return baseFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      store.commit({
+        revisions: {
+          ...(store.getState().revisions as RevisionsDoc),
+          eventSetHash: "sha256:after-mounted-refresh",
+        },
+      });
+      const repaint = detail.showComposite(REV);
+
+      expect(detailEl().textContent).toContain(
+        "Existing composite stays mounted",
+      );
+      expect(detailEl().innerHTML).not.toContain("loading…");
+
+      resolveRefresh(
+        new Response(JSON.stringify(updated), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      await repaint;
+
+      expect(detailEl().textContent).toContain(
+        "Fresh composite replaces existing",
+      );
+      expect(detailEl().scrollTop).toBe(120);
+    } finally {
+      globalThis.fetch = baseFetch;
+    }
+  });
+
   it("does not reuse or repaint an older composite read after the event set moves", async () => {
     const initial = structuredClone(revisionJson) as unknown as RevisionPageDoc;
     initial.observations = [];

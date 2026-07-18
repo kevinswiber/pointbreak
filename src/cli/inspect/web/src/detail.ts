@@ -326,28 +326,36 @@ export function renderAssociationAndLanding(
   </section>`;
 }
 
-// The revision and event-set generation whose composite is currently shown, so a
+// The revision and store generation whose composite is currently shown, so a
 // re-render with an unchanged selection and generation does not re-fetch.
 // Transient view-cache — never on the store.
 let shownCompositeId: string | null = null;
-let shownCompositeEventSetHash: string | undefined;
+let shownCompositeGeneration: string | null = null;
 
 // The composite documents fetched this session, keyed by revision id and stamped
-// with the revisions document's event-set hash. Every whole-document freshness
-// reload advances that source even when the timeline keeps a parked history
-// window, so revisiting an open revision after the record moved re-fetches instead
-// of serving a pinned document. Failures are never cached. Transient view-cache —
-// never on the store.
+// with both event and repository-liveness generations. The revisions document's
+// event-set hash advances even when the timeline keeps a parked history window;
+// the commit-graph stamp advances when Git refs move without a durable event.
+// Failures are never cached. Transient view-cache — never on the store.
 interface CompositeCacheEntry {
   doc: RevisionPageDoc;
-  eventSetHash: string | undefined;
+  generation: string;
 }
 interface CompositeInFlight {
-  eventSetHash: string | undefined;
+  generation: string;
   promise: Promise<RevisionPageDoc | null>;
 }
 const compositeCache = new Map<string, CompositeCacheEntry>();
 const compositeInFlight = new Map<string, CompositeInFlight>();
+
+/** Generation of every source spliced into a revision composite. */
+function revisionCompositeGeneration(): string {
+  const state = getState();
+  return JSON.stringify([
+    state.revisions?.eventSetHash ?? null,
+    state.lastCommitGraphStamp,
+  ]);
+}
 
 /**
  * The one composite fetch path (the detail page and the diff page both consume
@@ -359,19 +367,19 @@ const compositeInFlight = new Map<string, CompositeInFlight>();
 export function ensureRevisionComposite(
   revisionId: string,
 ): Promise<RevisionPageDoc | null> {
-  const eventSetHash = getState().revisions?.eventSetHash;
+  const generation = revisionCompositeGeneration();
   const cached = compositeCache.get(revisionId);
-  if (cached && cached.eventSetHash === eventSetHash)
+  if (cached && cached.generation === generation)
     return Promise.resolve(cached.doc);
   const pending = compositeInFlight.get(revisionId);
-  if (pending && pending.eventSetHash === eventSetHash) return pending.promise;
+  if (pending && pending.generation === generation) return pending.promise;
   const read = fetchJSON(`/api/revisions/${encodeURIComponent(revisionId)}`)
     .then((d) => {
       const doc = d as RevisionPageDoc;
       // An older request may finish after freshness polling advanced the page.
       // Do not let that response evict the current generation from the cache.
-      if (getState().revisions?.eventSetHash === eventSetHash)
-        compositeCache.set(revisionId, { doc, eventSetHash });
+      if (revisionCompositeGeneration() === generation)
+        compositeCache.set(revisionId, { doc, generation });
       return doc;
     })
     .catch(() => null)
@@ -379,7 +387,7 @@ export function ensureRevisionComposite(
       if (compositeInFlight.get(revisionId)?.promise === read)
         compositeInFlight.delete(revisionId);
     });
-  compositeInFlight.set(revisionId, { eventSetHash, promise: read });
+  compositeInFlight.set(revisionId, { generation, promise: read });
   return read;
 }
 
@@ -771,6 +779,7 @@ export function renderDetail(): void {
   // Showing the event/empty pane means no composite is shown — so a later
   // re-selection of a revision re-fetches its composite.
   shownCompositeId = null;
+  shownCompositeGeneration = null;
   const el = $("#detail-body");
   if (!el) return;
   rememberScroll();
@@ -1174,11 +1183,17 @@ export function renderRevisionPage(d: RevisionPageDoc): void {
 }
 
 /** Fetch a revision's composite document and paint it, guarding a superseding selection. */
-export async function openRevision(revisionId: string): Promise<void> {
-  const eventSetHash = getState().revisions?.eventSetHash;
+export async function openRevision(
+  revisionId: string,
+  preserveCurrentPaint = false,
+): Promise<void> {
+  const generation = revisionCompositeGeneration();
   const el = $("#detail-body");
   rememberScroll();
-  if (el) el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
+  // Keep a same-revision refresh mounted while its replacement loads. Shrinking
+  // the body to this placeholder makes real browsers clamp the pane's scrollTop.
+  if (el && !preserveCurrentPaint)
+    el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
   // The scoped attention set rides the same paint; neither read throws
   // (fetchScopedAttention degrades to omission, ensureRevisionComposite
   // resolves null), so a failed composite reaches the error paint below.
@@ -1191,7 +1206,7 @@ export async function openRevision(revisionId: string): Promise<void> {
   if (
     sel.kind !== "revision" ||
     sel.id !== revisionId ||
-    getState().revisions?.eventSetHash !== eventSetHash
+    revisionCompositeGeneration() !== generation
   )
     return;
   if (!d) {
@@ -1206,25 +1221,26 @@ export async function openRevision(revisionId: string): Promise<void> {
 }
 
 /**
- * Show a revision's composite, skipping the fetch when the same event-set generation
+ * Show a revision's composite, skipping the fetch when the same store generation
  * is already shown. Returns the in-flight fetch so a caller can await the paint;
  * render ignores the return.
  */
 export function showComposite(revisionId: string): Promise<void> {
-  const eventSetHash = getState().revisions?.eventSetHash;
+  const generation = revisionCompositeGeneration();
   // The revision-id dedupe guards the composite fetch only — it must not pin
   // the outstanding block, which follows the global attention doc's freshness.
-  // The event-set hash is part of the shown identity: freshness polling keeps
-  // the same revision selected while its facts change, and that repaint must
-  // re-fetch the revision composite instead of leaving the open detail stale.
+  // Event and commit-graph generations are part of the shown identity:
+  // freshness polling keeps the same revision selected while its facts or
+  // repository liveness change, and that repaint must re-fetch the composite.
   if (
     revisionId === shownCompositeId &&
-    eventSetHash === shownCompositeEventSetHash
+    generation === shownCompositeGeneration
   )
     return refreshOutstandingIfStale(revisionId);
+  const preserveCurrentPaint = revisionId === shownCompositeId;
   shownCompositeId = revisionId;
-  shownCompositeEventSetHash = eventSetHash;
-  return openRevision(revisionId);
+  shownCompositeGeneration = generation;
+  return openRevision(revisionId, preserveCurrentPaint);
 }
 
 async function copyRawEvent(button: HTMLElement): Promise<void> {

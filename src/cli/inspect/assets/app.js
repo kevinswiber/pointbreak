@@ -4490,26 +4490,34 @@
   }
   __name(renderAssociationAndLanding, "renderAssociationAndLanding");
   var shownCompositeId = null;
-  var shownCompositeEventSetHash;
+  var shownCompositeGeneration = null;
   var compositeCache = /* @__PURE__ */ new Map();
   var compositeInFlight = /* @__PURE__ */ new Map();
+  function revisionCompositeGeneration() {
+    const state2 = getState();
+    return JSON.stringify([
+      state2.revisions?.eventSetHash ?? null,
+      state2.lastCommitGraphStamp
+    ]);
+  }
+  __name(revisionCompositeGeneration, "revisionCompositeGeneration");
   function ensureRevisionComposite(revisionId) {
-    const eventSetHash = getState().revisions?.eventSetHash;
+    const generation = revisionCompositeGeneration();
     const cached = compositeCache.get(revisionId);
-    if (cached && cached.eventSetHash === eventSetHash)
+    if (cached && cached.generation === generation)
       return Promise.resolve(cached.doc);
     const pending = compositeInFlight.get(revisionId);
-    if (pending && pending.eventSetHash === eventSetHash) return pending.promise;
+    if (pending && pending.generation === generation) return pending.promise;
     const read = fetchJSON(`/api/revisions/${encodeURIComponent(revisionId)}`).then((d) => {
       const doc = d;
-      if (getState().revisions?.eventSetHash === eventSetHash)
-        compositeCache.set(revisionId, { doc, eventSetHash });
+      if (revisionCompositeGeneration() === generation)
+        compositeCache.set(revisionId, { doc, generation });
       return doc;
     }).catch(() => null).finally(() => {
       if (compositeInFlight.get(revisionId)?.promise === read)
         compositeInFlight.delete(revisionId);
     });
-    compositeInFlight.set(revisionId, { eventSetHash, promise: read });
+    compositeInFlight.set(revisionId, { generation, promise: read });
     return read;
   }
   __name(ensureRevisionComposite, "ensureRevisionComposite");
@@ -4841,6 +4849,7 @@
   __name(rawEventBlock, "rawEventBlock");
   function renderDetail() {
     shownCompositeId = null;
+    shownCompositeGeneration = null;
     const el = $("#detail-body");
     if (!el) return;
     rememberScroll();
@@ -5113,17 +5122,18 @@
     projectScroll(revisionId || null);
   }
   __name(renderRevisionPage, "renderRevisionPage");
-  async function openRevision(revisionId) {
-    const eventSetHash = getState().revisions?.eventSetHash;
+  async function openRevision(revisionId, preserveCurrentPaint = false) {
+    const generation = revisionCompositeGeneration();
     const el = $("#detail-body");
     rememberScroll();
-    if (el) el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
+    if (el && !preserveCurrentPaint)
+      el.innerHTML = `<p class="${CLASS.upEmpty}">loading…</p>`;
     const [d] = await Promise.all([
       ensureRevisionComposite(revisionId),
       fetchScopedAttention(revisionId)
     ]);
     const sel = getState().selected;
-    if (sel.kind !== "revision" || sel.id !== revisionId || getState().revisions?.eventSetHash !== eventSetHash)
+    if (sel.kind !== "revision" || sel.id !== revisionId || revisionCompositeGeneration() !== generation)
       return;
     if (!d) {
       const live = $("#detail-body");
@@ -5137,12 +5147,13 @@
   }
   __name(openRevision, "openRevision");
   function showComposite(revisionId) {
-    const eventSetHash = getState().revisions?.eventSetHash;
-    if (revisionId === shownCompositeId && eventSetHash === shownCompositeEventSetHash)
+    const generation = revisionCompositeGeneration();
+    if (revisionId === shownCompositeId && generation === shownCompositeGeneration)
       return refreshOutstandingIfStale(revisionId);
+    const preserveCurrentPaint = revisionId === shownCompositeId;
     shownCompositeId = revisionId;
-    shownCompositeEventSetHash = eventSetHash;
-    return openRevision(revisionId);
+    shownCompositeGeneration = generation;
+    return openRevision(revisionId, preserveCurrentPaint);
   }
   __name(showComposite, "showComposite");
   async function copyRawEvent(button) {

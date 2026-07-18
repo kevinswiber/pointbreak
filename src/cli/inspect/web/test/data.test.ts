@@ -980,6 +980,50 @@ describe("pollFreshness", () => {
     expect(detailPane.scrollTop).toBe(120);
   });
 
+  it("repaints an open revision composite after a commit-graph-only refresh", async () => {
+    const before = structuredClone(revisionJson);
+    before.observations[0].title = "Before commit-graph poll";
+    setCompositeResponse(before);
+    await data.load();
+
+    const revisionId = revisionsJson.entries[0].revisionId;
+    const render = await import("../src/render");
+    store.commit({
+      lens: "list",
+      selected: { kind: "revision", id: revisionId },
+      open: true,
+    });
+    store.subscribe(render.render);
+    render.render();
+    await flush();
+    expect(document.querySelector("#detail-body")?.textContent).toContain(
+      "Before commit-graph poll",
+    );
+
+    const after = structuredClone(revisionJson);
+    after.observations[0].title = "After commit-graph poll";
+    setCompositeResponse(after);
+    follow.parkTimelineRead();
+    setFreshnessResponse({
+      eventCount: HISTORY_EVENT_COUNT,
+      commitGraphStamp: "stamp-after-landing",
+    });
+    const { paths, restore } = captureRequestPaths();
+    try {
+      await data.pollFreshness();
+      await flush();
+    } finally {
+      restore();
+    }
+
+    expect(paths).toContain("/api/revisions");
+    expect(paths).not.toContain("/api/history");
+    expect(store.getState().lastCommitGraphStamp).toBe("stamp-after-landing");
+    expect(document.querySelector("#detail-body")?.textContent).toContain(
+      "After commit-graph poll",
+    );
+  });
+
   it("marks the refresh indicator watching when nothing changed", async () => {
     await data.load();
     await data.pollFreshness();
