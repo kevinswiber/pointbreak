@@ -1880,6 +1880,25 @@ mod tests {
     }
 
     #[test]
+    fn current_bundle_apply_mutates_event_bytes_and_relies_on_the_modulo_ingest_verifier() {
+        let (_repo, source, _target_root, target) = imported_pair();
+        let name = EventStore::open(&target)
+            .list_event_file_names()
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        let source_bytes = std::fs::read(source.join("events").join(&name)).unwrap();
+        let target_bytes = std::fs::read(target.join("events").join(name)).unwrap();
+
+        assert_ne!(
+            source_bytes, target_bytes,
+            "bundle v1 stamps ingest provenance"
+        );
+        assert!(events_match_modulo_ingest_stamp(&source_bytes, &target_bytes).unwrap());
+    }
+
+    #[test]
     fn verify_source_subset_fails_when_a_target_artifact_is_missing() {
         let (_repo, source, _target_root, target) = imported_pair();
         let objects = target.join("artifacts/objects");

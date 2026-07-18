@@ -1,0 +1,20 @@
+[
+  {
+    "logical_key": "content:object",
+    "record_kind": "object_artifact",
+    "decoded": {
+      "contentHash": "sha256:object",
+      "kind": "object_artifact"
+    }
+  },
+  {
+    "logical_key": "event:root",
+    "record_kind": "legacy_event",
+    "decoded": {
+      "eventId": "event:root",
+      "objectArtifactContentHash": "sha256:object",
+      "semanticTarget": "revision:outside-bundle",
+      "signature": "signature-bytes-remain-exact"
+    }
+  }
+]

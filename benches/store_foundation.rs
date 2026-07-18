@@ -6,18 +6,22 @@
 use std::process::{Command, ExitCode};
 
 use pointbreak::bench_support::foundation::{
-    LogicalCapabilityEpochV1, QualificationCorpusError, QualificationCorpusSummaryV1,
-    QualificationSnapshotTotalsV1, SnapshotDriftReportV1, load_frozen_legacy_manifest_from_env,
-    modeled_post_foundation_manifest, qualification_filesystem_name, synthetic_legacy_manifest,
+    DisposableBundleDestinationV2, ExactBundleClosureV2, ExactBundleFailurePointV2,
+    ExactBundleManifestV2, ExactBundlePublicationReportV2, ImportReceiptPolicyPrototypeV1,
+    ImportReceiptPrototypeV1, LogicalCapabilityEpochV1, QualificationCorpusError,
+    QualificationCorpusSummaryV1, QualificationSnapshotTotalsV1, ReceiptBackupConsequenceV1,
+    ReceiptProjectionConsequenceV1, SnapshotDriftReportV1, load_frozen_legacy_manifest_from_env,
+    modeled_post_foundation_manifest, publish_exact_bundle_v2, qualification_filesystem_name,
+    synthetic_legacy_manifest,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 const USAGE: &str = "\
-Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--help]\n\
+Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--transfer-smoke|--help]\n\
 \n\
-Validates deterministic workload manifests and prints one JSON metadata record.\n\
-No storage implementation is selected or timed by this target.\n";
+Validates deterministic workload or exact-transfer contracts and prints one JSON metadata record.\n\
+No production storage implementation is selected or timed by this target.\n";
 
 #[derive(Serialize)]
 struct SmokeMetadataV1 {
@@ -77,18 +81,71 @@ enum ExternalCorpusMetadataV1 {
     },
 }
 
+#[derive(Serialize)]
+struct TransferSmokeMetadataV1 {
+    schema: &'static str,
+    mode: &'static str,
+    bundle_sha256: String,
+    event_set_sha256: String,
+    event_count: usize,
+    content_count: usize,
+    closure_count: usize,
+    interrupted_publication: InterruptedPublicationMetadataV1,
+    completion: ExactBundlePublicationReportV2,
+    idempotent_retry: ExactBundlePublicationReportV2,
+    exact_bytes_verified: bool,
+    receipt_alternatives: Vec<ReceiptAlternativeMetadataV1>,
+}
+
+#[derive(Serialize)]
+struct InterruptedPublicationMetadataV1 {
+    content_count: usize,
+    event_count: usize,
+}
+
+#[derive(Serialize)]
+struct ReceiptAlternativeMetadataV1 {
+    policy: ImportReceiptPolicyPrototypeV1,
+    receipt_sha256: String,
+    projection: ReceiptProjectionConsequenceV1,
+    backup: ReceiptBackupConsequenceV1,
+    emits_local_provenance_event: bool,
+}
+
 fn main() -> ExitCode {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
     if arguments.iter().any(|argument| argument == "--help") {
         print!("{USAGE}");
         return ExitCode::SUCCESS;
     }
-    if arguments
-        .iter()
-        .any(|argument| argument != "--smoke" && argument != "--bench")
+    if arguments.iter().any(|argument| {
+        argument != "--smoke" && argument != "--transfer-smoke" && argument != "--bench"
+    }) || (arguments.iter().any(|argument| argument == "--smoke")
+        && arguments
+            .iter()
+            .any(|argument| argument == "--transfer-smoke"))
     {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
+    }
+
+    if arguments
+        .iter()
+        .any(|argument| argument == "--transfer-smoke")
+    {
+        return match transfer_smoke_metadata() {
+            Ok(metadata) => {
+                println!(
+                    "{}",
+                    serde_json::to_string(&metadata).expect("transfer smoke metadata serializes")
+                );
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("store foundation transfer smoke failed: {error}");
+                ExitCode::from(1)
+            }
+        };
     }
 
     match smoke_metadata() {
@@ -108,6 +165,103 @@ fn main() -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+fn transfer_smoke_metadata() -> Result<TransferSmokeMetadataV1, String> {
+    let workload = modeled_post_foundation_manifest().map_err(|error| error.to_string())?;
+    let manifest = ExactBundleManifestV2::new(
+        workload.manifest_sha256,
+        LogicalCapabilityEpochV1::foundation(),
+        workload.records,
+        vec![
+            ExactBundleClosureV2 {
+                event_logical_key: "events/000-root.json".to_owned(),
+                required_content_keys: vec![
+                    "artifacts/documents/blob-guide.md".to_owned(),
+                    "artifacts/documents/manifest-guide.json".to_owned(),
+                    "artifacts/objects/round-001.json".to_owned(),
+                ],
+            },
+            ExactBundleClosureV2 {
+                event_logical_key: "events/003-attestation-verified.json".to_owned(),
+                required_content_keys: vec!["artifacts/proofs/relation-001.json".to_owned()],
+            },
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+    let mut destination =
+        DisposableBundleDestinationV2::new(LogicalCapabilityEpochV1::foundation());
+    match publish_exact_bundle_v2(
+        &mut destination,
+        &manifest,
+        ExactBundleFailurePointV2::BeforeFirstEvent,
+    ) {
+        Err(pointbreak::bench_support::foundation::ExactBundleError::InjectedBeforeFirstEvent) => {}
+        result => {
+            return Err(format!(
+                "unexpected interrupted publication result: {result:?}"
+            ));
+        }
+    }
+    let interrupted_publication = InterruptedPublicationMetadataV1 {
+        content_count: destination.content_count(),
+        event_count: destination.event_count(),
+    };
+    let completion =
+        publish_exact_bundle_v2(&mut destination, &manifest, ExactBundleFailurePointV2::None)
+            .map_err(|error| error.to_string())?;
+    let idempotent_retry =
+        publish_exact_bundle_v2(&mut destination, &manifest, ExactBundleFailurePointV2::None)
+            .map_err(|error| error.to_string())?;
+
+    let exact_bytes_verified = manifest
+        .events
+        .iter()
+        .chain(&manifest.content)
+        .all(|record| {
+            destination
+                .record(&record.logical_key)
+                .is_some_and(|stored| {
+                    stored.decoded_sha256 == record.decoded_sha256
+                        && stored.decoded_bytes == record.decoded_bytes
+                })
+        });
+    if !exact_bytes_verified {
+        return Err("destination bytes differ from the selected manifest".to_owned());
+    }
+
+    let receipt_alternatives = [
+        ImportReceiptPolicyPrototypeV1::DurableOperational,
+        ImportReceiptPolicyPrototypeV1::LocalProvenanceEvent,
+    ]
+    .into_iter()
+    .map(|policy| {
+        let receipt = ImportReceiptPrototypeV1::new(policy, &manifest, "transfer-smoke")
+            .map_err(|error| error.to_string())?;
+        Ok(ReceiptAlternativeMetadataV1 {
+            policy,
+            receipt_sha256: receipt.receipt_sha256.clone(),
+            projection: receipt.projection_consequence(),
+            backup: receipt.backup_consequence(),
+            emits_local_provenance_event: receipt.local_provenance_event().is_some(),
+        })
+    })
+    .collect::<Result<Vec<_>, String>>()?;
+
+    Ok(TransferSmokeMetadataV1 {
+        schema: "pointbreak.store-foundation-transfer-smoke.v1",
+        mode: "non_timing_exact_transfer",
+        bundle_sha256: manifest.bundle_sha256,
+        event_set_sha256: manifest.event_set_sha256,
+        event_count: manifest.events.len(),
+        content_count: manifest.content.len(),
+        closure_count: manifest.closure.len(),
+        interrupted_publication,
+        completion,
+        idempotent_retry,
+        exact_bytes_verified,
+        receipt_alternatives,
+    })
 }
 
 fn smoke_metadata() -> Result<(SmokeMetadataV1, bool), QualificationCorpusError> {

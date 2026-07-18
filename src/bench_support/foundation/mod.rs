@@ -1,10 +1,14 @@
+mod bundle_v2;
 mod contract;
 mod corpus;
+mod receipt;
 
 use std::path::Path;
 
+pub use bundle_v2::*;
 pub use contract::*;
 pub use corpus::*;
+pub use receipt::*;
 
 /// Report the filesystem type containing a qualification workload.
 ///
