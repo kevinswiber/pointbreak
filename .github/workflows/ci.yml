@@ -187,4 +187,21 @@ jobs:
         with:
           shared-key: store-foundation-qualification
       - name: run deterministic qualification matrix
-        run: just store-foundation-qualification-smoke
+        shell: bash
+        run: |
+          report="$(mktemp)"
+          set +e
+          just store-foundation-qualification-smoke >"$report"
+          status=$?
+          set -e
+          jq -c '{
+            sourceCommit: .plan.sourceCommit,
+            environment: .evidence.results[0].environment,
+            completeness,
+            failures: [
+              .evidence.results[]
+              | select(.outcome != "passed")
+              | {entryId, execution, outcome, failure}
+            ]
+          }' "$report"
+          exit "$status"
