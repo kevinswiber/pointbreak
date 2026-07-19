@@ -45,13 +45,17 @@ harness = false
 required-features = ["bench"]
 
 [features]
+# The in-process `gix` backend ships by default: qualified read and identity-
+# scalar classes route in-process, while the capture diff and write-tree stay
+# on subprocess `git` permanently and `POINTBREAK_GIT_BACKEND=subprocess`
+# remains the runtime escape hatch. Build with `--no-default-features` for the
+# subprocess-only single-variant backend.
+default = ["gix"]
 # Exposes the developer-run `bench_support` harnesses to benchmark crates. Off
 # by default and never enabled in a release build, so the harnesses stay out of
 # the published surface.
 bench = ["dep:libsqlite3-sys", "dep:rusqlite", "dep:zstd"]
 # Compiles the in-process `git` library backend alongside the subprocess one.
-# Off by default: the default build keeps a single-variant backend enum and
-# stays byte-identical and dependency-free.
 gix = ["dep:gix"]
 # The differential subprocess-vs-gix parity harness. Adds only the diagnostic
 # capabilities the harness needs that the reads-only `gix` feature omits — the

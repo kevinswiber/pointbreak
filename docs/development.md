@@ -45,10 +45,13 @@ while iterating, then run `just check` after creating the reviewable commit rang
 range to `just commit-check` explicitly.
 
 The differential git-backend parity harness is a separate gate. Git access runs through a typed
-backend seam (ADR-0040): subprocess `git` by default, with an optional in-process `gix` backend
-behind the `gix` and `gix-parity` cargo features. `just check` compiles the `gix` code (Clippy runs
-`--all-features`) but does not run the parity harness, which is gated on `--features gix-parity` and
-exercised by `just git-parity` — and by a dedicated CI lane on macOS and Windows. Run `just
+backend seam (ADR-0040): the in-process `gix` backend ships in the default build (the `gix`
+feature, on by default) and the qualified read/scalar classes route to it, while the capture diff
+and write-tree stay on subprocess `git` permanently. `POINTBREAK_GIT_BACKEND=subprocess` is the
+runtime escape hatch, and `--no-default-features` builds the subprocess-only backend. `just check`
+covers the `gix` code (Clippy runs `--all-features`) but does not run the parity harness, which is
+gated on `--features gix-parity` and exercised by `just git-parity` — and by a dedicated CI lane on
+macOS and Windows. Run `just
 git-parity` when you change the git seam or either backend; `just git-bench` prints the per-operation
 subprocess-vs-gix win. See `docs/adr/adr-0040-git-backend-seam-and-hybrid.md`.
 
