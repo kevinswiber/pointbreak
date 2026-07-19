@@ -68,11 +68,14 @@ pub(crate) fn reset_gix_open_count() {
     GIX_OPEN_COUNT.with(|cell| cell.set(0));
 }
 
-/// Open `repo` as a gix repository, mapping the open failure to a backend error.
+/// Open the repository that contains `repo`, mapping the failure to a backend
+/// error. Uses ancestor discovery (not a bare open) so a path *inside* a
+/// worktree resolves the repository exactly as a subprocess `git` run from that
+/// directory would (`--repo <subdir>` and nested-cwd use).
 fn open(repo: &Path) -> GixResult<::gix::Repository> {
     #[cfg(all(test, feature = "gix-parity"))]
     GIX_OPEN_COUNT.with(|cell| cell.set(cell.get() + 1));
-    ::gix::open(repo).map_err(|error| {
+    ::gix::discover(repo).map_err(|error| {
         GitBackendError::new(format!(
             "open git repository at {}: {error}",
             repo.display()
@@ -351,12 +354,15 @@ impl GitBackend for GixBackend {
                 let mut reference = reference
                     .map_err(|error| GitBackendError::new(format!("read ref: {error}")))?;
                 let name = bstr_to_string(reference.name().as_bstr(), "ref name")?;
-                let oid = reference
-                    .peel_to_id()
-                    .map_err(|error| GitBackendError::new(format!("peel ref {name}: {error}")))?
-                    .detach()
-                    .to_string();
-                entries.push(RefEntry { name, oid });
+                // `for-each-ref` omits a ref that does not resolve to an object
+                // (e.g. a dangling symbolic `origin/HEAD`); skip rather than error.
+                let Ok(id) = reference.peel_to_id() else {
+                    continue;
+                };
+                entries.push(RefEntry {
+                    name,
+                    oid: id.detach().to_string(),
+                });
             }
         }
         entries.sort_by(|left, right| left.name.cmp(&right.name));
@@ -383,11 +389,12 @@ impl GitBackend for GixBackend {
                     }
                     ::gix::refs::TargetRef::Object(_) => String::new(),
                 };
-                let oid = reference
-                    .peel_to_id()
-                    .map_err(|error| GitBackendError::new(format!("peel ref {name}: {error}")))?
-                    .detach()
-                    .to_string();
+                // As in `for_each_ref`, `for-each-ref` omits a ref that does not
+                // resolve to an object (a dangling symbolic ref); skip it.
+                let Ok(id) = reference.peel_to_id() else {
+                    continue;
+                };
+                let oid = id.detach().to_string();
                 lines.push((name.clone(), format!("{oid} {name} {symref}")));
             }
         }
@@ -507,14 +514,21 @@ impl GitBackend for GixBackend {
         for reference in all {
             let reference =
                 reference.map_err(|error| GitBackendError::new(format!("read ref: {error}")))?;
-            let mut log = reference.log_iter();
-            if let Ok(Some(entries)) = log.all() {
-                for entry in entries {
-                    let Ok(entry) = entry else { continue };
-                    // The forward reflog iterator yields raw hex; parse to an oid.
-                    if let Ok(oid) = ::gix::ObjectId::from_hex(entry.new_oid) {
-                        tips.push(oid);
-                    }
+            gather_reflog_tips(reference.log_iter(), &mut tips);
+        }
+        // `rev-list --reflog` also includes the HEAD pseudoref reflog, which the
+        // normal ref iteration omits. A commit whose only retention is the HEAD
+        // reflog (e.g. a just-deleted branch that was checked out) would otherwise
+        // be reported as unretained. `try_find_reference("HEAD")` follows the
+        // symref to its branch, so read the `HEAD` reflog file directly by name.
+        let mut head_log_buf = Vec::new();
+        if let Ok(Some(entries)) = repository.refs.reflog_iter("HEAD", &mut head_log_buf) {
+            for entry in entries {
+                let Ok(entry) = entry else { continue };
+                if let Ok(oid) = ::gix::ObjectId::from_hex(entry.new_oid)
+                    && !oid.is_null()
+                {
+                    tips.push(oid);
                 }
             }
         }
@@ -628,17 +642,20 @@ impl GitBackend for GixBackend {
             return Ok(Vec::new());
         }
         let repository = open(repo)?;
-        let worktree = repository.worktree().ok_or_else(|| {
-            GitBackendError::new(format!(
-                "{} has no worktree to check ignores against",
-                repo.display()
-            ))
-        })?;
+        // Load (or synthesize an empty) index so an unborn/first-use repository
+        // with no index file is treated as empty, matching git's `check-ignore`.
+        let index = repository
+            .index_or_load_from_head_or_empty()
+            .map_err(|error| GitBackendError::new(format!("open index: {error}")))?;
         // A fresh exclude stack per call, so any ignore-source mutation earlier in
         // the process (info/exclude append or a committed .gitignore write) is
         // observed here (LB-5 epoch rule).
-        let mut stack = worktree
-            .excludes(None)
+        let mut stack = repository
+            .excludes(
+                &index,
+                None,
+                ::gix::worktree::stack::state::ignore::Source::WorktreeThenIdMappingIfNotSkipped,
+            )
             .map_err(|error| GitBackendError::new(format!("open exclude stack: {error}")))?;
         let mut verdicts = Vec::with_capacity(pathspecs.len());
         for pathspec in pathspecs {
@@ -661,18 +678,17 @@ impl GitBackend for GixBackend {
 
     fn tracked_and_untracked_inventory(&self, repo: &Path) -> Result<Vec<GitInventoryPath>> {
         let repository = open(repo)?;
-        // Tracked paths from the index, plus untracked paths from the dirwalk —
-        // the composition git prints for `ls-files -co`.
-        let mut paths: Vec<Vec<u8>> = Vec::new();
+        // `ls-files -co` emits the untracked (others) paths first, then the
+        // tracked (cached) ones — each block sorted, but not merged-sorted. The
+        // dirwalk paths are already sorted and the index is stored in path order,
+        // so concatenating in that order reproduces git's output.
+        let mut paths: Vec<Vec<u8>> = dirwalk_untracked_paths(&repository)?;
         let index = repository
-            .index()
+            .index_or_load_from_head_or_empty()
             .map_err(|error| GitBackendError::new(format!("open index: {error}")))?;
         for entry in index.entries() {
             paths.push(entry.path(&index).to_vec());
         }
-        paths.extend(dirwalk_untracked_paths(&repository)?);
-        paths.sort();
-        paths.dedup();
         Ok(paths
             .into_iter()
             .map(|bytes| GitInventoryPath::new(&bytes))
@@ -762,6 +778,27 @@ impl GitBackend for GixBackend {
     }
 }
 
+/// Push every reflog-entry new-oid from a ref's reflog into `tips`. The forward
+/// reflog iterator yields raw hex, so each is parsed to an object id; unreadable
+/// entries and an absent reflog contribute nothing.
+fn gather_reflog_tips(
+    mut log: ::gix::refs::file::log::iter::Platform<'_, '_>,
+    tips: &mut Vec<::gix::ObjectId>,
+) {
+    if let Ok(Some(entries)) = log.all() {
+        for entry in entries {
+            let Ok(entry) = entry else { continue };
+            // The null oid marks a ref creation/deletion boundary; git's
+            // `rev-list --reflog` ignores it and it is not a walkable object.
+            if let Ok(oid) = ::gix::ObjectId::from_hex(entry.new_oid)
+                && !oid.is_null()
+            {
+                tips.push(oid);
+            }
+        }
+    }
+}
+
 /// Every non-ignored untracked path in `repository`, as raw bytes in sorted
 /// order — the `ls-files --others --exclude-standard` set. Byte paths preserve
 /// non-UTF-8 filenames.
@@ -770,7 +807,7 @@ fn dirwalk_untracked_paths(repository: &::gix::Repository) -> GixResult<Vec<Vec<
     use ::gix::dir::walk::EmissionMode;
 
     let index = repository
-        .index()
+        .index_or_load_from_head_or_empty()
         .map_err(|error| GitBackendError::new(format!("open index: {error}")))?;
     let options = repository
         .dirwalk_options()
