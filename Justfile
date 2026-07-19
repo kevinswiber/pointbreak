@@ -26,6 +26,11 @@ test-ci *args:
 test-file name *args:
     cargo +stable nextest run --test {{ name }} {{ args }}
 
+# Run the differential subprocess-vs-gix git-backend parity harness (report-only).
+[group('core')]
+git-parity *args:
+    cargo +stable nextest run --features gix-parity -E 'test(git_backend_parity)' {{ args }}
+
 # Build (debug).
 [group('core')]
 build *args:

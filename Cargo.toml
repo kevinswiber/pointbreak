@@ -54,9 +54,10 @@ bench = ["dep:libsqlite3-sys", "dep:rusqlite", "dep:zstd"]
 # stays byte-identical and dependency-free.
 gix = ["dep:gix"]
 # The differential subprocess-vs-gix parity harness. Adds only the diagnostic
-# diff renderer the harness needs (the reads-only `gix` feature omits it); never
-# part of the default build or the release binary.
-gix-parity = ["gix", "gix/blob-diff", "dep:gix-imara-diff"]
+# capabilities the harness needs that the reads-only `gix` feature omits — the
+# blob diff renderer and the tree editor for the write-tree reconstruction probe;
+# never part of the default build or the release binary.
+gix-parity = ["gix", "gix/blob-diff", "gix/tree-editor", "dep:gix-imara-diff"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

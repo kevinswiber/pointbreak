@@ -48,8 +48,30 @@ impl From<GitBackendError> for ShoreError {
 
 type GixResult<T> = std::result::Result<T, GitBackendError>;
 
+// A parity-harness counter: how many times this backend opened a repository on
+// the calling thread. It proves the differential harness actually executed the
+// gix backend rather than reading the shared subprocess discovery memo (F6).
+// Thread-local so a test's reset/act/assert is immune to concurrent helpers on
+// other threads under a shared-process runner.
+#[cfg(all(test, feature = "gix-parity"))]
+thread_local! {
+    static GIX_OPEN_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(all(test, feature = "gix-parity"))]
+pub(crate) fn gix_open_count() -> usize {
+    GIX_OPEN_COUNT.with(std::cell::Cell::get)
+}
+
+#[cfg(all(test, feature = "gix-parity"))]
+pub(crate) fn reset_gix_open_count() {
+    GIX_OPEN_COUNT.with(|cell| cell.set(0));
+}
+
 /// Open `repo` as a gix repository, mapping the open failure to a backend error.
 fn open(repo: &Path) -> GixResult<::gix::Repository> {
+    #[cfg(all(test, feature = "gix-parity"))]
+    GIX_OPEN_COUNT.with(|cell| cell.set(cell.get() + 1));
     ::gix::open(repo).map_err(|error| {
         GitBackendError::new(format!(
             "open git repository at {}: {error}",
@@ -110,13 +132,33 @@ impl GixBackend {
         changes
             .for_each_to_obtain_tree(commit_tree, |change| {
                 use ::gix::object::tree::diff::Change;
-                let location = match &change {
-                    Change::Addition { location, .. }
-                    | Change::Deletion { location, .. }
-                    | Change::Modification { location, .. }
-                    | Change::Rewrite { location, .. } => *location,
+                let (location, entry_mode) = match &change {
+                    Change::Addition {
+                        location,
+                        entry_mode,
+                        ..
+                    }
+                    | Change::Deletion {
+                        location,
+                        entry_mode,
+                        ..
+                    }
+                    | Change::Modification {
+                        location,
+                        entry_mode,
+                        ..
+                    }
+                    | Change::Rewrite {
+                        location,
+                        entry_mode,
+                        ..
+                    } => (*location, *entry_mode),
                 };
-                if let Ok(path) = location.to_str() {
+                // `diff-tree -r` reports only files; skip the intermediate tree
+                // entries gix also emits.
+                if !entry_mode.is_tree()
+                    && let Ok(path) = location.to_str()
+                {
                     let path = path.to_owned();
                     if seen.insert(path.clone()) {
                         paths.push(path);
@@ -532,7 +574,8 @@ impl GitBackend for GixBackend {
                 None => (None, true),
             };
             worktrees.push(GitWorktree {
-                path: workdir.to_path_buf(),
+                // git's porcelain prints the canonicalized worktree path.
+                path: canonicalize(workdir).unwrap_or_else(|_| workdir.to_path_buf()),
                 head: repository.head_id().ok().map(|id| id.to_string()),
                 branch,
                 detached,
@@ -570,7 +613,7 @@ impl GitBackend for GixBackend {
                 None => (None, None, false),
             };
             worktrees.push(GitWorktree {
-                path: base,
+                path: canonicalize(&base).unwrap_or(base),
                 head,
                 branch,
                 detached,

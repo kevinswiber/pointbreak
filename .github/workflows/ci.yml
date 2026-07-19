@@ -171,3 +171,23 @@ jobs:
       - name: just test-ci
         if: matrix.run_tests
         run: just test-ci ${{ matrix.shard && format('--partition slice:{0}/{1}', matrix.shard, matrix.shards) || '' }}
+
+  git-parity:
+    name: git parity (${{ matrix.os }})
+    # The differential subprocess-vs-gix parity harness, exercised on both
+    # platforms where the object-format and path-separator behavior differs.
+    # Report-only in this phase: divergences in unqualified classes are expected
+    # and do not fail the lane; the diagnostic probes assert their own expected
+    # divergence.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@just
+      - uses: taiki-e/install-action@nextest
+      - uses: Swatinem/rust-cache@v2
+      - run: just git-parity

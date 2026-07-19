@@ -1,6 +1,8 @@
 mod backend;
 mod command;
 mod ingest;
+#[cfg(all(test, feature = "gix-parity"))]
+mod parity;
 mod patch;
 mod raw;
 

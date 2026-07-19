@@ -92,6 +92,19 @@ pub(crate) fn reset_git_spawn_count() {
     GIT_SPAWN_COUNT.with(|cell| cell.set(0));
 }
 
+/// Clear the process-lifetime discovery memo (worktree root + common dir) — the
+/// only cache in this backend. The differential parity harness calls this
+/// between the two backends so the subprocess call actually resolves (spawns)
+/// rather than reading a warm memo, and so a comparison can never be satisfied
+/// by the backend-blind cached value (F6).
+#[cfg(all(test, feature = "gix-parity"))]
+pub(crate) fn reset_discovery_cache() {
+    repo_fact_cache()
+        .lock()
+        .expect("repo fact cache mutex is not poisoned")
+        .clear();
+}
+
 /// Invariant repository facts that Git resolves from disk but that never change
 /// for a live repository within a single process: the worktree root, the common
 /// Git directory, and the path to `info/exclude`.
