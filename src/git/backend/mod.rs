@@ -371,7 +371,7 @@ const DEFAULT_READ_GRAPH_REFS: RoutedBackend = RoutedBackend::Gix;
 const DEFAULT_READ_IGNORE: RoutedBackend = RoutedBackend::Gix;
 const DEFAULT_READ_INVENTORY: RoutedBackend = RoutedBackend::Gix;
 const DEFAULT_READ_CONFIG_DISCOVERY: RoutedBackend = RoutedBackend::Subprocess;
-const DEFAULT_READ_REPO_DISCOVERY: RoutedBackend = RoutedBackend::Subprocess;
+const DEFAULT_READ_REPO_DISCOVERY: RoutedBackend = RoutedBackend::Gix;
 const DEFAULT_IDENTITY_SCALARS: RoutedBackend = RoutedBackend::Subprocess;
 
 /// The compiled default backend for a class.
@@ -584,6 +584,7 @@ mod tests {
             BackendClass::ReadIgnore,
             BackendClass::ReadGraphRefs,
             BackendClass::ReadInventory,
+            BackendClass::ReadRepoDiscovery,
         ] {
             assert_eq!(
                 routed_backend(class).unwrap(),
@@ -593,7 +594,6 @@ mod tests {
         }
         for class in [
             BackendClass::ReadConfigDiscovery,
-            BackendClass::ReadRepoDiscovery,
             BackendClass::IdentityScalars,
         ] {
             assert_eq!(
