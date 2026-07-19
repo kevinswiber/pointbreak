@@ -761,7 +761,58 @@ impl SqliteQualificationProfile {
         self.checkpoint_with_hook(|| {})
     }
 
-    fn checkpoint_with_hook<F>(
+    pub(super) fn exercise_allocation_failure(
+        &self,
+        logical_key: &str,
+    ) -> Result<(), SqliteQualificationError> {
+        let original_length_limit = {
+            let connection = self.journal.connection()?;
+            connection
+                .set_limit(Limit::SQLITE_LIMIT_LENGTH, 1024)
+                .map_err(|error| sqlite_error("set allocation length limit", error))?
+        };
+        let mut payload = Vec::with_capacity(16 * 1024);
+        for block in 0_u32..512 {
+            payload.extend_from_slice(&Sha256::digest(block.to_le_bytes()));
+        }
+        let attempted = self.journal.create_once_typed(logical_key, &payload);
+        {
+            let connection = self.journal.connection()?;
+            connection
+                .set_limit(Limit::SQLITE_LIMIT_LENGTH, original_length_limit)
+                .map_err(|error| sqlite_error("restore allocation length limit", error))?;
+        }
+        match attempted {
+            Err(SqliteQualificationError::Sqlite { message, .. })
+                if {
+                    let message = message.to_ascii_lowercase();
+                    message.contains("too big") || message.contains("too large")
+                } =>
+            {
+                if self.journal.read_typed(logical_key)?.is_some() {
+                    return Err(SqliteQualificationError::InvalidProfile {
+                        message: "allocation fault exposed an uncommitted record".to_owned(),
+                    });
+                }
+                if self.journal.create_once_typed(logical_key, b"retry")?
+                    != QualificationCreateOutcome::Created
+                {
+                    return Err(SqliteQualificationError::InvalidProfile {
+                        message: "allocation fault retry did not create the record".to_owned(),
+                    });
+                }
+                Ok(())
+            }
+            Err(error) => Err(SqliteQualificationError::InvalidProfile {
+                message: format!("allocation fault returned an unexpected error: {error}"),
+            }),
+            Ok(outcome) => Err(SqliteQualificationError::InvalidProfile {
+                message: format!("allocation fault unexpectedly returned {outcome:?}"),
+            }),
+        }
+    }
+
+    pub(super) fn checkpoint_with_hook<F>(
         &self,
         after_publication: F,
     ) -> Result<SqliteCheckpointEvidenceV1, SqliteQualificationError>

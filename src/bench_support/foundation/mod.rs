@@ -5,6 +5,7 @@ mod content;
 mod contract;
 mod corpus;
 mod documents;
+mod fault;
 mod proof;
 mod receipt;
 mod segments;
@@ -19,6 +20,7 @@ pub use content::*;
 pub use contract::*;
 pub use corpus::*;
 pub use documents::*;
+pub use fault::*;
 pub use proof::*;
 pub use receipt::*;
 pub use segments::*;
@@ -72,7 +74,28 @@ fn platform_filesystem_name(path: &Path) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(target_os = "windows")]
+fn platform_filesystem_name(path: &Path) -> Option<String> {
+    let output = std::process::Command::new("fsutil")
+        .args(["fsinfo", "volumeinfo"])
+        .arg(path)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    stdout.lines().find_map(|line| {
+        let (label, value) = line.split_once(':')?;
+        label
+            .trim()
+            .eq_ignore_ascii_case("File System Name")
+            .then(|| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+    })
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 fn platform_filesystem_name(_path: &Path) -> Option<String> {
     None
 }

@@ -9,20 +9,22 @@ use pointbreak::bench_support::foundation::{
     DisposableBundleDestinationV2, ExactBundleClosureV2, ExactBundleFailurePointV2,
     ExactBundleManifestV2, ExactBundlePublicationReportV2, ImportReceiptPolicyPrototypeV1,
     ImportReceiptPrototypeV1, LogicalCapabilityEpochV1, QualificationCorpusError,
-    QualificationCorpusSummaryV1, QualificationSnapshotTotalsV1, ReceiptBackupConsequenceV1,
-    ReceiptProjectionConsequenceV1, SegmentWorkloadEvidenceV1, SnapshotDriftReportV1,
-    SqliteWorkloadEvidenceV1, load_frozen_legacy_manifest_from_env,
-    modeled_post_foundation_manifest, publish_exact_bundle_v2, qualification_filesystem_name,
-    run_segment_workload, run_sqlite_workload, synthetic_legacy_manifest,
+    QualificationCorpusSummaryV1, QualificationRunConfigurationV1, QualificationSnapshotTotalsV1,
+    ReceiptBackupConsequenceV1, ReceiptProjectionConsequenceV1, SegmentWorkloadEvidenceV1,
+    SnapshotDriftReportV1, SqliteWorkloadEvidenceV1, load_frozen_legacy_manifest_from_env,
+    modeled_post_foundation_manifest, publish_exact_bundle_v2, qualification_cargo_lock_sha256,
+    qualification_filesystem_name, qualification_source_commit, run_qualification_child,
+    run_qualification_platform_matrix, run_segment_workload, run_sqlite_workload,
+    synthetic_legacy_manifest,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 const USAGE: &str = "\
-Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--transfer-smoke|--sqlite-smoke|--segments-smoke|--help]\n\
+Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--transfer-smoke|--sqlite-smoke|--segments-smoke|--qualification-smoke|--qualification-evidence|--help]\n\
 \n\
-Validates deterministic workload, exact-transfer, SQLite, or segment qualification contracts and prints JSON.\n\
-No production storage implementation is selected or timed by this target.\n";
+Validates deterministic workload, transfer, candidate, or native-platform qualification contracts and prints JSON.\n\
+Qualification modes use disposable roots and never select or activate production storage.\n";
 
 #[derive(Serialize)]
 struct SmokeMetadataV1 {
@@ -129,6 +131,22 @@ struct ReceiptAlternativeMetadataV1 {
 
 fn main() -> ExitCode {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "--qualification-child")
+    {
+        if arguments.len() != 2 {
+            eprintln!("qualification child requires exactly one request path");
+            return ExitCode::from(2);
+        }
+        return match run_qualification_child(std::path::Path::new(&arguments[1])) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("store foundation qualification child failed: {error}");
+                ExitCode::from(1)
+            }
+        };
+    }
     if arguments.iter().any(|argument| argument == "--help") {
         print!("{USAGE}");
         return ExitCode::SUCCESS;
@@ -138,6 +156,8 @@ fn main() -> ExitCode {
         "--transfer-smoke",
         "--sqlite-smoke",
         "--segments-smoke",
+        "--qualification-smoke",
+        "--qualification-evidence",
     ]
     .into_iter()
     .filter(|mode| arguments.iter().any(|argument| argument == mode))
@@ -147,11 +167,27 @@ fn main() -> ExitCode {
             && argument != "--transfer-smoke"
             && argument != "--sqlite-smoke"
             && argument != "--segments-smoke"
+            && argument != "--qualification-smoke"
+            && argument != "--qualification-evidence"
             && argument != "--bench"
     }) || requested_modes > 1
     {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
+    }
+
+    if arguments
+        .iter()
+        .any(|argument| argument == "--qualification-smoke")
+    {
+        return qualification_report(1);
+    }
+
+    if arguments
+        .iter()
+        .any(|argument| argument == "--qualification-evidence")
+    {
+        return qualification_report(5);
     }
 
     if arguments
@@ -225,6 +261,53 @@ fn main() -> ExitCode {
         }
         Err(error) => {
             eprintln!("store foundation smoke failed: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn qualification_report(performance_samples: u32) -> ExitCode {
+    let disposable = match tempfile::tempdir() {
+        Ok(root) => root,
+        Err(error) => {
+            eprintln!("store foundation qualification failed to create a disposable root: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let source_commit = match qualification_source_commit() {
+        Ok(commit) => commit,
+        Err(error) => {
+            eprintln!("store foundation qualification provenance failed: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let configuration = QualificationRunConfigurationV1 {
+        executable: match std::env::current_exe() {
+            Ok(executable) => executable,
+            Err(error) => {
+                eprintln!("store foundation qualification executable lookup failed: {error}");
+                return ExitCode::from(1);
+            }
+        },
+        root: disposable.path().join("qualification-run"),
+        source_commit,
+        cargo_lock_sha256: qualification_cargo_lock_sha256(),
+        performance_samples,
+    };
+    match run_qualification_platform_matrix(&configuration) {
+        Ok(report) => {
+            println!(
+                "{}",
+                serde_json::to_string(&report).expect("qualification report serializes")
+            );
+            if report.completeness.all_results_passed {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(2)
+            }
+        }
+        Err(error) => {
+            eprintln!("store foundation qualification failed: {error}");
             ExitCode::from(1)
         }
     }

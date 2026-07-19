@@ -197,6 +197,18 @@ migrate-store-common-dir repo="." include-ephemeral="false":
 [group('quality')]
 check: commit-check build lint test
 
+# Run the deterministic cross-candidate fault and native-platform matrix. This
+# uses only disposable roots and records raw samples without timing thresholds.
+[group('quality')]
+store-foundation-qualification-smoke:
+    cargo +stable bench --features bench --bench store_foundation -- --qualification-smoke
+
+# Run the developer evidence lane with repeated raw performance samples. This
+# remains environment evidence rather than a default-test timing gate.
+[group('quality')]
+store-foundation-qualification:
+    cargo +stable bench --features bench --bench store_foundation -- --qualification-evidence
+
 # Install the Visual Studio Code extension toolchain from its committed lockfile.
 [group('extension')]
 extension-install:

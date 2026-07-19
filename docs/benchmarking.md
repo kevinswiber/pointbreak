@@ -46,6 +46,35 @@ decoded bytes). The loader separately checks the four store-metadata files and t
 without reading their content. Any logical or metadata mismatch is returned as a structured drift
 report rather than silently accepting a different corpus.
 
+## Native foundation qualification
+
+The developer-gated foundation runner applies one deterministic matrix to the SQLite WAL and bounded-
+segment candidates on both public workloads. It uses fresh disposable roots and real child processes for
+locking, reader/writer, backup/writer, kill/reopen, and maintenance overlap. Results include exact build and
+dependency identity, stable per-row seed identities reserved for future seeded placement, fixed scenario
+boundary labels, filesystem policy, native allocated-byte inventories, raw samples, and a generated
+completeness report.
+
+Run the non-timing matrix used by native CI with:
+
+```sh
+just store-foundation-qualification-smoke
+```
+
+Run the developer evidence lane with repeated candidate and freshly populated loose-baseline samples with:
+
+```sh
+just store-foundation-qualification
+```
+
+The repeated lane applies the 125% p95 ceiling to durable append, strict replay, keyed read, and strict
+reopen/recovery. A complete report can still contain failed rows; the command exits nonzero whenever any
+row fails. Timing thresholds never run in default tests or the CI smoke lane.
+
+These matrix commands use only the checked-in public workloads. They do not read
+`POINTBREAK_QUALIFICATION_CORPUS`; validate an explicitly supplied external copy separately with the
+`--smoke` command above, and keep its record bytes outside the repository and generated reports.
+
 ## Real-world read-all sample: `POINTBREAK_BENCH_FIXTURE`
 
 The `read_all/fixture` group runs only when `POINTBREAK_BENCH_FIXTURE` points at a **store directory** — the
