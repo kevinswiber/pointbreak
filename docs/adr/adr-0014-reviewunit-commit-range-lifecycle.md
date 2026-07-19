@@ -496,3 +496,24 @@ this repository — the token otherwise survives only in the unrelated family-st
 *new* content state. Record membership stays projection-complete (ADR-0015's 2026-07-15 amendment) —
 these conditions are enrichment, never a visibility predicate by default. Nothing new is stored; no
 event, payload field, or `sigVersion` changes.
+
+## Amendment: Association Is Structural; Content Meaning Requires Generation-Bound Evidence (2026-07-19)
+
+ADR-0014's structural association and withdrawal family stands. Its content interpretation is narrowed by
+[ADR-0037](./adr-0037-immutable-review-generations-and-fact-continuity.md): an association always records
+history for one exact `(revision_id, object_artifact_content_hash)` generation, but by itself begins as
+`unknown + unverified`. Path overlap, ancestry, tree equality shortcuts, liveness, and successive associated
+commits are candidate signals or provenance; they do not prove exact materialization, equivalent rewrite,
+content preservation, or landing meaning.
+
+The existing writer-free association identity remains unchanged. Stronger meaning is a separate attributed
+`RevisionRelationAttested` event bound to the association ID and exact generation. Verified canonical proof
+may authorize an exact/equivalent/extension comparison; asserted landing provenance remains useful history
+without substituting diff bytes or expanding assessment scope. Conflicting attestations coexist and withhold
+stronger presentation.
+
+The 2026-07-09 rule that an already-captured, unchanged state accretes successive landing commits on the same
+revision still stands. The broader "never recapture after assessment" reading is superseded: if reviewable
+content changes, capture a new generation before recording new-state facts, validation, or assessment, then
+choose `supersedes`, `continues`, or independence by intent. An association is never the mechanism for
+retargeting a frozen generation.

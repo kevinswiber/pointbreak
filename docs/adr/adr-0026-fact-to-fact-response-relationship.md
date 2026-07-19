@@ -266,3 +266,19 @@ this ADR fixes.
   [ADR-0017](./adr-0017-eventtarget-identity-layering-and-engagement-naming.md) (fact-vs-
   request split; §A4 domain-named surface).
 - `docs/input-request-model.md` (the lifecycle D1 routes through).
+
+## Amendment: `responds_to` Is Generation-Local; Cross-Generation Continuity Uses Fact Ports (2026-07-19)
+
+ADR-0026's non-destructive `responds_to` relationship stands within one exact generation. It continues to
+derive advisory `responded_by` state, preserve target observations as active, and leave assessment and
+request lifecycles independent.
+
+[ADR-0037](./adr-0037-immutable-review-generations-and-fact-continuity.md) closes the previously deferred
+cross-revision case with `ReviewFactPortedV1`. A port preserves the origin generation and fact, names an
+exact target generation, and records only `context_only`, `reanchored_as`, `carried_open_as`, or
+`resolved_by`. Reanchoring and carrying open require separately recorded target-generation facts/requests;
+ports do not mutate anchors or make the origin current.
+
+Validation and assessment never port or cross-generation-replace. After reviewed content changes, relied-on
+checks and the accepting assessment target the new generation. Missing or conflicting ports remain visible
+and self-heal on backfill; no timestamp or thread-level winner is inferred.

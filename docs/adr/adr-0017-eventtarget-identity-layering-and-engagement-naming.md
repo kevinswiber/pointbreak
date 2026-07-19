@@ -455,3 +455,22 @@ excepted — §A4 (viii)); "review" stays the only verb.
   writer-act vocabulary (amended), **ADR-0005** lineage (superseded by ADR-0018).
 - In-repo `docs/`: `substrate-language.md`, `substrate-thesis-summary.md` — the thesis summary's
   diverged-`WorkObjectId` claim is the load-bearing correction.
+
+## Amendment: Exact Generation Addressing and Derived Review Threads (2026-07-19)
+
+ADR-0017's Object/Revision identity layering stands. [ADR-0037](./adr-0037-immutable-review-generations-and-fact-continuity.md)
+adds `GenerationRefV1 { revision_id, object_artifact_content_hash }` as the exact read and fact-currency
+address. `RevisionId` continues to identify the immutable proposal position; the bound artifact hash
+identifies the concrete reviewed bytes. Exact routes, DTOs, cache keys, and editor resources must carry or
+verify the pair and reject mismatches rather than falling back.
+
+Engagement/review-thread identity remains derived, never a signed fact target or content owner. Its
+membership projection now spans both replacement `supersedes` edges and non-replacing `continues` edges;
+replacement currency still uses only `supersedes`. Several exact generations may therefore be current in one
+thread. Facts, validation, assessments, association evidence, and ports always retain exact generation
+identity and never target the derived thread.
+
+The clean-break posture is also constrained: migration preserves legacy decoded bytes, IDs, signatures, and
+attribution. It may not invent generation boundaries, continuation intent, relation evidence, fact ports, or
+document coverage. New semantic families require one fail-closed logical capability cohort before their
+first production write.

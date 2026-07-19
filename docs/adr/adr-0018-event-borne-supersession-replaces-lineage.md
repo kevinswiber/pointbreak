@@ -206,3 +206,20 @@ content bytes — ADR-0016). `supersedes` references a **`Revision`** (logical p
   (the §3 discriminator; withdrawal family untouched), **ADR-0008** cross-peer conflict (diagnostic posture).
 - In-repo: **ADR-0016** content-targeted artifact removal
   (`docs/adr/adr-0016-content-targeted-artifact-removal-and-compaction.md`) — the third verb, kept distinct.
+
+## Amendment: Non-Replacing `continues` Edges Share a Thread Without Changing Currency (2026-07-19)
+
+ADR-0018's positional, fork-tolerant `supersedes` decision stands unchanged for replacement. Add a sibling
+capture-time `continues: Vec<RevisionId>` forward pointer as specified by
+[ADR-0037](./adr-0037-immutable-review-generations-and-fact-continuity.md). It records additive or
+independently useful work that belongs to the same review thread while leaving its predecessor current.
+
+Like `supersedes`, `continues` is sorted and deduplicated in the stored proposal, excluded from
+`revision_id`, immutable after capture, and accepted with a self-healing missing-target diagnostic. The two
+sets are disjoint. Their union derives thread membership; only `supersedes` contributes to replacement
+heads, `stale_by_superseding_revision`, and acceptance currency. A continuation never proves byte
+containment, transfers a fact or assessment, or creates a scalar current generation.
+
+The former definition "same thread iff a supersedes path connects them" is therefore superseded by
+connectivity over `supersedes ∪ continues`. The rejection of a stored thread/lineage container, timestamp
+winner, or content-keyed supersession continues to stand.

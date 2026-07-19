@@ -391,3 +391,23 @@ rebuildable from the journal.
   (store = log/journal; the three-layer framing).
 - In-repo `docs/adr/`: ADR-0004, ADR-0015, ADR-0016, ADR-0017/ADR-0018 (see header).
 - Composes with the `contentEncoding` direction below the identity layer, with no re-keying.
+
+## Amendment: Logical Transfer Is Frozen; No Physical Profile Is Selected (2026-07-19)
+
+ADR-0020's byte-oriented Journal/ContentStore seam, wrapper-owned identity/conflict policy, append-only
+journal, deterministic replay, independent content lifecycle, and derived projection layer stand. The
+feature-gated SQLite WAL and bounded-segment implementations under `src/bench_support/foundation/` are
+qualification artifacts, not production backends or a runtime selector.
+
+Repeated native qualification failed the required performance gate for both candidates on both workloads.
+Accordingly, this amendment does **not** reverse the current production physical layout, select binary truth
+storage, freeze a physical profile or limit, remove the loose reader/writer, expose a migration command, or
+authorize a live-root cutover. The original binary-store rejection remains the production decision until a
+future ADR selects a candidate that passes every hard gate.
+
+[ADR-0039](./adr-0039-exact-logical-bundles-and-import-receipts.md) independently freezes exact decoded-byte
+transfer, backend-neutral key/hash reconciliation, a separate durable operational import receipt, and the
+distinction between logical replication, candidate-native backup, and immutable archive copy. Any future
+physical profile must preserve these seams, use one compiled strict profile rather than a user-facing
+selector, keep writable live roots on eligible local filesystems, and provide exhaustive inventory,
+candidate-native backup/restore, copy-out repair, and explicit platform consequences.
