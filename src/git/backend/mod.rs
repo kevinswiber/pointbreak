@@ -321,21 +321,118 @@ pub fn validate_backend_selector() -> Result<()> {
     selector().map(|_| ())
 }
 
-/// Resolve the backend for a routable operation. Fallible because it surfaces the
-/// selector error: an unset/`subprocess`/`Compiled` selector routes to the
-/// subprocess backend, an explicit `gix` selector routes to the native gix
-/// backend, and a feature-off explicit `gix` is a hard error (only a compiled
-/// default may fall back to subprocess).
-pub(crate) fn dispatch() -> Result<&'static GitBackendKind> {
-    match selector()? {
-        BackendSelector::ForceSubprocess | BackendSelector::Compiled => Ok(&SUBPROCESS_KIND),
-        #[cfg(feature = "gix")]
-        BackendSelector::ForceGix => Ok(&GIX_KIND),
-        #[cfg(not(feature = "gix"))]
-        BackendSelector::ForceGix => Err(ShoreError::Message(format!(
-            "{POINTBREAK_GIT_BACKEND}=gix but this build was compiled without the gix backend"
-        ))),
+/// The routable operation classes. Each routable `git_*` helper carries exactly
+/// one class, classified at its highest-risk use, and the class chooses the
+/// backend via its compiled default. The two non-routable operations — the
+/// capture diff pipeline and write-tree — are deliberately absent: they never
+/// dispatch, so no class default or runtime selector can route them away from
+/// `git` itself.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub(crate) enum BackendClass {
+    ReadGraphRefs,
+    ReadIgnore,
+    ReadInventory,
+    ReadConfigDiscovery,
+    ReadRepoDiscovery,
+    IdentityScalars,
+}
+
+/// The backend a class resolves to. Flipping a class promotes its compiled
+/// default from `Subprocess` to `Gix`; per-class rollback is the same constant
+/// reversed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RoutedBackend {
+    Subprocess,
+    // Constructed once a class default is flipped to gix, or when the runtime
+    // selector forces gix. On a build without the gix backend no class default is
+    // gix and the forced-gix selector is rejected earlier, so this variant stays
+    // unconstructed there and would otherwise read as dead code.
+    #[cfg_attr(not(feature = "gix"), allow(dead_code))]
+    Gix,
+}
+
+// The compiled per-class defaults. Every routable class starts on the subprocess
+// backend; a class flips to gix one constant at a time, only after byte-equal
+// cross-platform parity plus a measured win, and the flip takes effect only in a
+// build that includes the gix backend.
+const DEFAULT_READ_GRAPH_REFS: RoutedBackend = RoutedBackend::Subprocess;
+const DEFAULT_READ_IGNORE: RoutedBackend = RoutedBackend::Subprocess;
+const DEFAULT_READ_INVENTORY: RoutedBackend = RoutedBackend::Subprocess;
+const DEFAULT_READ_CONFIG_DISCOVERY: RoutedBackend = RoutedBackend::Subprocess;
+const DEFAULT_READ_REPO_DISCOVERY: RoutedBackend = RoutedBackend::Subprocess;
+const DEFAULT_IDENTITY_SCALARS: RoutedBackend = RoutedBackend::Subprocess;
+
+/// The compiled default backend for a class.
+fn class_default(class: BackendClass) -> RoutedBackend {
+    match class {
+        BackendClass::ReadGraphRefs => DEFAULT_READ_GRAPH_REFS,
+        BackendClass::ReadIgnore => DEFAULT_READ_IGNORE,
+        BackendClass::ReadInventory => DEFAULT_READ_INVENTORY,
+        BackendClass::ReadConfigDiscovery => DEFAULT_READ_CONFIG_DISCOVERY,
+        BackendClass::ReadRepoDiscovery => DEFAULT_READ_REPO_DISCOVERY,
+        BackendClass::IdentityScalars => DEFAULT_IDENTITY_SCALARS,
     }
+}
+
+/// Resolve a class to its backend, honoring the runtime selector. An explicit
+/// `subprocess`/`gix` override forces every class onto that backend; `Compiled`
+/// uses the class's default. A feature-off explicit `gix` is a hard error here,
+/// before any collapse into a routed value — only a compiled default may resolve
+/// to subprocess on a build without the gix backend.
+fn routed_backend(class: BackendClass) -> Result<RoutedBackend> {
+    Ok(match selector()? {
+        BackendSelector::ForceSubprocess => RoutedBackend::Subprocess,
+        #[cfg(feature = "gix")]
+        BackendSelector::ForceGix => RoutedBackend::Gix,
+        #[cfg(not(feature = "gix"))]
+        BackendSelector::ForceGix => {
+            return Err(ShoreError::Message(format!(
+                "{POINTBREAK_GIT_BACKEND}=gix but this build was compiled without the gix backend"
+            )));
+        }
+        BackendSelector::Compiled => class_default(class),
+    })
+}
+
+/// Resolve the backend for a routable operation's class. Fallible because it
+/// surfaces the selector error: `subprocess`/`Compiled`-on-a-subprocess-default
+/// routes to the subprocess backend, a gix default or an explicit `gix` routes to
+/// the native gix backend, and a feature-off explicit `gix` is a hard error (only
+/// a compiled gix default may fall back to subprocess on a gix-free build).
+pub(crate) fn dispatch(class: BackendClass) -> Result<&'static GitBackendKind> {
+    match routed_backend(class)? {
+        RoutedBackend::Subprocess => Ok(&SUBPROCESS_KIND),
+        #[cfg(feature = "gix")]
+        RoutedBackend::Gix => Ok(&GIX_KIND),
+        #[cfg(not(feature = "gix"))]
+        RoutedBackend::Gix => Ok(&SUBPROCESS_KIND),
+    }
+}
+
+/// Map a harness class name to its [`BackendClass`]. Parity-harness-only — the
+/// enforcing gate keys on it — so an unknown name is a test bug and panics. The
+/// `all(test, gix-parity)` gate (not `any`) keeps it from compiling unused in the
+/// all-features non-test library build.
+#[cfg(all(test, feature = "gix-parity"))]
+pub(crate) fn backend_class_for_name(name: &str) -> BackendClass {
+    match name {
+        "read:graph-refs" => BackendClass::ReadGraphRefs,
+        "read:ignore" => BackendClass::ReadIgnore,
+        "read:inventory" => BackendClass::ReadInventory,
+        "read:config-discovery" => BackendClass::ReadConfigDiscovery,
+        "read:repo-discovery" => BackendClass::ReadRepoDiscovery,
+        "identity-scalars" => BackendClass::IdentityScalars,
+        other => panic!("unknown git-backend parity class name: {other:?}"),
+    }
+}
+
+/// True when a class's compiled default is gix — it has been qualified and
+/// flipped. The enforcing parity gate fails only these classes on divergence; a
+/// class still on subprocess is reported, never failed. Single-sourced from the
+/// per-class defaults so the gate and the routing never disagree.
+#[cfg(all(test, feature = "gix-parity"))]
+pub(crate) fn is_gix_qualified(name: &str) -> bool {
+    class_default(backend_class_for_name(name)) == RoutedBackend::Gix
 }
 
 /// The direct subprocess handle for the two non-routable operations — write-tree
@@ -412,15 +509,26 @@ mod tests {
     #[test]
     fn dispatch_routes_through_the_subprocess_backend() {
         let repo = init_repo();
+        // Pin subprocess so the assertion holds even when the whole suite runs
+        // under `POINTBREAK_GIT_BACKEND=gix`.
+        #[cfg(feature = "gix")]
+        inject_selector(BackendSelector::ForceSubprocess);
         // The choke point resolves the same discovery/graph contract as the
         // backend directly, proving call sites can dispatch through the enum.
-        assert!(dispatch().unwrap().worktree_root(repo.path()).is_ok());
         assert!(
-            dispatch()
+            dispatch(BackendClass::IdentityScalars)
+                .unwrap()
+                .worktree_root(repo.path())
+                .is_ok()
+        );
+        assert!(
+            dispatch(BackendClass::ReadGraphRefs)
                 .unwrap()
                 .for_each_ref(repo.path(), &["refs/heads/"])
                 .is_ok()
         );
+        #[cfg(feature = "gix")]
+        reset_selector();
     }
 
     #[test]
@@ -447,7 +555,85 @@ mod tests {
         // A feature-off build cannot resolve an explicit gix selection: an
         // injected `ForceGix` errors rather than collapsing to subprocess.
         inject_selector(BackendSelector::ForceGix);
-        assert!(dispatch().is_err());
+        assert!(dispatch(BackendClass::ReadGraphRefs).is_err());
         reset_selector();
+    }
+
+    #[cfg(feature = "gix")]
+    #[test]
+    fn compiled_default_routes_each_class_to_subprocess_initially() {
+        // Every routable class starts on the subprocess default; a flip is a
+        // single compiled constant, added only after cross-platform parity.
+        // Pin the compiled path explicitly (not `reset_selector`) so the assertion
+        // is deterministic even when the whole suite runs under
+        // `POINTBREAK_GIT_BACKEND=gix`, which would otherwise force gix.
+        inject_selector(BackendSelector::Compiled);
+        assert_eq!(
+            routed_backend(BackendClass::ReadGraphRefs).unwrap(),
+            RoutedBackend::Subprocess
+        );
+        assert_eq!(
+            routed_backend(BackendClass::ReadIgnore).unwrap(),
+            RoutedBackend::Subprocess
+        );
+        assert_eq!(
+            routed_backend(BackendClass::ReadInventory).unwrap(),
+            RoutedBackend::Subprocess
+        );
+        assert_eq!(
+            routed_backend(BackendClass::ReadConfigDiscovery).unwrap(),
+            RoutedBackend::Subprocess
+        );
+        assert_eq!(
+            routed_backend(BackendClass::ReadRepoDiscovery).unwrap(),
+            RoutedBackend::Subprocess
+        );
+        assert_eq!(
+            routed_backend(BackendClass::IdentityScalars).unwrap(),
+            RoutedBackend::Subprocess
+        );
+        reset_selector();
+    }
+
+    #[cfg(feature = "gix")]
+    #[test]
+    fn force_gix_routes_every_class_to_gix() {
+        // The runtime override forces every routable class onto gix regardless
+        // of its compiled default.
+        inject_selector(BackendSelector::ForceGix);
+        assert_eq!(
+            routed_backend(BackendClass::ReadGraphRefs).unwrap(),
+            RoutedBackend::Gix
+        );
+        assert_eq!(
+            routed_backend(BackendClass::IdentityScalars).unwrap(),
+            RoutedBackend::Gix
+        );
+        reset_selector();
+    }
+
+    #[cfg(feature = "gix-parity")]
+    #[test]
+    fn backend_class_for_name_covers_every_harness_class_name() {
+        // Every class name the harness emits maps to a distinct BackendClass
+        // (no panic, no collision), so the enforcing gate can never misroute.
+        use std::collections::HashSet;
+        let names = [
+            "read:graph-refs",
+            "read:ignore",
+            "read:inventory",
+            "read:config-discovery",
+            "read:repo-discovery",
+            "identity-scalars",
+        ];
+        let classes: HashSet<_> = names
+            .iter()
+            .map(|name| backend_class_for_name(name))
+            .collect();
+        assert_eq!(
+            classes.len(),
+            6,
+            "each harness class name maps to a distinct BackendClass"
+        );
     }
 }

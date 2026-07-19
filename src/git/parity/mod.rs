@@ -839,3 +839,27 @@ fn git_backend_parity_executes_both_backends() {
         "gix actually opened, not the cached value"
     );
 }
+
+#[test]
+fn git_backend_parity_qualified_gate_passes() {
+    // The enforcing gate: fail only classes whose compiled default is gix (i.e.
+    // qualified and flipped). A class still on subprocess is reported, never
+    // failed, so leaving a class on subprocess can never red this lane.
+    let report = run_routable_gate();
+    // Surface the full per-class report (shown under `--no-capture`) so a
+    // qualification run can read each class's outcome and divergence count
+    // without changing the report-only harness.
+    eprintln!(
+        "git-backend parity report:\n{}",
+        serde_json::to_string_pretty(&report).expect("serialize parity report")
+    );
+    for result in &report {
+        if crate::git::backend::is_gix_qualified(&result.class) {
+            assert_eq!(
+                result.outcome,
+                ParityOutcome::Passed,
+                "qualified class diverged: {result:#?}"
+            );
+        }
+    }
+}
