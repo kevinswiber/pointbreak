@@ -912,7 +912,10 @@ impl SqliteQualificationProfile {
             )
             .map_err(|error| sqlite_error("finalize backup database", error))?;
         drop(backup_connection);
-        File::open(&backup_path)
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&backup_path)
             .and_then(|file| file.sync_all())
             .map_err(|error| io_error(&backup_path, error))?;
 
@@ -1522,13 +1525,16 @@ fn copy_file_synced(source: &Path, target: &Path) -> Result<(), SqliteQualificat
     Ok(())
 }
 
+#[cfg(unix)]
 fn sync_directory(path: &Path) -> Result<(), SqliteQualificationError> {
-    #[cfg(unix)]
-    {
-        File::open(path)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|error| io_error(path, error))?;
-    }
+    File::open(path)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| io_error(path, error))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn sync_directory(_path: &Path) -> Result<(), SqliteQualificationError> {
     Ok(())
 }
 
