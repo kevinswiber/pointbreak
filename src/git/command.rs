@@ -54,13 +54,13 @@ impl GitInventoryPath {
 /// The canonical absolute worktree root of `repo` (`rev-parse --show-toplevel`),
 /// memoized per repository.
 pub fn git_worktree_root(repo: &Path) -> Result<PathBuf> {
-    dispatch().worktree_root(repo)
+    dispatch()?.worktree_root(repo)
 }
 
 /// The common Git directory shared across linked worktrees, canonicalized and
 /// memoized per repository.
 pub(crate) fn git_common_dir(repo: &Path) -> Result<PathBuf> {
-    dispatch().common_dir(repo)
+    dispatch()?.common_dir(repo)
 }
 
 /// Reports, for each pathspec, whether it is ignored by the standard Git
@@ -74,28 +74,31 @@ pub(crate) fn git_common_dir(repo: &Path) -> Result<PathBuf> {
 /// pathspecs, which the store-exclude paths are. (`-z` is rejected outside `--stdin`
 /// mode, so it cannot be used here.)
 pub(crate) fn git_paths_are_ignored(repo: &Path, pathspecs: &[&str]) -> Result<Vec<bool>> {
-    dispatch().paths_are_ignored(repo, pathspecs)
+    dispatch()?.paths_are_ignored(repo, pathspecs)
 }
 
 /// Read one Git config value with the fallback semantics writer identity needs:
 /// missing keys, empty values, non-zero Git status, and spawn failures all mean
 /// "no value" rather than aborting actor resolution.
 pub(crate) fn git_config_get(repo: &Path, key: &str) -> Option<String> {
-    dispatch().config_get(repo, key)
+    // The selector is validated once at startup (`run_cli`), so this only runs
+    // post-validation; a selector error degrades to `None` rather than panicking.
+    dispatch().ok()?.config_get(repo, key)
 }
 
 /// Read one Git config value using Git's path expansion rules. Missing keys,
 /// empty values, non-zero Git status, and spawn failures all mean "no value".
 pub(crate) fn git_config_path_get(repo: &Path, key: &str) -> Option<String> {
-    dispatch().config_path_get(repo, key)
+    // Post-validation-only (see `git_config_get`); a selector error is `None`.
+    dispatch().ok()?.config_path_get(repo, key)
 }
 
 pub(crate) fn git_untracked_inventory(repo: &Path) -> Result<Vec<GitInventoryPath>> {
-    dispatch().untracked_inventory(repo)
+    dispatch()?.untracked_inventory(repo)
 }
 
 pub(crate) fn git_tracked_and_untracked_inventory(repo: &Path) -> Result<Vec<GitInventoryPath>> {
-    dispatch().tracked_and_untracked_inventory(repo)
+    dispatch()?.tracked_and_untracked_inventory(repo)
 }
 
 /// True when `relative_path` is present in the worktree as an **untracked** file
@@ -103,7 +106,7 @@ pub(crate) fn git_tracked_and_untracked_inventory(repo: &Path) -> Result<Vec<Git
 /// modified — reports false, as does an absent or git-ignored path. Scoped to the
 /// single path via a trailing pathspec, so it never lists the whole worktree.
 pub(crate) fn git_path_is_untracked(repo: &Path, relative_path: &str) -> Result<bool> {
-    dispatch().path_is_untracked(repo, relative_path)
+    dispatch()?.path_is_untracked(repo, relative_path)
 }
 
 /// Three-valued reachability: is `ancestor_oid` an ancestor of `descendant_oid`?
@@ -115,7 +118,7 @@ pub(crate) fn git_is_ancestor(
     ancestor_oid: &str,
     descendant_oid: &str,
 ) -> Result<Ancestry> {
-    dispatch().is_ancestor(repo, ancestor_oid, descendant_oid)
+    dispatch()?.is_ancestor(repo, ancestor_oid, descendant_oid)
 }
 
 /// The maximal (mutually independent) commits among `oids`: the subset not
@@ -125,7 +128,7 @@ pub(crate) fn git_is_ancestor(
 /// objects first); a bad object errors like any other git failure. Zero or one
 /// input echoes back without spawning git.
 pub(crate) fn git_independent_commits(repo: &Path, oids: &[String]) -> Result<Vec<String>> {
-    dispatch().independent_commits(repo, oids)
+    dispatch()?.independent_commits(repo, oids)
 }
 
 /// The paths `commit_oid` touches relative to its parent(s)
@@ -135,7 +138,7 @@ pub(crate) fn git_independent_commits(repo: &Path, oids: &[String]) -> Result<Ve
 /// path bytes never corrupt the split; a non-UTF-8 path is skipped rather than
 /// erroring — the sole consumer is an advisory overlap check.
 pub(crate) fn git_commit_changed_paths(repo: &Path, commit_oid: &str) -> Result<Vec<String>> {
-    dispatch().commit_changed_paths(repo, commit_oid)
+    dispatch()?.commit_changed_paths(repo, commit_oid)
 }
 
 /// Read the non-empty first message line for an explicit, bounded set of commit
@@ -147,13 +150,13 @@ pub fn git_commit_subjects(
     repo: &Path,
     commit_oids: &BTreeSet<String>,
 ) -> Result<BTreeMap<String, String>> {
-    dispatch().commit_subjects(repo, commit_oids)
+    dispatch()?.commit_subjects(repo, commit_oids)
 }
 
 /// Ref tips matching `patterns` (e.g. `&["refs/heads/*"]`), as `(oid, full ref)`
 /// pairs. Empty `patterns` lists every ref.
 pub(crate) fn git_for_each_ref(repo: &Path, patterns: &[&str]) -> Result<Vec<RefEntry>> {
-    dispatch().for_each_ref(repo, patterns)
+    dispatch()?.for_each_ref(repo, patterns)
 }
 
 /// The raw branch/remote ref state, one `<oid> <refname> <symref-target>` line
@@ -162,23 +165,23 @@ pub(crate) fn git_for_each_ref(repo: &Path, patterns: &[&str]) -> Result<Vec<Ref
 /// symref target drives default-branch detection). Returned as git emits it
 /// (sorted by refname), so equal ref states always produce equal text.
 pub(crate) fn git_ref_state_lines(repo: &Path) -> Result<String> {
-    dispatch().ref_state_lines(repo)
+    dispatch()?.ref_state_lines(repo)
 }
 
 /// Whether `oid` names an object present in the repository (`cat-file -e`).
 pub(crate) fn git_object_exists(repo: &Path, oid: &str) -> Result<bool> {
-    dispatch().object_exists(repo, oid)
+    dispatch()?.object_exists(repo, oid)
 }
 
 /// The canonical full ref of HEAD (e.g. `refs/heads/feat/x`), or `None` when HEAD
 /// is detached. The full ref — never the short name — is the canonical stored
 /// `ref_name` spelling for association identity.
 pub(crate) fn git_head_ref(repo: &Path) -> Result<Option<String>> {
-    dispatch().head_ref(repo)
+    dispatch()?.head_ref(repo)
 }
 
 pub fn git_head_oid(repo: &Path) -> Result<String> {
-    dispatch().head_oid(repo)
+    dispatch()?.head_oid(repo)
 }
 
 /// The repository's integration/default branch as a full ref, best-effort: the
@@ -191,11 +194,11 @@ pub fn git_head_oid(repo: &Path) -> Result<String> {
 /// local fallback tries the two conventional names in order (`main` before
 /// `master`) so a repo carrying both prefers `main`.
 pub(crate) fn git_default_branch_ref(repo: &Path) -> Result<Option<String>> {
-    dispatch().default_branch_ref(repo)
+    dispatch()?.default_branch_ref(repo)
 }
 
 pub(crate) fn git_head_commit_oid_optional(repo: &Path) -> Result<Option<String>> {
-    dispatch().head_commit_oid_optional(repo)
+    dispatch()?.head_commit_oid_optional(repo)
 }
 
 /// Resolve `rev` to a full commit OID, peeling annotated tags.
@@ -206,20 +209,20 @@ pub(crate) fn git_head_commit_oid_optional(repo: &Path) -> Result<Option<String>
 /// same honest errors. `--end-of-options` keeps a rev that looks like a flag
 /// (user input) from being parsed as an option.
 pub(crate) fn git_rev_parse_commit_oid(repo: &Path, rev: &str) -> Result<String> {
-    dispatch().rev_parse_commit_oid(repo, rev)
+    dispatch()?.rev_parse_commit_oid(repo, rev)
 }
 
 /// Resolve a commit OID to its tree OID. Callers pass an already-resolved
 /// commit OID (from [`git_rev_parse_commit_oid`]), never a raw user rev.
 pub(crate) fn git_commit_tree_oid(repo: &Path, commit_oid: &str) -> Result<String> {
-    dispatch().commit_tree_oid(repo, commit_oid)
+    dispatch()?.commit_tree_oid(repo, commit_oid)
 }
 
 /// Compute the empty tree OID using the repository's configured object format.
 /// This deliberately asks Git instead of embedding the SHA-1 empty-tree
 /// constant, so SHA-256 repositories use their own empty-tree identity.
 pub(crate) fn git_empty_tree_oid(repo: &Path) -> Result<String> {
-    dispatch().empty_tree_oid(repo)
+    dispatch()?.empty_tree_oid(repo)
 }
 
 /// Capture the current index as a tree. This is a **non-routable** operation:
@@ -248,7 +251,7 @@ pub(crate) fn git_write_index_tree_oid(repo: &Path) -> Result<String> {
 /// reachable from the live tips?" for an entire revision list by in-memory set
 /// membership, turning an O(revisions × tips) spawn count into O(1).
 pub(crate) fn git_rev_list_reachable(repo: &Path, tips: &[String]) -> Result<HashSet<String>> {
-    dispatch().rev_list_reachable(repo, tips)
+    dispatch()?.rev_list_reachable(repo, tips)
 }
 
 /// Every commit reachable from any reflog entry of any ref (`rev-list
@@ -259,7 +262,7 @@ pub(crate) fn git_rev_list_reachable(repo: &Path, tips: &[String]) -> Result<Has
 /// failure (e.g. a reflog naming pruned objects) propagates so the caller can
 /// degrade to "retention unknown" rather than a false "none".
 pub(crate) fn git_rev_list_reflog_reachable(repo: &Path) -> Result<HashSet<String>> {
-    dispatch().rev_list_reflog_reachable(repo)
+    dispatch()?.rev_list_reflog_reachable(repo)
 }
 
 /// One reflog entry of a ref: the OID the entry set and the subject describing
@@ -277,15 +280,15 @@ pub(crate) struct GitReflogEntry {
 /// logged, or the ref deleted — reports an empty vec, never an error: reflog
 /// evidence is best-effort and local.
 pub(crate) fn git_reflog_entries(repo: &Path, ref_name: &str) -> Result<Vec<GitReflogEntry>> {
-    dispatch().reflog_entries(repo, ref_name)
+    dispatch()?.reflog_entries(repo, ref_name)
 }
 
 pub(crate) fn git_rev_list_range(repo: &Path, range: &str) -> Result<Vec<String>> {
-    dispatch().rev_list_range(repo, range)
+    dispatch()?.rev_list_range(repo, range)
 }
 
 pub(crate) fn git_worktree_list(repo: &Path) -> Result<Vec<GitWorktree>> {
-    dispatch().worktree_list(repo)
+    dispatch()?.worktree_list(repo)
 }
 
 #[cfg(test)]
@@ -344,6 +347,45 @@ mod tests {
             git_spawn_count() > 0,
             "a git helper spawns at least one subprocess"
         );
+    }
+
+    #[cfg(feature = "gix")]
+    #[test]
+    fn force_gix_routes_reads_and_scalars_to_native_gix() {
+        use crate::git::backend::{BackendSelector, inject_selector, reset_selector};
+
+        let repo = TwoCommitRepo::new();
+
+        inject_selector(BackendSelector::ForceSubprocess);
+        let subprocess_refs = git_for_each_ref(repo.path(), &["refs/heads/"]).unwrap();
+        let subprocess_head = git_head_oid(repo.path()).unwrap();
+
+        inject_selector(BackendSelector::ForceGix);
+        reset_backend_tag();
+        let gix_refs = git_for_each_ref(repo.path(), &["refs/heads/"]).unwrap();
+        let gix_head = git_head_oid(repo.path()).unwrap();
+        assert_eq!(
+            last_backend_tag(),
+            Some(BackendTag::Gix),
+            "ForceGix dispatches through the gix backend"
+        );
+
+        assert_eq!(subprocess_refs, gix_refs, "reads agree across backends");
+        assert_eq!(
+            subprocess_head, gix_head,
+            "identity scalars agree across backends"
+        );
+
+        // A native gix identity scalar performs zero git subprocess spawns.
+        reset_git_spawn_count();
+        let _ = git_head_oid(repo.path()).unwrap();
+        assert_eq!(
+            git_spawn_count(),
+            0,
+            "identity scalars are native gix under ForceGix"
+        );
+
+        reset_selector();
     }
 
     #[test]

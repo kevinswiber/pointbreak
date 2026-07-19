@@ -337,6 +337,10 @@ fn run_cli(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // The single validation boundary for the git-backend selector: every
+    // subcommand flows through here, so an invalid `POINTBREAK_GIT_BACKEND`
+    // surfaces one actionable error before any git operation runs.
+    pointbreak::git::validate_backend_selector()?;
     crate::cli_tracing::init_tracing(&cli.tracing)?;
 
     match cli.command {

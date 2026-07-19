@@ -4,6 +4,12 @@ mod ingest;
 mod patch;
 mod raw;
 
+/// Re-exported so the separate binary crate's `run_cli` can validate the
+/// `POINTBREAK_GIT_BACKEND` selector once, before any subcommand runs. The item
+/// is `#[doc(hidden)] pub` because a crate-private item cannot be publicly
+/// re-exported; it is not part of the supported library surface.
+#[doc(hidden)]
+pub use backend::validate_backend_selector;
 #[cfg(test)]
 pub(crate) use command::git_info_exclude_path;
 pub(crate) use command::{
