@@ -31,6 +31,12 @@ test-file name *args:
 git-parity *args:
     cargo +stable nextest run --features gix-parity -E 'test(git_backend_parity)' {{ args }}
 
+# Per-op subprocess-vs-gix microbench behind the read-class flips (gix-parity
+# feature; separate from the `bench` feature). Prints the measured per-op win.
+[group('core')]
+git-bench *args:
+    cargo +stable nextest run --features gix-parity -E 'test(git_backend_microbench)' --no-capture {{ args }}
+
 # Build (debug).
 [group('core')]
 build *args:

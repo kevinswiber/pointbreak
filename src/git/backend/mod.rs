@@ -351,12 +351,24 @@ pub(crate) enum RoutedBackend {
     Gix,
 }
 
-// The compiled per-class defaults. Every routable class starts on the subprocess
-// backend; a class flips to gix one constant at a time, only after byte-equal
-// cross-platform parity plus a measured win, and the flip takes effect only in a
-// build that includes the gix backend.
+// The compiled per-class defaults. A class flips to gix one constant at a time,
+// only after byte-equal cross-platform parity plus a measured win, and the flip
+// takes effect only in a build that includes the gix backend (a gix-free build
+// collapses a gix default back to subprocess in `dispatch`).
+//
+// Only `ReadIgnore` is qualified to gix in this phase: it shows zero divergence
+// in the differential battery on macOS and Windows and no failure in the
+// forced-gix full suite on either platform. The other read classes return
+// filesystem paths that gix and git canonicalize/expand differently on Windows —
+// `common_dir` and `worktree_list` (verbatim `\\?\` vs git's path form),
+// `config_path_get` (`~` expansion) — so their battery diverges on Windows and
+// they stay on subprocess (a supported steady state). `ReadInventory` also stays
+// subprocess: gix `path_is_untracked` compares a caller path verbatim, so a
+// backslash path on Windows misses gix's forward-slash inventory and the
+// generated `.pointbreak/.gitignore` leaks into a capture. `IdentityScalars`
+// qualifies separately in a later phase.
 const DEFAULT_READ_GRAPH_REFS: RoutedBackend = RoutedBackend::Subprocess;
-const DEFAULT_READ_IGNORE: RoutedBackend = RoutedBackend::Subprocess;
+const DEFAULT_READ_IGNORE: RoutedBackend = RoutedBackend::Gix;
 const DEFAULT_READ_INVENTORY: RoutedBackend = RoutedBackend::Subprocess;
 const DEFAULT_READ_CONFIG_DISCOVERY: RoutedBackend = RoutedBackend::Subprocess;
 const DEFAULT_READ_REPO_DISCOVERY: RoutedBackend = RoutedBackend::Subprocess;
@@ -561,36 +573,44 @@ mod tests {
 
     #[cfg(feature = "gix")]
     #[test]
-    fn compiled_default_routes_each_class_to_subprocess_initially() {
-        // Every routable class starts on the subprocess default; a flip is a
-        // single compiled constant, added only after cross-platform parity.
-        // Pin the compiled path explicitly (not `reset_selector`) so the assertion
-        // is deterministic even when the whole suite runs under
-        // `POINTBREAK_GIT_BACKEND=gix`, which would otherwise force gix.
+    fn compiled_defaults_route_qualified_reads_to_gix() {
+        // Only `ReadIgnore` is qualified to gix by its compiled default; every
+        // other class (Windows path divergences for graph-refs/config/repo, the
+        // inventory path bug, and identity scalars in a later phase) stays on
+        // subprocess. Pin the compiled path explicitly (not `reset_selector`) so
+        // the assertion is deterministic even under `POINTBREAK_GIT_BACKEND=gix`.
         inject_selector(BackendSelector::Compiled);
         assert_eq!(
-            routed_backend(BackendClass::ReadGraphRefs).unwrap(),
-            RoutedBackend::Subprocess
-        );
-        assert_eq!(
             routed_backend(BackendClass::ReadIgnore).unwrap(),
-            RoutedBackend::Subprocess
+            RoutedBackend::Gix
         );
+        for class in [
+            BackendClass::ReadGraphRefs,
+            BackendClass::ReadConfigDiscovery,
+            BackendClass::ReadRepoDiscovery,
+            BackendClass::ReadInventory,
+            BackendClass::IdentityScalars,
+        ] {
+            assert_eq!(routed_backend(class).unwrap(), RoutedBackend::Subprocess);
+        }
+        reset_selector();
+    }
+
+    #[cfg(not(feature = "gix"))]
+    #[test]
+    fn default_build_qualified_class_stays_subprocess() {
+        // The qualified class's compiled default is gix, but a gix-free build has
+        // only the subprocess variant, so dispatch collapses it back to subprocess
+        // — behavior is identical to before the flip.
+        inject_selector(BackendSelector::Compiled);
+        let repo = init_repo();
+        subprocess::reset_backend_tag();
+        let _ = dispatch(BackendClass::ReadIgnore)
+            .unwrap()
+            .paths_are_ignored(repo.path(), &["file.txt"]);
         assert_eq!(
-            routed_backend(BackendClass::ReadInventory).unwrap(),
-            RoutedBackend::Subprocess
-        );
-        assert_eq!(
-            routed_backend(BackendClass::ReadConfigDiscovery).unwrap(),
-            RoutedBackend::Subprocess
-        );
-        assert_eq!(
-            routed_backend(BackendClass::ReadRepoDiscovery).unwrap(),
-            RoutedBackend::Subprocess
-        );
-        assert_eq!(
-            routed_backend(BackendClass::IdentityScalars).unwrap(),
-            RoutedBackend::Subprocess
+            subprocess::last_backend_tag(),
+            Some(subprocess::BackendTag::Subprocess)
         );
         reset_selector();
     }

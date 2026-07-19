@@ -86,13 +86,19 @@ fn qualify_op<T: PartialEq + std::fmt::Debug>(
     let subprocess = op(&SubprocessBackend, fixture.path());
     reset_discovery_cache();
     let gix = op(&GixBackend, fixture.path());
-    match (subprocess, gix) {
+    let verdict = match (&subprocess, &gix) {
         (Ok(subprocess), Ok(gix)) if subprocess == gix => VectorVerdict::Match,
-        (Err(subprocess), Err(gix)) if normalize_error(&subprocess) == normalize_error(&gix) => {
+        (Err(subprocess), Err(gix)) if normalize_error(subprocess) == normalize_error(gix) => {
             VectorVerdict::Match
         }
         _ => VectorVerdict::Divergent,
+    };
+    if verdict == VectorVerdict::Divergent {
+        // Print the diverging typed values so a qualification run (especially the
+        // cross-platform legs) can see exactly what differs, not just a count.
+        eprintln!("  DIVERGENCE: subprocess={subprocess:?} gix={gix:?}");
     }
+    verdict
 }
 
 /// Normalize an error to (category, message) for parity comparison (LB-12).
@@ -861,5 +867,80 @@ fn git_backend_parity_qualified_gate_passes() {
                 "qualified class diverged: {result:#?}"
             );
         }
+    }
+}
+
+/// A per-operation subprocess-vs-gix latency sample. Not a gate: it verifies the
+/// two backends still agree, then prints the cold per-call cost of a
+/// representative operation for each read class so `just git-bench` records the
+/// measured win behind each flip. The discovery memo is reset before every call
+/// so both backends pay their real resolution cost (subprocess spawns git; gix
+/// opens the repository in-process).
+#[test]
+fn git_backend_microbench() {
+    use std::time::Instant;
+
+    let fixture = inventory_fixture();
+    let path = fixture.path();
+
+    // (class, op) — one representative routable read op per class.
+    #[allow(clippy::type_complexity)]
+    let ops: Vec<(&str, Box<dyn Fn(&dyn GitBackend)>)> = vec![
+        (
+            "read:graph-refs / for_each_ref",
+            Box::new(|backend: &dyn GitBackend| {
+                let _ = backend.for_each_ref(path, &["refs/heads/"]);
+            }),
+        ),
+        (
+            "read:ignore / paths_are_ignored",
+            Box::new(|backend: &dyn GitBackend| {
+                let _ = backend.paths_are_ignored(path, &[".pointbreak/data/state.json"]);
+            }),
+        ),
+        (
+            "read:config-discovery / config_path_get",
+            Box::new(|backend: &dyn GitBackend| {
+                let _ = backend.config_path_get(path, "user.signingkey");
+            }),
+        ),
+        (
+            "read:repo-discovery / common_dir",
+            Box::new(|backend: &dyn GitBackend| {
+                let _ = backend.common_dir(path);
+            }),
+        ),
+        (
+            "read:inventory / path_is_untracked",
+            Box::new(|backend: &dyn GitBackend| {
+                let _ = backend.path_is_untracked(path, "src/new.rs");
+            }),
+        ),
+    ];
+
+    const ITERS: u32 = 40;
+    eprintln!(
+        "git-backend microbench ({ITERS} iters/op, cold discovery each call, {}):",
+        std::env::consts::OS
+    );
+    eprintln!(
+        "{:<44} {:>12} {:>12} {:>9}",
+        "class / op", "subprocess", "gix", "speedup"
+    );
+    for (label, op) in &ops {
+        let time = |backend: &dyn GitBackend| {
+            let start = Instant::now();
+            for _ in 0..ITERS {
+                reset_discovery_cache();
+                op(backend);
+            }
+            start.elapsed().as_secs_f64() / f64::from(ITERS) * 1e6
+        };
+        let subprocess_us = time(&SubprocessBackend);
+        let gix_us = time(&GixBackend);
+        eprintln!(
+            "{label:<44} {subprocess_us:>10.1}us {gix_us:>10.1}us {:>8.1}x",
+            subprocess_us / gix_us
+        );
     }
 }
