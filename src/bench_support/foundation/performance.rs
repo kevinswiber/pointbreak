@@ -11,11 +11,12 @@ use sha2::{Digest, Sha256};
 
 use super::fault::{baseline_inventory, baseline_record_path, populate_profile, read_all_files};
 use super::{
-    QualificationCandidateV1, QualificationCorpusManifestV1, QualificationFilesystemDispositionV1,
-    QualificationInventoryV1, QualificationPlatformEnvironmentV1, QualificationProfile,
-    QualificationRawSampleV1, QualificationRecordKindV1, SEGMENT_QUALIFICATION_PROFILE_ID_V1,
+    QUALIFICATION_EXTERNAL_WORKLOAD_MANIFEST_SHA256_V2, QualificationCandidateV1,
+    QualificationCorpusManifestV1, QualificationFilesystemDispositionV1, QualificationInventoryV1,
+    QualificationPlatformEnvironmentV1, QualificationProfile, QualificationRawSampleV1,
+    QualificationRecordKindV1, SEGMENT_QUALIFICATION_PROFILE_ID_V1,
     SQLITE_QUALIFICATION_PROFILE_ID_V1, SegmentQualificationProfile, SqliteQualificationProfile,
-    classify_qualification_filesystem, load_frozen_legacy_manifest_from_path,
+    classify_qualification_filesystem, load_external_workload_v2_manifest_from_path,
     modeled_post_foundation_manifest, qualification_cargo_lock_sha256,
     qualification_filesystem_name, qualification_source_commit, synthetic_legacy_manifest,
 };
@@ -25,6 +26,16 @@ pub const QUALIFICATION_PERFORMANCE_DIAGNOSTICS_SCHEMA_V1: &str =
     "pointbreak.qualification-performance-diagnostics.v1";
 pub const QUALIFICATION_PERFORMANCE_DIAGNOSTIC_CONTRACT_SCHEMA_V1: &str =
     "pointbreak.qualification-performance-diagnostic-contract.v1";
+pub const QUALIFICATION_PERFORMANCE_CONTRACT_SCHEMA_V2: &str =
+    "pointbreak.qualification-performance-contract.v2";
+pub const QUALIFICATION_PERFORMANCE_EVIDENCE_SCHEMA_V2: &str =
+    "pointbreak.qualification-performance-evidence.v2";
+pub const QUALIFICATION_PERFORMANCE_EVALUATION_SCHEMA_V2: &str =
+    "pointbreak.qualification-performance-evaluation.v2";
+pub const QUALIFICATION_PERFORMANCE_CONTRACT_PUBLICATION_SCHEMA_V2: &str =
+    "pointbreak.qualification-performance-contract-publication.v2";
+pub const QUALIFICATION_PERFORMANCE_CONTRACT_SHA256_V2: &str =
+    "55c473f448c80ba26e5e0eeaf23ebdd7c7b3827954bfec78873d1fd839a54a36";
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -360,6 +371,920 @@ pub enum QualificationPerformanceInventoryStateV1 {
     HighWater,
 }
 
+impl QualificationPerformanceInventoryStateV1 {
+    pub const ALL: [Self; 3] = [Self::Steady, Self::Reopened, Self::HighWater];
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationPerformanceWorkloadV2 {
+    ExternalCorpus,
+    ModeledFoundation,
+    PublicSmoke,
+}
+
+impl QualificationPerformanceWorkloadV2 {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ExternalCorpus => "external_corpus",
+            Self::ModeledFoundation => "modeled_foundation",
+            Self::PublicSmoke => "public_smoke",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationPerformanceAllocationScopeV2 {
+    Event,
+    CompleteProfile,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationPerformanceConfidenceMethodV2 {
+    IndependentRuns,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationPerformanceOutlierPolicyV2 {
+    RetainAll,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationPerformanceCachePolicyV2 {
+    OsWarm,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualificationPerformancePlatformRequirementV2 {
+    pub operating_system: String,
+    pub filesystem: String,
+    pub allocation_method: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualificationPerformanceWorkloadRequirementV2 {
+    pub workload: QualificationPerformanceWorkloadV2,
+    pub manifest_sha256: String,
+    pub quantitative: bool,
+    pub platforms: Vec<QualificationPerformancePlatformRequirementV2>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualificationPerformanceProtocolV2 {
+    pub baseline_representation: String,
+    pub carrier_accounting: String,
+    pub evidence_inventory: String,
+    pub append_payload: String,
+    pub append_state: String,
+    pub durable_append_acknowledgement: String,
+    pub strict_replay_receipt: String,
+    pub keyed_read_receipt: String,
+    pub open_recovery_receipt: String,
+    pub timing_ratio: String,
+    pub percentiles: Vec<u32>,
+    pub report_range: bool,
+    pub standard_deviation: String,
+    pub missing_evidence: String,
+    pub required_controls: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualificationPerformanceContractV2 {
+    pub schema: String,
+    pub operations: Vec<QualificationPerformanceOperationV1>,
+    pub candidates: Vec<QualificationPerformanceRoleV1>,
+    pub workloads: Vec<QualificationPerformanceWorkloadRequirementV2>,
+    pub protocol: QualificationPerformanceProtocolV2,
+    pub inventory_states: Vec<QualificationPerformanceInventoryStateV1>,
+    pub allocation_scopes: Vec<QualificationPerformanceAllocationScopeV2>,
+    pub warmup_samples: u32,
+    pub measured_samples: u32,
+    pub independent_runs: u32,
+    pub pair_order: QualificationPerformancePairOrderV1,
+    pub confidence_method: QualificationPerformanceConfidenceMethodV2,
+    pub outlier_policy: QualificationPerformanceOutlierPolicyV2,
+    pub cache_policy: QualificationPerformanceCachePolicyV2,
+    pub ceiling_percent: u32,
+    pub allocation_must_be_strictly_lower: bool,
+}
+
+impl QualificationPerformanceContractV2 {
+    pub fn frozen() -> Self {
+        let native_platforms = vec![
+            QualificationPerformancePlatformRequirementV2 {
+                operating_system: "macos".to_owned(),
+                filesystem: "apfs".to_owned(),
+                allocation_method: "stat_blocks_512".to_owned(),
+            },
+            QualificationPerformancePlatformRequirementV2 {
+                operating_system: "linux".to_owned(),
+                filesystem: "ext4".to_owned(),
+                allocation_method: "stat_blocks_512".to_owned(),
+            },
+            QualificationPerformancePlatformRequirementV2 {
+                operating_system: "windows".to_owned(),
+                filesystem: "ntfs".to_owned(),
+                allocation_method: "file_standard_info_allocation_size".to_owned(),
+            },
+        ];
+        Self {
+            schema: QUALIFICATION_PERFORMANCE_CONTRACT_SCHEMA_V2.to_owned(),
+            operations: QualificationPerformanceOperationV1::ALL.to_vec(),
+            candidates: QualificationPerformanceRoleV1::CANDIDATES.to_vec(),
+            workloads: vec![
+                QualificationPerformanceWorkloadRequirementV2 {
+                    workload: QualificationPerformanceWorkloadV2::ExternalCorpus,
+                    manifest_sha256: QUALIFICATION_EXTERNAL_WORKLOAD_MANIFEST_SHA256_V2.to_owned(),
+                    quantitative: true,
+                    platforms: vec![native_platforms[0].clone()],
+                },
+                QualificationPerformanceWorkloadRequirementV2 {
+                    workload: QualificationPerformanceWorkloadV2::ModeledFoundation,
+                    manifest_sha256:
+                        "5d7ea2f2a8398722e2dcc853ef2c4ebe1976a02fd1585a190c9c6b86e132da7d"
+                            .to_owned(),
+                    quantitative: true,
+                    platforms: native_platforms.clone(),
+                },
+                QualificationPerformanceWorkloadRequirementV2 {
+                    workload: QualificationPerformanceWorkloadV2::PublicSmoke,
+                    manifest_sha256:
+                        "03cfda81e2ea988ec119b942530022b345d08b1261a6f198f87fdade2a4d1b01"
+                            .to_owned(),
+                    quantitative: false,
+                    platforms: native_platforms,
+                },
+            ],
+            protocol: QualificationPerformanceProtocolV2 {
+                baseline_representation: "fresh_current_profile_loose".to_owned(),
+                carrier_accounting: "all_profile_owned_and_complete_content".to_owned(),
+                evidence_inventory: "carrier_count_hash_and_totals".to_owned(),
+                append_payload: "manifest_representative_size_deterministic_valid_records"
+                    .to_owned(),
+                append_state: "monotonic_depth_matched".to_owned(),
+                durable_append_acknowledgement: "normal_durable_boundary_and_fresh_reader_receipt"
+                    .to_owned(),
+                strict_replay_receipt: "exact_order_count_and_hash".to_owned(),
+                keyed_read_receipt: "manifest_selected_exact_record".to_owned(),
+                open_recovery_receipt: "fresh_process_exact_visible_event_set".to_owned(),
+                timing_ratio: "adjacent_candidate_to_baseline".to_owned(),
+                percentiles: vec![50, 95],
+                report_range: true,
+                standard_deviation: "population".to_owned(),
+                missing_evidence: "unknown".to_owned(),
+                required_controls: vec![
+                    "fresh_roots".to_owned(),
+                    "quiesced_host".to_owned(),
+                    "native_execution".to_owned(),
+                    "equivalent_decoded_bytes".to_owned(),
+                    "monotonic_append_state".to_owned(),
+                    "durable_acknowledgement".to_owned(),
+                    "semantic_validation".to_owned(),
+                    "open_recovery_fresh_process".to_owned(),
+                ],
+            },
+            inventory_states: QualificationPerformanceInventoryStateV1::ALL.to_vec(),
+            allocation_scopes: vec![
+                QualificationPerformanceAllocationScopeV2::Event,
+                QualificationPerformanceAllocationScopeV2::CompleteProfile,
+            ],
+            warmup_samples: 3,
+            measured_samples: 30,
+            independent_runs: 2,
+            pair_order: QualificationPerformancePairOrderV1::Alternating,
+            confidence_method: QualificationPerformanceConfidenceMethodV2::IndependentRuns,
+            outlier_policy: QualificationPerformanceOutlierPolicyV2::RetainAll,
+            cache_policy: QualificationPerformanceCachePolicyV2::OsWarm,
+            ceiling_percent: 125,
+            allocation_must_be_strictly_lower: true,
+        }
+    }
+
+    pub fn canonical_sha256(&self) -> Result<String, String> {
+        let value = serde_json::to_value(self).map_err(|error| error.to_string())?;
+        canonical_json_bytes(&value)
+            .map(|bytes| sha256_bytes_hex(&bytes))
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self != &Self::frozen() {
+            return Err("unsupported performance contract".to_owned());
+        }
+        if self.canonical_sha256()? != QUALIFICATION_PERFORMANCE_CONTRACT_SHA256_V2 {
+            return Err("performance contract hash does not match the frozen identity".to_owned());
+        }
+        for workload in &self.workloads {
+            validate_hex(
+                &workload.manifest_sha256,
+                64,
+                "performance workload manifest SHA-256",
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn decision_table_markdown(&self) -> String {
+        let mut table = vec![
+            "| Workload | Platforms | Verdict | Protocol |".to_owned(),
+            "| --- | --- | --- | --- |".to_owned(),
+        ];
+        for workload in &self.workloads {
+            let platforms = workload
+                .platforms
+                .iter()
+                .map(|platform| format!("{}/{}", platform.operating_system, platform.filesystem))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let verdict = if workload.quantitative {
+                format!(
+                    "paired p95 <= {}%; event and complete allocation strictly lower",
+                    self.ceiling_percent
+                )
+            } else {
+                "protocol and semantic receipt; timing diagnostic only".to_owned()
+            };
+            table.push(format!(
+                "| `{}` | {} | {} | {} warm-up, {} measured, {} independent runs, alternating pairs |",
+                workload.workload.as_str(),
+                platforms,
+                verdict,
+                self.warmup_samples,
+                self.measured_samples,
+                self.independent_runs,
+            ));
+        }
+        table.join("\n")
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualificationPerformanceContractPublicationV2 {
+    pub schema: String,
+    pub contract: QualificationPerformanceContractV2,
+    pub contract_sha256: String,
+    pub decision_table_markdown: String,
+}
+
+pub fn qualification_performance_contract_v2_publication()
+-> QualificationPerformanceContractPublicationV2 {
+    let contract = QualificationPerformanceContractV2::frozen();
+    QualificationPerformanceContractPublicationV2 {
+        schema: QUALIFICATION_PERFORMANCE_CONTRACT_PUBLICATION_SCHEMA_V2.to_owned(),
+        contract_sha256: contract
+            .canonical_sha256()
+            .expect("the frozen performance contract is canonical"),
+        decision_table_markdown: contract.decision_table_markdown(),
+        contract,
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualificationPerformanceRunControlsV2 {
+    pub fresh_roots: bool,
+    pub quiesced_host: bool,
+    pub native_execution: bool,
+    pub equivalent_decoded_bytes: bool,
+    pub monotonic_append_state: bool,
+    pub durable_acknowledgement: bool,
+    pub semantic_validation: bool,
+    pub open_recovery_fresh_process: bool,
+}
+
+impl QualificationPerformanceRunControlsV2 {
+    fn all_satisfied(&self) -> bool {
+        self.fresh_roots
+            && self.quiesced_host
+            && self.native_execution
+            && self.equivalent_decoded_bytes
+            && self.monotonic_append_state
+            && self.durable_acknowledgement
+            && self.semantic_validation
+            && self.open_recovery_fresh_process
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualificationPerformanceAllocationSnapshotV2 {
+    pub role: QualificationPerformanceRoleV1,
+    pub scope: QualificationPerformanceAllocationScopeV2,
+    pub state: QualificationPerformanceInventoryStateV1,
+    pub inventory: QualificationPerformanceInventoryV2,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualificationPerformanceInventoryV2 {
+    pub carrier_count: u64,
+    pub carrier_set_sha256: String,
+    pub logical_bytes: u64,
+    pub encoded_bytes: u64,
+    pub allocated_bytes: u64,
+    pub high_water_bytes: u64,
+}
+
+impl QualificationPerformanceInventoryV2 {
+    pub fn from_inventory(inventory: &QualificationInventoryV1) -> Result<Self, String> {
+        if inventory.carriers.is_empty()
+            || inventory.carriers.iter().any(|carrier| carrier.is_empty())
+            || inventory
+                .carriers
+                .windows(2)
+                .any(|carriers| carriers[0].as_bytes() >= carriers[1].as_bytes())
+            || inventory.logical_bytes == 0
+            || inventory.encoded_bytes == 0
+            || inventory.allocated_bytes == 0
+            || inventory.high_water_bytes < inventory.allocated_bytes
+        {
+            return Err("performance inventory is incomplete".to_owned());
+        }
+        let carrier_set =
+            serde_json::to_value(&inventory.carriers).map_err(|error| error.to_string())?;
+        let carrier_set = canonical_json_bytes(&carrier_set).map_err(|error| error.to_string())?;
+        Ok(Self {
+            carrier_count: inventory.carriers.len() as u64,
+            carrier_set_sha256: sha256_bytes_hex(&carrier_set),
+            logical_bytes: inventory.logical_bytes,
+            encoded_bytes: inventory.encoded_bytes,
+            allocated_bytes: inventory.allocated_bytes,
+            high_water_bytes: inventory.high_water_bytes,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualificationPerformanceRunV2 {
+    pub run_index: u32,
+    pub workload: QualificationPerformanceWorkloadV2,
+    pub workload_manifest_sha256: String,
+    pub candidate: QualificationPerformanceRoleV1,
+    pub candidate_build_id: String,
+    pub physical_profile_id: String,
+    pub environment: QualificationPlatformEnvironmentV1,
+    pub operating_system_version: String,
+    pub cpu: String,
+    pub target_architecture: String,
+    pub run_identity: String,
+    pub warmup_samples: u32,
+    pub measured_samples: u32,
+    pub pair_order: QualificationPerformancePairOrderV1,
+    pub confidence_method: QualificationPerformanceConfidenceMethodV2,
+    pub outlier_policy: QualificationPerformanceOutlierPolicyV2,
+    pub cache_policy: QualificationPerformanceCachePolicyV2,
+    pub controls: QualificationPerformanceRunControlsV2,
+    pub semantic_receipt_sha256: String,
+    pub samples: Vec<QualificationPerformanceDiagnosticSampleV1>,
+    pub allocations: Vec<QualificationPerformanceAllocationSnapshotV2>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualificationPerformanceEvidenceV2 {
+    pub schema: String,
+    pub contract_schema: String,
+    pub contract_sha256: String,
+    pub source_commit: String,
+    pub cargo_lock_sha256: String,
+    pub runs: Vec<QualificationPerformanceRunV2>,
+    pub evidence_sha256: String,
+}
+
+impl QualificationPerformanceEvidenceV2 {
+    pub fn canonical_sha256(&self) -> Result<String, String> {
+        let mut preimage = self.clone();
+        preimage.evidence_sha256.clear();
+        let value = serde_json::to_value(preimage).map_err(|error| error.to_string())?;
+        canonical_json_bytes(&value)
+            .map(|bytes| sha256_bytes_hex(&bytes))
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        let contract = QualificationPerformanceContractV2::frozen();
+        contract.validate()?;
+        if self.schema != QUALIFICATION_PERFORMANCE_EVIDENCE_SCHEMA_V2
+            || self.contract_schema != contract.schema
+            || self.contract_sha256 != contract.canonical_sha256()?
+        {
+            return Err("performance evidence uses a different contract".to_owned());
+        }
+        if self.source_commit != qualification_source_commit()? {
+            return Err("performance evidence source commit is stale".to_owned());
+        }
+        if self.cargo_lock_sha256 != qualification_cargo_lock_sha256() {
+            return Err("performance evidence Cargo.lock hash is stale".to_owned());
+        }
+        if self.evidence_sha256 != self.canonical_sha256()? {
+            return Err("performance evidence hash does not match its preimage".to_owned());
+        }
+        let mut run_keys = BTreeSet::new();
+        let mut run_identities = BTreeSet::new();
+        for run in &self.runs {
+            validate_performance_run_v2(run, &contract, &self.cargo_lock_sha256)?;
+            let key = (
+                run.candidate,
+                run.workload,
+                run.environment.operating_system.as_str(),
+                run.environment.filesystem.as_str(),
+                run.run_index,
+            );
+            if !run_keys.insert(key) {
+                return Err("performance evidence contains a duplicate run".to_owned());
+            }
+            if !run_identities.insert(run.run_identity.as_str()) {
+                return Err("performance evidence contains a duplicate run identity".to_owned());
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationPerformanceCriterionKindV2 {
+    Protocol,
+    Timing,
+    Allocation,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualificationPerformanceCriterionStatusV2 {
+    Passed,
+    Failed,
+    Unknown,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualificationPerformanceTimingSummaryV2 {
+    pub p50_ratio_millionths: u64,
+    pub p95_ratio_millionths: u64,
+    pub minimum_ratio_millionths: u64,
+    pub maximum_ratio_millionths: u64,
+    pub population_standard_deviation_millionths: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualificationPerformanceCriterionV2 {
+    pub kind: QualificationPerformanceCriterionKindV2,
+    pub workload: QualificationPerformanceWorkloadV2,
+    pub platform: QualificationPerformancePlatformRequirementV2,
+    pub run_index: u32,
+    pub operation: Option<QualificationPerformanceOperationV1>,
+    pub allocation_scope: Option<QualificationPerformanceAllocationScopeV2>,
+    pub inventory_state: Option<QualificationPerformanceInventoryStateV1>,
+    pub status: QualificationPerformanceCriterionStatusV2,
+    pub timing: Option<QualificationPerformanceTimingSummaryV2>,
+    pub candidate_bytes: Option<u64>,
+    pub baseline_bytes: Option<u64>,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualificationPerformanceCandidateEvaluationV2 {
+    pub candidate: QualificationPerformanceRoleV1,
+    pub status: QualificationPerformanceCriterionStatusV2,
+    pub criteria: Vec<QualificationPerformanceCriterionV2>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualificationPerformanceEvaluationV2 {
+    pub schema: String,
+    pub contract_sha256: String,
+    pub source_commit: String,
+    pub cargo_lock_sha256: String,
+    pub candidates: Vec<QualificationPerformanceCandidateEvaluationV2>,
+}
+
+pub fn evaluate_qualification_performance_v2(
+    evidence: &QualificationPerformanceEvidenceV2,
+) -> Result<QualificationPerformanceEvaluationV2, String> {
+    evidence.validate()?;
+    let contract = QualificationPerformanceContractV2::frozen();
+    let mut candidates = Vec::new();
+    for candidate in &contract.candidates {
+        let mut criteria = Vec::new();
+        for workload in &contract.workloads {
+            for platform in &workload.platforms {
+                for run_index in 1..=contract.independent_runs {
+                    let run = evidence.runs.iter().find(|run| {
+                        run.candidate == *candidate
+                            && run.workload == workload.workload
+                            && run.environment.operating_system == platform.operating_system
+                            && run.environment.filesystem == platform.filesystem
+                            && run.run_index == run_index
+                    });
+                    let Some(run) = run else {
+                        criteria.push(QualificationPerformanceCriterionV2 {
+                            kind: QualificationPerformanceCriterionKindV2::Protocol,
+                            workload: workload.workload,
+                            platform: platform.clone(),
+                            run_index,
+                            operation: None,
+                            allocation_scope: None,
+                            inventory_state: None,
+                            status: QualificationPerformanceCriterionStatusV2::Unknown,
+                            timing: None,
+                            candidate_bytes: None,
+                            baseline_bytes: None,
+                            message: "required performance run is missing".to_owned(),
+                        });
+                        continue;
+                    };
+                    criteria.push(QualificationPerformanceCriterionV2 {
+                        kind: QualificationPerformanceCriterionKindV2::Protocol,
+                        workload: workload.workload,
+                        platform: platform.clone(),
+                        run_index,
+                        operation: None,
+                        allocation_scope: None,
+                        inventory_state: None,
+                        status: QualificationPerformanceCriterionStatusV2::Passed,
+                        timing: None,
+                        candidate_bytes: None,
+                        baseline_bytes: None,
+                        message: "run protocol and semantic receipt are complete".to_owned(),
+                    });
+                    for operation in &contract.operations {
+                        let pairs = timing_pairs(run, *candidate, *operation)?;
+                        let summary = timing_summary(&pairs);
+                        let p95 = ratio_at_rank(&pairs, 95);
+                        let threshold_passed = u128::from(p95.0) * 100
+                            <= u128::from(p95.1) * u128::from(contract.ceiling_percent);
+                        let status = if !workload.quantitative || threshold_passed {
+                            QualificationPerformanceCriterionStatusV2::Passed
+                        } else {
+                            QualificationPerformanceCriterionStatusV2::Failed
+                        };
+                        criteria.push(QualificationPerformanceCriterionV2 {
+                            kind: QualificationPerformanceCriterionKindV2::Timing,
+                            workload: workload.workload,
+                            platform: platform.clone(),
+                            run_index,
+                            operation: Some(*operation),
+                            allocation_scope: None,
+                            inventory_state: None,
+                            status,
+                            timing: Some(summary),
+                            candidate_bytes: None,
+                            baseline_bytes: None,
+                            message: if workload.quantitative {
+                                format!(
+                                    "paired p95 must be at or below {}%",
+                                    contract.ceiling_percent
+                                )
+                            } else {
+                                "diagnostic timing summary; no quantitative threshold".to_owned()
+                            },
+                        });
+                    }
+                    for scope in &contract.allocation_scopes {
+                        for state in &contract.inventory_states {
+                            let candidate_inventory =
+                                allocation_inventory(run, *candidate, *scope, *state)?;
+                            let baseline_inventory = allocation_inventory(
+                                run,
+                                QualificationPerformanceRoleV1::LooseBaseline,
+                                *scope,
+                                *state,
+                            )?;
+                            let candidate_bytes = allocation_bytes(candidate_inventory, *state);
+                            let baseline_bytes = allocation_bytes(baseline_inventory, *state);
+                            let status =
+                                if !workload.quantitative || candidate_bytes < baseline_bytes {
+                                    QualificationPerformanceCriterionStatusV2::Passed
+                                } else {
+                                    QualificationPerformanceCriterionStatusV2::Failed
+                                };
+                            criteria.push(QualificationPerformanceCriterionV2 {
+                                kind: QualificationPerformanceCriterionKindV2::Allocation,
+                                workload: workload.workload,
+                                platform: platform.clone(),
+                                run_index,
+                                operation: None,
+                                allocation_scope: Some(*scope),
+                                inventory_state: Some(*state),
+                                status,
+                                timing: None,
+                                candidate_bytes: Some(candidate_bytes),
+                                baseline_bytes: Some(baseline_bytes),
+                                message: if workload.quantitative {
+                                    "candidate allocation must be strictly lower".to_owned()
+                                } else {
+                                    "diagnostic allocation summary; no quantitative threshold"
+                                        .to_owned()
+                                },
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        let status = aggregate_criterion_status(criteria.iter().map(|criterion| criterion.status));
+        candidates.push(QualificationPerformanceCandidateEvaluationV2 {
+            candidate: *candidate,
+            status,
+            criteria,
+        });
+    }
+    Ok(QualificationPerformanceEvaluationV2 {
+        schema: QUALIFICATION_PERFORMANCE_EVALUATION_SCHEMA_V2.to_owned(),
+        contract_sha256: contract.canonical_sha256()?,
+        source_commit: evidence.source_commit.clone(),
+        cargo_lock_sha256: evidence.cargo_lock_sha256.clone(),
+        candidates,
+    })
+}
+
+fn validate_performance_run_v2(
+    run: &QualificationPerformanceRunV2,
+    contract: &QualificationPerformanceContractV2,
+    cargo_lock_sha256: &str,
+) -> Result<(), String> {
+    let workload = contract
+        .workloads
+        .iter()
+        .find(|requirement| requirement.workload == run.workload)
+        .ok_or_else(|| "performance run uses an unsupported workload".to_owned())?;
+    if run.workload_manifest_sha256 != workload.manifest_sha256 {
+        return Err("performance run uses a different workload manifest".to_owned());
+    }
+    let platform = workload
+        .platforms
+        .iter()
+        .find(|requirement| {
+            requirement.operating_system == run.environment.operating_system
+                && requirement.filesystem == run.environment.filesystem
+        })
+        .ok_or_else(|| "performance run uses an unsupported platform".to_owned())?;
+    if run.environment.allocation_method != platform.allocation_method
+        || run.environment.filesystem_disposition
+            != QualificationFilesystemDispositionV1::LocalProofEligible
+        || run.environment.architecture.trim().is_empty()
+        || !run.environment.rustc.contains("host:")
+        || run.environment.build_source.trim().is_empty()
+        || run.environment.build_describe.trim().is_empty()
+        || run.environment.source_tree_dirty
+        || run.operating_system_version.trim().is_empty()
+        || run.cpu.trim().is_empty()
+        || run.target_architecture.trim().is_empty()
+        || run.target_architecture != run.environment.architecture
+        || run.run_identity.trim().is_empty()
+    {
+        return Err("performance run environment is not proof-eligible".to_owned());
+    }
+    if !(1..=contract.independent_runs).contains(&run.run_index) {
+        return Err("performance run index is outside the contract".to_owned());
+    }
+    let (candidate, physical_profile_id) = match run.candidate {
+        QualificationPerformanceRoleV1::SqliteWal => (
+            QualificationCandidateV1::SqliteWal,
+            SQLITE_QUALIFICATION_PROFILE_ID_V1,
+        ),
+        QualificationPerformanceRoleV1::BoundedSegments => (
+            QualificationCandidateV1::BoundedSegments,
+            SEGMENT_QUALIFICATION_PROFILE_ID_V1,
+        ),
+        QualificationPerformanceRoleV1::LooseBaseline => {
+            return Err("loose baseline cannot be evaluated as a candidate".to_owned());
+        }
+    };
+    if run.candidate_build_id != candidate.build_id(cargo_lock_sha256)
+        || run.physical_profile_id != physical_profile_id
+    {
+        return Err("performance run candidate identity is stale".to_owned());
+    }
+    if run.warmup_samples != contract.warmup_samples
+        || run.measured_samples != contract.measured_samples
+        || run.pair_order != contract.pair_order
+        || run.confidence_method != contract.confidence_method
+        || run.outlier_policy != contract.outlier_policy
+        || run.cache_policy != contract.cache_policy
+        || !run.controls.all_satisfied()
+    {
+        return Err("performance run protocol is incomplete".to_owned());
+    }
+    validate_hex(
+        &run.semantic_receipt_sha256,
+        64,
+        "performance semantic receipt SHA-256",
+    )?;
+
+    let expected_sample_count = contract
+        .operations
+        .len()
+        .checked_mul(contract.measured_samples as usize)
+        .and_then(|count| count.checked_mul(2))
+        .ok_or_else(|| "performance sample count overflow".to_owned())?;
+    if run.samples.len() != expected_sample_count {
+        return Err("performance run has the wrong measured sample count".to_owned());
+    }
+    let mut sample_keys = BTreeSet::new();
+    for sample in &run.samples {
+        if !contract.operations.contains(&sample.operation)
+            || sample.iteration >= contract.measured_samples
+            || sample.pair_order > 1
+            || ![run.candidate, QualificationPerformanceRoleV1::LooseBaseline]
+                .contains(&sample.role)
+            || sample.total_elapsed_nanos == 0
+            || sample.stages.is_empty()
+            || sample
+                .stages
+                .iter()
+                .any(|stage| stage.stage.trim().is_empty())
+        {
+            return Err("performance run contains an invalid measured sample".to_owned());
+        }
+        let stage_total = sample
+            .stages
+            .iter()
+            .try_fold(0_u64, |total, stage| total.checked_add(stage.elapsed_nanos))
+            .ok_or_else(|| "performance stage duration overflow".to_owned())?;
+        if stage_total > sample.total_elapsed_nanos {
+            return Err("performance stages exceed the measured total".to_owned());
+        }
+        let expected_roles = paired_roles(contract.pair_order, run.candidate, sample.iteration);
+        if sample.role != expected_roles[sample.pair_order as usize]
+            || !sample_keys.insert((
+                sample.operation,
+                sample.iteration,
+                sample.pair_order,
+                sample.role,
+            ))
+        {
+            return Err("performance sample pairing is invalid".to_owned());
+        }
+    }
+
+    let expected_allocation_count = contract
+        .allocation_scopes
+        .len()
+        .checked_mul(contract.inventory_states.len())
+        .and_then(|count| count.checked_mul(2))
+        .ok_or_else(|| "performance allocation count overflow".to_owned())?;
+    if run.allocations.len() != expected_allocation_count {
+        return Err("performance run has the wrong allocation snapshot count".to_owned());
+    }
+    let mut allocation_keys = BTreeSet::new();
+    for allocation in &run.allocations {
+        if !contract.allocation_scopes.contains(&allocation.scope)
+            || !contract.inventory_states.contains(&allocation.state)
+            || ![run.candidate, QualificationPerformanceRoleV1::LooseBaseline]
+                .contains(&allocation.role)
+            || allocation.inventory.carrier_count == 0
+            || allocation.inventory.logical_bytes == 0
+            || allocation.inventory.encoded_bytes == 0
+            || allocation.inventory.allocated_bytes == 0
+            || allocation.inventory.high_water_bytes < allocation.inventory.allocated_bytes
+            || !allocation_keys.insert((allocation.role, allocation.scope, allocation.state))
+        {
+            return Err("performance allocation snapshot is invalid".to_owned());
+        }
+        validate_hex(
+            &allocation.inventory.carrier_set_sha256,
+            64,
+            "performance carrier-set SHA-256",
+        )?;
+    }
+    Ok(())
+}
+
+fn timing_pairs(
+    run: &QualificationPerformanceRunV2,
+    candidate: QualificationPerformanceRoleV1,
+    operation: QualificationPerformanceOperationV1,
+) -> Result<Vec<(u64, u64)>, String> {
+    let mut pairs = Vec::with_capacity(run.measured_samples as usize);
+    for iteration in 0..run.measured_samples {
+        let candidate_nanos = run
+            .samples
+            .iter()
+            .find(|sample| {
+                sample.operation == operation
+                    && sample.iteration == iteration
+                    && sample.role == candidate
+            })
+            .map(|sample| sample.total_elapsed_nanos)
+            .ok_or_else(|| "candidate timing sample is missing".to_owned())?;
+        let baseline_nanos = run
+            .samples
+            .iter()
+            .find(|sample| {
+                sample.operation == operation
+                    && sample.iteration == iteration
+                    && sample.role == QualificationPerformanceRoleV1::LooseBaseline
+            })
+            .map(|sample| sample.total_elapsed_nanos)
+            .ok_or_else(|| "baseline timing sample is missing".to_owned())?;
+        pairs.push((candidate_nanos, baseline_nanos));
+    }
+    Ok(pairs)
+}
+
+fn sorted_timing_pairs(pairs: &[(u64, u64)]) -> Vec<(u64, u64)> {
+    let mut sorted = pairs.to_vec();
+    sorted.sort_unstable_by(|left, right| {
+        (u128::from(left.0) * u128::from(right.1)).cmp(&(u128::from(right.0) * u128::from(left.1)))
+    });
+    sorted
+}
+
+fn ratio_at_rank(pairs: &[(u64, u64)], percentile: usize) -> (u64, u64) {
+    let sorted = sorted_timing_pairs(pairs);
+    let rank = sorted.len().saturating_mul(percentile).div_ceil(100).max(1);
+    sorted[rank - 1]
+}
+
+fn ratio_millionths(pair: (u64, u64)) -> u64 {
+    let scaled = u128::from(pair.0) * 1_000_000;
+    u64::try_from((scaled + u128::from(pair.1 / 2)) / u128::from(pair.1)).unwrap_or(u64::MAX)
+}
+
+fn timing_summary(pairs: &[(u64, u64)]) -> QualificationPerformanceTimingSummaryV2 {
+    let sorted = sorted_timing_pairs(pairs);
+    let ratios = sorted
+        .iter()
+        .copied()
+        .map(ratio_millionths)
+        .collect::<Vec<_>>();
+    let mean = ratios.iter().map(|value| *value as f64).sum::<f64>() / ratios.len() as f64;
+    let variance = ratios
+        .iter()
+        .map(|value| {
+            let difference = *value as f64 - mean;
+            difference * difference
+        })
+        .sum::<f64>()
+        / ratios.len() as f64;
+    QualificationPerformanceTimingSummaryV2 {
+        p50_ratio_millionths: ratio_millionths(ratio_at_rank(&sorted, 50)),
+        p95_ratio_millionths: ratio_millionths(ratio_at_rank(&sorted, 95)),
+        minimum_ratio_millionths: *ratios.first().expect("validated timing pairs"),
+        maximum_ratio_millionths: *ratios.last().expect("validated timing pairs"),
+        population_standard_deviation_millionths: variance.sqrt().round() as u64,
+    }
+}
+
+fn allocation_inventory(
+    run: &QualificationPerformanceRunV2,
+    role: QualificationPerformanceRoleV1,
+    scope: QualificationPerformanceAllocationScopeV2,
+    state: QualificationPerformanceInventoryStateV1,
+) -> Result<&QualificationPerformanceInventoryV2, String> {
+    run.allocations
+        .iter()
+        .find(|allocation| {
+            allocation.role == role && allocation.scope == scope && allocation.state == state
+        })
+        .map(|allocation| &allocation.inventory)
+        .ok_or_else(|| "required allocation snapshot is missing".to_owned())
+}
+
+fn allocation_bytes(
+    inventory: &QualificationPerformanceInventoryV2,
+    state: QualificationPerformanceInventoryStateV1,
+) -> u64 {
+    match state {
+        QualificationPerformanceInventoryStateV1::Steady
+        | QualificationPerformanceInventoryStateV1::Reopened => inventory.allocated_bytes,
+        QualificationPerformanceInventoryStateV1::HighWater => inventory.high_water_bytes,
+    }
+}
+
+fn aggregate_criterion_status(
+    statuses: impl Iterator<Item = QualificationPerformanceCriterionStatusV2>,
+) -> QualificationPerformanceCriterionStatusV2 {
+    let mut aggregate = QualificationPerformanceCriterionStatusV2::Passed;
+    for status in statuses {
+        match status {
+            QualificationPerformanceCriterionStatusV2::Failed => {
+                return QualificationPerformanceCriterionStatusV2::Failed;
+            }
+            QualificationPerformanceCriterionStatusV2::Unknown => {
+                aggregate = QualificationPerformanceCriterionStatusV2::Unknown;
+            }
+            QualificationPerformanceCriterionStatusV2::Passed => {}
+        }
+    }
+    aggregate
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QualificationPerformanceInventorySnapshotV1 {
@@ -618,7 +1543,7 @@ pub fn run_qualification_performance_diagnostics(
     ];
     if let Some(path) = configuration.external_corpus_root.as_deref() {
         workloads.push(
-            load_frozen_legacy_manifest_from_path(Some(path))
+            load_external_workload_v2_manifest_from_path(Some(path))
                 .map_err(|_| "external diagnostic workload is invalid or has drifted".to_owned())?,
         );
     }
@@ -1680,5 +2605,534 @@ mod tests {
             case.samples.iter().any(|sample| sample.pair_order == 0)
                 && case.samples.iter().any(|sample| sample.pair_order == 1)
         }));
+    }
+
+    fn v2_inventory(allocated_bytes: u64) -> QualificationPerformanceInventoryV2 {
+        QualificationPerformanceInventoryV2 {
+            carrier_count: 1,
+            carrier_set_sha256: LOCK_SHA256.to_owned(),
+            logical_bytes: 1,
+            encoded_bytes: 1,
+            allocated_bytes,
+            high_water_bytes: allocated_bytes,
+        }
+    }
+
+    fn complete_v2_evidence(
+        candidate_nanos: u64,
+        baseline_nanos: u64,
+        candidate_allocated: u64,
+        baseline_allocated: u64,
+    ) -> QualificationPerformanceEvidenceV2 {
+        let contract = QualificationPerformanceContractV2::frozen();
+        let source_commit = crate::bench_support::foundation::qualification_source_commit()
+            .expect("build source commit");
+        let cargo_lock_sha256 = crate::bench_support::foundation::qualification_cargo_lock_sha256();
+        let mut runs = Vec::new();
+
+        for candidate in QualificationPerformanceRoleV1::CANDIDATES {
+            let qualification_candidate = match candidate {
+                QualificationPerformanceRoleV1::SqliteWal => QualificationCandidateV1::SqliteWal,
+                QualificationPerformanceRoleV1::BoundedSegments => {
+                    QualificationCandidateV1::BoundedSegments
+                }
+                QualificationPerformanceRoleV1::LooseBaseline => unreachable!(),
+            };
+            let physical_profile_id = match candidate {
+                QualificationPerformanceRoleV1::SqliteWal => SQLITE_QUALIFICATION_PROFILE_ID_V1,
+                QualificationPerformanceRoleV1::BoundedSegments => {
+                    SEGMENT_QUALIFICATION_PROFILE_ID_V1
+                }
+                QualificationPerformanceRoleV1::LooseBaseline => unreachable!(),
+            };
+
+            for workload in &contract.workloads {
+                for platform in &workload.platforms {
+                    for run_index in 1..=contract.independent_runs {
+                        let mut samples = Vec::new();
+                        for operation in QualificationPerformanceOperationV1::ALL {
+                            for iteration in 0..contract.measured_samples {
+                                for (pair_order, role) in paired_roles(
+                                    QualificationPerformancePairOrderV1::Alternating,
+                                    candidate,
+                                    iteration,
+                                )
+                                .into_iter()
+                                .enumerate()
+                                {
+                                    let elapsed_nanos =
+                                        if role == QualificationPerformanceRoleV1::LooseBaseline {
+                                            baseline_nanos
+                                        } else {
+                                            candidate_nanos
+                                        };
+                                    samples.push(QualificationPerformanceDiagnosticSampleV1 {
+                                        operation,
+                                        role,
+                                        iteration,
+                                        pair_order: pair_order as u8,
+                                        total_elapsed_nanos: elapsed_nanos,
+                                        stages: vec![QualificationPerformanceStageSampleV1 {
+                                            stage: "complete_operation".to_owned(),
+                                            elapsed_nanos,
+                                        }],
+                                    });
+                                }
+                            }
+                        }
+
+                        let allocations = [
+                            QualificationPerformanceAllocationScopeV2::Event,
+                            QualificationPerformanceAllocationScopeV2::CompleteProfile,
+                        ]
+                        .into_iter()
+                        .flat_map(|scope| {
+                            QualificationPerformanceInventoryStateV1::ALL
+                                .into_iter()
+                                .flat_map(move |state| {
+                                    [
+                                        QualificationPerformanceAllocationSnapshotV2 {
+                                            role: candidate,
+                                            scope,
+                                            state,
+                                            inventory: v2_inventory(candidate_allocated),
+                                        },
+                                        QualificationPerformanceAllocationSnapshotV2 {
+                                            role: QualificationPerformanceRoleV1::LooseBaseline,
+                                            scope,
+                                            state,
+                                            inventory: v2_inventory(baseline_allocated),
+                                        },
+                                    ]
+                                })
+                        })
+                        .collect();
+
+                        runs.push(QualificationPerformanceRunV2 {
+                            run_index,
+                            workload: workload.workload,
+                            workload_manifest_sha256: workload.manifest_sha256.clone(),
+                            candidate,
+                            candidate_build_id: qualification_candidate
+                                .build_id(&cargo_lock_sha256),
+                            physical_profile_id: physical_profile_id.to_owned(),
+                            environment: QualificationPlatformEnvironmentV1 {
+                                operating_system: platform.operating_system.clone(),
+                                architecture: "native-test-architecture".to_owned(),
+                                filesystem: platform.filesystem.clone(),
+                                filesystem_disposition:
+                                    QualificationFilesystemDispositionV1::LocalProofEligible,
+                                allocation_method: platform.allocation_method.clone(),
+                                rustc: "rustc 1.97.1\nhost: native-test-architecture".to_owned(),
+                                build_source: "git".to_owned(),
+                                build_describe: "fixture".to_owned(),
+                                source_tree_dirty: false,
+                            },
+                            operating_system_version: "fixture-os-version".to_owned(),
+                            cpu: "fixture-cpu".to_owned(),
+                            target_architecture: "native-test-architecture".to_owned(),
+                            run_identity: format!(
+                                "{}-{}-{}-{}",
+                                candidate.as_str(),
+                                workload.workload.as_str(),
+                                platform.operating_system,
+                                run_index
+                            ),
+                            warmup_samples: contract.warmup_samples,
+                            measured_samples: contract.measured_samples,
+                            pair_order: contract.pair_order,
+                            confidence_method:
+                                QualificationPerformanceConfidenceMethodV2::IndependentRuns,
+                            outlier_policy: QualificationPerformanceOutlierPolicyV2::RetainAll,
+                            cache_policy: QualificationPerformanceCachePolicyV2::OsWarm,
+                            controls: QualificationPerformanceRunControlsV2 {
+                                fresh_roots: true,
+                                quiesced_host: true,
+                                native_execution: true,
+                                equivalent_decoded_bytes: true,
+                                monotonic_append_state: true,
+                                durable_acknowledgement: true,
+                                semantic_validation: true,
+                                open_recovery_fresh_process: true,
+                            },
+                            semantic_receipt_sha256: LOCK_SHA256.to_owned(),
+                            samples,
+                            allocations,
+                        });
+                    }
+                }
+            }
+        }
+
+        let mut evidence = QualificationPerformanceEvidenceV2 {
+            schema: QUALIFICATION_PERFORMANCE_EVIDENCE_SCHEMA_V2.to_owned(),
+            contract_schema: contract.schema.clone(),
+            contract_sha256: contract.canonical_sha256().expect("contract hash"),
+            source_commit,
+            cargo_lock_sha256,
+            runs,
+            evidence_sha256: String::new(),
+        };
+        evidence.evidence_sha256 = evidence.canonical_sha256().expect("evidence hash");
+        evidence
+    }
+
+    fn rehash_v2(evidence: &mut QualificationPerformanceEvidenceV2) {
+        evidence.evidence_sha256 = evidence.canonical_sha256().expect("evidence hash");
+    }
+
+    #[test]
+    fn h8_v2_contract_is_exact_hashable_and_generates_its_human_table() {
+        let contract = QualificationPerformanceContractV2::frozen();
+
+        assert_eq!(
+            contract.schema,
+            QUALIFICATION_PERFORMANCE_CONTRACT_SCHEMA_V2
+        );
+        assert_eq!(contract.warmup_samples, 3);
+        assert_eq!(contract.measured_samples, 30);
+        assert_eq!(contract.independent_runs, 2);
+        assert_eq!(
+            contract.pair_order,
+            QualificationPerformancePairOrderV1::Alternating
+        );
+        assert_eq!(contract.ceiling_percent, 125);
+        assert_eq!(
+            contract.protocol.timing_ratio,
+            "adjacent_candidate_to_baseline"
+        );
+        assert_eq!(contract.protocol.percentiles, [50, 95]);
+        assert_eq!(contract.protocol.missing_evidence, "unknown");
+        assert_eq!(contract.protocol.required_controls.len(), 8);
+        assert_eq!(
+            contract.canonical_sha256().expect("contract hash"),
+            QUALIFICATION_PERFORMANCE_CONTRACT_SHA256_V2
+        );
+        assert_eq!(
+            contract
+                .workloads
+                .iter()
+                .find(|workload| {
+                    workload.workload == QualificationPerformanceWorkloadV2::ExternalCorpus
+                })
+                .expect("external workload")
+                .manifest_sha256,
+            "f53ed03dbad9668f3819563dd1d7002f5cef8e6bbe07e7a89a51ae0c86a4f181"
+        );
+        assert!(contract.validate().is_ok());
+        assert_eq!(
+            contract.canonical_sha256().expect("first hash"),
+            contract.canonical_sha256().expect("second hash")
+        );
+
+        let table = contract.decision_table_markdown();
+        assert!(table.contains("30"));
+        assert!(table.contains("125%"));
+        assert!(table.contains("ext4"));
+        assert!(!table.contains("49648e94"));
+    }
+
+    #[test]
+    fn h8_v2_rejects_wrong_identity_profile_workload_and_platform_before_scoring() {
+        let pristine = complete_v2_evidence(100, 100, 99, 100);
+        let mut fixtures = Vec::new();
+
+        let mut wrong_contract = pristine.clone();
+        wrong_contract.contract_sha256 = LOCK_SHA256.to_owned();
+        rehash_v2(&mut wrong_contract);
+        fixtures.push(wrong_contract);
+
+        let mut wrong_source = pristine.clone();
+        wrong_source.source_commit = SOURCE_COMMIT.to_owned();
+        rehash_v2(&mut wrong_source);
+        fixtures.push(wrong_source);
+
+        let mut wrong_lock = pristine.clone();
+        wrong_lock.cargo_lock_sha256 = LOCK_SHA256.to_owned();
+        rehash_v2(&mut wrong_lock);
+        fixtures.push(wrong_lock);
+
+        let mut wrong_profile = pristine.clone();
+        wrong_profile.runs[0].physical_profile_id = "different-profile".to_owned();
+        rehash_v2(&mut wrong_profile);
+        fixtures.push(wrong_profile);
+
+        let mut wrong_workload = pristine.clone();
+        wrong_workload.runs[0].workload_manifest_sha256 = LOCK_SHA256.to_owned();
+        rehash_v2(&mut wrong_workload);
+        fixtures.push(wrong_workload);
+
+        let mut wrong_platform = pristine;
+        wrong_platform.runs[0].environment.filesystem = "overlayfs".to_owned();
+        rehash_v2(&mut wrong_platform);
+        fixtures.push(wrong_platform);
+
+        for fixture in fixtures {
+            assert!(evaluate_qualification_performance_v2(&fixture).is_err());
+        }
+    }
+
+    #[test]
+    fn h8_v2_timing_uses_paired_nearest_rank_p95_at_the_125_percent_boundary() {
+        let boundary = complete_v2_evidence(125, 100, 99, 100);
+        let boundary_result =
+            evaluate_qualification_performance_v2(&boundary).expect("valid boundary evidence");
+        assert!(boundary_result.candidates.iter().all(|candidate| {
+            candidate.status == QualificationPerformanceCriterionStatusV2::Passed
+        }));
+
+        let above = complete_v2_evidence(126, 100, 99, 100);
+        let above_result =
+            evaluate_qualification_performance_v2(&above).expect("valid above-boundary evidence");
+        assert!(above_result.candidates.iter().all(|candidate| {
+            candidate.status == QualificationPerformanceCriterionStatusV2::Failed
+                && candidate.criteria.iter().any(|criterion| {
+                    criterion.kind == QualificationPerformanceCriterionKindV2::Timing
+                        && criterion.status == QualificationPerformanceCriterionStatusV2::Failed
+                })
+        }));
+    }
+
+    #[test]
+    fn h8_v2_reports_nearest_rank_range_and_population_deviation_without_outlier_removal() {
+        let mut evidence = complete_v2_evidence(100, 100, 99, 100);
+        let run = evidence
+            .runs
+            .iter_mut()
+            .find(|run| {
+                run.workload == QualificationPerformanceWorkloadV2::ExternalCorpus
+                    && run.candidate == QualificationPerformanceRoleV1::SqliteWal
+                    && run.run_index == 1
+            })
+            .expect("required run");
+        for sample in run.samples.iter_mut().filter(|sample| {
+            sample.operation == QualificationPerformanceOperationV1::DurableAppend
+                && sample.role == QualificationPerformanceRoleV1::SqliteWal
+        }) {
+            sample.total_elapsed_nanos = u64::from(sample.iteration + 1);
+            sample.stages[0].elapsed_nanos = sample.total_elapsed_nanos;
+        }
+        rehash_v2(&mut evidence);
+
+        let result = evaluate_qualification_performance_v2(&evidence).expect("valid evidence");
+        let timing = result
+            .candidates
+            .iter()
+            .find(|candidate| candidate.candidate == QualificationPerformanceRoleV1::SqliteWal)
+            .and_then(|candidate| {
+                candidate.criteria.iter().find(|criterion| {
+                    criterion.workload == QualificationPerformanceWorkloadV2::ExternalCorpus
+                        && criterion.run_index == 1
+                        && criterion.operation
+                            == Some(QualificationPerformanceOperationV1::DurableAppend)
+                })
+            })
+            .and_then(|criterion| criterion.timing.as_ref())
+            .expect("timing summary");
+
+        assert_eq!(timing.minimum_ratio_millionths, 10_000);
+        assert_eq!(timing.p50_ratio_millionths, 150_000);
+        assert_eq!(timing.p95_ratio_millionths, 290_000);
+        assert_eq!(timing.maximum_ratio_millionths, 300_000);
+        assert_eq!(timing.population_standard_deviation_millionths, 86_554);
+    }
+
+    #[test]
+    fn h8_v2_one_failed_timing_prevents_eligibility_when_every_other_timing_passes() {
+        let mut evidence = complete_v2_evidence(100, 100, 99, 100);
+        let run = evidence
+            .runs
+            .iter_mut()
+            .find(|run| {
+                run.workload == QualificationPerformanceWorkloadV2::ExternalCorpus
+                    && run.candidate == QualificationPerformanceRoleV1::SqliteWal
+                    && run.run_index == 1
+            })
+            .expect("required run");
+        for sample in run.samples.iter_mut().filter(|sample| {
+            sample.operation == QualificationPerformanceOperationV1::DurableAppend
+                && sample.role == QualificationPerformanceRoleV1::SqliteWal
+                && sample.iteration >= 28
+        }) {
+            sample.total_elapsed_nanos = 126;
+            sample.stages[0].elapsed_nanos = 126;
+        }
+        rehash_v2(&mut evidence);
+
+        let result = evaluate_qualification_performance_v2(&evidence).expect("valid evidence");
+        let sqlite = result
+            .candidates
+            .iter()
+            .find(|candidate| candidate.candidate == QualificationPerformanceRoleV1::SqliteWal)
+            .expect("SQLite result");
+        assert_eq!(
+            sqlite.status,
+            QualificationPerformanceCriterionStatusV2::Failed
+        );
+        assert_eq!(
+            sqlite
+                .criteria
+                .iter()
+                .filter(|criterion| {
+                    criterion.kind == QualificationPerformanceCriterionKindV2::Timing
+                        && criterion.status == QualificationPerformanceCriterionStatusV2::Failed
+                })
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn h8_v2_public_rows_publish_timing_and_allocation_diagnostics_without_gating() {
+        let evidence = complete_v2_evidence(1_000, 1, 1_000, 1);
+        let result = evaluate_qualification_performance_v2(&evidence).expect("valid evidence");
+
+        for candidate in &result.candidates {
+            let public = candidate
+                .criteria
+                .iter()
+                .filter(|criterion| {
+                    criterion.workload == QualificationPerformanceWorkloadV2::PublicSmoke
+                })
+                .collect::<Vec<_>>();
+            assert!(public.iter().any(|criterion| {
+                criterion.kind == QualificationPerformanceCriterionKindV2::Timing
+                    && criterion.timing.is_some()
+                    && criterion.status == QualificationPerformanceCriterionStatusV2::Passed
+            }));
+            assert!(public.iter().any(|criterion| {
+                criterion.kind == QualificationPerformanceCriterionKindV2::Allocation
+                    && criterion.candidate_bytes.is_some()
+                    && criterion.status == QualificationPerformanceCriterionStatusV2::Passed
+            }));
+            assert!(candidate.criteria.iter().any(|criterion| {
+                criterion.workload != QualificationPerformanceWorkloadV2::PublicSmoke
+                    && criterion.status == QualificationPerformanceCriterionStatusV2::Failed
+            }));
+        }
+    }
+
+    #[test]
+    fn h8_v2_serialized_inventory_contains_only_sanitized_counts_hashes_and_totals() {
+        let inventory = QualificationInventoryV1 {
+            carriers: vec!["events/private-path-sentinel.json".to_owned()],
+            logical_bytes: 10,
+            encoded_bytes: 20,
+            allocated_bytes: 4096,
+            high_water_bytes: 4096,
+        };
+        let sanitized = QualificationPerformanceInventoryV2::from_inventory(&inventory)
+            .expect("sanitized inventory");
+        let serialized = serde_json::to_string(&sanitized).expect("inventory JSON");
+
+        assert_eq!(sanitized.carrier_count, 1);
+        assert!(!serialized.contains("private-path-sentinel"));
+        assert!(!serialized.contains("events/"));
+        assert_eq!(sanitized.carrier_set_sha256.len(), 64);
+    }
+
+    #[test]
+    fn h8_v2_checks_both_allocation_scopes_in_every_required_state() {
+        for scope in [
+            QualificationPerformanceAllocationScopeV2::Event,
+            QualificationPerformanceAllocationScopeV2::CompleteProfile,
+        ] {
+            for state in QualificationPerformanceInventoryStateV1::ALL {
+                let mut evidence = complete_v2_evidence(100, 100, 99, 100);
+                let run = evidence
+                    .runs
+                    .iter_mut()
+                    .find(|run| {
+                        run.workload == QualificationPerformanceWorkloadV2::ExternalCorpus
+                            && run.candidate == QualificationPerformanceRoleV1::SqliteWal
+                            && run.run_index == 1
+                    })
+                    .expect("required run");
+                let allocation = run
+                    .allocations
+                    .iter_mut()
+                    .find(|allocation| {
+                        allocation.role == QualificationPerformanceRoleV1::SqliteWal
+                            && allocation.scope == scope
+                            && allocation.state == state
+                    })
+                    .expect("required allocation");
+                allocation.inventory.allocated_bytes = 100;
+                allocation.inventory.high_water_bytes = 100;
+                rehash_v2(&mut evidence);
+
+                let result = evaluate_qualification_performance_v2(&evidence)
+                    .expect("valid allocation evidence");
+                let sqlite = result
+                    .candidates
+                    .iter()
+                    .find(|candidate| {
+                        candidate.candidate == QualificationPerformanceRoleV1::SqliteWal
+                    })
+                    .expect("SQLite result");
+                assert_eq!(
+                    sqlite.status,
+                    QualificationPerformanceCriterionStatusV2::Failed
+                );
+                assert!(sqlite.criteria.iter().any(|criterion| {
+                    criterion.kind == QualificationPerformanceCriterionKindV2::Allocation
+                        && criterion.allocation_scope == Some(scope)
+                        && criterion.inventory_state == Some(state)
+                        && criterion.status == QualificationPerformanceCriterionStatusV2::Failed
+                }));
+            }
+        }
+    }
+
+    #[test]
+    fn h8_v2_missing_required_external_run_is_unknown_and_prevents_eligibility() {
+        let mut evidence = complete_v2_evidence(100, 100, 99, 100);
+        evidence.runs.retain(|run| {
+            !(run.workload == QualificationPerformanceWorkloadV2::ExternalCorpus
+                && run.candidate == QualificationPerformanceRoleV1::SqliteWal
+                && run.run_index == 1)
+        });
+        rehash_v2(&mut evidence);
+
+        let result =
+            evaluate_qualification_performance_v2(&evidence).expect("valid partial package");
+        let sqlite = result
+            .candidates
+            .iter()
+            .find(|candidate| candidate.candidate == QualificationPerformanceRoleV1::SqliteWal)
+            .expect("SQLite result");
+        assert_eq!(
+            sqlite.status,
+            QualificationPerformanceCriterionStatusV2::Unknown
+        );
+        assert!(sqlite.criteria.iter().any(|criterion| {
+            criterion.workload == QualificationPerformanceWorkloadV2::ExternalCorpus
+                && criterion.run_index == 1
+                && criterion.status == QualificationPerformanceCriterionStatusV2::Unknown
+        }));
+    }
+
+    #[test]
+    fn h8_v2_rejects_incomplete_protocol_fields_and_noncanonical_evidence() {
+        let mut incomplete = complete_v2_evidence(100, 100, 99, 100);
+        incomplete.runs[0].controls.durable_acknowledgement = false;
+        rehash_v2(&mut incomplete);
+        assert!(evaluate_qualification_performance_v2(&incomplete).is_err());
+
+        let mut noncanonical = complete_v2_evidence(100, 100, 99, 100);
+        noncanonical.evidence_sha256 = LOCK_SHA256.to_owned();
+        assert!(evaluate_qualification_performance_v2(&noncanonical).is_err());
+    }
+
+    #[test]
+    fn h8_v1_reports_remain_historical_and_cannot_parse_as_v2() {
+        let historical = serde_json::json!({
+            "schema": QUALIFICATION_PERFORMANCE_DIAGNOSTICS_SCHEMA_V1,
+            "contractSchema": QUALIFICATION_PERFORMANCE_DIAGNOSTIC_CONTRACT_SCHEMA_V1,
+            "contractSha256": diagnostic_contract_sha256(),
+            "cases": [],
+        });
+
+        assert!(serde_json::from_value::<QualificationPerformanceEvidenceV2>(historical).is_err());
     }
 }

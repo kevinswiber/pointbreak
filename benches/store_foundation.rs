@@ -13,17 +13,18 @@ use pointbreak::bench_support::foundation::{
     QualificationPerformancePairOrderV1, QualificationRunConfigurationV1,
     QualificationSnapshotTotalsV1, ReceiptBackupConsequenceV1, ReceiptProjectionConsequenceV1,
     SegmentWorkloadEvidenceV1, SnapshotDriftReportV1, SqliteWorkloadEvidenceV1,
-    load_frozen_legacy_manifest_from_env, modeled_post_foundation_manifest,
+    load_external_workload_v2_manifest_from_env, modeled_post_foundation_manifest,
     publish_exact_bundle_v2, qualification_cargo_lock_sha256, qualification_filesystem_name,
-    qualification_source_commit, run_qualification_child,
-    run_qualification_performance_diagnostics, run_qualification_platform_matrix,
-    run_segment_workload, run_sqlite_workload, synthetic_legacy_manifest,
+    qualification_performance_contract_v2_publication, qualification_source_commit,
+    run_qualification_child, run_qualification_performance_diagnostics,
+    run_qualification_platform_matrix, run_segment_workload, run_sqlite_workload,
+    synthetic_legacy_manifest,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 const USAGE: &str = "\
-Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--transfer-smoke|--sqlite-smoke|--segments-smoke|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--help]\n\
+Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--transfer-smoke|--sqlite-smoke|--segments-smoke|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--qualification-contract|--help]\n\
        --qualification-diagnostics [--qualification-pair-order=alternating|candidate_then_baseline|baseline_then_candidate]\n\
 \n\
 Validates deterministic workload, transfer, candidate, or native-platform qualification contracts and prints JSON.\n\
@@ -162,6 +163,7 @@ fn main() -> ExitCode {
         "--qualification-smoke",
         "--qualification-evidence",
         "--qualification-diagnostics",
+        "--qualification-contract",
     ]
     .into_iter()
     .filter(|mode| arguments.iter().any(|argument| argument == mode))
@@ -184,6 +186,7 @@ fn main() -> ExitCode {
             && argument != "--qualification-smoke"
             && argument != "--qualification-evidence"
             && argument != "--qualification-diagnostics"
+            && argument != "--qualification-contract"
             && argument != "--bench"
             && !argument.starts_with("--qualification-pair-order=")
     }) || requested_modes > 1
@@ -211,6 +214,18 @@ fn main() -> ExitCode {
         return qualification_diagnostics_report(
             diagnostic_pair_order.unwrap_or(QualificationPerformancePairOrderV1::Alternating),
         );
+    }
+
+    if arguments
+        .iter()
+        .any(|argument| argument == "--qualification-contract")
+    {
+        println!(
+            "{}",
+            serde_json::to_string(&qualification_performance_contract_v2_publication())
+                .expect("qualification contract publication serializes")
+        );
+        return ExitCode::SUCCESS;
     }
 
     if arguments
@@ -543,11 +558,11 @@ fn smoke_metadata() -> Result<(SmokeMetadataV1, bool), QualificationCorpusError>
 
     let external_corpus_configured = std::env::var_os("POINTBREAK_QUALIFICATION_CORPUS").is_some();
     let (external_legacy, external_is_valid) = if external_corpus_configured {
-        match load_frozen_legacy_manifest_from_env() {
+        match load_external_workload_v2_manifest_from_env() {
             Ok(manifest) => (
                 ExternalCorpusMetadataV1::Validated {
                     summary: QualificationCorpusSummaryV1::from_manifest(&manifest),
-                    snapshot: QualificationSnapshotTotalsV1::frozen_legacy(),
+                    snapshot: QualificationSnapshotTotalsV1::external_v2(),
                 },
                 true,
             ),

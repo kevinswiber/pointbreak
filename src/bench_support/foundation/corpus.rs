@@ -12,8 +12,12 @@ use crate::canonical_hash::canonical_json_bytes;
 
 const EXTERNAL_CORPUS_VARIABLE: &str = "POINTBREAK_QUALIFICATION_CORPUS";
 const EXTERNAL_SOURCE_LABEL: &str = "external-frozen-legacy";
+const EXTERNAL_WORKLOAD_SOURCE_LABEL_V2: &str = "external-performance-workload-v2";
 const SYNTHETIC_LEGACY_SOURCE_LABEL: &str = "synthetic-legacy-shape";
 const MODELED_SOURCE_LABEL: &str = "modeled-foundation-workload";
+
+pub const QUALIFICATION_EXTERNAL_WORKLOAD_MANIFEST_SHA256_V2: &str =
+    "f53ed03dbad9668f3819563dd1d7002f5cef8e6bbe07e7a89a51ae0c86a4f181";
 
 const SYNTHETIC_LEGACY_FIXTURE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -85,6 +89,8 @@ pub enum QualificationCorpusError {
     Contract(#[from] QualificationContractError),
     #[error("the external corpus does not match the frozen legacy snapshot")]
     SnapshotDrift(Box<SnapshotDriftReportV1>),
+    #[error("the external corpus manifest hash is {actual}, expected {expected}")]
+    ManifestHashMismatch { expected: String, actual: String },
 }
 
 #[derive(Deserialize)]
@@ -171,6 +177,34 @@ impl QualificationSnapshotTotalsV1 {
             ],
         }
     }
+
+    pub fn external_v2() -> Self {
+        Self {
+            logical_records: 6_702,
+            logical_decoded_bytes: 58_210_604,
+            store_metadata_records: 4,
+            store_metadata_decoded_bytes: 1_568,
+            total_records: 6_706,
+            total_decoded_bytes: 58_212_172,
+            by_kind: vec![
+                QualificationRecordSummaryV1 {
+                    record_kind: QualificationRecordKindV1::LegacyEvent,
+                    record_count: 6_392,
+                    decoded_bytes: 11_404_022,
+                },
+                QualificationRecordSummaryV1 {
+                    record_kind: QualificationRecordKindV1::ObjectArtifact,
+                    record_count: 309,
+                    decoded_bytes: 46_585_183,
+                },
+                QualificationRecordSummaryV1 {
+                    record_kind: QualificationRecordKindV1::NoteBody,
+                    record_count: 1,
+                    decoded_bytes: 221_399,
+                },
+            ],
+        }
+    }
 }
 
 pub fn synthetic_legacy_manifest() -> Result<QualificationCorpusManifestV1, QualificationCorpusError>
@@ -200,6 +234,23 @@ pub fn load_frozen_legacy_manifest_from_path(
     Ok(manifest)
 }
 
+pub fn load_external_workload_v2_manifest_from_env()
+-> Result<QualificationCorpusManifestV1, QualificationCorpusError> {
+    let path = env::var_os(EXTERNAL_CORPUS_VARIABLE).map(PathBuf::from);
+    load_external_workload_v2_manifest_from_path(path.as_deref())
+}
+
+pub fn load_external_workload_v2_manifest_from_path(
+    path: Option<&Path>,
+) -> Result<QualificationCorpusManifestV1, QualificationCorpusError> {
+    let path = path.ok_or(QualificationCorpusError::ExternalPathRequired)?;
+    let root = validate_external_root(path)?;
+    let manifest = load_external_manifest_from_root(&root, EXTERNAL_WORKLOAD_SOURCE_LABEL_V2)?;
+    let store_metadata = collect_store_metadata_totals(&root)?;
+    validate_external_workload_v2_snapshot(&manifest, store_metadata)?;
+    Ok(manifest)
+}
+
 pub fn load_external_legacy_manifest(
     path: impl AsRef<Path>,
 ) -> Result<QualificationCorpusManifestV1, QualificationCorpusError> {
@@ -209,6 +260,13 @@ pub fn load_external_legacy_manifest(
 
 fn load_external_legacy_manifest_from_root(
     root: &Path,
+) -> Result<QualificationCorpusManifestV1, QualificationCorpusError> {
+    load_external_manifest_from_root(root, EXTERNAL_SOURCE_LABEL)
+}
+
+fn load_external_manifest_from_root(
+    root: &Path,
+    source: &str,
 ) -> Result<QualificationCorpusManifestV1, QualificationCorpusError> {
     let mut records = Vec::new();
     collect_records(
@@ -231,7 +289,7 @@ fn load_external_legacy_manifest_from_root(
     )?;
     records.sort_by(|left, right| left.logical_key.cmp(&right.logical_key));
 
-    let manifest = QualificationCorpusManifestV1::new(EXTERNAL_SOURCE_LABEL, records)?;
+    let manifest = QualificationCorpusManifestV1::new(source, records)?;
     manifest.validate()?;
     Ok(manifest)
 }
@@ -246,6 +304,26 @@ fn validate_frozen_legacy_snapshot(
         return Err(QualificationCorpusError::SnapshotDrift(Box::new(
             SnapshotDriftReportV1 { expected, actual },
         )));
+    }
+    Ok(())
+}
+
+fn validate_external_workload_v2_snapshot(
+    manifest: &QualificationCorpusManifestV1,
+    store_metadata: StoreMetadataTotals,
+) -> Result<(), QualificationCorpusError> {
+    let expected = QualificationSnapshotTotalsV1::external_v2();
+    let actual = QualificationSnapshotTotalsV1::from_manifest(manifest, store_metadata);
+    if actual != expected {
+        return Err(QualificationCorpusError::SnapshotDrift(Box::new(
+            SnapshotDriftReportV1 { expected, actual },
+        )));
+    }
+    if manifest.manifest_sha256 != QUALIFICATION_EXTERNAL_WORKLOAD_MANIFEST_SHA256_V2 {
+        return Err(QualificationCorpusError::ManifestHashMismatch {
+            expected: QUALIFICATION_EXTERNAL_WORKLOAD_MANIFEST_SHA256_V2.to_owned(),
+            actual: manifest.manifest_sha256.clone(),
+        });
     }
     Ok(())
 }
@@ -592,6 +670,14 @@ mod tests {
             load_frozen_legacy_manifest_from_path(Some(&source_fixture)),
             Err(QualificationCorpusError::SourceTreePathRejected { .. })
         ));
+        assert_eq!(
+            load_external_workload_v2_manifest_from_path(None),
+            Err(QualificationCorpusError::ExternalPathRequired)
+        );
+        assert!(matches!(
+            load_external_workload_v2_manifest_from_path(Some(&source_fixture)),
+            Err(QualificationCorpusError::SourceTreePathRejected { .. })
+        ));
     }
 
     #[test]
@@ -631,5 +717,18 @@ mod tests {
         assert_eq!(report.expected.total_decoded_bytes, 57_041_682);
         assert_eq!(report.expected.store_metadata_records, 4);
         assert_eq!(report.actual.store_metadata_records, 0);
+    }
+
+    #[test]
+    fn external_v2_snapshot_identity_is_separate_from_the_historical_snapshot() {
+        let historical = QualificationSnapshotTotalsV1::frozen_legacy();
+        let external_v2 = QualificationSnapshotTotalsV1::external_v2();
+
+        assert_eq!(external_v2.total_records, 6_706);
+        assert_eq!(external_v2.total_decoded_bytes, 58_212_172);
+        assert_eq!(external_v2.logical_records, 6_702);
+        assert_eq!(external_v2.logical_decoded_bytes, 58_210_604);
+        assert_ne!(external_v2, historical);
+        assert_eq!(QUALIFICATION_EXTERNAL_WORKLOAD_MANIFEST_SHA256_V2.len(), 64);
     }
 }

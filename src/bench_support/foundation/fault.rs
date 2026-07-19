@@ -14,8 +14,7 @@ use super::{
     QualificationInventoryV1, QualificationProfile, QualificationRecordKindV1,
     QualificationScenarioOutcomeV1, SegmentDiagnosticStateV1, SegmentFailurePointV1,
     SegmentQualificationProfile, SqliteDiagnosticStateV1, SqliteQualificationProfile,
-    evaluate_qualification_performance_h8_v1, modeled_post_foundation_manifest,
-    qualification_filesystem_name, synthetic_legacy_manifest,
+    modeled_post_foundation_manifest, qualification_filesystem_name, synthetic_legacy_manifest,
 };
 use crate::canonical_hash::{canonical_json_bytes, sha256_bytes_hex};
 
@@ -2164,7 +2163,10 @@ fn run_performance_samples(
         return Err("performance inventory omitted logical bytes".to_owned());
     }
     let gate_failure = if samples > 1 {
-        evaluate_qualification_performance_h8_v1(&raw_samples)?
+        Some(
+            "performance requalification requires a complete pointbreak.qualification-performance-evidence.v2 package"
+                .to_owned(),
+        )
     } else {
         None
     };
@@ -2427,6 +2429,15 @@ fn inventory_file_paths(root: &Path) -> Result<Vec<PathBuf>, String> {
         entries.sort_by_key(fs::DirEntry::file_name);
         for entry in entries {
             let path = entry.path();
+            let file_type = entry
+                .file_type()
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+            if file_type.is_symlink() {
+                return Err(format!(
+                    "qualification inventory rejects symbolic-link carrier {}",
+                    path.display()
+                ));
+            }
             let metadata = entry
                 .metadata()
                 .map_err(|error| format!("{}: {error}", path.display()))?;
@@ -2452,34 +2463,78 @@ fn native_file_allocation(_path: &Path, metadata: &fs::Metadata) -> Result<u64, 
 
 #[cfg(windows)]
 fn native_file_allocation(path: &Path, _metadata: &fs::Metadata) -> Result<u64, String> {
-    use std::os::windows::ffi::OsStrExt;
+    use std::ffi::c_void;
+    use std::fs::File;
+    use std::os::windows::fs::MetadataExt;
+    use std::os::windows::io::AsRawHandle;
 
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    const FILE_STANDARD_INFO_CLASS: i32 = 1;
+    #[repr(C)]
+    struct FileStandardInfo {
+        allocation_size: i64,
+        end_of_file: i64,
+        number_of_links: u32,
+        delete_pending: u8,
+        directory: u8,
+    }
     unsafe extern "system" {
-        fn GetCompressedFileSizeW(file_name: *const u16, file_size_high: *mut u32) -> u32;
+        fn GetFileInformationByHandleEx(
+            file: *mut c_void,
+            info_class: i32,
+            info: *mut c_void,
+            info_size: u32,
+        ) -> i32;
     }
 
-    let canonical = path.canonicalize().map_err(|error| {
+    let carrier_metadata = fs::symlink_metadata(path).map_err(|error| {
         format!(
-            "failed to canonicalize {} for native allocation: {error}",
+            "failed to inspect {} for allocation query: {error}",
             path.display()
         )
     })?;
-    let mut wide = canonical.as_os_str().encode_wide().collect::<Vec<_>>();
-    wide.push(0);
-    let mut high = 0_u32;
-    // SAFETY: `wide` is NUL-terminated and remains alive for the call; `high`
-    // is a valid writable u32 owned by this stack frame.
-    let low = unsafe { GetCompressedFileSizeW(wide.as_ptr(), &mut high) };
-    if low == u32::MAX {
-        let error = std::io::Error::last_os_error();
-        if error.raw_os_error().is_some_and(|code| code != 0) {
-            return Err(format!(
-                "native allocation query failed for {}: {error}",
-                path.display()
-            ));
-        }
+    if carrier_metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(format!(
+            "native allocation rejects reparse-point carrier {}",
+            path.display()
+        ));
     }
-    Ok((u64::from(high) << 32) | u64::from(low))
+    let file = File::open(path).map_err(|error| {
+        format!(
+            "failed to open {} for allocation query: {error}",
+            path.display()
+        )
+    })?;
+    let mut info = FileStandardInfo {
+        allocation_size: 0,
+        end_of_file: 0,
+        number_of_links: 0,
+        delete_pending: 0,
+        directory: 0,
+    };
+    // SAFETY: the file handle is valid for the duration of the call and
+    // `info` is a correctly sized writable FILE_STANDARD_INFO buffer.
+    let succeeded = unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FILE_STANDARD_INFO_CLASS,
+            (&raw mut info).cast(),
+            std::mem::size_of::<FileStandardInfo>() as u32,
+        )
+    };
+    if succeeded == 0 {
+        return Err(format!(
+            "native allocation query failed for {}: {}",
+            path.display(),
+            std::io::Error::last_os_error()
+        ));
+    }
+    u64::try_from(info.allocation_size).map_err(|_| {
+        format!(
+            "native allocation query returned a negative size for {}",
+            path.display()
+        )
+    })
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -2494,7 +2549,7 @@ fn native_allocation_method() -> &'static str {
 
 #[cfg(windows)]
 fn native_allocation_method() -> &'static str {
-    "get_compressed_file_size_w"
+    "file_standard_info_allocation_size"
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -2531,6 +2586,8 @@ fn rustc_version() -> String {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+    #[cfg(windows)]
+    use std::io::{Seek, SeekFrom};
     use std::process::Command;
 
     use super::*;
@@ -2552,6 +2609,188 @@ mod tests {
                     .and_then(|value| value.strip_suffix('"'))
             })
         })
+    }
+
+    #[cfg(windows)]
+    fn windows_reference_file_allocation(path: &Path) -> Result<u64, String> {
+        let output = Command::new("fsutil")
+            .args(["file", "layout", "/v"])
+            .arg(path)
+            .output()
+            .map_err(|error| error.to_string())?;
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+        }
+        let output = String::from_utf8(output.stdout).map_err(|error| error.to_string())?;
+        let mut data_stream = false;
+        for line in output.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("Stream") {
+                data_stream = trimmed.ends_with("::$DATA");
+                continue;
+            }
+            if data_stream && trimmed.starts_with("Allocated Size") {
+                let (_, value) = trimmed
+                    .split_once(':')
+                    .ok_or_else(|| "fsutil omitted the data allocation value".to_owned())?;
+                let value = value
+                    .split_whitespace()
+                    .next()
+                    .ok_or_else(|| "fsutil returned an empty data allocation value".to_owned())?
+                    .replace(',', "");
+                return value
+                    .parse::<u64>()
+                    .map_err(|error| format!("invalid fsutil data allocation value: {error}"));
+            }
+        }
+        Err("fsutil omitted the unnamed data-stream allocation".to_owned())
+    }
+
+    #[cfg(windows)]
+    fn set_windows_file_control(file: &fs::File, control: u32, input: Option<&mut u16>) {
+        use std::ffi::c_void;
+        use std::os::windows::io::AsRawHandle;
+
+        unsafe extern "system" {
+            fn DeviceIoControl(
+                device: *mut c_void,
+                control: u32,
+                input: *mut c_void,
+                input_size: u32,
+                output: *mut c_void,
+                output_size: u32,
+                bytes_returned: *mut u32,
+                overlapped: *mut c_void,
+            ) -> i32;
+        }
+
+        let (input, input_size) = input
+            .map(|value| {
+                (
+                    (value as *mut u16).cast(),
+                    std::mem::size_of::<u16>() as u32,
+                )
+            })
+            .unwrap_or((std::ptr::null_mut(), 0));
+        let mut bytes_returned = 0_u32;
+        // SAFETY: the handle is valid, the optional input points to a live
+        // u16, and this control operation has no output buffer.
+        let succeeded = unsafe {
+            DeviceIoControl(
+                file.as_raw_handle(),
+                control,
+                input,
+                input_size,
+                std::ptr::null_mut(),
+                0,
+                &raw mut bytes_returned,
+                std::ptr::null_mut(),
+            )
+        };
+        assert_ne!(
+            succeeded,
+            0,
+            "Windows fixture control {control:#x} failed: {}",
+            std::io::Error::last_os_error()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn file_standard_allocation_matches_independent_ntfs_fixtures() {
+        const FSCTL_SET_SPARSE: u32 = 0x0009_00c4;
+        const FSCTL_SET_COMPRESSION: u32 = 0x0009_c040;
+        const COMPRESSION_FORMAT_DEFAULT: u16 = 1;
+        const FIXTURE_BYTES: usize = 1024 * 1024;
+
+        let root = tempfile::tempdir().expect("NTFS allocation fixtures");
+        assert_eq!(
+            qualification_filesystem_name(root.path()).to_ascii_lowercase(),
+            "ntfs"
+        );
+
+        let one_byte = root.path().join("one-byte.bin");
+        fs::write(&one_byte, [0x5a]).expect("write one-byte fixture");
+
+        let ordinary = root.path().join("ordinary-multi-cluster.bin");
+        fs::write(&ordinary, vec![0xa5; FIXTURE_BYTES]).expect("write ordinary fixture");
+
+        let sparse = root.path().join("sparse-ranges.bin");
+        let mut sparse_file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&sparse)
+            .expect("create sparse fixture");
+        set_windows_file_control(&sparse_file, FSCTL_SET_SPARSE, None);
+        sparse_file
+            .set_len(FIXTURE_BYTES as u64)
+            .expect("size sparse fixture");
+        sparse_file
+            .write_all(&vec![0x3c; 4096])
+            .expect("write first sparse range");
+        sparse_file
+            .seek(SeekFrom::End(-4096))
+            .expect("seek final sparse range");
+        sparse_file
+            .write_all(&vec![0xc3; 4096])
+            .expect("write final sparse range");
+        sparse_file.sync_all().expect("sync sparse fixture");
+        drop(sparse_file);
+
+        let compressed = root.path().join("compressed.bin");
+        let mut compressed_file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&compressed)
+            .expect("create compressed fixture");
+        let mut format = COMPRESSION_FORMAT_DEFAULT;
+        set_windows_file_control(&compressed_file, FSCTL_SET_COMPRESSION, Some(&mut format));
+        compressed_file
+            .write_all(&vec![0_u8; FIXTURE_BYTES])
+            .expect("write compressed fixture");
+        compressed_file.sync_all().expect("sync compressed fixture");
+        drop(compressed_file);
+        let compact = Command::new("compact")
+            .args(["/c", "/f"])
+            .arg(&compressed)
+            .output()
+            .expect("run NTFS compression fixture control");
+        assert!(
+            compact.status.success(),
+            "NTFS compression fixture control failed: {}",
+            String::from_utf8_lossy(&compact.stderr)
+        );
+
+        let allocation = |path: &Path| {
+            let metadata = fs::metadata(path).expect("fixture metadata");
+            let reported = native_file_allocation(path, &metadata).expect("FILE_STANDARD_INFO");
+            let expected = windows_reference_file_allocation(path)
+                .expect("independent NTFS layout enumeration");
+            assert_eq!(
+                reported,
+                expected,
+                "allocation mismatch for {}",
+                path.display()
+            );
+            reported
+        };
+
+        let one_byte_allocation = allocation(&one_byte);
+        let ordinary_allocation = allocation(&ordinary);
+        let sparse_allocation = allocation(&sparse);
+        let compressed_allocation = allocation(&compressed);
+
+        assert!(one_byte_allocation > 1);
+        assert!(ordinary_allocation >= FIXTURE_BYTES as u64);
+        assert!(ordinary_allocation > one_byte_allocation);
+        assert!(sparse_allocation > 0 && sparse_allocation < FIXTURE_BYTES as u64);
+        assert!(compressed_allocation < FIXTURE_BYTES as u64);
+        assert_eq!(
+            native_allocation_method(),
+            "file_standard_info_allocation_size"
+        );
     }
 
     #[test]
@@ -2711,6 +2950,32 @@ mod tests {
         let mut evidence = QualificationEvidenceV1::fixture_for_tests(&plan);
         evidence.results[0].environment.filesystem.clear();
         assert!(evidence.validate(&plan).is_err());
+    }
+
+    #[test]
+    fn repeated_legacy_performance_samples_fail_closed_for_v2_evidence() {
+        let workload = synthetic_legacy_manifest().expect("synthetic legacy workload");
+
+        for candidate in QualificationCandidateV1::ALL {
+            let root = tempfile::tempdir().expect("performance refusal root");
+            let entry_root = root.path().join(candidate.as_str());
+            let candidate_root = entry_root.join("candidate");
+            let profile = open_candidate(candidate, &candidate_root).expect("open candidate");
+            populate_profile(profile.as_profile(), &workload).expect("populate candidate");
+            drop(profile);
+
+            let result =
+                run_performance_samples(candidate, &entry_root, &candidate_root, &workload, 2)
+                    .expect("run repeated legacy samples");
+
+            assert_eq!(
+                result.gate_failure.as_deref(),
+                Some(
+                    "performance requalification requires a complete \
+                     pointbreak.qualification-performance-evidence.v2 package"
+                )
+            );
+        }
     }
 
     #[test]

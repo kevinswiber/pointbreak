@@ -27,7 +27,7 @@ The target prints one JSON record containing build identity, a Cargo lockfile ha
 OS, filesystem, configuration, logical capabilities, and manifest hashes/counts. It does not select
 or time a storage implementation.
 
-An optional frozen legacy corpus must be a separately supplied external copy:
+An optional versioned external workload must be a separately supplied read-only copy:
 
 ```sh
 export POINTBREAK_QUALIFICATION_CORPUS=/path/to/external-corpus-copy
@@ -40,11 +40,38 @@ hashes, counts, byte totals, and sanitized status. It never prints the supplied 
 bytes. When the variable is absent, the public workloads still validate and the external row is
 reported as `not_configured`.
 
-The frozen snapshot contains 6,437 files totaling 57,041,682 decoded bytes. Its manifest carries
-the 6,433 logical workload records (6,131 events, 301 object artifacts, and one note body; 57,040,114
-decoded bytes). The loader separately checks the four store-metadata files and their 1,568 bytes
-without reading their content. Any logical or metadata mismatch is returned as a structured drift
-report rather than silently accepting a different corpus.
+The current external workload contains 6,706 files totaling 58,212,172 decoded bytes. Its manifest
+carries 6,702 logical workload records (6,392 events, 309 object artifacts, and one note body;
+58,210,604 decoded bytes). The loader separately checks the four store-metadata files and their 1,568
+bytes without reading their content, then verifies the versioned manifest hash. Any logical, metadata,
+or manifest mismatch fails closed. The earlier 6,437-file frozen-legacy workload and its loader remain
+available only for reproducing historical reports; it is not relabeled as the current workload.
+
+## Frozen performance qualification contract
+
+The machine-readable performance qualification contract is compiled into the benchmark target. Print
+the canonical contract, its SHA-256 identity, and its generated human decision table with:
+
+```sh
+cargo bench --features bench --bench store_foundation -- --qualification-contract
+```
+
+The contract applies the same four complete operations—durable append, strict replay, keyed read, and
+fresh-process open/recovery—to the SQLite WAL and bounded-segment candidates against one common loose-file
+baseline. Required quantitative rows are the external workload on macOS/APFS and the modeled workload on
+macOS/APFS, native non-container Linux/ext4, and native Windows/NTFS. Public-smoke rows use the same
+protocol and semantic receipts on all three platforms, but their timing and allocation remain diagnostic.
+
+Each operation receives three untimed warm-up pairs and 30 measured adjacent pairs, alternating which role
+runs first. Two independently prepared runs are required for every workload/platform row. The evaluator
+retains every sample, computes candidate-to-baseline ratios, and reports nearest-rank p50 and p95, the full
+range, and population standard deviation. Every quantitative run passes only when each operation's p95 is
+at or below 125%; runs are never pooled. Event-scope and complete-profile native allocations must also be
+strictly lower than the loose baseline in steady, reopened, and high-water states. Allocation parity fails.
+
+Windows allocation uses `FILE_STANDARD_INFO.AllocationSize`; its native fixture test covers one-byte and
+multi-cluster ordinary files, sparse allocated ranges, and compressed data. Missing, stale, unsupported,
+duplicate, or hash-mismatched evidence is rejected or evaluated as unknown, never as a pass.
 
 ## Native foundation qualification
 
@@ -61,15 +88,15 @@ Run the non-timing matrix used by native CI with:
 just store-foundation-qualification-smoke
 ```
 
-Run the developer evidence lane with repeated candidate and freshly populated loose-baseline samples with:
+The legacy repeated matrix remains available for historical comparison with:
 
 ```sh
 just store-foundation-qualification
 ```
 
-The repeated lane applies the 125% p95 ceiling to durable append, strict replay, keyed read, and strict
-reopen/recovery. A complete report can still contain failed rows; the command exits nonzero whenever any
-row fails. Timing thresholds never run in default tests or the CI smoke lane.
+That command no longer produces new qualification evidence. Its performance rows fail closed until a
+complete `pointbreak.qualification-performance-evidence.v2` package is assembled and evaluated. Timing
+thresholds never run in default tests or the CI smoke lane.
 
 These matrix commands use only the checked-in public workloads. They do not read
 `POINTBREAK_QUALIFICATION_CORPUS`; validate an explicitly supplied external copy separately with the
@@ -95,7 +122,7 @@ For order-sensitivity controls, repeat the command with
 `--qualification-pair-order=baseline_then_candidate`. An alternating report remains the primary paired
 observation; either fixed-order report on its own is incomplete diagnostic evidence.
 
-When `POINTBREAK_QUALIFICATION_CORPUS` names a validated external frozen copy, the same process also adds
+When `POINTBREAK_QUALIFICATION_CORPUS` names a validated external workload copy, the same process also adds
 that workload. The path, logical keys, and decoded bytes are not serialized. Never point it at a live store,
 a path inside a Git worktree, or `~/.pointbreak`; an absent external path leaves the public diagnostic run
 complete without claiming external-corpus evidence.
