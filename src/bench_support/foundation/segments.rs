@@ -12,8 +12,10 @@ use super::{
     IndependentContentStoreV1, LogicalCapabilityEpochV1, NeverCancelled, PhysicalRecordKindV1,
     PhysicalRecordV1, PhysicalStoreHeaderV1, QualificationCorpusManifestV1,
     QualificationCreateOutcome, QualificationEntry, QualificationInventoryV1, QualificationJournal,
-    QualificationProfile, QualificationProfileDescriptorV1, QualificationRecordKindV1,
-    publish_completed_backup, verify_completed_backup,
+    QualificationPerformanceDiagnosticSampleV1, QualificationPerformanceOperationRequestV1,
+    QualificationPerformanceOperationV1, QualificationPerformanceProbe,
+    QualificationPerformanceStageRecorder, QualificationProfile, QualificationProfileDescriptorV1,
+    QualificationRecordKindV1, publish_completed_backup, verify_completed_backup,
 };
 use crate::canonical_hash::{canonical_json_bytes, sha256_bytes_hex};
 
@@ -529,14 +531,31 @@ impl SegmentQualificationJournal {
         decoded_bytes: &[u8],
         failure: Option<SegmentFailurePointV1>,
     ) -> Result<QualificationCreateOutcome, SegmentQualificationError> {
-        if logical_key.is_empty() || logical_key.len() > MAX_LOGICAL_KEY_BYTES {
-            return Err(SegmentQualificationError::InvalidProfile {
-                message: "journal key must contain between 1 and 4096 bytes".to_owned(),
-            });
-        }
-        let _lock = SegmentLock::acquire(&self.root)?;
-        let mut head = read_head(&self.root)?;
-        let frames = scan_visible(&self.root, &head, self.segment_bytes)?;
+        self.create_once_typed_profiled(logical_key, decoded_bytes, failure, None)
+    }
+
+    fn create_once_typed_profiled(
+        &self,
+        logical_key: &str,
+        decoded_bytes: &[u8],
+        failure: Option<SegmentFailurePointV1>,
+        mut recorder: Option<&mut QualificationPerformanceStageRecorder>,
+    ) -> Result<QualificationCreateOutcome, SegmentQualificationError> {
+        measure_profile_stage(&mut recorder, "validate_request", || {
+            if logical_key.is_empty() || logical_key.len() > MAX_LOGICAL_KEY_BYTES {
+                return Err(SegmentQualificationError::InvalidProfile {
+                    message: "journal key must contain between 1 and 4096 bytes".to_owned(),
+                });
+            }
+            Ok(())
+        })?;
+        let (_lock, mut head, frames) =
+            measure_profile_stage(&mut recorder, "lock_head_visible_scan", || {
+                let lock = SegmentLock::acquire(&self.root)?;
+                let head = read_head(&self.root)?;
+                let frames = scan_visible(&self.root, &head, self.segment_bytes)?;
+                Ok((lock, head, frames))
+            })?;
         if let Some(existing) = frames
             .iter()
             .find(|frame| frame.entry.logical_key == logical_key)
@@ -549,48 +568,69 @@ impl SegmentQualificationJournal {
                 })
             };
         }
-        let frame = encode_frame(logical_key, decoded_bytes, head.next_sequence)?;
-        let frame_bytes = frame.len() as u64;
-        if frame_bytes > self.segment_bytes {
-            return Err(SegmentQualificationError::InvalidProfile {
-                message: format!(
-                    "encoded frame requires {frame_bytes} bytes, exceeding segment size {}",
-                    self.segment_bytes
-                ),
-            });
-        }
-        if head.committed_active_bytes + frame_bytes > self.segment_bytes {
-            seal_active_locked(&self.root, self.segment_bytes, None)?;
-            head = read_head(&self.root)?;
-        }
-        let active_path = self.root.join(&head.active_file);
-        let body_len = frame.len() - SEGMENT_FRAME_FOOTER_LEN_V1;
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&active_path)
-            .map_err(|error| io_error(&active_path, error))?;
-        file.seek(SeekFrom::Start(head.committed_active_bytes))
-            .and_then(|_| file.write_all(&frame[..body_len]))
-            .map_err(|error| io_error(&active_path, error))?;
-        inject_if(failure, SegmentFailurePointV1::AfterRecordBytes)?;
-        file.write_all(&frame[body_len..])
-            .map_err(|error| io_error(&active_path, error))?;
-        inject_if(failure, SegmentFailurePointV1::AfterCommitFooter)?;
-        file.sync_all()
-            .map_err(|error| io_error(&active_path, error))?;
-        inject_if(failure, SegmentFailurePointV1::AfterTailSync)?;
+        let (frame, frame_bytes) =
+            measure_profile_stage(&mut recorder, "frame_encode_and_rollover", || {
+                let frame = encode_frame(logical_key, decoded_bytes, head.next_sequence)?;
+                let frame_bytes = frame.len() as u64;
+                if frame_bytes > self.segment_bytes {
+                    return Err(SegmentQualificationError::InvalidProfile {
+                        message: format!(
+                            "encoded frame requires {frame_bytes} bytes, exceeding segment size {}",
+                            self.segment_bytes
+                        ),
+                    });
+                }
+                if head.committed_active_bytes + frame_bytes > self.segment_bytes {
+                    seal_active_locked(&self.root, self.segment_bytes, None)?;
+                    head = read_head(&self.root)?;
+                }
+                Ok((frame, frame_bytes))
+            })?;
+        measure_profile_stage(&mut recorder, "tail_write_and_sync", || {
+            let active_path = self.root.join(&head.active_file);
+            let body_len = frame.len() - SEGMENT_FRAME_FOOTER_LEN_V1;
+            let mut file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&active_path)
+                .map_err(|error| io_error(&active_path, error))?;
+            file.seek(SeekFrom::Start(head.committed_active_bytes))
+                .and_then(|_| file.write_all(&frame[..body_len]))
+                .map_err(|error| io_error(&active_path, error))?;
+            inject_if(failure, SegmentFailurePointV1::AfterRecordBytes)?;
+            file.write_all(&frame[body_len..])
+                .map_err(|error| io_error(&active_path, error))?;
+            inject_if(failure, SegmentFailurePointV1::AfterCommitFooter)?;
+            file.sync_all()
+                .map_err(|error| io_error(&active_path, error))?;
+            inject_if(failure, SegmentFailurePointV1::AfterTailSync)
+        })?;
 
         head.committed_active_bytes += frame_bytes;
         head.head_marker += 1;
         head.next_sequence += 1;
-        write_json_atomic(&self.root.join(SEGMENT_HEAD_FILE_V1), &head)?;
-        sync_directory(&self.root)?;
-        inject_if(failure, SegmentFailurePointV1::AfterHeadPublish)?;
-        let frames = scan_visible(&self.root, &head, self.segment_bytes)?;
-        write_index(&self.root, &head, &frames)?;
-        inject_if(failure, SegmentFailurePointV1::AfterIndexPublish)?;
+        measure_profile_stage(&mut recorder, "head_publication", || {
+            write_json_atomic(&self.root.join(SEGMENT_HEAD_FILE_V1), &head)?;
+            sync_directory(&self.root)?;
+            inject_if(failure, SegmentFailurePointV1::AfterHeadPublish)
+        })?;
+        measure_profile_stage(&mut recorder, "index_scan_and_publication", || {
+            let frames = scan_visible(&self.root, &head, self.segment_bytes)?;
+            write_index(&self.root, &head, &frames)?;
+            inject_if(failure, SegmentFailurePointV1::AfterIndexPublish)
+        })?;
         Ok(QualificationCreateOutcome::Created)
+    }
+}
+
+fn measure_profile_stage<T>(
+    recorder: &mut Option<&mut QualificationPerformanceStageRecorder>,
+    stage: &str,
+    operation: impl FnOnce() -> Result<T, SegmentQualificationError>,
+) -> Result<T, SegmentQualificationError> {
+    match recorder.as_deref_mut() {
+        Some(recorder) => recorder.measure(stage, operation),
+        None => operation(),
     }
 }
 
@@ -674,6 +714,70 @@ impl QualificationProfile for SegmentQualificationProfile {
             encoded_bytes,
             allocated_bytes: encoded_bytes,
             high_water_bytes: encoded_bytes,
+        })
+    }
+}
+
+impl QualificationPerformanceProbe for SegmentQualificationProfile {
+    fn run_profiled_operation(
+        &self,
+        request: &QualificationPerformanceOperationRequestV1<'_>,
+    ) -> Result<QualificationPerformanceDiagnosticSampleV1, String> {
+        let mut recorder = QualificationPerformanceStageRecorder::default();
+        match request.operation {
+            QualificationPerformanceOperationV1::DurableAppend => {
+                let outcome = self
+                    .journal
+                    .create_once_typed_profiled(
+                        request.logical_key,
+                        request.decoded_bytes,
+                        None,
+                        Some(&mut recorder),
+                    )
+                    .map_err(|_| "segment profiled append failed".to_owned())?;
+                if outcome != QualificationCreateOutcome::Created {
+                    return Err("segment profiled append did not create a fresh record".to_owned());
+                }
+            }
+            QualificationPerformanceOperationV1::StrictReplay => {
+                let entries = recorder
+                    .measure("lock_head_scan_decode", || self.journal.list())
+                    .map_err(|_| "segment profiled replay failed".to_owned())?;
+                std::hint::black_box(entries);
+            }
+            QualificationPerformanceOperationV1::KeyedRead => {
+                let entry = recorder
+                    .measure("lock_head_scan_lookup", || {
+                        self.journal.read(request.logical_key)
+                    })
+                    .map_err(|_| "segment profiled keyed read failed".to_owned())?
+                    .ok_or_else(|| "segment profiled keyed read omitted a record".to_owned())?;
+                if entry.decoded_bytes != request.decoded_bytes {
+                    return Err("segment profiled keyed read returned different bytes".to_owned());
+                }
+            }
+            QualificationPerformanceOperationV1::OpenRecovery => {
+                let reopened = recorder.measure("open_cleanup_recovery_scan", || {
+                    SegmentQualificationProfile::open(&self.root)
+                        .map_err(|_| "segment profiled reopen failed".to_owned())
+                })?;
+                recorder.measure("retained_and_visible_integrity", || {
+                    reopened
+                        .journal()
+                        .integrity_check()
+                        .map_err(|_| "segment profiled integrity validation failed".to_owned())
+                })?;
+            }
+        }
+        let total_elapsed_nanos = recorder.elapsed_nanos();
+        let stages = recorder.finish(total_elapsed_nanos)?;
+        Ok(QualificationPerformanceDiagnosticSampleV1 {
+            operation: request.operation,
+            role: request.role,
+            iteration: request.iteration,
+            pair_order: request.pair_order,
+            total_elapsed_nanos,
+            stages,
         })
     }
 }

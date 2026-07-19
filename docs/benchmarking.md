@@ -75,6 +75,31 @@ These matrix commands use only the checked-in public workloads. They do not read
 `POINTBREAK_QUALIFICATION_CORPUS`; validate an explicitly supplied external copy separately with the
 `--smoke` command above, and keep its record bytes outside the repository and generated reports.
 
+## Non-gating performance diagnostics
+
+The foundation target also has an explicit diagnostic mode that explains the candidate and loose-file
+operation totals without changing the qualification verdict:
+
+```sh
+cargo bench --features bench --bench store_foundation -- --qualification-diagnostics
+```
+
+It runs warm-up and alternating paired samples for durable append, strict replay, keyed read, and strict
+open/recovery. The JSON report binds the source commit, Cargo lockfile, diagnostic contract, candidate
+profile, workload, platform, pair order, raw totals, stage totals, and steady/reopened/high-water
+inventories. Diagnostic results are observations: exceeding the historical 125% ceiling does not make this
+command fail and does not select a storage profile.
+
+For order-sensitivity controls, repeat the command with
+`--qualification-pair-order=candidate_then_baseline` and
+`--qualification-pair-order=baseline_then_candidate`. An alternating report remains the primary paired
+observation; either fixed-order report on its own is incomplete diagnostic evidence.
+
+When `POINTBREAK_QUALIFICATION_CORPUS` names a validated external frozen copy, the same process also adds
+that workload. The path, logical keys, and decoded bytes are not serialized. Never point it at a live store,
+a path inside a Git worktree, or `~/.pointbreak`; an absent external path leaves the public diagnostic run
+complete without claiming external-corpus evidence.
+
 ## Real-world read-all sample: `POINTBREAK_BENCH_FIXTURE`
 
 The `read_all/fixture` group runs only when `POINTBREAK_BENCH_FIXTURE` points at a **store directory** — the

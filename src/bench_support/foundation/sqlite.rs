@@ -16,8 +16,11 @@ use super::{
     IndependentContentStoreV1, LogicalCapabilityEpochV1, NeverCancelled, PhysicalRecordKindV1,
     PhysicalRecordV1, PhysicalStoreHeaderV1, QualificationCorpusManifestV1,
     QualificationCreateOutcome, QualificationEntry, QualificationInventoryV1, QualificationJournal,
-    QualificationProfile, QualificationProfileDescriptorV1, QualificationRecordKindV1,
-    publish_completed_backup, qualification_filesystem_name, verify_completed_backup,
+    QualificationPerformanceDiagnosticSampleV1, QualificationPerformanceOperationRequestV1,
+    QualificationPerformanceOperationV1, QualificationPerformanceProbe,
+    QualificationPerformanceStageRecorder, QualificationProfile, QualificationProfileDescriptorV1,
+    QualificationRecordKindV1, publish_completed_backup, qualification_filesystem_name,
+    verify_completed_backup,
 };
 use crate::canonical_hash::sha256_bytes_hex;
 
@@ -436,34 +439,57 @@ impl SqliteQualificationJournal {
         logical_key: &str,
         decoded_bytes: &[u8],
     ) -> Result<QualificationCreateOutcome, SqliteQualificationError> {
-        validate_logical_key(logical_key)?;
-        let envelope = PhysicalRecordV1::encode(
-            logical_key,
-            QualificationRecordKindV1::LegacyEvent,
-            decoded_bytes,
-            &NeverCancelled,
-        )
-        .map_err(|error| SqliteQualificationError::Corruption {
-            logical_key: logical_key.to_owned(),
-            message: error.to_string(),
+        self.create_once_typed_profiled(logical_key, decoded_bytes, None)
+    }
+
+    fn create_once_typed_profiled(
+        &self,
+        logical_key: &str,
+        decoded_bytes: &[u8],
+        mut recorder: Option<&mut QualificationPerformanceStageRecorder>,
+    ) -> Result<QualificationCreateOutcome, SqliteQualificationError> {
+        let (envelope, key_digest, decoded_sha256) =
+            measure_profile_stage(&mut recorder, "validate_encode_digest", || {
+                validate_logical_key(logical_key)?;
+                let envelope = PhysicalRecordV1::encode(
+                    logical_key,
+                    QualificationRecordKindV1::LegacyEvent,
+                    decoded_bytes,
+                    &NeverCancelled,
+                )
+                .map_err(|error| SqliteQualificationError::Corruption {
+                    logical_key: logical_key.to_owned(),
+                    message: error.to_string(),
+                })?;
+                if envelope.len() > MAX_EVENT_PBRF_BYTES as usize {
+                    return Err(SqliteQualificationError::InvalidProfile {
+                        message: format!("encoded event exceeds {MAX_EVENT_PBRF_BYTES} bytes"),
+                    });
+                }
+                Ok((
+                    envelope,
+                    logical_key_digest(logical_key),
+                    Sha256::digest(decoded_bytes),
+                ))
+            })?;
+        let mut connection =
+            measure_profile_stage(&mut recorder, "connection_lock", || self.connection())?;
+        let transaction = measure_profile_stage(&mut recorder, "begin_immediate", || {
+            connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|error| sqlite_error("begin immediate", error))
         })?;
-        if envelope.len() > MAX_EVENT_PBRF_BYTES as usize {
-            return Err(SqliteQualificationError::InvalidProfile {
-                message: format!("encoded event exceeds {MAX_EVENT_PBRF_BYTES} bytes"),
-            });
-        }
-        let key_digest = logical_key_digest(logical_key);
-        let decoded_sha256 = Sha256::digest(decoded_bytes);
-        let mut connection = self.connection()?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| sqlite_error("begin immediate", error))?;
-        require_healthy_maintenance_state(&transaction, "create event")?;
-        if let Some(existing) = query_raw_entry(&transaction, &key_digest)? {
+        let existing = measure_profile_stage(&mut recorder, "health_and_key_lookup", || {
+            require_healthy_maintenance_state(&transaction, "create event")?;
+            query_raw_entry(&transaction, &key_digest)
+        })?;
+        if let Some(existing) = existing {
             let entry = decode_raw_entry(existing)?;
-            transaction
-                .commit()
-                .map_err(|error| sqlite_error("idempotent commit", error))?;
+            measure_profile_stage(&mut recorder, "idempotent_commit", || {
+                transaction
+                    .commit()
+                    .map_err(|error| sqlite_error("idempotent commit", error))
+            })?;
             return if entry.logical_key == logical_key && entry.decoded_bytes == decoded_bytes {
                 Ok(QualificationCreateOutcome::AlreadyExists)
             } else {
@@ -472,52 +498,58 @@ impl SqliteQualificationJournal {
                 })
             };
         }
-        let head_count = transaction
-            .query_row(
-                "SELECT head_count FROM qualification_meta WHERE singleton = 1",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
-            .map_err(|error| sqlite_error("read head", error))?;
-        let append_seq =
-            head_count
-                .checked_add(1)
-                .ok_or_else(|| SqliteQualificationError::InvalidProfile {
+        measure_profile_stage(&mut recorder, "row_and_head_write", || {
+            let head_count = transaction
+                .query_row(
+                    "SELECT head_count FROM qualification_meta WHERE singleton = 1",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(|error| sqlite_error("read head", error))?;
+            let append_seq = head_count.checked_add(1).ok_or_else(|| {
+                SqliteQualificationError::InvalidProfile {
                     message: "SQLite journal head overflow".to_owned(),
-                })?;
-        let decoded_len = i64::try_from(decoded_bytes.len()).map_err(|_| {
-            SqliteQualificationError::InvalidProfile {
-                message: "decoded event length does not fit SQLite".to_owned(),
-            }
+                }
+            })?;
+            let decoded_len = i64::try_from(decoded_bytes.len()).map_err(|_| {
+                SqliteQualificationError::InvalidProfile {
+                    message: "decoded event length does not fit SQLite".to_owned(),
+                }
+            })?;
+            transaction
+                .execute(
+                    "INSERT INTO journal_event
+                     (append_seq, logical_key, key_digest, decoded_len, decoded_sha256, pbrf)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        append_seq,
+                        logical_key,
+                        key_digest.as_slice(),
+                        decoded_len,
+                        decoded_sha256.as_slice(),
+                        envelope,
+                    ],
+                )
+                .map_err(|error| sqlite_error("insert journal event", error))?;
+            transaction
+                .execute(
+                    "UPDATE qualification_meta
+                     SET head_count = ?1, last_append_ns = ?2
+                     WHERE singleton = 1",
+                    params![append_seq, unix_time_nanos()],
+                )
+                .map_err(|error| sqlite_error("advance journal head", error))?;
+            Ok(())
         })?;
-        transaction
-            .execute(
-                "INSERT INTO journal_event
-                 (append_seq, logical_key, key_digest, decoded_len, decoded_sha256, pbrf)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    append_seq,
-                    logical_key,
-                    key_digest.as_slice(),
-                    decoded_len,
-                    decoded_sha256.as_slice(),
-                    envelope,
-                ],
-            )
-            .map_err(|error| sqlite_error("insert journal event", error))?;
-        transaction
-            .execute(
-                "UPDATE qualification_meta
-                 SET head_count = ?1, last_append_ns = ?2
-                 WHERE singleton = 1",
-                params![append_seq, unix_time_nanos()],
-            )
-            .map_err(|error| sqlite_error("advance journal head", error))?;
-        transaction
-            .commit()
-            .map_err(|error| sqlite_error("durable full commit", error))?;
+        measure_profile_stage(&mut recorder, "durable_full_commit", || {
+            transaction
+                .commit()
+                .map_err(|error| sqlite_error("durable full commit", error))
+        })?;
         drop(connection);
-        self.sample_high_water()?;
+        measure_profile_stage(&mut recorder, "inventory_observation", || {
+            self.sample_high_water()
+        })?;
         Ok(QualificationCreateOutcome::Created)
     }
 
@@ -577,6 +609,17 @@ impl SqliteQualificationJournal {
         let connection = self.connection()?;
         require_healthy_maintenance_state(&connection, "complete integrity check")?;
         validate_integrity_and_rows(&connection)
+    }
+}
+
+fn measure_profile_stage<T>(
+    recorder: &mut Option<&mut QualificationPerformanceStageRecorder>,
+    stage: &str,
+    operation: impl FnOnce() -> Result<T, SqliteQualificationError>,
+) -> Result<T, SqliteQualificationError> {
+    match recorder.as_deref_mut() {
+        Some(recorder) => recorder.measure(stage, operation),
+        None => operation(),
     }
 }
 
@@ -1152,6 +1195,69 @@ impl QualificationProfile for SqliteQualificationProfile {
                 .saturating_add(content.high_water_bytes)
                 .max(allocated_bytes)
                 .max(encoded_bytes),
+        })
+    }
+}
+
+impl QualificationPerformanceProbe for SqliteQualificationProfile {
+    fn run_profiled_operation(
+        &self,
+        request: &QualificationPerformanceOperationRequestV1<'_>,
+    ) -> Result<QualificationPerformanceDiagnosticSampleV1, String> {
+        let mut recorder = QualificationPerformanceStageRecorder::default();
+        match request.operation {
+            QualificationPerformanceOperationV1::DurableAppend => {
+                let outcome = self
+                    .journal
+                    .create_once_typed_profiled(
+                        request.logical_key,
+                        request.decoded_bytes,
+                        Some(&mut recorder),
+                    )
+                    .map_err(|_| "SQLite profiled append failed".to_owned())?;
+                if outcome != QualificationCreateOutcome::Created {
+                    return Err("SQLite profiled append did not create a fresh record".to_owned());
+                }
+            }
+            QualificationPerformanceOperationV1::StrictReplay => {
+                let entries = recorder
+                    .measure("query_decode_verify", || self.journal.list())
+                    .map_err(|_| "SQLite profiled replay failed".to_owned())?;
+                std::hint::black_box(entries);
+            }
+            QualificationPerformanceOperationV1::KeyedRead => {
+                let entry = recorder
+                    .measure("indexed_lookup_decode_verify", || {
+                        self.journal.read(request.logical_key)
+                    })
+                    .map_err(|_| "SQLite profiled keyed read failed".to_owned())?
+                    .ok_or_else(|| "SQLite profiled keyed read omitted a record".to_owned())?;
+                if entry.decoded_bytes != request.decoded_bytes {
+                    return Err("SQLite profiled keyed read returned different bytes".to_owned());
+                }
+            }
+            QualificationPerformanceOperationV1::OpenRecovery => {
+                let reopened = recorder.measure("open_and_metadata_validation", || {
+                    SqliteQualificationProfile::open(&self.root)
+                        .map_err(|_| "SQLite profiled reopen failed".to_owned())
+                })?;
+                recorder.measure("integrity_and_row_validation", || {
+                    reopened
+                        .journal()
+                        .integrity_check()
+                        .map_err(|_| "SQLite profiled integrity validation failed".to_owned())
+                })?;
+            }
+        }
+        let total_elapsed_nanos = recorder.elapsed_nanos();
+        let stages = recorder.finish(total_elapsed_nanos)?;
+        Ok(QualificationPerformanceDiagnosticSampleV1 {
+            operation: request.operation,
+            role: request.role,
+            iteration: request.iteration,
+            pair_order: request.pair_order,
+            total_elapsed_nanos,
+            stages,
         })
     }
 }

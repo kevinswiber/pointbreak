@@ -10,10 +10,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::{
-    QualificationCorpusManifestV1, QualificationCreateOutcome, QualificationInventoryV1,
-    QualificationProfile, QualificationRecordKindV1, QualificationScenarioOutcomeV1,
-    SegmentDiagnosticStateV1, SegmentFailurePointV1, SegmentQualificationProfile,
-    SqliteDiagnosticStateV1, SqliteQualificationProfile, modeled_post_foundation_manifest,
+    LooseQualificationPerformanceProbe, QualificationCorpusManifestV1, QualificationCreateOutcome,
+    QualificationInventoryV1, QualificationProfile, QualificationRecordKindV1,
+    QualificationScenarioOutcomeV1, SegmentDiagnosticStateV1, SegmentFailurePointV1,
+    SegmentQualificationProfile, SqliteDiagnosticStateV1, SqliteQualificationProfile,
+    evaluate_qualification_performance_h8_v1, modeled_post_foundation_manifest,
     qualification_filesystem_name, synthetic_legacy_manifest,
 };
 use crate::canonical_hash::{canonical_json_bytes, sha256_bytes_hex};
@@ -1352,7 +1353,7 @@ fn open_candidate(
     }
 }
 
-fn populate_profile(
+pub(super) fn populate_profile(
     profile: &dyn QualificationProfile,
     workload: &QualificationCorpusManifestV1,
 ) -> Result<(), String> {
@@ -2065,21 +2066,7 @@ fn run_performance_samples(
         .logical_key
         .clone();
     let baseline_root = entry_root.join("loose-baseline");
-    fs::create_dir(&baseline_root).map_err(|error| error.to_string())?;
-    for record in &workload.records {
-        let path = baseline_record_path(&baseline_root, &record.logical_key, record.record_kind);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .map_err(|error| error.to_string())?;
-        file.write_all(&record.decoded_bytes)
-            .and_then(|_| file.sync_all())
-            .map_err(|error| error.to_string())?;
-    }
+    let baseline = LooseQualificationPerformanceProbe::create(baseline_root.clone(), workload)?;
     let baseline_key_path = workload
         .records
         .iter()
@@ -2100,23 +2087,17 @@ fn run_performance_samples(
             elapsed_nanos(started),
         ));
 
-        let baseline_path = baseline_root
+        let baseline_append_path = baseline_root
             .join("events")
             .join(format!("append-{iteration:08}.json"));
         let started = Instant::now();
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&baseline_path)
-            .map_err(|error| error.to_string())?;
-        file.write_all(b"performance")
-            .and_then(|_| file.sync_all())
-            .map_err(|error| error.to_string())?;
+        baseline.legacy_durable_append(&baseline_append_path, b"performance")?;
         raw_samples.push(sample(
             "baseline_durable_append",
             iteration,
             elapsed_nanos(started),
         ));
+        baseline.record_legacy_append(b"performance");
 
         let started = Instant::now();
         profile.as_profile().journal().list()?;
@@ -2127,7 +2108,7 @@ fn run_performance_samples(
         ));
 
         let started = Instant::now();
-        read_all_files(&baseline_root)?;
+        baseline.legacy_replay()?;
         raw_samples.push(sample("baseline_replay", iteration, elapsed_nanos(started)));
 
         let started = Instant::now();
@@ -2139,8 +2120,7 @@ fn run_performance_samples(
         ));
 
         let started = Instant::now();
-        let baseline_key_bytes = fs::read(&baseline_key_path).map_err(|error| error.to_string())?;
-        std::hint::black_box(Sha256::digest(&baseline_key_bytes));
+        baseline.legacy_keyed_read(&baseline_key_path)?;
         raw_samples.push(sample(
             "baseline_keyed_read",
             iteration,
@@ -2157,7 +2137,7 @@ fn run_performance_samples(
         ));
 
         let started = Instant::now();
-        read_all_files(&baseline_root)?;
+        baseline.legacy_open_recovery()?;
         raw_samples.push(sample(
             "baseline_open_recovery",
             iteration,
@@ -2183,13 +2163,15 @@ fn run_performance_samples(
     if baseline_logical == 0 || inventory.logical_bytes == 0 {
         return Err("performance inventory omitted logical bytes".to_owned());
     }
-    let gate_failure = (samples > 1)
-        .then(|| performance_gate_failure(&raw_samples))
-        .flatten();
+    let gate_failure = if samples > 1 {
+        evaluate_qualification_performance_h8_v1(&raw_samples)?
+    } else {
+        None
+    };
     Ok(ScenarioArtifactsV1 {
         raw_samples,
         inventory: Some(inventory),
-        baseline_inventory: Some(baseline_inventory(&baseline_root, baseline_logical)?),
+        baseline_inventory: Some(baseline.inventory()?),
         process_overlap: None,
         gate_failure,
     })
@@ -2367,7 +2349,7 @@ fn write_marker(path: &Path) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-fn baseline_record_path(
+pub(super) fn baseline_record_path(
     root: &Path,
     logical_key: &str,
     record_kind: QualificationRecordKindV1,
@@ -2387,7 +2369,7 @@ fn baseline_record_path(
         .join(format!("{}.json", sha256_bytes_hex(logical_key.as_bytes())))
 }
 
-fn read_all_files(root: &Path) -> Result<(), String> {
+pub(super) fn read_all_files(root: &Path) -> Result<(), String> {
     for path in inventory_file_paths(root)? {
         let bytes = fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?;
         std::hint::black_box(Sha256::digest(&bytes));
@@ -2395,7 +2377,10 @@ fn read_all_files(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn baseline_inventory(root: &Path, logical_bytes: u64) -> Result<QualificationInventoryV1, String> {
+pub(super) fn baseline_inventory(
+    root: &Path,
+    logical_bytes: u64,
+) -> Result<QualificationInventoryV1, String> {
     native_inventory(root, logical_bytes, 0)
 }
 
@@ -2515,48 +2500,6 @@ fn native_allocation_method() -> &'static str {
 #[cfg(not(any(unix, windows)))]
 fn native_allocation_method() -> &'static str {
     "logical_length_fallback"
-}
-
-fn performance_gate_failure(samples: &[QualificationRawSampleV1]) -> Option<String> {
-    let comparisons = [
-        (
-            "durable_append",
-            "candidate_durable_append",
-            "baseline_durable_append",
-        ),
-        ("replay", "candidate_replay", "baseline_replay"),
-        ("keyed_read", "candidate_keyed_read", "baseline_keyed_read"),
-        (
-            "open_recovery",
-            "candidate_open_recovery",
-            "baseline_open_recovery",
-        ),
-    ];
-    let mut failures = Vec::new();
-    for (label, candidate, baseline) in comparisons {
-        let candidate_p95 = sample_p95(samples, candidate)?;
-        let baseline_p95 = sample_p95(samples, baseline)?;
-        if u128::from(candidate_p95) * 100 > u128::from(baseline_p95) * 125 {
-            failures.push(format!(
-                "{label} p95 {candidate_p95}ns exceeds 125% of fresh loose baseline {baseline_p95}ns"
-            ));
-        }
-    }
-    (!failures.is_empty()).then(|| failures.join("; "))
-}
-
-fn sample_p95(samples: &[QualificationRawSampleV1], operation: &str) -> Option<u64> {
-    let mut values = samples
-        .iter()
-        .filter(|sample| sample.operation == operation)
-        .map(|sample| sample.elapsed_nanos)
-        .collect::<Vec<_>>();
-    if values.is_empty() {
-        return None;
-    }
-    values.sort_unstable();
-    let rank = values.len().saturating_mul(95).div_ceil(100).max(1);
-    values.get(rank - 1).copied()
 }
 
 fn sample(operation: &str, iteration: u32, elapsed_nanos: u64) -> QualificationRawSampleV1 {

@@ -9,19 +9,22 @@ use pointbreak::bench_support::foundation::{
     DisposableBundleDestinationV2, ExactBundleClosureV2, ExactBundleFailurePointV2,
     ExactBundleManifestV2, ExactBundlePublicationReportV2, ImportReceiptPolicyPrototypeV1,
     ImportReceiptPrototypeV1, LogicalCapabilityEpochV1, QualificationCorpusError,
-    QualificationCorpusSummaryV1, QualificationRunConfigurationV1, QualificationSnapshotTotalsV1,
-    ReceiptBackupConsequenceV1, ReceiptProjectionConsequenceV1, SegmentWorkloadEvidenceV1,
-    SnapshotDriftReportV1, SqliteWorkloadEvidenceV1, load_frozen_legacy_manifest_from_env,
-    modeled_post_foundation_manifest, publish_exact_bundle_v2, qualification_cargo_lock_sha256,
-    qualification_filesystem_name, qualification_source_commit, run_qualification_child,
-    run_qualification_platform_matrix, run_segment_workload, run_sqlite_workload,
-    synthetic_legacy_manifest,
+    QualificationCorpusSummaryV1, QualificationPerformanceDiagnosticConfigurationV1,
+    QualificationPerformancePairOrderV1, QualificationRunConfigurationV1,
+    QualificationSnapshotTotalsV1, ReceiptBackupConsequenceV1, ReceiptProjectionConsequenceV1,
+    SegmentWorkloadEvidenceV1, SnapshotDriftReportV1, SqliteWorkloadEvidenceV1,
+    load_frozen_legacy_manifest_from_env, modeled_post_foundation_manifest,
+    publish_exact_bundle_v2, qualification_cargo_lock_sha256, qualification_filesystem_name,
+    qualification_source_commit, run_qualification_child,
+    run_qualification_performance_diagnostics, run_qualification_platform_matrix,
+    run_segment_workload, run_sqlite_workload, synthetic_legacy_manifest,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 const USAGE: &str = "\
-Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--transfer-smoke|--sqlite-smoke|--segments-smoke|--qualification-smoke|--qualification-evidence|--help]\n\
+Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--transfer-smoke|--sqlite-smoke|--segments-smoke|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--help]\n\
+       --qualification-diagnostics [--qualification-pair-order=alternating|candidate_then_baseline|baseline_then_candidate]\n\
 \n\
 Validates deterministic workload, transfer, candidate, or native-platform qualification contracts and prints JSON.\n\
 Qualification modes use disposable roots and never select or activate production storage.\n";
@@ -158,10 +161,21 @@ fn main() -> ExitCode {
         "--segments-smoke",
         "--qualification-smoke",
         "--qualification-evidence",
+        "--qualification-diagnostics",
     ]
     .into_iter()
     .filter(|mode| arguments.iter().any(|argument| argument == mode))
     .count();
+    let diagnostic_pair_order = match qualification_pair_order(&arguments) {
+        Ok(order) => order,
+        Err(()) => {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    let diagnostics_requested = arguments
+        .iter()
+        .any(|argument| argument == "--qualification-diagnostics");
     if arguments.iter().any(|argument| {
         argument != "--smoke"
             && argument != "--transfer-smoke"
@@ -169,8 +183,11 @@ fn main() -> ExitCode {
             && argument != "--segments-smoke"
             && argument != "--qualification-smoke"
             && argument != "--qualification-evidence"
+            && argument != "--qualification-diagnostics"
             && argument != "--bench"
+            && !argument.starts_with("--qualification-pair-order=")
     }) || requested_modes > 1
+        || (!diagnostics_requested && diagnostic_pair_order.is_some())
     {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
@@ -188,6 +205,12 @@ fn main() -> ExitCode {
         .any(|argument| argument == "--qualification-evidence")
     {
         return qualification_report(5);
+    }
+
+    if diagnostics_requested {
+        return qualification_diagnostics_report(
+            diagnostic_pair_order.unwrap_or(QualificationPerformancePairOrderV1::Alternating),
+        );
     }
 
     if arguments
@@ -308,6 +331,78 @@ fn qualification_report(performance_samples: u32) -> ExitCode {
         }
         Err(error) => {
             eprintln!("store foundation qualification failed: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn qualification_pair_order(
+    arguments: &[String],
+) -> Result<Option<QualificationPerformancePairOrderV1>, ()> {
+    let values = arguments
+        .iter()
+        .filter_map(|argument| argument.strip_prefix("--qualification-pair-order="))
+        .collect::<Vec<_>>();
+    if values.len() > 1 {
+        return Err(());
+    }
+    values
+        .first()
+        .map(|value| match *value {
+            "alternating" => Ok(QualificationPerformancePairOrderV1::Alternating),
+            "candidate_then_baseline" => {
+                Ok(QualificationPerformancePairOrderV1::CandidateThenBaseline)
+            }
+            "baseline_then_candidate" => {
+                Ok(QualificationPerformancePairOrderV1::BaselineThenCandidate)
+            }
+            _ => Err(()),
+        })
+        .transpose()
+}
+
+fn qualification_diagnostics_report(pair_order: QualificationPerformancePairOrderV1) -> ExitCode {
+    let disposable = match tempfile::tempdir() {
+        Ok(root) => root,
+        Err(error) => {
+            eprintln!("store foundation diagnostics failed to create a disposable root: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let source_commit = match qualification_source_commit() {
+        Ok(commit) => commit,
+        Err(error) => {
+            eprintln!("store foundation diagnostics provenance failed: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let configuration = QualificationPerformanceDiagnosticConfigurationV1 {
+        executable: match std::env::current_exe() {
+            Ok(executable) => executable,
+            Err(error) => {
+                eprintln!("store foundation diagnostics executable lookup failed: {error}");
+                return ExitCode::from(1);
+            }
+        },
+        root: disposable.path().join("performance-diagnostics"),
+        source_commit,
+        cargo_lock_sha256: qualification_cargo_lock_sha256(),
+        warmup_samples: 3,
+        measured_samples: 21,
+        pair_order,
+        external_corpus_root: std::env::var_os("POINTBREAK_QUALIFICATION_CORPUS")
+            .map(std::path::PathBuf::from),
+    };
+    match run_qualification_performance_diagnostics(&configuration) {
+        Ok(report) => {
+            println!(
+                "{}",
+                serde_json::to_string(&report).expect("performance diagnostics serialize")
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("store foundation diagnostics failed: {error}");
             ExitCode::from(1)
         }
     }
