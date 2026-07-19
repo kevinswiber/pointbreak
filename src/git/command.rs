@@ -307,10 +307,15 @@ mod tests {
 
     #[test]
     fn routable_helpers_dispatch_through_a_backend() {
+        use crate::git::backend::{BackendSelector, inject_selector, reset_selector};
+        // Pin the subprocess backend so this asserts the seam wiring
+        // deterministically, independent of any ambient POINTBREAK_GIT_BACKEND.
+        inject_selector(BackendSelector::ForceSubprocess);
         let repo = TwoCommitRepo::new();
         reset_backend_tag();
         let _ = git_paths_are_ignored(repo.path(), &["x"]).unwrap();
         assert_eq!(last_backend_tag(), Some(BackendTag::Subprocess));
+        reset_selector();
     }
 
     #[test]
@@ -340,6 +345,10 @@ mod tests {
 
     #[test]
     fn subprocess_spawn_counter_tracks_git_invocations() {
+        use crate::git::backend::{BackendSelector, inject_selector, reset_selector};
+        // Pin the subprocess backend: this asserts the subprocess spawn counter,
+        // which a forced-gix override would zero out (native reads never spawn).
+        inject_selector(BackendSelector::ForceSubprocess);
         let repo = TwoCommitRepo::new();
         reset_git_spawn_count();
         let _ = git_head_oid(repo.path()).unwrap();
@@ -347,6 +356,7 @@ mod tests {
             git_spawn_count() > 0,
             "a git helper spawns at least one subprocess"
         );
+        reset_selector();
     }
 
     #[cfg(feature = "gix")]
