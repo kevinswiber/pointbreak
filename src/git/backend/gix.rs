@@ -96,6 +96,71 @@ fn canonicalize(path: &Path) -> GixResult<PathBuf> {
         .map_err(|error| GitBackendError::new(format!("canonicalize {}: {error}", path.display())))
 }
 
+// --- Windows path-form normalization ---------------------------------------
+//
+// gix's canonicalized paths carry the Windows extended-length (`\\?\`) prefix and
+// backslash separators that `git`'s porcelain never emits (`git rev-parse` /
+// `worktree list` print the plain forward-slash form). The subprocess backend
+// already normalizes pathspec separators (`git_pathspec_for_separator`); these
+// helpers give the gix wrappers the same conformance so parity holds on Windows on
+// the resolved identity, not the path spelling. The transforms below are pure and
+// are unit-tested with Windows-shaped inputs on every platform; the call-site
+// wrappers apply them only on Windows, so off Windows every affected wrapper is
+// byte-identical (a backslash is a literal filename byte there, and a possibly
+// non-UTF-8 path is untouched). `config_path_get` is deliberately NOT normalized
+// (see its wrapper): git's `config --type=path` spelling is conditional on whether
+// a `~` was expanded, which gix cannot reproduce, so it stays on subprocess.
+
+/// Drop the Windows extended-length prefix `std::fs::canonicalize` prepends
+/// (`\\?\`, or `\\?\UNC\server\share` → the UNC path `\\server\share`), returning
+/// the plain form git prints. Input without the prefix is returned unchanged.
+fn strip_verbatim_prefix(text: &str) -> String {
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        rest.to_owned()
+    } else {
+        text.to_owned()
+    }
+}
+
+/// Rewrite backslash path separators to the forward slashes git emits. The
+/// building block of the canonicalized-path form and the inventory-comparison key.
+fn git_slash_separators(text: &str) -> String {
+    text.replace('\\', "/")
+}
+
+/// The plain, forward-slash spelling git's porcelain reports for a canonicalized
+/// absolute path: the extended-length prefix stripped and separators rewritten,
+/// preserving the drive-letter casing git emits.
+fn git_canonical_path_form(text: &str) -> String {
+    git_slash_separators(&strip_verbatim_prefix(text))
+}
+
+/// Convert a canonicalized path to the form git's porcelain reports. Only Windows
+/// paths carry the extended-length prefix / backslash separators, so off Windows
+/// this is the identity — a backslash stays a literal filename byte and a
+/// (possibly non-UTF-8) path is returned untouched. Windows canonical paths are
+/// valid Unicode (NTFS), so the lossy render is faithful there.
+fn to_git_observed_path(path: PathBuf) -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(git_canonical_path_form(&path.to_string_lossy()))
+    } else {
+        path
+    }
+}
+
+/// Normalize the inventory comparison key's separators to git's forward-slash
+/// form. Off Windows the identity, so a literal backslash in a Unix filename is
+/// preserved.
+fn to_git_observed_separators(text: String) -> String {
+    if cfg!(windows) {
+        git_slash_separators(&text)
+    } else {
+        text
+    }
+}
+
 /// Render a `BStr` as an owned `String`, erroring on non-UTF-8 like the
 /// subprocess helpers do for the values that must be text.
 fn bstr_to_string(bytes: &::gix::bstr::BStr, description: &str) -> GixResult<String> {
@@ -183,14 +248,18 @@ impl GitBackend for GixBackend {
                 repo.display()
             ))
         })?;
-        Ok(canonicalize(workdir)?)
+        // worktree_root is an identity scalar; its canonicalized path shares the
+        // Windows verbatim/backslash form the read-class discovery paths carry, so
+        // it takes the same normalization to match git's forward-slash form.
+        Ok(to_git_observed_path(canonicalize(workdir)?))
     }
 
     fn common_dir(&self, repo: &Path) -> Result<PathBuf> {
         let repository = open(repo)?;
         // gix returns the common dir non-normalized (e.g. `…/worktrees/x/../..`);
-        // canonicalize so parity is on the resolved dir, never the path taken.
-        Ok(canonicalize(repository.common_dir())?)
+        // canonicalize so parity is on the resolved dir, never the path taken, then
+        // normalize the Windows verbatim/backslash form to git's forward-slash path.
+        Ok(to_git_observed_path(canonicalize(repository.common_dir())?))
     }
 
     fn is_ancestor(
@@ -588,8 +657,11 @@ impl GitBackend for GixBackend {
                 None => (None, true),
             };
             worktrees.push(GitWorktree {
-                // git's porcelain prints the canonicalized worktree path.
-                path: canonicalize(workdir).unwrap_or_else(|_| workdir.to_path_buf()),
+                // git's porcelain prints the canonicalized worktree path in its
+                // plain forward-slash form (no Windows verbatim prefix).
+                path: to_git_observed_path(
+                    canonicalize(workdir).unwrap_or_else(|_| workdir.to_path_buf()),
+                ),
                 head: repository.head_id().ok().map(|id| id.to_string()),
                 branch,
                 detached,
@@ -627,7 +699,7 @@ impl GitBackend for GixBackend {
                 None => (None, None, false),
             };
             worktrees.push(GitWorktree {
-                path: canonicalize(&base).unwrap_or(base),
+                path: to_git_observed_path(canonicalize(&base).unwrap_or(base)),
                 head,
                 branch,
                 detached,
@@ -698,9 +770,14 @@ impl GitBackend for GixBackend {
     fn path_is_untracked(&self, repo: &Path, relative_path: &str) -> Result<bool> {
         let repository = open(repo)?;
         let untracked = dirwalk_untracked_paths(&repository)?;
+        // The caller's relative path uses the platform separator (a backslash on
+        // Windows, e.g. `.pointbreak\.gitignore`); gix's dirwalk emits forward
+        // slashes, so normalize the comparison key as git's `ls-files <pathspec>`
+        // does before matching.
+        let needle = to_git_observed_separators(relative_path.to_owned());
         Ok(untracked
             .iter()
-            .any(|bytes| bytes.as_slice() == relative_path.as_bytes()))
+            .any(|bytes| bytes.as_slice() == needle.as_bytes()))
     }
 
     fn config_get(&self, repo: &Path, key: &str) -> Option<String> {
@@ -715,6 +792,12 @@ impl GitBackend for GixBackend {
         let repository = open(repo).ok()?;
         let snapshot = repository.config_snapshot();
         let path = snapshot.trusted_path(key)?.ok()?;
+        // Deliberately NOT separator-normalized: git's `config --type=path` renders
+        // a `~`-expanded value in forward-slash form but an already-absolute stored
+        // path with its backslashes preserved, and gix cannot replicate that
+        // conditional spelling without corrupting the absolute case. So
+        // `read:config-discovery` stays on the subprocess backend (a held class);
+        // the Windows `~`-expansion form divergence is a recorded steady state.
         let text = path.to_string_lossy().trim().to_owned();
         (!text.is_empty()).then_some(text)
     }
@@ -883,5 +966,54 @@ mod tests {
             gix.head_ref(repo.path()).unwrap(),
             subprocess.head_ref(repo.path()).unwrap()
         );
+    }
+
+    // The Windows path-form normalizations are pure string transforms, so these
+    // assert the subprocess-observed spelling for the exact diverging values the
+    // Windows qualification battery recorded — and run on every platform.
+
+    #[test]
+    fn canonical_path_form_strips_verbatim_prefix_and_slashes() {
+        // read:repo-discovery / common_dir and read:graph-refs / worktree_list:
+        // std::fs::canonicalize yields a verbatim, backslash path on Windows while
+        // git's porcelain prints the plain forward-slash form.
+        assert_eq!(
+            git_canonical_path_form(r"\\?\C:\Users\kevin\AppData\Local\Temp\.tmpABCD\.git"),
+            "C:/Users/kevin/AppData/Local/Temp/.tmpABCD/.git"
+        );
+        // Drive-letter casing is preserved as git emits it.
+        assert_eq!(git_canonical_path_form(r"\\?\c:\Temp\x"), "c:/Temp/x");
+        // A UNC share: `\\?\UNC\server\share` denotes `\\server\share`.
+        assert_eq!(
+            git_canonical_path_form(r"\\?\UNC\server\share\repo\.git"),
+            "//server/share/repo/.git"
+        );
+        // The macOS canonicalize output is already git's form and is unchanged.
+        assert_eq!(
+            git_canonical_path_form("/Users/kevin/repo/.git"),
+            "/Users/kevin/repo/.git"
+        );
+    }
+
+    #[test]
+    fn strip_verbatim_prefix_only_touches_extended_length_paths() {
+        assert_eq!(strip_verbatim_prefix(r"\\?\C:\x"), r"C:\x");
+        assert_eq!(strip_verbatim_prefix(r"\\?\UNC\srv\sh"), r"\\srv\sh");
+        assert_eq!(strip_verbatim_prefix("C:/plain"), "C:/plain");
+        assert_eq!(strip_verbatim_prefix("/unix/path"), "/unix/path");
+    }
+
+    #[test]
+    fn slash_separators_rewrite_the_inventory_comparison_key() {
+        // read:inventory / path_is_untracked: the caller's relative path is
+        // backslash-separated on Windows; gix's dirwalk emits forward slashes, so
+        // the comparison key is normalized (as git's `ls-files <pathspec>` does).
+        assert_eq!(
+            git_slash_separators(r".pointbreak\.gitignore"),
+            ".pointbreak/.gitignore"
+        );
+        // Mixed separators collapse to all-forward too (the building block of the
+        // canonicalized-path form).
+        assert_eq!(git_slash_separators(r"a\b/c\d"), "a/b/c/d");
     }
 }
