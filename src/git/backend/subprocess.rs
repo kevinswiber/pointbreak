@@ -38,6 +38,8 @@ where
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BackendTag {
     Subprocess,
+    #[cfg(feature = "gix")]
+    Gix,
 }
 
 // Per-thread instrumentation: every recording site runs synchronously on the

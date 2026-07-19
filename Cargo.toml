@@ -49,6 +49,14 @@ required-features = ["bench"]
 # by default and never enabled in a release build, so the harnesses stay out of
 # the published surface.
 bench = ["dep:libsqlite3-sys", "dep:rusqlite", "dep:zstd"]
+# Compiles the in-process `git` library backend alongside the subprocess one.
+# Off by default: the default build keeps a single-variant backend enum and
+# stays byte-identical and dependency-free.
+gix = ["dep:gix"]
+# The differential subprocess-vs-gix parity harness. Adds only the diagnostic
+# diff renderer the harness needs (the reads-only `gix` feature omits it); never
+# part of the default build or the release binary.
+gix-parity = ["gix", "gix/blob-diff", "dep:gix-imara-diff"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -56,6 +64,12 @@ base64 = "0.22"
 bs58 = "0.5"
 ed25519-dalek = "2"
 getrandom = "0.4"
+# Both object-hash formats are explicit gix features (the hash crate rejects a
+# neither-enabled build); `blob-diff`/`gix-imara-diff` only through `gix-parity`.
+gix = { version = "0.85.0", default-features = false, features = [
+    "sha1", "sha256", "revision", "status", "dirwalk", "attributes", "excludes", "index",
+], optional = true }
+gix-imara-diff = { version = "0.2.3", default-features = false, features = ["unified_diff"], optional = true }
 libsqlite3-sys = { version = "0.38.1", features = ["bundled"], optional = true }
 mmdflux = { version = "2.6", default-features = false }
 rusqlite = { version = "0.40.1", default-features = false, features = ["backup", "bundled", "limits"], optional = true }
