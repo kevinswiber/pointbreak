@@ -324,6 +324,48 @@ fn identity_scalar_vectors() -> Vec<VectorVerdict> {
         backend.head_commit_oid_optional(path)
     }));
 
+    // Writer config_get (the identity-grade config scalar) resolves the same value
+    // git does across multi-scope precedence: a local value outranks the ambient
+    // global (both must pick the local one, never the host's global user.email), a
+    // worktree value outranks local, and an explicitly empty value is None on both.
+    // The writer caller elides this lookup when POINTBREAK_ACTOR_ID is set, so the
+    // vector exercises only the resolution path. (config_path_get — signing-key
+    // discovery — is the read:config-discovery class, held on subprocess because
+    // git's `~`-expansion path spelling is not reproducible in gix; it is not an
+    // identity scalar and is not gated here.)
+    let multi = multi_scope_config_fixture();
+    verdicts.push(qualify_op(&multi, |backend, path| {
+        Ok(backend.config_get(path, "user.email"))
+    }));
+    let empty_email = empty_local_email_fixture();
+    verdicts.push(qualify_op(&empty_email, |backend, path| {
+        Ok(backend.config_get(path, "user.email"))
+    }));
+
+    // SHA-256 object-format OID byte-parity (closes ASSUMPTION-Q2-3). SHA-1 parity
+    // is covered by the scalar vectors above; this proves the identity scalars are
+    // byte-equal under the SHA-256 object format too. Skipped when the host git
+    // lacks `--object-format=sha256`.
+    if let Some(sha256) = maybe_sha256_repo_fixture() {
+        let sha_head = rev(sha256.path(), "HEAD");
+        verdicts.push(qualify_op(&sha256, |backend, path| {
+            backend.empty_tree_oid(path)
+        }));
+        verdicts.push(qualify_op(&sha256, |backend, path| backend.head_oid(path)));
+        verdicts.push(qualify_op(&sha256, |backend, path| {
+            backend.head_commit_oid_optional(path)
+        }));
+        verdicts.push(qualify_op(&sha256, |backend, path| {
+            backend.rev_parse_commit_oid(path, "HEAD")
+        }));
+        verdicts.push(qualify_op(&sha256, move |backend, path| {
+            backend.commit_tree_oid(path, &sha_head)
+        }));
+        verdicts.push(qualify_op(&sha256, |backend, path| {
+            backend.worktree_root(path)
+        }));
+    }
+
     verdicts
 }
 
@@ -705,6 +747,57 @@ fn config_discovery_fixture() -> GitFixture {
     fixture
 }
 
+/// A repository whose writer identity `user.email` is set across multiple config
+/// scopes: local (outranking the host's ambient global value) and again at
+/// worktree scope (outranking local). The backends must resolve the same
+/// highest-precedence value git does — never the ambient global — proving
+/// `config_get` precedence parity.
+fn multi_scope_config_fixture() -> GitFixture {
+    let fixture = two_commit_fixture();
+    git(
+        fixture.path(),
+        ["config", "--local", "user.email", "local@example.com"],
+    );
+    // Worktree scope outranks local; enable the extension so a per-worktree value
+    // is preferred, exercising the highest-precedence tier of the resolution.
+    git(
+        fixture.path(),
+        ["config", "--local", "extensions.worktreeConfig", "true"],
+    );
+    git(
+        fixture.path(),
+        ["config", "--worktree", "user.email", "worktree@example.com"],
+    );
+    fixture
+}
+
+/// A repository with an explicitly empty local `user.email`. The empty value
+/// shadows any ambient global, so git reports it (exit 0, empty) and both backends
+/// map empty to `None` — the writer-identity fallback trigger.
+fn empty_local_email_fixture() -> GitFixture {
+    let fixture = two_commit_fixture();
+    git(fixture.path(), ["config", "--local", "user.email", ""]);
+    fixture
+}
+
+/// A repository initialized with the SHA-256 object format, or `None` when the
+/// host git lacks `--object-format=sha256` support (mirrors `maybe_sha256_repo`
+/// in `command.rs`). Proves the identity scalars are byte-equal under both object
+/// formats.
+fn maybe_sha256_repo_fixture() -> Option<GitFixture> {
+    let root = TempDir::new().expect("create sha256 fixture directory");
+    let path = root.path().to_path_buf();
+    if run_git(&path, ["init", "--object-format=sha256"]).is_err() {
+        return None;
+    }
+    git(&path, ["symbolic-ref", "HEAD", "refs/heads/main"]);
+    configure_identity(&path);
+    write_file(&path, "file.txt", "one\n");
+    git(&path, ["add", "--all"]);
+    git(&path, ["commit", "-m", "first"]);
+    Some(GitFixture { _root: root, path })
+}
+
 fn linked_worktree_fixture() -> GitFixture {
     let fixture = two_commit_fixture();
     // A linked worktree shares the common dir; place it under the same temp root
@@ -812,6 +905,61 @@ fn git_backend_parity_reports_every_routable_class() {
         assert_eq!(result.schema, GIT_BACKEND_PARITY_RESULT_SCHEMA_V1);
         assert!(result.vectors > 0, "class {} ran no vectors", result.class);
     }
+}
+
+#[test]
+fn git_backend_parity_scalar_oids_hold_for_sha256_object_format() {
+    // Identity-grade gate (ADR-0037 D4): OID scalars are byte-equal under the
+    // SHA-256 object format, not only SHA-1. Skipped when the host git lacks it.
+    let Some(fixture) = maybe_sha256_repo_fixture() else {
+        eprintln!("skipping SHA-256 scalar parity: host git lacks --object-format=sha256");
+        return;
+    };
+    let head = rev(fixture.path(), "HEAD");
+    let empty = SubprocessBackend.empty_tree_oid(fixture.path()).unwrap();
+    assert_eq!(empty.len(), 64, "a SHA-256 empty tree oid is 64 hex chars");
+    assert_eq!(empty, GixBackend.empty_tree_oid(fixture.path()).unwrap());
+    assert_eq!(
+        SubprocessBackend.head_oid(fixture.path()).unwrap(),
+        GixBackend.head_oid(fixture.path()).unwrap()
+    );
+    assert_eq!(
+        SubprocessBackend
+            .head_commit_oid_optional(fixture.path())
+            .unwrap(),
+        GixBackend.head_commit_oid_optional(fixture.path()).unwrap()
+    );
+    assert_eq!(
+        SubprocessBackend
+            .commit_tree_oid(fixture.path(), &head)
+            .unwrap(),
+        GixBackend.commit_tree_oid(fixture.path(), &head).unwrap()
+    );
+    assert_eq!(
+        SubprocessBackend
+            .rev_parse_commit_oid(fixture.path(), "HEAD")
+            .unwrap(),
+        GixBackend
+            .rev_parse_commit_oid(fixture.path(), "HEAD")
+            .unwrap()
+    );
+}
+
+#[test]
+fn git_backend_parity_writer_config_get_matches_across_multi_scope_precedence() {
+    // Identity-grade gate (ADR-0037 D4): byte-identical writer `config --get`
+    // resolution across git's multi-scope precedence, plus empty→None.
+    let fixture = multi_scope_config_fixture();
+    assert_eq!(
+        SubprocessBackend.config_get(fixture.path(), "user.email"),
+        GixBackend.config_get(fixture.path(), "user.email"),
+    );
+    let empty = empty_local_email_fixture();
+    assert_eq!(
+        SubprocessBackend.config_get(empty.path(), "user.email"),
+        None
+    );
+    assert_eq!(GixBackend.config_get(empty.path(), "user.email"), None);
 }
 
 #[test]
