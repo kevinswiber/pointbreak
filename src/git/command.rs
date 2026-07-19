@@ -347,6 +347,52 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "gix")]
+    #[test]
+    fn write_tree_and_diff_stay_subprocess_under_force_gix() {
+        use crate::git::backend::{BackendSelector, inject_selector, reset_selector};
+        // Force every routable op to gix; the two non-routable rows must still not
+        // move — this is the strongest form of the LB-6 guarantee.
+        inject_selector(BackendSelector::ForceGix);
+        let repo = TwoCommitRepo::new();
+        fs::write(repo.path().join("file.txt"), "changed\n").unwrap();
+
+        // A routed identity scalar goes to gix under ForceGix (the flip took effect)...
+        reset_backend_tag();
+        let head_first = git_head_oid(repo.path()).unwrap();
+        assert_eq!(
+            last_backend_tag(),
+            Some(BackendTag::Gix),
+            "an identity scalar routes to gix under ForceGix"
+        );
+
+        // ...but write-tree is non-routable and never dispatches, even under ForceGix.
+        reset_backend_tag();
+        let tree_first = git_write_index_tree_oid(repo.path()).unwrap();
+        assert_eq!(
+            last_backend_tag(),
+            None,
+            "write-tree is non-routable — never dispatched, even under ForceGix (LB-6)"
+        );
+
+        // The capture diff funnel runs on the direct subprocess path. Do not read
+        // the whole-ingest backend tag: ingestion also calls the now-routable
+        // git_worktree_root, which records a gix tag under ForceGix. The dedicated
+        // diff-funnel counter isolates the direct subprocess diff path (F11).
+        reset_diff_funnel_spawns();
+        let _ = ingest_tracked_diff(repo.path()).unwrap();
+        assert!(
+            diff_funnel_spawns() > 0,
+            "the capture diff funnel ran on the direct subprocess path under ForceGix (LB-6)"
+        );
+
+        // Identity is byte-stable across a recapture with identity scalars on gix:
+        // the head oid and the index tree oid reproduce their exact values (LB-2).
+        assert_eq!(git_head_oid(repo.path()).unwrap(), head_first);
+        assert_eq!(git_write_index_tree_oid(repo.path()).unwrap(), tree_first);
+        reset_selector();
+    }
+
     #[test]
     fn subprocess_spawn_counter_tracks_git_invocations() {
         use crate::git::backend::{BackendSelector, inject_selector, reset_selector};

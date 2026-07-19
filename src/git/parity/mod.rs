@@ -1064,6 +1064,12 @@ fn git_backend_microbench() {
                 let _ = backend.path_is_untracked(path, "src/new.rs");
             }),
         ),
+        (
+            "identity-scalars / head_oid",
+            Box::new(|backend: &dyn GitBackend| {
+                let _ = backend.head_oid(path);
+            }),
+        ),
     ];
 
     const ITERS: u32 = 40;

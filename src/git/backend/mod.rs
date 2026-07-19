@@ -358,21 +358,22 @@ pub(crate) enum RoutedBackend {
 //
 // Qualified to gix (zero divergence on the macOS and Windows differential
 // batteries and no failure in the forced-gix full suite on both platforms): the
-// read graph/refs, ignore, inventory, and repo-discovery classes. The gix
-// backend normalizes the Windows path-form spellings that once diverged
-// (`common_dir` and `worktree_list` verbatim `\\?\` paths, `path_is_untracked`'s
-// backslash comparison key) to git's form. `ReadConfigDiscovery` stays on
-// subprocess: git's `config --type=path` renders a `~`-expanded signing-key path
-// in forward-slash form but an absolute stored path with its backslashes, and gix
-// cannot reproduce that conditional spelling — a supported held steady state.
-// `IdentityScalars` qualifies separately under its SHA-256 + config-precedence
-// gates.
+// read graph/refs, ignore, inventory, and repo-discovery classes, and the
+// identity-grade scalars. The gix backend normalizes the Windows path-form
+// spellings that once diverged (`common_dir`/`worktree_list`/`worktree_root`
+// verbatim `\\?\` paths, `path_is_untracked`'s backslash comparison key) to git's
+// form. `IdentityScalars` additionally qualifies under its SHA-256 OID
+// byte-parity and multi-scope writer `config --get` precedence legs.
+// `ReadConfigDiscovery` stays on subprocess: git's `config --type=path` renders a
+// `~`-expanded signing-key path in forward-slash form but an absolute stored path
+// with its backslashes, and gix cannot reproduce that conditional spelling — a
+// supported held steady state.
 const DEFAULT_READ_GRAPH_REFS: RoutedBackend = RoutedBackend::Gix;
 const DEFAULT_READ_IGNORE: RoutedBackend = RoutedBackend::Gix;
 const DEFAULT_READ_INVENTORY: RoutedBackend = RoutedBackend::Gix;
 const DEFAULT_READ_CONFIG_DISCOVERY: RoutedBackend = RoutedBackend::Subprocess;
 const DEFAULT_READ_REPO_DISCOVERY: RoutedBackend = RoutedBackend::Gix;
-const DEFAULT_IDENTITY_SCALARS: RoutedBackend = RoutedBackend::Subprocess;
+const DEFAULT_IDENTITY_SCALARS: RoutedBackend = RoutedBackend::Gix;
 
 /// The compiled default backend for a class.
 fn class_default(class: BackendClass) -> RoutedBackend {
@@ -573,11 +574,23 @@ mod tests {
 
     #[cfg(feature = "gix")]
     #[test]
-    fn compiled_defaults_route_qualified_reads_to_gix() {
-        // The qualified read classes route to gix by their compiled default; the
-        // held classes (config-discovery, and identity scalars until their own
-        // phase) stay on subprocess. Pin the compiled path explicitly (not
-        // `reset_selector`) so the assertion is deterministic even under
+    fn identity_scalars_route_to_gix_by_default() {
+        // The identity-grade scalar class routes to gix by its compiled default
+        // once qualified (SHA-256 OID parity + multi-scope config precedence).
+        inject_selector(BackendSelector::Compiled);
+        assert_eq!(
+            routed_backend(BackendClass::IdentityScalars).unwrap(),
+            RoutedBackend::Gix
+        );
+        reset_selector();
+    }
+
+    #[cfg(feature = "gix")]
+    #[test]
+    fn compiled_defaults_route_qualified_classes_to_gix() {
+        // The qualified classes route to gix by their compiled default; only
+        // config-discovery stays on subprocess. Pin the compiled path explicitly
+        // (not `reset_selector`) so the assertion is deterministic even under
         // `POINTBREAK_GIT_BACKEND=gix`.
         inject_selector(BackendSelector::Compiled);
         for class in [
@@ -585,6 +598,7 @@ mod tests {
             BackendClass::ReadGraphRefs,
             BackendClass::ReadInventory,
             BackendClass::ReadRepoDiscovery,
+            BackendClass::IdentityScalars,
         ] {
             assert_eq!(
                 routed_backend(class).unwrap(),
@@ -592,16 +606,13 @@ mod tests {
                 "{class:?} is qualified to gix"
             );
         }
-        for class in [
-            BackendClass::ReadConfigDiscovery,
-            BackendClass::IdentityScalars,
-        ] {
-            assert_eq!(
-                routed_backend(class).unwrap(),
-                RoutedBackend::Subprocess,
-                "{class:?} stays on subprocess"
-            );
-        }
+        // Only config-discovery stays on subprocess (git's `config --type=path`
+        // spelling is not reproducible in gix).
+        assert_eq!(
+            routed_backend(BackendClass::ReadConfigDiscovery).unwrap(),
+            RoutedBackend::Subprocess,
+            "config-discovery stays on subprocess"
+        );
         reset_selector();
     }
 
