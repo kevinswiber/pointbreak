@@ -10,6 +10,34 @@ use crate::git::raw::{RawFile, parse_raw};
 use crate::model::{DiffFile, DiffSnapshot, FileId, FileMetadataKind, FileMetadataRow, ReviewId};
 use crate::session::worktree_fingerprint_for_files;
 
+// Counts the `git` subprocess spawns on the capture-time diff funnel
+// specifically — the two-pass tracked diff and each per-untracked `--no-index`
+// patch. It lets tests prove the identity-bearing diff path stays a direct
+// subprocess spawn (never routed through the backend seam) without inferring it
+// from a whole-ingest backend tag, since ingestion also legitimately routes
+// `git_worktree_root` through dispatch. Thread-local (like the backend
+// instrumentation) so a test's reset/act/assert is not perturbed by concurrent
+// helpers on other threads under a shared-process runner.
+#[cfg(test)]
+thread_local! {
+    static DIFF_FUNNEL_SPAWNS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn record_diff_funnel_spawn() {
+    DIFF_FUNNEL_SPAWNS.with(|cell| cell.set(cell.get() + 1));
+}
+
+#[cfg(test)]
+pub(crate) fn diff_funnel_spawns() -> usize {
+    DIFF_FUNNEL_SPAWNS.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) fn reset_diff_funnel_spawns() {
+    DIFF_FUNNEL_SPAWNS.with(|cell| cell.set(0));
+}
+
 #[derive(Clone, Debug)]
 pub struct IngestOptions {
     helper_paths: Vec<PathBuf>,
@@ -163,7 +191,11 @@ fn diff_files_for_args(
     endpoint_args: &[&str],
     pathspecs: &[String],
 ) -> Result<Vec<DiffFile>> {
+    #[cfg(test)]
+    record_diff_funnel_spawn();
     let raw_output = run_git(repo, diff_args(&["--raw", "-z"], endpoint_args, pathspecs))?;
+    #[cfg(test)]
+    record_diff_funnel_spawn();
     let patch_output = run_git(repo, diff_args(&["--patch"], endpoint_args, pathspecs))?;
 
     let raw_files = parse_raw(&raw_output.stdout)?;
@@ -342,6 +374,8 @@ fn no_index_patch(repo: &Path, path: &str) -> Result<crate::git::command::GitOut
         OsString::from("/dev/null"),
         OsString::from(PathBuf::from(path)),
     ];
+    #[cfg(test)]
+    record_diff_funnel_spawn();
     run_git_allowing_statuses(repo, args, &[0, 1])
 }
 

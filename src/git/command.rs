@@ -5,10 +5,7 @@ use crate::error::{Result, ShoreError};
 #[cfg(test)]
 pub(crate) use crate::git::backend::subprocess::git_info_exclude_path;
 pub(crate) use crate::git::backend::subprocess::{GitOutput, run_git, run_git_allowing_statuses};
-use crate::git::backend::subprocess::{
-    git_field_string, git_stdout_string, run_git_status, run_git_with_stdin, trim_git_stdout,
-};
-use crate::git::backend::{GitBackend, dispatch};
+use crate::git::backend::{GitBackend, dispatch, subprocess_backend};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct GitWorktree {
@@ -42,7 +39,7 @@ pub(crate) struct GitInventoryPath {
 }
 
 impl GitInventoryPath {
-    fn new(bytes: &[u8]) -> Self {
+    pub(crate) fn new(bytes: &[u8]) -> Self {
         Self {
             bytes: bytes.to_vec(),
         }
@@ -77,78 +74,28 @@ pub(crate) fn git_common_dir(repo: &Path) -> Result<PathBuf> {
 /// pathspecs, which the store-exclude paths are. (`-z` is rejected outside `--stdin`
 /// mode, so it cannot be used here.)
 pub(crate) fn git_paths_are_ignored(repo: &Path, pathspecs: &[&str]) -> Result<Vec<bool>> {
-    if pathspecs.is_empty() {
-        return Ok(Vec::new());
-    }
-    let git_pathspecs: Vec<String> = pathspecs
-        .iter()
-        .map(|path| git_pathspec_for_separator(path, std::path::MAIN_SEPARATOR))
-        .collect();
-    // Plain (non-verbose) check-ignore prints only the SUBSET that is ignored, each
-    // echoed as given on its own line, and exits 1 when none match — both 0 and 1 are
-    // non-error.
-    let mut args: Vec<&str> = Vec::with_capacity(git_pathspecs.len() + 1);
-    args.push("check-ignore");
-    args.extend(git_pathspecs.iter().map(String::as_str));
-    let output = run_git_allowing_statuses(repo, args, &[0, 1])?;
-
-    let ignored: std::collections::HashSet<&[u8]> = output
-        .stdout
-        .split(|byte| *byte == b'\n')
-        .map(|token| token.strip_suffix(b"\r").unwrap_or(token))
-        .filter(|token| !token.is_empty())
-        .collect();
-    Ok(git_pathspecs
-        .iter()
-        .map(|path| ignored.contains(path.as_bytes()))
-        .collect())
-}
-
-/// Convert native path separators to Git's slash-form pathspec spelling.
-/// Backslashes remain literal filename characters on Unix.
-fn git_pathspec_for_separator(path: &str, separator: char) -> String {
-    if separator == '/' {
-        path.to_owned()
-    } else {
-        path.replace(separator, "/")
-    }
+    dispatch().paths_are_ignored(repo, pathspecs)
 }
 
 /// Read one Git config value with the fallback semantics writer identity needs:
 /// missing keys, empty values, non-zero Git status, and spawn failures all mean
 /// "no value" rather than aborting actor resolution.
 pub(crate) fn git_config_get(repo: &Path, key: &str) -> Option<String> {
-    let (code, stdout) = run_git_status(repo, ["config", "--get", key], &[0, 1]).ok()?;
-    if code != 0 {
-        return None;
-    }
-
-    let value = String::from_utf8_lossy(&stdout).trim().to_owned();
-    (!value.is_empty()).then_some(value)
+    dispatch().config_get(repo, key)
 }
 
 /// Read one Git config value using Git's path expansion rules. Missing keys,
 /// empty values, non-zero Git status, and spawn failures all mean "no value".
 pub(crate) fn git_config_path_get(repo: &Path, key: &str) -> Option<String> {
-    let (code, stdout) =
-        run_git_status(repo, ["config", "--type=path", "--get", key], &[0, 1]).ok()?;
-    if code != 0 {
-        return None;
-    }
-
-    let value = String::from_utf8_lossy(&stdout).trim().to_owned();
-    (!value.is_empty()).then_some(value)
+    dispatch().config_path_get(repo, key)
 }
 
 pub(crate) fn git_untracked_inventory(repo: &Path) -> Result<Vec<GitInventoryPath>> {
-    git_ls_files_inventory(
-        repo,
-        ["ls-files", "--others", "--exclude-standard", "-z", "--"],
-    )
+    dispatch().untracked_inventory(repo)
 }
 
 pub(crate) fn git_tracked_and_untracked_inventory(repo: &Path) -> Result<Vec<GitInventoryPath>> {
-    git_ls_files_inventory(repo, ["ls-files", "-co", "--exclude-standard", "-z", "--"])
+    dispatch().tracked_and_untracked_inventory(repo)
 }
 
 /// True when `relative_path` is present in the worktree as an **untracked** file
@@ -156,34 +103,7 @@ pub(crate) fn git_tracked_and_untracked_inventory(repo: &Path) -> Result<Vec<Git
 /// modified — reports false, as does an absent or git-ignored path. Scoped to the
 /// single path via a trailing pathspec, so it never lists the whole worktree.
 pub(crate) fn git_path_is_untracked(repo: &Path, relative_path: &str) -> Result<bool> {
-    let output = run_git(
-        repo,
-        [
-            "ls-files",
-            "--others",
-            "--exclude-standard",
-            "-z",
-            "--",
-            relative_path,
-        ],
-    )?;
-    Ok(output
-        .stdout
-        .split(|byte| *byte == 0)
-        .any(|field| !field.is_empty()))
-}
-
-fn git_ls_files_inventory<const N: usize>(
-    repo: &Path,
-    args: [&str; N],
-) -> Result<Vec<GitInventoryPath>> {
-    let output = run_git(repo, args)?;
-    Ok(output
-        .stdout
-        .split(|byte| *byte == b'\0')
-        .filter(|field| !field.is_empty())
-        .map(GitInventoryPath::new)
-        .collect())
+    dispatch().path_is_untracked(repo, relative_path)
 }
 
 /// Three-valued reachability: is `ancestor_oid` an ancestor of `descendant_oid`?
@@ -254,20 +174,11 @@ pub(crate) fn git_object_exists(repo: &Path, oid: &str) -> Result<bool> {
 /// is detached. The full ref — never the short name — is the canonical stored
 /// `ref_name` spelling for association identity.
 pub(crate) fn git_head_ref(repo: &Path) -> Result<Option<String>> {
-    let (code, stdout) = run_git_status(repo, ["symbolic-ref", "--quiet", "HEAD"], &[0, 1])?;
-    if code != 0 {
-        return Ok(None);
-    }
-    let trimmed = trim_git_stdout(&stdout);
-    if trimmed.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(git_field_string(trimmed, "HEAD symbolic ref")?))
+    dispatch().head_ref(repo)
 }
 
 pub fn git_head_oid(repo: &Path) -> Result<String> {
-    let output = run_git(repo, ["rev-parse", "HEAD"])?;
-    git_stdout_string(repo, &output.stdout, "HEAD oid")
+    dispatch().head_oid(repo)
 }
 
 /// The repository's integration/default branch as a full ref, best-effort: the
@@ -284,22 +195,7 @@ pub(crate) fn git_default_branch_ref(repo: &Path) -> Result<Option<String>> {
 }
 
 pub(crate) fn git_head_commit_oid_optional(repo: &Path) -> Result<Option<String>> {
-    let (code, stdout) = run_git_status(
-        repo,
-        ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
-        &[0, 1],
-    )?;
-    if code == 0 {
-        git_stdout_string(repo, &stdout, "HEAD oid").map(Some)
-    } else {
-        Ok(None)
-    }
-}
-
-#[cfg(test)]
-pub fn git_head_tree_oid(repo: &Path) -> Result<String> {
-    let output = run_git(repo, ["rev-parse", "HEAD^{tree}"])?;
-    git_stdout_string(repo, &output.stdout, "HEAD tree oid")
+    dispatch().head_commit_oid_optional(repo)
 }
 
 /// Resolve `rev` to a full commit OID, peeling annotated tags.
@@ -310,32 +206,27 @@ pub fn git_head_tree_oid(repo: &Path) -> Result<String> {
 /// same honest errors. `--end-of-options` keeps a rev that looks like a flag
 /// (user input) from being parsed as an option.
 pub(crate) fn git_rev_parse_commit_oid(repo: &Path, rev: &str) -> Result<String> {
-    git_rev_parse_peeled(repo, rev, "commit", "commit oid")
+    dispatch().rev_parse_commit_oid(repo, rev)
 }
 
 /// Resolve a commit OID to its tree OID. Callers pass an already-resolved
 /// commit OID (from [`git_rev_parse_commit_oid`]), never a raw user rev.
 pub(crate) fn git_commit_tree_oid(repo: &Path, commit_oid: &str) -> Result<String> {
-    git_rev_parse_peeled(repo, commit_oid, "tree", "commit tree oid")
+    dispatch().commit_tree_oid(repo, commit_oid)
 }
 
 /// Compute the empty tree OID using the repository's configured object format.
 /// This deliberately asks Git instead of embedding the SHA-1 empty-tree
 /// constant, so SHA-256 repositories use their own empty-tree identity.
 pub(crate) fn git_empty_tree_oid(repo: &Path) -> Result<String> {
-    let output = run_git_with_stdin(repo, ["hash-object", "-t", "tree", "--stdin"], b"", &[0])?;
-    git_stdout_string(repo, &output.stdout, "empty tree oid")
+    dispatch().empty_tree_oid(repo)
 }
 
+/// Capture the current index as a tree. This is a **non-routable** operation:
+/// it resolves the subprocess backend directly (never [`dispatch`]), so no
+/// selector can route index-tree identity away from git.
 pub(crate) fn git_write_index_tree_oid(repo: &Path) -> Result<String> {
-    let output = run_git(repo, ["write-tree"]).map_err(|error| match error {
-        ShoreError::GitCommand { stderr, .. } => ShoreError::Message(format!(
-            "cannot capture the index as a tree; resolve unmerged paths first: {}",
-            stderr.trim()
-        )),
-        other => other,
-    })?;
-    git_stdout_string(repo, &output.stdout, "index tree oid")
+    subprocess_backend().write_index_tree_oid_direct(repo)
 }
 
 /// List the full commit OIDs reachable in a `<a>..<b>` revision range via
@@ -393,30 +284,6 @@ pub(crate) fn git_rev_list_range(repo: &Path, range: &str) -> Result<Vec<String>
     dispatch().rev_list_range(repo, range)
 }
 
-/// Resolve `rev` peeled to `peel` (e.g. `commit`, `tree`) via
-/// `git rev-parse --verify --end-of-options <rev>^{<peel>}`.
-///
-/// Substitutes an honest, rev-naming error for git's noisy stderr on failure:
-/// one message covers both unknown and non-`peel` objects ("cannot resolve
-/// '<rev>' to a <peel>").
-fn git_rev_parse_peeled(repo: &Path, rev: &str, peel: &str, description: &str) -> Result<String> {
-    let output = run_git(
-        repo,
-        [
-            "rev-parse",
-            "--verify",
-            "--end-of-options",
-            &format!("{rev}^{{{peel}}}"),
-        ],
-    )
-    .map_err(|_| {
-        ShoreError::Message(format!(
-            "cannot resolve '{rev}' to a {peel} in this repository"
-        ))
-    })?;
-    git_stdout_string(repo, &output.stdout, description)
-}
-
 pub(crate) fn git_worktree_list(repo: &Path) -> Result<Vec<GitWorktree>> {
     dispatch().worktree_list(repo)
 }
@@ -425,12 +292,59 @@ pub(crate) fn git_worktree_list(repo: &Path) -> Result<Vec<GitWorktree>> {
 mod tests {
     use std::ffi::{OsStr, OsString};
     use std::fs;
-    use std::io::Write;
-    use std::process::{Command, Stdio};
 
     use tempfile::TempDir;
 
     use super::*;
+    use crate::git::backend::subprocess::{
+        BackendTag, git_spawn_count, last_backend_tag, reset_backend_tag, reset_git_spawn_count,
+    };
+    use crate::git::ingest::{diff_funnel_spawns, reset_diff_funnel_spawns};
+    use crate::git::ingest_tracked_diff;
+
+    #[test]
+    fn routable_helpers_dispatch_through_a_backend() {
+        let repo = TwoCommitRepo::new();
+        reset_backend_tag();
+        let _ = git_paths_are_ignored(repo.path(), &["x"]).unwrap();
+        assert_eq!(last_backend_tag(), Some(BackendTag::Subprocess));
+    }
+
+    #[test]
+    fn write_tree_and_diff_are_direct_subprocess_not_dispatched() {
+        let repo = TwoCommitRepo::new();
+        // A tracked modification so the capture diff funnel has real work to do.
+        fs::write(repo.path().join("file.txt"), "changed\n").unwrap();
+
+        reset_backend_tag();
+        let _ = git_write_index_tree_oid(repo.path()).unwrap();
+        assert_eq!(
+            last_backend_tag(),
+            None,
+            "write-tree must not go through routable dispatch"
+        );
+
+        // The diff funnel counter is the diff-path proof: ingestion legitimately
+        // routes git_worktree_root through dispatch, so a whole-ingest backend tag
+        // would be polluted. The dedicated counter isolates the direct diff path.
+        reset_diff_funnel_spawns();
+        let _ = ingest_tracked_diff(repo.path()).unwrap();
+        assert!(
+            diff_funnel_spawns() > 0,
+            "the capture diff funnel ran on the direct subprocess path"
+        );
+    }
+
+    #[test]
+    fn subprocess_spawn_counter_tracks_git_invocations() {
+        let repo = TwoCommitRepo::new();
+        reset_git_spawn_count();
+        let _ = git_head_oid(repo.path()).unwrap();
+        assert!(
+            git_spawn_count() > 0,
+            "a git helper spawns at least one subprocess"
+        );
+    }
 
     #[test]
     fn git_common_dir_is_shared_across_worktrees() {
@@ -491,18 +405,6 @@ mod tests {
     }
 
     #[test]
-    fn commit_tree_oid_resolves_tree_for_commit() {
-        let repo = TwoCommitRepo::new();
-        let head_oid = git_head_oid(repo.path()).unwrap();
-
-        let tree_via_commit = git_commit_tree_oid(repo.path(), &head_oid).unwrap();
-        let tree_via_head = git_head_tree_oid(repo.path()).unwrap();
-
-        assert_eq!(tree_via_commit, tree_via_head);
-        assert_ne!(tree_via_commit, head_oid);
-    }
-
-    #[test]
     fn commit_subjects_batch_is_deterministic_and_omits_unreadable_oids() {
         let repo = TwoCommitRepo::new();
         let first = rev_parse(repo.path(), "HEAD~1");
@@ -523,72 +425,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn empty_tree_oid_matches_git_stdin_hash_object() {
-        let repo = TwoCommitRepo::new();
-        let oid = git_empty_tree_oid(repo.path()).unwrap();
-        let expected = git_hash_object_tree_from_stdin(repo.path(), b"").unwrap();
-
-        assert_eq!(oid, expected);
-        assert!(git_rev_parse_peeled(repo.path(), &oid, "tree", "tree oid").is_ok());
-    }
-
-    #[test]
-    fn empty_tree_oid_uses_repository_hash_algorithm_when_sha256_is_supported() {
-        let Some(repo) = maybe_sha256_repo() else {
-            return;
-        };
-
-        let oid = git_empty_tree_oid(repo.path()).unwrap();
-        let expected = git_hash_object_tree_from_stdin(repo.path(), b"").unwrap();
-
-        assert_eq!(oid, expected);
-        assert_ne!(oid, "4b825dc642cb6eb9a060e54bf8d69288fbee4904");
-        assert_eq!(oid.len(), 64);
-    }
-
     fn rev_parse(repo: &Path, rev: &str) -> String {
         let output = run_git(repo, ["rev-parse", rev]).unwrap();
         String::from_utf8(output.stdout).unwrap().trim().to_owned()
-    }
-
-    fn git_hash_object_tree_from_stdin(repo: &Path, input: &[u8]) -> Result<String> {
-        let mut child = Command::new("git")
-            .args(["hash-object", "-t", "tree", "--stdin"])
-            .current_dir(repo)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| ShoreError::Message(format!("run git hash-object: {error}")))?;
-        child
-            .stdin
-            .as_mut()
-            .expect("hash-object stdin is piped")
-            .write_all(input)
-            .map_err(|error| {
-                ShoreError::Message(format!("write git hash-object stdin: {error}"))
-            })?;
-        let output = child
-            .wait_with_output()
-            .map_err(|error| ShoreError::Message(format!("wait for git hash-object: {error}")))?;
-        if !output.status.success() {
-            return Err(ShoreError::Message(format!(
-                "git hash-object -t tree --stdin failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
-        }
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
-    }
-
-    fn maybe_sha256_repo() -> Option<TempDir> {
-        let repo = TempDir::new().expect("create sha256 test repository directory");
-        let output = Command::new("git")
-            .args(["init", "--object-format=sha256"])
-            .current_dir(repo.path())
-            .output()
-            .expect("run git init --object-format=sha256");
-        output.status.success().then_some(repo)
     }
 
     #[test]
@@ -821,18 +660,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(verdicts, vec![true, false]);
-    }
-
-    #[test]
-    fn git_pathspecs_use_forward_slashes_for_windows_git() {
-        assert_eq!(
-            git_pathspec_for_separator(r".pointbreak\data\state.json", '\\'),
-            ".pointbreak/data/state.json"
-        );
-        assert_eq!(
-            git_pathspec_for_separator(r"literal\backslash", '/'),
-            r"literal\backslash"
-        );
     }
 
     #[test]
