@@ -76,16 +76,48 @@ fn platform_filesystem_name(path: &Path) -> Option<String> {
 
 #[cfg(target_os = "windows")]
 fn platform_filesystem_name(path: &Path) -> Option<String> {
+    let canonical = path.canonicalize().ok()?;
+    let volume = match windows_filesystem_location(&canonical)? {
+        WindowsFilesystemLocation::Local(volume) => volume,
+        WindowsFilesystemLocation::Network => return Some("smb".to_owned()),
+    };
     let output = std::process::Command::new("fsutil")
         .args(["fsinfo", "volumeinfo"])
-        .arg(path)
+        .arg(volume)
         .output()
         .ok()?;
     if !output.status.success() {
         return None;
     }
-    let stdout = String::from_utf8(output.stdout).ok()?;
-    stdout.lines().find_map(|line| {
+    parse_windows_fsutil_filesystem(&String::from_utf8(output.stdout).ok()?)
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Eq, PartialEq)]
+enum WindowsFilesystemLocation {
+    Local(String),
+    Network,
+}
+
+#[cfg(target_os = "windows")]
+fn windows_filesystem_location(path: &Path) -> Option<WindowsFilesystemLocation> {
+    use std::path::{Component, Prefix};
+
+    let Component::Prefix(prefix) = path.components().next()? else {
+        return None;
+    };
+    match prefix.kind() {
+        Prefix::Disk(letter) | Prefix::VerbatimDisk(letter) => Some(
+            WindowsFilesystemLocation::Local(format!("{}:", char::from(letter))),
+        ),
+        Prefix::UNC(..) | Prefix::VerbatimUNC(..) => Some(WindowsFilesystemLocation::Network),
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn parse_windows_fsutil_filesystem(output: &str) -> Option<String> {
+    output.lines().find_map(|line| {
         let (label, value) = line.split_once(':')?;
         label
             .trim()
@@ -93,6 +125,39 @@ fn platform_filesystem_name(path: &Path) -> Option<String> {
             .then(|| value.trim().to_owned())
             .filter(|value| !value.is_empty())
     })
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod windows_tests {
+    use super::*;
+
+    #[test]
+    fn windows_probe_uses_the_volume_and_parses_its_filesystem() {
+        assert_eq!(
+            windows_filesystem_location(Path::new(r"C:\Users\test\qualification")),
+            Some(WindowsFilesystemLocation::Local("C:".to_owned()))
+        );
+        assert_eq!(
+            windows_filesystem_location(Path::new(r"\\server\share\qualification")),
+            Some(WindowsFilesystemLocation::Network)
+        );
+        assert_eq!(
+            parse_windows_fsutil_filesystem(
+                "Volume Name :\r\nFile System Name : NTFS\r\nIs ReadWrite\r\n"
+            )
+            .as_deref(),
+            Some("NTFS")
+        );
+    }
+
+    #[test]
+    fn windows_probe_reports_a_local_filesystem_type() {
+        assert_eq!(
+            qualification_filesystem_name(Path::new(env!("CARGO_MANIFEST_DIR")))
+                .to_ascii_lowercase(),
+            "ntfs"
+        );
+    }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
