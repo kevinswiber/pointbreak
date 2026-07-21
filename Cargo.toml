@@ -24,6 +24,7 @@ exclude = [
     "scripts/**",
     "src/cli/inspect/design-system/**",
     "src/cli/inspect/web/**",
+    "vendor/lmdb-proof/**",
 ]
 
 [lib]
@@ -55,6 +56,10 @@ default = ["gix"]
 # by default and never enabled in a release build, so the harnesses stay out of
 # the published surface.
 bench = ["dep:libsqlite3-sys", "dep:rusqlite", "dep:zstd"]
+# Compiles the developer-only plain LMDB linkage proof. This source-only
+# feature is excluded from default builds, Cargo packages, and release
+# archives; it never selects a production store.
+lmdb-proof = ["bench", "dep:heed3"]
 # Compiles the in-process `git` library backend alongside the subprocess one.
 gix = ["dep:gix"]
 # The differential subprocess-vs-gix parity harness. Adds only the diagnostic
@@ -69,6 +74,7 @@ base64 = "0.22"
 bs58 = "0.5"
 ed25519-dalek = "2"
 getrandom = "0.4"
+heed3 = { version = "=0.22.1", path = "vendor/lmdb-proof/heed3", default-features = false, optional = true }
 # Both object-hash formats are explicit gix features (the hash crate rejects a
 # neither-enabled build); `blob-diff`/`gix-imara-diff` only through `gix-parity`.
 gix = { version = "0.85.0", default-features = false, features = [

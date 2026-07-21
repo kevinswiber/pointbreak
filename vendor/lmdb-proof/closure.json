@@ -1,0 +1,140 @@
+{
+  "schema": "pointbreak.lmdb-proof-build-closure.v1",
+  "wrapper": {
+    "repository": "https://github.com/meilisearch/heed",
+    "sourceCommit": "14e3e4914ad5128c68f6bbf4ab40ae1de19b342e",
+    "treeSha256": "7fd81760fadfdb58b0a690948ffbe33426fc74fc93ad6a949eb88c615ca13fdc",
+    "materialization": {
+      "upstreamScriptPath": "convert-to-heed3.sh",
+      "upstreamScriptSha256": "125dbbd3abd5df9481d3bcd8a87a3d73d1e679c4a1e49ed509b85a5e0b3ee949",
+      "additionalSteps": [
+        "copy converted heed/src plus the pinned build.rs, README.md, and LICENSE",
+        "use a proof-local manifest with exact registry dependency pins and publish=false",
+        "inline the native source from the separately pinned native commit"
+      ]
+    },
+    "publishedComparison": {
+      "package": "heed3",
+      "version": "0.22.1",
+      "checksum": "62bd3538173398047e263a4cda42e3115aa5c905ac017e9ce72f0e62fd54ffa9",
+      "behaviorAuthority": false
+    }
+  },
+  "native": {
+    "repository": "https://github.com/LMDB/lmdb",
+    "sourceCommit": "62e2a60e71cd58e6fdd83a31af3d3c7fe103483d",
+    "treeSha256": "0079ef39c7309ebfd3cb6cad89eb49d0ef38673247b954db6e68f46e0f4e82b5",
+    "behaviorAuthority": "immutable_upstream_git",
+    "publishedComparison": {
+      "package": "lmdb-master3-sys",
+      "version": "0.2.6",
+      "checksum": "78b1c7bad81edaf778b5a1252beae4c52b405bc9fd5492a3e5cde3274f55f525",
+      "behaviorAuthority": false
+    },
+    "patches": [
+      {
+        "id": "msvc-void-pointer-arithmetic",
+        "path": "vendor/lmdb-proof/lmdb-master3-sys/lmdb/libraries/liblmdb/mdb.c",
+        "preimageSha256": "9c90127df98846c21dfdc2221a94180bc217b7cbf01b68cd0c60823a7075e464",
+        "postimageSha256": "508ea872cabb350711eecae33e2df3f3abd74ec27c74652204a5120cbc4632a0",
+        "purpose": "cast byte-address arithmetic explicitly for MSVC"
+      }
+    ]
+  },
+  "features": {
+    "wrapper": [],
+    "native": [],
+    "encryption": [],
+    "forbidden": [
+      "asan",
+      "bindgen",
+      "fuzzer",
+      "fuzzer-no-link",
+      "longer-keys",
+      "mdb_idl_logn_*",
+      "posix-sem",
+      "use-valgrind"
+    ]
+  },
+  "licenses": [
+    {
+      "path": "vendor/lmdb-proof/heed3/LICENSE",
+      "sha256": "6d4e3db586416994db32596f0a256eaeee6c3f79e783bf6ac0fab3cc2e36759b"
+    },
+    {
+      "path": "vendor/lmdb-proof/lmdb-master3-sys/LICENSE-APACHE-2.0",
+      "sha256": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+    },
+    {
+      "path": "vendor/lmdb-proof/lmdb-master3-sys/lmdb/libraries/liblmdb/COPYRIGHT",
+      "sha256": "3c87f63656b6a12fda225b6f798c547fe89e3404f499e890b445761eb310fd4f"
+    },
+    {
+      "path": "vendor/lmdb-proof/lmdb-master3-sys/lmdb/libraries/liblmdb/LICENSE",
+      "sha256": "310fe25c858a9515fc8c8d7d1f24a67c9496f84a91e0a0e41ea9975b1371e569"
+    }
+  ],
+  "generatedInputs": [
+    {
+      "path": "vendor/lmdb-proof/lmdb-master3-sys/src/bindings.rs",
+      "sha256": "5fd52b3984625094bd2942fe04eb10019e1afa42f6b587d911cd0215981fef7b"
+    }
+  ],
+  "buildInputs": [
+    {
+      "path": "vendor/lmdb-proof/heed3/Cargo.toml",
+      "sha256": "ea47f2a80217c8e7e5692070c207e3f39267ec06c58cc14c7e5732c5166140e2"
+    },
+    {
+      "path": "vendor/lmdb-proof/heed3/build.rs",
+      "sha256": "17e9e3fe1eb170840889ba19578734c62f5acc738290e1d7676a69e29c250837"
+    },
+    {
+      "path": "vendor/lmdb-proof/lmdb-master3-sys/Cargo.toml",
+      "sha256": "2e682ae4b6de9b21f28356a2277b5f2755b4953ab629efbd2adfc93963286d03"
+    },
+    {
+      "path": "vendor/lmdb-proof/lmdb-master3-sys/build.rs",
+      "sha256": "a93f9bdc937f819fb385e9f6e8334c553cf59b4e3c7ae6d342587b146ed84e7f"
+    },
+    {
+      "path": "vendor/lmdb-proof/lmdb-master3-sys/src/lib.rs",
+      "sha256": "339d2b1916b5d4f3758750f0711b2891765c7dc7053fadbab453a2c30947929d"
+    },
+    {
+      "path": "vendor/lmdb-proof/lmdb-master3-sys/lmdb/libraries/liblmdb/lmdb.h",
+      "sha256": "90d3c88181696bcdf6b69b20ae3d0eeef9f4158713bb05ca4c820878297c6d9e"
+    },
+    {
+      "path": "vendor/lmdb-proof/lmdb-master3-sys/lmdb/libraries/liblmdb/mdb.c",
+      "sha256": "508ea872cabb350711eecae33e2df3f3abd74ec27c74652204a5120cbc4632a0"
+    },
+    {
+      "path": "vendor/lmdb-proof/lmdb-master3-sys/lmdb/libraries/liblmdb/midl.c",
+      "sha256": "26a37f2e94e147e7cce4c8875c94d239d528d1b7b6ac6dfa5d73673dd7fd29f6"
+    },
+    {
+      "path": "vendor/lmdb-proof/lmdb-master3-sys/lmdb/libraries/liblmdb/midl.h",
+      "sha256": "ff8babe69bb4a90aca5798789264c53de4f9efaee2f8cea3ab617c05d7e842d8"
+    }
+  ],
+  "link": {
+    "staticArchive": "liblmdb.a",
+    "dynamicHostDependencies": false,
+    "windowsSystemLibraries": ["advapi32"]
+  },
+  "targetTriples": [
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc"
+  ],
+  "package": {
+    "excludedFromDefaultPackage": true,
+    "sourcePrefix": "vendor/lmdb-proof/"
+  }
+}

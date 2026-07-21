@@ -47,6 +47,31 @@ bytes without reading their content, then verifies the versioned manifest hash. 
 or manifest mismatch fails closed. The earlier 6,437-file frozen-legacy workload and its loader remain
 available only for reproducing historical reports; it is not relabeled as the current workload.
 
+## Plain LMDB build-closure proof
+
+The non-default `lmdb-proof` feature compiles a source-only, developer-gated LMDB closure. It pins
+the reviewed heed3 wrapper and upstream `mdb.master3` native source, uses no wrapper, native,
+encryption, bindgen, sanitizer, Valgrind, or alternate-key-size features, and links the native
+`liblmdb.a` archive statically. It does not implement a Pointbreak storage adapter, select a store,
+read a Pointbreak store, write application records, or collect timings.
+
+Validate the embedded closure contract and exercise one plain open/close against a disposable
+directory with:
+
+```sh
+cargo bench --locked --features bench,lmdb-proof --bench store_foundation -- \
+  --lmdb-proof-open-close
+```
+
+The JSON report records the exact wrapper and native source commits, linked LMDB version, plain and
+encrypted status, dynamic-host-dependency status, and the disposable carrier filenames. The focused
+LMDB closure tests fail closed if the source trees, build inputs, generated bindings,
+licenses/notices, feature set, release target matrix, or default-package exclusion drift from
+`vendor/lmdb-proof/closure.json`; they run in the default test suite. The portable open/close command
+validates the embedded structural contract without requiring a source checkout at runtime. The proof
+sources are excluded from default Cargo packages and release archives; default builds do not resolve
+or compile heed3 or LMDB.
+
 ## Generated public scale workloads
 
 The foundation target also owns three public, versioned scale workloads. They are generated in

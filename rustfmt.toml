@@ -2,3 +2,6 @@ edition = "2024"
 unstable_features = true
 imports_granularity = "Module"
 group_imports = "StdExternalCrate"
+# Preserve byte-exact reviewed source closures. They are formatted by their
+# upstream owners and validated by content hashes here.
+ignore = ["vendor/lmdb-proof"]

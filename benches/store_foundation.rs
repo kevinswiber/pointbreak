@@ -5,6 +5,8 @@
 
 use std::process::{Command, ExitCode};
 
+#[cfg(feature = "lmdb-proof")]
+use pointbreak::bench_support::foundation::run_lmdb_proof_open_close_v1;
 use pointbreak::bench_support::foundation::{
     DisposableBundleDestinationV2, ExactBundleClosureV2, ExactBundleFailurePointV2,
     ExactBundleManifestV2, ExactBundlePublicationReportV2, ImportReceiptPolicyPrototypeV1,
@@ -33,7 +35,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 const USAGE: &str = "\
-Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--generated-workload-smoke|--loose-baseline-smoke|--loose-baseline-evidence|--prospective-contract|--transfer-smoke|--sqlite-smoke|--segments-smoke|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--qualification-contract|--qualification-final-evidence|--qualification-package|--help]\n\
+Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--generated-workload-smoke|--loose-baseline-smoke|--loose-baseline-evidence|--prospective-contract|--transfer-smoke|--sqlite-smoke|--segments-smoke|--lmdb-proof-open-close|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--qualification-contract|--qualification-final-evidence|--qualification-package|--help]\n\
        --qualification-diagnostics [--qualification-pair-order=alternating|candidate_then_baseline|baseline_then_candidate]\n\
        --qualification-package --qualification-input=<path> [--qualification-input=<path> ...]\n\
 \n\
@@ -208,6 +210,7 @@ fn main() -> ExitCode {
         "--transfer-smoke",
         "--sqlite-smoke",
         "--segments-smoke",
+        "--lmdb-proof-open-close",
         "--qualification-smoke",
         "--qualification-evidence",
         "--qualification-diagnostics",
@@ -244,6 +247,7 @@ fn main() -> ExitCode {
             && argument != "--transfer-smoke"
             && argument != "--sqlite-smoke"
             && argument != "--segments-smoke"
+            && argument != "--lmdb-proof-open-close"
             && argument != "--qualification-smoke"
             && argument != "--qualification-evidence"
             && argument != "--qualification-diagnostics"
@@ -408,6 +412,13 @@ fn main() -> ExitCode {
         };
     }
 
+    if arguments
+        .iter()
+        .any(|argument| argument == "--lmdb-proof-open-close")
+    {
+        return lmdb_proof_open_close_report();
+    }
+
     match smoke_metadata() {
         Ok((metadata, external_is_valid)) => {
             println!(
@@ -425,6 +436,36 @@ fn main() -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+#[cfg(feature = "lmdb-proof")]
+fn lmdb_proof_open_close_report() -> ExitCode {
+    let disposable = match tempfile::tempdir() {
+        Ok(root) => root,
+        Err(error) => {
+            eprintln!("LMDB proof failed to create a disposable root: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    match run_lmdb_proof_open_close_v1(disposable.path()) {
+        Ok(report) => {
+            println!(
+                "{}",
+                serde_json::to_string(&report).expect("LMDB proof report serializes")
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("LMDB proof open/close failed: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+#[cfg(not(feature = "lmdb-proof"))]
+fn lmdb_proof_open_close_report() -> ExitCode {
+    eprintln!("--lmdb-proof-open-close requires --features bench,lmdb-proof");
+    ExitCode::from(2)
 }
 
 fn qualification_loose_baseline_smoke_report() -> ExitCode {
