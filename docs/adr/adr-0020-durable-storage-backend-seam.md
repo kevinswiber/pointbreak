@@ -411,3 +411,73 @@ distinction between logical replication, candidate-native backup, and immutable 
 physical profile must preserve these seams, use one compiled strict profile rather than a user-facing
 selector, keep writable live roots on eligible local filesystems, and provide exhaustive inventory,
 candidate-native backup/restore, copy-out repair, and explicit platform consequences.
+
+## Amendment: Physical Diffability Is Not a Storage Constraint (2026-07-20)
+
+The implemented byte-oriented `Journal` and `ContentStore` seam, wrapper-owned identity and conflict policy,
+append-only event meaning, deterministic replay, independently removable content, durable acknowledgement,
+recovery, backup/repair, and derived-projection boundary stand. The current traits still operate on opaque
+bytes and locators while wrappers own validation and ordering (`src/session/store/backend/mod.rs:84-155`;
+`src/session/store/event_store.rs:85-285`). ADR-0039 independently keeps logical transfer free of physical
+coordinates and requires candidate-native inventory, backup, restore, and repair
+(`docs/adr/adr-0039-exact-logical-bundles-and-import-receipts.md:20-130`). The requirement that durable
+physical truth remain plain text or directly inspectable with `git diff` does not.
+
+### Decision
+
+Pointbreak does **not** require a production storage profile to expose raw physical files as human-readable
+or diffable text. A candidate may use text, binary framing, compression, immutable tables, or an
+embedded engine's opaque physical representation. Physical opacity alone is neither a rejection reason nor
+a policy exception requiring separate authorization.
+
+This decision supersedes the original statements that diffability is an architectural constraint, that
+binary storage belongs only in derived projections, and that a packed or database-owned truth store is
+ineligible because it forfeits `git` diffability. It also supersedes the 2026-07-19 amendment's sentence
+leaving the original binary-store rejection in force. That amendment's no-selection and no-activation
+boundary otherwise stands: the current loose profile remains production truth until a later approved
+decision selects and lands a replacement that satisfies every applicable semantic, safety, platform,
+qualification, migration, and operational gate.
+
+Dropping physical diffability does not create a compensating requirement for a derived diffable mirror.
+Exact decoded identity, deterministic logical replay and export, exhaustive inventory, integrity status,
+coherent backup/restore, copy-out repair, and independently provable content removal remain requirements
+because each has its own semantic or operational value—not because they imitate raw file diffs. A projection,
+export, or diagnostic view must not become a second source of truth.
+
+Candidate admission therefore evaluates observable meaning and operation rather than carrier legibility.
+Process topology, one strict physical profile, native filesystem behavior, durability and recovery, privacy,
+and measured replacement value remain independent decisions and gates. Pure-Rust dependencies remain a
+preference whose concrete build, distribution, provenance, update, FFI, and support consequences must be
+compared for each candidate; they are not a separate truth-store eligibility gate. Removing the diffability
+constraint does not waive any retained requirement and does not select a binary backend.
+
+### Consequences
+
+#### Accepted
+
+- Opaque or binary candidates can be screened and prototyped without a special diffability exception.
+- Storage design can optimize allocation, write amplification, keyed reads, recovery, and maintenance without
+  preserving a text layout that has no current product value.
+- The durable public contracts stay at the logical and operational seams where Pointbreak already validates
+  identity, replay, transfer, inventory, backup, repair, and content lifecycle.
+- The current loose layout remains a qualified baseline and production truth, but not because its files are
+  directly diffable.
+
+#### Rejected
+
+- Retaining raw physical diffability as a candidate-admission or production-selection gate.
+- Requiring an opaque profile to emit and maintain a canonical diffable shadow copy; that would duplicate
+  authority and storage without restoring a valued workflow.
+- Treating exact logical export as a semantic substitute for physical diffability. It remains required on
+  its own terms, while physical diffability is simply not promised.
+- Using physical opacity to weaken strict decoding, identity validation, complete carrier inventory,
+  corruption reporting, backup/restore, repair, erasure proof, or native-platform evidence.
+- Reading this amendment as selection, migration authorization, runtime backend choice, or production
+  activation for any candidate.
+
+### Revisit triggers
+
+Revisit only if a concrete user or operator workflow demonstrates that raw physical text comparison is
+itself necessary in addition to the retained logical, inventory, integrity, backup, and repair contracts.
+Preference for readable files, debugging convenience, or a candidate's implementation shape is not
+sufficient by itself to restore a production constraint.

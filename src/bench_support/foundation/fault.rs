@@ -2456,13 +2456,13 @@ fn inventory_file_paths(root: &Path) -> Result<Vec<PathBuf>, String> {
 }
 
 #[cfg(unix)]
-fn native_file_allocation(_path: &Path, metadata: &fs::Metadata) -> Result<u64, String> {
+pub(super) fn native_file_allocation(_path: &Path, metadata: &fs::Metadata) -> Result<u64, String> {
     use std::os::unix::fs::MetadataExt;
     Ok(metadata.blocks().saturating_mul(512))
 }
 
 #[cfg(windows)]
-fn native_file_allocation(path: &Path, _metadata: &fs::Metadata) -> Result<u64, String> {
+pub(super) fn native_file_allocation(path: &Path, _metadata: &fs::Metadata) -> Result<u64, String> {
     use std::ffi::c_void;
     use std::fs::File;
     use std::os::windows::fs::MetadataExt;
@@ -2538,7 +2538,7 @@ fn native_file_allocation(path: &Path, _metadata: &fs::Metadata) -> Result<u64, 
 }
 
 #[cfg(not(any(unix, windows)))]
-fn native_file_allocation(_path: &Path, metadata: &fs::Metadata) -> Result<u64, String> {
+pub(super) fn native_file_allocation(_path: &Path, metadata: &fs::Metadata) -> Result<u64, String> {
     Ok(metadata.len())
 }
 

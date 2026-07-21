@@ -1,0 +1,34 @@
+{
+  "schema": "pointbreak.qualification-generated-workload-identities.v1",
+  "generatorSchema": "pointbreak.qualification-workload-generator.v1",
+  "publicSeedHex": "f4da49601a212010bae444e6ca2de6c6bf28b5ec1b0a05bf42154a533ca513ff",
+  "workloads": [
+    {
+      "workload": "g0",
+      "recordCount": 128,
+      "decodedBytes": 1048576,
+      "cohorts": 4,
+      "generatorSpecSha256": "5dd08fab4e371f90f9de401ea78c6e281d442627967a3a16db55f724eb32c928",
+      "manifestSha256": "b35ebf4bd7bf09a40133e2066cce43cb901a07bf06d5b1caa0f4881bdad27595",
+      "scheduleSha256": "8f2c69c54a1ea590d05c139cc5405a3e3081be1c9ca50278e3a5ec03df8f788b"
+    },
+    {
+      "workload": "g1",
+      "recordCount": 1024,
+      "decodedBytes": 8388608,
+      "cohorts": 8,
+      "generatorSpecSha256": "9a4b6c1ef8363866005d47860206f94f089a0ad0e2b0e89471dd7254098d368a",
+      "manifestSha256": "f520817b751d672810bd8fbe842bb2983b5ff437cce1ad4db3341d79c9b4bf4f",
+      "scheduleSha256": "a8a094aee8b4154d1c6d1c8c1dcf82f1bf2ecd12d22d4d8ffa4391960e1c0f58"
+    },
+    {
+      "workload": "g2",
+      "recordCount": 8192,
+      "decodedBytes": 67108864,
+      "cohorts": 8,
+      "generatorSpecSha256": "d19e86ed2ca9c0ccc03c1356d721216d3a8a9cba0c49ce19c29c3d52fc1a567c",
+      "manifestSha256": "295240840539fbd500796d0cd125d3c1e5266cb61a9feba4aeab2a4d0c2c9158",
+      "scheduleSha256": "e9f0e9e983873c5251b2ca401718e0ae2bfbde32a046c31b6ece7295c88199a9"
+    }
+  ]
+}

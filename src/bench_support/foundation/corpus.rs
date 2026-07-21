@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    QualificationContractError, QualificationCorpusManifestV1, QualificationRecordKindV1,
-    QualificationRecordV1,
+    QualificationContractError, QualificationCorpusManifestV1, QualificationGeneratedWorkloadV1,
+    QualificationGeneratorError, QualificationRecordKindV1, QualificationRecordV1,
+    qualification_generated_manifest_v1, qualification_generator_spec_v1,
 };
 use crate::canonical_hash::canonical_json_bytes;
 
@@ -215,6 +216,12 @@ pub fn synthetic_legacy_manifest() -> Result<QualificationCorpusManifestV1, Qual
 pub fn modeled_post_foundation_manifest()
 -> Result<QualificationCorpusManifestV1, QualificationCorpusError> {
     fixture_manifest(MODELED_SOURCE_LABEL, MODELED_WORKLOAD_FIXTURE)
+}
+
+pub fn generated_public_manifest(
+    workload: QualificationGeneratedWorkloadV1,
+) -> Result<QualificationCorpusManifestV1, QualificationGeneratorError> {
+    qualification_generated_manifest_v1(&qualification_generator_spec_v1(workload))
 }
 
 pub fn load_frozen_legacy_manifest_from_env()

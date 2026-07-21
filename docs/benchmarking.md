@@ -47,6 +47,57 @@ bytes without reading their content, then verifies the versioned manifest hash. 
 or manifest mismatch fails closed. The earlier 6,437-file frozen-legacy workload and its loader remain
 available only for reproducing historical reports; it is not relabeled as the current workload.
 
+## Generated public scale workloads
+
+The foundation target also owns three public, versioned scale workloads. They are generated in
+process and do not read an external corpus, a Pointbreak store, the filesystem, environment paths,
+the clock, locale state, or operating-system randomness.
+
+| Workload | Records | Decoded bytes | Cohorts | Generator spec SHA-256 | Manifest SHA-256 | Operation schedule SHA-256 |
+| --- | ---: | ---: | ---: | --- | --- | --- |
+| `G0` | 128 | 1,048,576 | 4 | `5dd08fab4e371f90f9de401ea78c6e281d442627967a3a16db55f724eb32c928` | `b35ebf4bd7bf09a40133e2066cce43cb901a07bf06d5b1caa0f4881bdad27595` | `8f2c69c54a1ea590d05c139cc5405a3e3081be1c9ca50278e3a5ec03df8f788b` |
+| `G1` | 1,024 | 8,388,608 | 8 | `9a4b6c1ef8363866005d47860206f94f089a0ad0e2b0e89471dd7254098d368a` | `f520817b751d672810bd8fbe842bb2983b5ff437cce1ad4db3341d79c9b4bf4f` | `a8a094aee8b4154d1c6d1c8c1dcf82f1bf2ecd12d22d4d8ffa4391960e1c0f58` |
+| `G2` | 8,192 | 67,108,864 | 8 | `d19e86ed2ca9c0ccc03c1356d721216d3a8a9cba0c49ce19c29c3d52fc1a567c` | `295240840539fbd500796d0cd125d3c1e5266cb61a9feba4aeab2a4d0c2c9158` | `e9f0e9e983873c5251b2ca401718e0ae2bfbde32a046c31b6ece7295c88199a9` |
+
+The canonical generator schema is `pointbreak.qualification-workload-generator.v1`. Its public
+seed is
+`f4da49601a212010bae444e6ca2de6c6bf28b5ec1b0a05bf42154a533ca513ff`.
+Every deterministic decision uses domain-separated counter expansion:
+
+```text
+SHA-256(public_seed || schema || workload_id || domain || counter_be_u64)
+```
+
+Each tier repeats the same eight decoded-size bins—512, 1,024, 2,048, 4,096, 8,192,
+12,288, 16,384, and 20,992 bytes—so every eight records total exactly 65,536 bytes. Records
+cycle through low, medium, and high compressibility padding and all nine public record kinds. They
+also cover root-only, root-to-replacement, continuation, forked-replacement, carried-open,
+resolved, removable-content-present, removed-content-absent, and restored-from-backup lifecycle
+motifs. Each record kind and lifecycle motif occurs at least once in every tier.
+
+Logical keys are lowercase portable ASCII and are sorted by their raw UTF-8 bytes before manifest
+hashing. Exactly 50% use a digest-uniform shape, 25% use one long common prefix with independent
+suffixes, and 25% use cohort-prefixed ordered suffixes. Record ordinals are divided into contiguous,
+equal-width logical-age cohorts. The operation schedule selects distinct existing records from the
+oldest, middle, and newest cohorts plus one independently derived absent key. Its 30 unique append
+indices address the canonical sorted manifest, not host directory order.
+
+Generation has a collected API for bounded consumers and a streaming API that retains key/ordinal
+plans but no payload collection. The streaming path buffers one generated record at a time and
+computes the same canonical `pointbreak.qualification-corpus.v1` hash incrementally. The repository
+commits only the small identity fixture, not generated record bytes.
+
+Regenerate all three public identities without timing or candidate mutation with:
+
+```sh
+cargo bench --features bench --bench store_foundation -- --generated-workload-smoke
+```
+
+The command emits only the canonical generator, seed, spec, manifest, schedule, count, byte, and
+declared-coverage summaries. The JSON omits runtime identity and external-corpus fields so the same
+source emits byte-identical output on macOS, Linux, and Windows. `G3` is not an executable workload
+in this target.
+
 ## Frozen performance qualification contract
 
 The machine-readable performance qualification contract is compiled into the benchmark target. Print
@@ -72,6 +123,35 @@ strictly lower than the loose baseline in steady, reopened, and high-water state
 Windows allocation uses `FILE_STANDARD_INFO.AllocationSize`; its native fixture test covers one-byte and
 multi-cluster ordinary files, sparse allocated ranges, and compressed data. Missing, stale, unsupported,
 duplicate, or hash-mismatched evidence is rejected or evaluated as unknown, never as a pass.
+
+Run a final evidence shard only from a clean exact commit on a quiesced native host. macOS additionally
+requires the validated external workload copy; Linux and Windows reject that variable because the frozen
+contract assigns the external row only to macOS:
+
+```sh
+export POINTBREAK_QUALIFICATION_QUIESCED=1
+export POINTBREAK_QUALIFICATION_CORPUS=/path/to/external-corpus-copy # macOS only
+cargo bench --features bench --bench store_foundation -- --qualification-final-evidence > macos.json
+```
+
+The runner discards separate warm-up roots, grows fresh measured roots monotonically, validates replay and
+fresh-process open receipts, and records native event-scope and complete-profile allocation. High-water
+sampling includes the candidate checkpoint or seal boundary before reopen. The JSON contains only
+sanitized hashes, counts, timing samples, allocation totals, and environment identity.
+
+After collecting the macOS, native Linux/ext4, and native Windows/NTFS shards from the same source and
+contract identities, assemble and evaluate the complete performance package with:
+
+```sh
+cargo bench --features bench --bench store_foundation -- --qualification-package \
+  --qualification-input=macos.json \
+  --qualification-input=linux.json \
+  --qualification-input=windows.json
+```
+
+Assembly rejects stale or duplicate shards and any package with a missing required run. A valid package
+may still contain failed timing or allocation criteria; measurement failure is evidence, not a malformed
+package.
 
 ## Native foundation qualification
 

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -32,6 +32,8 @@ pub const QUALIFICATION_PERFORMANCE_EVIDENCE_SCHEMA_V2: &str =
     "pointbreak.qualification-performance-evidence.v2";
 pub const QUALIFICATION_PERFORMANCE_EVALUATION_SCHEMA_V2: &str =
     "pointbreak.qualification-performance-evaluation.v2";
+pub const QUALIFICATION_PERFORMANCE_PACKAGE_SCHEMA_V2: &str =
+    "pointbreak.qualification-performance-package.v2";
 pub const QUALIFICATION_PERFORMANCE_CONTRACT_PUBLICATION_SCHEMA_V2: &str =
     "pointbreak.qualification-performance-contract-publication.v2";
 pub const QUALIFICATION_PERFORMANCE_CONTRACT_SHA256_V2: &str =
@@ -118,6 +120,31 @@ pub struct QualificationPerformanceDiagnosticConfigurationV1 {
     pub measured_samples: u32,
     pub pair_order: QualificationPerformancePairOrderV1,
     pub external_corpus_root: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+pub struct QualificationPerformanceCampaignConfigurationV2 {
+    pub executable: PathBuf,
+    pub root: PathBuf,
+    pub source_commit: String,
+    pub cargo_lock_sha256: String,
+    pub external_corpus_root: Option<PathBuf>,
+    pub quiesced_host: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct QualificationPerformanceOpenRequestV2 {
+    role: QualificationPerformanceRoleV1,
+    root: PathBuf,
+    result_path: PathBuf,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct QualificationPerformanceSemanticReceiptV2 {
+    record_count: u64,
+    receipt_sha256: String,
 }
 
 #[derive(Clone, Debug)]
@@ -872,6 +899,206 @@ pub struct QualificationPerformanceEvaluationV2 {
     pub candidates: Vec<QualificationPerformanceCandidateEvaluationV2>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualificationPerformancePackageV2 {
+    pub schema: String,
+    pub evidence: QualificationPerformanceEvidenceV2,
+    pub evaluation: QualificationPerformanceEvaluationV2,
+    pub package_sha256: String,
+}
+
+impl QualificationPerformancePackageV2 {
+    pub fn assemble(shards: &[QualificationPerformanceEvidenceV2]) -> Result<Self, String> {
+        let first = shards
+            .first()
+            .ok_or_else(|| "performance package has no evidence shards".to_owned())?;
+        first.validate()?;
+        let mut evidence = QualificationPerformanceEvidenceV2 {
+            schema: first.schema.clone(),
+            contract_schema: first.contract_schema.clone(),
+            contract_sha256: first.contract_sha256.clone(),
+            source_commit: first.source_commit.clone(),
+            cargo_lock_sha256: first.cargo_lock_sha256.clone(),
+            runs: Vec::new(),
+            evidence_sha256: String::new(),
+        };
+        for shard in shards {
+            shard.validate()?;
+            if shard.schema != evidence.schema
+                || shard.contract_schema != evidence.contract_schema
+                || shard.contract_sha256 != evidence.contract_sha256
+                || shard.source_commit != evidence.source_commit
+                || shard.cargo_lock_sha256 != evidence.cargo_lock_sha256
+            {
+                return Err("performance evidence shards use different identities".to_owned());
+            }
+            evidence.runs.extend(shard.runs.iter().cloned());
+        }
+        evidence.evidence_sha256 = evidence.canonical_sha256()?;
+        evidence.validate()?;
+        let evaluation = evaluate_qualification_performance_v2(&evidence)?;
+        if evaluation.candidates.iter().any(|candidate| {
+            candidate.criteria.iter().any(|criterion| {
+                criterion.status == QualificationPerformanceCriterionStatusV2::Unknown
+            })
+        }) {
+            return Err("performance package is incomplete".to_owned());
+        }
+        let mut package = Self {
+            schema: QUALIFICATION_PERFORMANCE_PACKAGE_SCHEMA_V2.to_owned(),
+            evidence,
+            evaluation,
+            package_sha256: String::new(),
+        };
+        package.package_sha256 = package.canonical_sha256()?;
+        package.validate()?;
+        Ok(package)
+    }
+
+    pub fn canonical_sha256(&self) -> Result<String, String> {
+        let mut preimage = self.clone();
+        preimage.package_sha256.clear();
+        let value = serde_json::to_value(preimage).map_err(|error| error.to_string())?;
+        canonical_json_bytes(&value)
+            .map(|bytes| sha256_bytes_hex(&bytes))
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema != QUALIFICATION_PERFORMANCE_PACKAGE_SCHEMA_V2 {
+            return Err("performance package uses an unsupported schema".to_owned());
+        }
+        self.evidence.validate()?;
+        let expected = evaluate_qualification_performance_v2(&self.evidence)?;
+        if self.evaluation != expected {
+            return Err("performance package evaluation does not match its evidence".to_owned());
+        }
+        if self.evaluation.candidates.iter().any(|candidate| {
+            candidate.criteria.iter().any(|criterion| {
+                criterion.status == QualificationPerformanceCriterionStatusV2::Unknown
+            })
+        }) {
+            return Err("performance package is incomplete".to_owned());
+        }
+        if self.package_sha256 != self.canonical_sha256()? {
+            return Err("performance package hash does not match its preimage".to_owned());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct QualificationPerformanceAppendRecordV2 {
+    logical_key: String,
+    decoded_bytes: Vec<u8>,
+}
+
+fn generate_qualification_append_record(
+    series: &str,
+    iteration: u32,
+    decoded_len: usize,
+) -> Result<QualificationPerformanceAppendRecordV2, String> {
+    if series.is_empty()
+        || !series
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+    {
+        return Err("performance append series is invalid".to_owned());
+    }
+    let prefix = format!(r#"{{"i":"{series}-{iteration:08}","p":""#);
+    let suffix = b"\"}";
+    let minimum = prefix.len().saturating_add(suffix.len());
+    if decoded_len < minimum {
+        return Err("performance append payload size is too small".to_owned());
+    }
+    let mut decoded_bytes = prefix.into_bytes();
+    decoded_bytes.extend(std::iter::repeat_n(b'x', decoded_len - minimum));
+    decoded_bytes.extend_from_slice(suffix);
+    serde_json::from_slice::<serde_json::Value>(&decoded_bytes)
+        .map_err(|_| "performance append payload is invalid JSON".to_owned())?;
+    let digest = sha256_bytes_hex(&decoded_bytes);
+    Ok(QualificationPerformanceAppendRecordV2 {
+        logical_key: format!("qualification/append/{digest}"),
+        decoded_bytes,
+    })
+}
+
+fn scoped_native_inventory(
+    root: &Path,
+    scope: QualificationPerformanceAllocationScopeV2,
+    logical_bytes: u64,
+    high_water_bytes: u64,
+) -> Result<QualificationPerformanceInventoryV2, String> {
+    fn visit(
+        root: &Path,
+        directory: &Path,
+        scope: QualificationPerformanceAllocationScopeV2,
+        paths: &mut Vec<PathBuf>,
+    ) -> Result<(), String> {
+        let mut entries = fs::read_dir(directory)
+            .map_err(|error| format!("{}: {error}", directory.display()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?;
+        entries.sort_by_key(fs::DirEntry::file_name);
+        for entry in entries {
+            let path = entry.path();
+            let relative = path.strip_prefix(root).map_err(|error| error.to_string())?;
+            if scope == QualificationPerformanceAllocationScopeV2::Event
+                && relative
+                    .components()
+                    .next()
+                    .is_some_and(|component| component.as_os_str() == "content")
+            {
+                continue;
+            }
+            let file_type = entry
+                .file_type()
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+            if file_type.is_symlink() {
+                return Err("performance inventory rejects symbolic-link carriers".to_owned());
+            }
+            if file_type.is_dir() {
+                visit(root, &path, scope, paths)?;
+            } else if file_type.is_file() {
+                paths.push(path);
+            } else {
+                return Err("performance inventory rejects non-file carriers".to_owned());
+            }
+        }
+        Ok(())
+    }
+
+    let mut paths = Vec::new();
+    visit(root, root, scope, &mut paths)?;
+    let mut carriers = Vec::with_capacity(paths.len());
+    let mut encoded_bytes = 0_u64;
+    let mut allocated_bytes = 0_u64;
+    for path in paths {
+        let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
+        encoded_bytes = encoded_bytes
+            .checked_add(metadata.len())
+            .ok_or_else(|| "performance encoded-byte inventory overflow".to_owned())?;
+        allocated_bytes = allocated_bytes
+            .checked_add(super::fault::native_file_allocation(&path, &metadata)?)
+            .ok_or_else(|| "performance allocated-byte inventory overflow".to_owned())?;
+        carriers.push(
+            path.strip_prefix(root)
+                .map_err(|error| error.to_string())?
+                .to_string_lossy()
+                .replace('\\', "/"),
+        );
+    }
+    carriers.sort_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
+    QualificationPerformanceInventoryV2::from_inventory(&QualificationInventoryV1 {
+        carriers,
+        logical_bytes,
+        encoded_bytes,
+        allocated_bytes,
+        high_water_bytes: high_water_bytes.max(allocated_bytes),
+    })
+}
+
 pub fn evaluate_qualification_performance_v2(
     evidence: &QualificationPerformanceEvidenceV2,
 ) -> Result<QualificationPerformanceEvaluationV2, String> {
@@ -1531,6 +1758,838 @@ pub fn validate_diagnostic_configuration(
     Ok(())
 }
 
+pub fn run_qualification_performance_campaign_v2(
+    configuration: &QualificationPerformanceCampaignConfigurationV2,
+) -> Result<QualificationPerformanceEvidenceV2, String> {
+    validate_campaign_configuration(configuration)?;
+    let contract = QualificationPerformanceContractV2::frozen();
+    let operating_system = std::env::consts::OS.to_owned();
+    let workloads = qualification_campaign_workloads(
+        &contract,
+        &operating_system,
+        configuration.external_corpus_root.as_deref(),
+    )?;
+    fs::create_dir(&configuration.root)
+        .map_err(|_| "performance campaign root creation failed".to_owned())?;
+    let filesystem = qualification_filesystem_name(&configuration.root);
+    let environment = QualificationPlatformEnvironmentV1 {
+        operating_system: operating_system.clone(),
+        architecture: std::env::consts::ARCH.to_owned(),
+        filesystem: filesystem.clone(),
+        filesystem_disposition: classify_qualification_filesystem(&filesystem),
+        allocation_method: final_native_allocation_method().to_owned(),
+        rustc: rustc_verbose_version(),
+        build_source: env!("POINTBREAK_BUILD_SOURCE").to_owned(),
+        build_describe: env!("POINTBREAK_BUILD_DESCRIBE").to_owned(),
+        source_tree_dirty: env!("POINTBREAK_BUILD_DIRTY") == "true",
+    };
+    let operating_system_version = native_operating_system_version();
+    let cpu = native_cpu_description();
+    let mut runs = Vec::new();
+    for (workload_kind, workload) in &workloads {
+        for candidate in QualificationPerformanceRoleV1::CANDIDATES {
+            for run_index in 1..=contract.independent_runs {
+                let case_root = configuration.root.join(format!(
+                    "{}-{}-run-{run_index}",
+                    candidate.as_str(),
+                    workload_kind.as_str(),
+                ));
+                fs::create_dir(&case_root)
+                    .map_err(|_| "performance campaign case creation failed".to_owned())?;
+                runs.push(run_campaign_case(
+                    configuration,
+                    &contract,
+                    candidate,
+                    *workload_kind,
+                    workload,
+                    run_index,
+                    &case_root,
+                    &environment,
+                    &operating_system_version,
+                    &cpu,
+                )?);
+            }
+        }
+    }
+    let mut evidence = QualificationPerformanceEvidenceV2 {
+        schema: QUALIFICATION_PERFORMANCE_EVIDENCE_SCHEMA_V2.to_owned(),
+        contract_schema: contract.schema.clone(),
+        contract_sha256: contract.canonical_sha256()?,
+        source_commit: configuration.source_commit.clone(),
+        cargo_lock_sha256: configuration.cargo_lock_sha256.clone(),
+        runs,
+        evidence_sha256: String::new(),
+    };
+    evidence.evidence_sha256 = evidence.canonical_sha256()?;
+    evidence.validate()?;
+    Ok(evidence)
+}
+
+pub fn run_qualification_performance_open_child(request_path: &Path) -> Result<(), String> {
+    let bytes = fs::read(request_path)
+        .map_err(|_| "performance open request could not be read".to_owned())?;
+    let request: QualificationPerformanceOpenRequestV2 = serde_json::from_slice(&bytes)
+        .map_err(|_| "performance open request is invalid".to_owned())?;
+    if !request.root.is_dir()
+        || request.result_path.exists()
+        || request
+            .result_path
+            .parent()
+            .is_none_or(|parent| !parent.is_dir())
+    {
+        return Err("performance open request paths are invalid".to_owned());
+    }
+    let receipt = if request.role == QualificationPerformanceRoleV1::LooseBaseline {
+        loose_semantic_receipt(&request.root)?
+    } else {
+        DiagnosticCandidateProfile::open(request.role, &request.root)?.semantic_receipt()?
+    };
+    write_json_new_synced(&request.result_path, &receipt)
+}
+
+fn validate_campaign_configuration(
+    configuration: &QualificationPerformanceCampaignConfigurationV2,
+) -> Result<(), String> {
+    let contract = QualificationPerformanceContractV2::frozen();
+    contract.validate()?;
+    if !configuration.executable.is_file()
+        || configuration.root.exists()
+        || configuration
+            .root
+            .parent()
+            .is_none_or(|parent| !parent.is_dir())
+        || configuration.source_commit != qualification_source_commit()?
+        || configuration.cargo_lock_sha256 != qualification_cargo_lock_sha256()
+        || !configuration.quiesced_host
+        || env!("POINTBREAK_BUILD_DIRTY") == "true"
+    {
+        return Err("performance campaign configuration is not proof-eligible".to_owned());
+    }
+    let parent = configuration
+        .root
+        .parent()
+        .ok_or_else(|| "performance campaign root has no parent".to_owned())?;
+    let filesystem = qualification_filesystem_name(parent);
+    if classify_qualification_filesystem(&filesystem)
+        != QualificationFilesystemDispositionV1::LocalProofEligible
+    {
+        return Err("performance campaign requires a local proof filesystem".to_owned());
+    }
+    if !qualification_performance_platform_is_supported(
+        &contract,
+        std::env::consts::OS,
+        &filesystem,
+        final_native_allocation_method(),
+    ) {
+        return Err("performance campaign platform is outside the frozen contract".to_owned());
+    }
+    match std::env::consts::OS {
+        "macos" if configuration.external_corpus_root.is_none() => {
+            Err("performance campaign requires the external workload on macOS".to_owned())
+        }
+        "macos" => Ok(()),
+        "linux" | "windows" if configuration.external_corpus_root.is_some() => {
+            Err("performance campaign accepts the external workload only on macOS".to_owned())
+        }
+        "linux" | "windows" => Ok(()),
+        _ => Err("performance campaign platform is unsupported".to_owned()),
+    }
+}
+
+fn qualification_performance_platform_is_supported(
+    contract: &QualificationPerformanceContractV2,
+    operating_system: &str,
+    filesystem: &str,
+    allocation_method: &str,
+) -> bool {
+    contract.workloads.iter().any(|workload| {
+        workload.platforms.iter().any(|platform| {
+            platform.operating_system == operating_system
+                && platform.filesystem == filesystem
+                && platform.allocation_method == allocation_method
+        })
+    })
+}
+
+fn qualification_campaign_workloads(
+    contract: &QualificationPerformanceContractV2,
+    operating_system: &str,
+    external_corpus_root: Option<&Path>,
+) -> Result<
+    Vec<(
+        QualificationPerformanceWorkloadV2,
+        QualificationCorpusManifestV1,
+    )>,
+    String,
+> {
+    let public = synthetic_legacy_manifest()
+        .map_err(|_| "public performance workload is invalid".to_owned())?;
+    let modeled = modeled_post_foundation_manifest()
+        .map_err(|_| "modeled performance workload is invalid".to_owned())?;
+    let mut workloads = Vec::new();
+    for requirement in &contract.workloads {
+        if !requirement
+            .platforms
+            .iter()
+            .any(|platform| platform.operating_system == operating_system)
+        {
+            continue;
+        }
+        let manifest = match requirement.workload {
+            QualificationPerformanceWorkloadV2::ExternalCorpus => {
+                load_external_workload_v2_manifest_from_path(external_corpus_root).map_err(
+                    |_| "external performance workload is invalid or has drifted".to_owned(),
+                )?
+            }
+            QualificationPerformanceWorkloadV2::ModeledFoundation => modeled.clone(),
+            QualificationPerformanceWorkloadV2::PublicSmoke => public.clone(),
+        };
+        if manifest.manifest_sha256 != requirement.manifest_sha256 {
+            return Err("performance workload manifest does not match the contract".to_owned());
+        }
+        workloads.push((requirement.workload, manifest));
+    }
+    Ok(workloads)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_campaign_case(
+    configuration: &QualificationPerformanceCampaignConfigurationV2,
+    contract: &QualificationPerformanceContractV2,
+    candidate_role: QualificationPerformanceRoleV1,
+    workload_kind: QualificationPerformanceWorkloadV2,
+    workload: &QualificationCorpusManifestV1,
+    run_index: u32,
+    case_root: &Path,
+    environment: &QualificationPlatformEnvironmentV1,
+    operating_system_version: &str,
+    cpu: &str,
+) -> Result<QualificationPerformanceRunV2, String> {
+    let selected = workload
+        .records
+        .iter()
+        .find(|record| is_journal_record(record.record_kind))
+        .ok_or_else(|| "performance workload has no journal record".to_owned())?;
+    let mut journal_lengths = workload
+        .records
+        .iter()
+        .filter(|record| is_journal_record(record.record_kind))
+        .map(|record| record.decoded_bytes.len())
+        .collect::<Vec<_>>();
+    journal_lengths.sort_unstable();
+    let representative_len = journal_lengths[journal_lengths.len() / 2];
+
+    let warmup_root = case_root.join("warmup");
+    fs::create_dir(&warmup_root)
+        .map_err(|_| "performance warm-up root creation failed".to_owned())?;
+    let warmup_candidate_root = warmup_root.join("candidate");
+    let warmup_candidate =
+        DiagnosticCandidateProfile::open(candidate_role, &warmup_candidate_root)?;
+    populate_profile(warmup_candidate.as_profile(), workload)
+        .map_err(|_| "performance warm-up candidate population failed".to_owned())?;
+    let warmup_loose =
+        LooseQualificationPerformanceProbe::create(warmup_root.join("loose"), workload)?;
+    for iteration in 0..contract.warmup_samples {
+        run_campaign_iteration(
+            configuration,
+            &warmup_candidate,
+            &warmup_candidate_root,
+            &warmup_loose,
+            candidate_role,
+            selected,
+            representative_len,
+            iteration,
+            "warmup",
+            &warmup_root,
+        )?;
+    }
+    drop(warmup_loose);
+    drop(warmup_candidate);
+    fs::remove_dir_all(&warmup_root)
+        .map_err(|_| "performance warm-up roots could not be discarded".to_owned())?;
+
+    let candidate_root = case_root.join("candidate");
+    let loose_root = case_root.join("loose");
+    let candidate = DiagnosticCandidateProfile::open(candidate_role, &candidate_root)?;
+    populate_profile(candidate.as_profile(), workload)
+        .map_err(|_| "performance candidate population failed".to_owned())?;
+    let loose = LooseQualificationPerformanceProbe::create(loose_root.clone(), workload)?;
+    let event_logical_base = workload
+        .records
+        .iter()
+        .filter(|record| is_journal_record(record.record_kind))
+        .try_fold(0_u64, |total, record| {
+            total.checked_add(record.decoded_bytes.len() as u64)
+        })
+        .ok_or_else(|| "performance event logical-byte total overflow".to_owned())?;
+    let complete_logical_base = workload
+        .records
+        .iter()
+        .try_fold(0_u64, |total, record| {
+            total.checked_add(record.decoded_bytes.len() as u64)
+        })
+        .ok_or_else(|| "performance complete logical-byte total overflow".to_owned())?;
+    let mut high_water = BTreeMap::new();
+    capture_campaign_inventories(
+        candidate_role,
+        &candidate_root,
+        &loose_root,
+        event_logical_base,
+        complete_logical_base,
+        &mut high_water,
+    )?;
+    let mut samples = Vec::new();
+    let mut appended_bytes = 0_u64;
+    for iteration in 0..contract.measured_samples {
+        samples.extend(run_campaign_iteration(
+            configuration,
+            &candidate,
+            &candidate_root,
+            &loose,
+            candidate_role,
+            selected,
+            representative_len,
+            iteration,
+            "measured",
+            case_root,
+        )?);
+        appended_bytes = appended_bytes
+            .checked_add(representative_len as u64)
+            .ok_or_else(|| "performance append logical-byte total overflow".to_owned())?;
+        capture_campaign_inventories(
+            candidate_role,
+            &candidate_root,
+            &loose_root,
+            event_logical_base + appended_bytes,
+            complete_logical_base + appended_bytes,
+            &mut high_water,
+        )?;
+    }
+    let event_logical = event_logical_base + appended_bytes;
+    let complete_logical = complete_logical_base + appended_bytes;
+    let steady = capture_campaign_inventories(
+        candidate_role,
+        &candidate_root,
+        &loose_root,
+        event_logical,
+        complete_logical,
+        &mut high_water,
+    )?;
+    candidate.maintenance_boundary()?;
+    let high_water_current = capture_campaign_inventories(
+        candidate_role,
+        &candidate_root,
+        &loose_root,
+        event_logical,
+        complete_logical,
+        &mut high_water,
+    )?;
+    drop(candidate);
+    let candidate_receipt = spawn_open_receipt(
+        configuration,
+        candidate_role,
+        &candidate_root,
+        case_root,
+        "final-candidate",
+        0,
+        0,
+    )?
+    .1;
+    let loose_receipt = spawn_open_receipt(
+        configuration,
+        QualificationPerformanceRoleV1::LooseBaseline,
+        &loose_root,
+        case_root,
+        "final-loose",
+        0,
+        0,
+    )?
+    .1;
+    if candidate_receipt != loose_receipt {
+        return Err("performance final semantic receipts differ".to_owned());
+    }
+    let reopened_candidate = DiagnosticCandidateProfile::open(candidate_role, &candidate_root)?;
+    if reopened_candidate.semantic_receipt()? != candidate_receipt {
+        return Err("performance reopened candidate receipt differs".to_owned());
+    }
+    let reopened = capture_campaign_inventories(
+        candidate_role,
+        &candidate_root,
+        &loose_root,
+        event_logical,
+        complete_logical,
+        &mut high_water,
+    )?;
+    let allocations = campaign_allocation_snapshots(
+        candidate_role,
+        &steady,
+        &reopened,
+        &high_water_current,
+        &high_water,
+    )?;
+    let qualification_candidate = match candidate_role {
+        QualificationPerformanceRoleV1::SqliteWal => QualificationCandidateV1::SqliteWal,
+        QualificationPerformanceRoleV1::BoundedSegments => {
+            QualificationCandidateV1::BoundedSegments
+        }
+        QualificationPerformanceRoleV1::LooseBaseline => unreachable!(),
+    };
+    let physical_profile_id = match candidate_role {
+        QualificationPerformanceRoleV1::SqliteWal => SQLITE_QUALIFICATION_PROFILE_ID_V1,
+        QualificationPerformanceRoleV1::BoundedSegments => SEGMENT_QUALIFICATION_PROFILE_ID_V1,
+        QualificationPerformanceRoleV1::LooseBaseline => unreachable!(),
+    };
+    Ok(QualificationPerformanceRunV2 {
+        run_index,
+        workload: workload_kind,
+        workload_manifest_sha256: workload.manifest_sha256.clone(),
+        candidate: candidate_role,
+        candidate_build_id: qualification_candidate.build_id(&configuration.cargo_lock_sha256),
+        physical_profile_id: physical_profile_id.to_owned(),
+        environment: environment.clone(),
+        operating_system_version: operating_system_version.to_owned(),
+        cpu: cpu.to_owned(),
+        target_architecture: environment.architecture.clone(),
+        run_identity: format!(
+            "{}-{}-{}-{}-run-{run_index}",
+            environment.operating_system,
+            environment.architecture,
+            workload_kind.as_str(),
+            candidate_role.as_str(),
+        ),
+        warmup_samples: contract.warmup_samples,
+        measured_samples: contract.measured_samples,
+        pair_order: contract.pair_order,
+        confidence_method: contract.confidence_method,
+        outlier_policy: contract.outlier_policy,
+        cache_policy: contract.cache_policy,
+        controls: QualificationPerformanceRunControlsV2 {
+            fresh_roots: true,
+            quiesced_host: configuration.quiesced_host,
+            native_execution: true,
+            equivalent_decoded_bytes: true,
+            monotonic_append_state: true,
+            durable_acknowledgement: true,
+            semantic_validation: true,
+            open_recovery_fresh_process: true,
+        },
+        semantic_receipt_sha256: candidate_receipt.receipt_sha256,
+        samples,
+        allocations,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_campaign_iteration(
+    configuration: &QualificationPerformanceCampaignConfigurationV2,
+    candidate: &DiagnosticCandidateProfile,
+    candidate_profile_root: &Path,
+    loose: &LooseQualificationPerformanceProbe,
+    candidate_role: QualificationPerformanceRoleV1,
+    selected: &super::QualificationRecordV1,
+    representative_len: usize,
+    iteration: u32,
+    series: &str,
+    control_root: &Path,
+) -> Result<Vec<QualificationPerformanceDiagnosticSampleV1>, String> {
+    let append = generate_qualification_append_record(series, iteration, representative_len)?;
+    let mut samples = Vec::with_capacity(QualificationPerformanceOperationV1::ALL.len() * 2);
+    for operation in QualificationPerformanceOperationV1::ALL {
+        let (logical_key, decoded_bytes) =
+            if operation == QualificationPerformanceOperationV1::DurableAppend {
+                (append.logical_key.as_str(), append.decoded_bytes.as_slice())
+            } else {
+                (
+                    selected.logical_key.as_str(),
+                    selected.decoded_bytes.as_slice(),
+                )
+            };
+        let mut receipts = Vec::new();
+        for (pair_order, role) in paired_roles(
+            QualificationPerformancePairOrderV1::Alternating,
+            candidate_role,
+            iteration,
+        )
+        .into_iter()
+        .enumerate()
+        {
+            let request = QualificationPerformanceOperationRequestV1 {
+                operation,
+                role,
+                iteration,
+                pair_order: pair_order as u8,
+                logical_key,
+                decoded_bytes,
+            };
+            let (sample, receipt) = match operation {
+                QualificationPerformanceOperationV1::StrictReplay => {
+                    let (sample, receipt) = campaign_replay_sample(candidate, loose, &request)?;
+                    (sample, Some(receipt))
+                }
+                QualificationPerformanceOperationV1::OpenRecovery => {
+                    let (sample, receipt) = spawn_open_receipt(
+                        configuration,
+                        role,
+                        if role == QualificationPerformanceRoleV1::LooseBaseline {
+                            &loose.root
+                        } else {
+                            candidate_profile_root
+                        },
+                        control_root,
+                        &format!("{series}-{iteration}-{pair_order}"),
+                        iteration,
+                        pair_order as u8,
+                    )?;
+                    (sample, Some(receipt))
+                }
+                _ if role == QualificationPerformanceRoleV1::LooseBaseline => {
+                    (loose.run_profiled_operation(&request)?, None)
+                }
+                _ => (candidate.as_probe().run_profiled_operation(&request)?, None),
+            };
+            if let Some(receipt) = receipt {
+                receipts.push((role, receipt));
+            }
+            samples.push(sample);
+        }
+        if matches!(
+            operation,
+            QualificationPerformanceOperationV1::StrictReplay
+                | QualificationPerformanceOperationV1::OpenRecovery
+        ) {
+            let candidate_receipt = receipts
+                .iter()
+                .find(|(role, _)| *role == candidate_role)
+                .map(|(_, receipt)| receipt);
+            let loose_receipt = receipts
+                .iter()
+                .find(|(role, _)| *role == QualificationPerformanceRoleV1::LooseBaseline)
+                .map(|(_, receipt)| receipt);
+            if candidate_receipt.is_none() || candidate_receipt != loose_receipt {
+                return Err("performance semantic receipts differ".to_owned());
+            }
+        }
+        if operation == QualificationPerformanceOperationV1::DurableAppend {
+            let candidate_bytes = candidate
+                .as_profile()
+                .journal()
+                .read(logical_key)
+                .map_err(|_| "performance candidate append verification failed".to_owned())?
+                .ok_or_else(|| "performance candidate append is missing".to_owned())?
+                .decoded_bytes;
+            if candidate_bytes != decoded_bytes {
+                return Err("performance candidate append returned different bytes".to_owned());
+            }
+            let baseline_request = QualificationPerformanceOperationRequestV1 {
+                operation,
+                role: QualificationPerformanceRoleV1::LooseBaseline,
+                iteration,
+                pair_order: 0,
+                logical_key,
+                decoded_bytes,
+            };
+            loose.verify_read(&baseline_request)?;
+        }
+    }
+    Ok(samples)
+}
+
+fn campaign_replay_sample(
+    candidate: &DiagnosticCandidateProfile,
+    loose: &LooseQualificationPerformanceProbe,
+    request: &QualificationPerformanceOperationRequestV1<'_>,
+) -> Result<
+    (
+        QualificationPerformanceDiagnosticSampleV1,
+        QualificationPerformanceSemanticReceiptV2,
+    ),
+    String,
+> {
+    let started = Instant::now();
+    let receipt = if request.role == QualificationPerformanceRoleV1::LooseBaseline {
+        loose_semantic_receipt(&loose.root)?
+    } else {
+        candidate.semantic_receipt()?
+    };
+    let elapsed = elapsed_nanos(started);
+    Ok((
+        QualificationPerformanceDiagnosticSampleV1 {
+            operation: request.operation,
+            role: request.role,
+            iteration: request.iteration,
+            pair_order: request.pair_order,
+            total_elapsed_nanos: elapsed,
+            stages: vec![QualificationPerformanceStageSampleV1 {
+                stage: "replay_receipt".to_owned(),
+                elapsed_nanos: elapsed,
+            }],
+        },
+        receipt,
+    ))
+}
+
+fn spawn_open_receipt(
+    configuration: &QualificationPerformanceCampaignConfigurationV2,
+    role: QualificationPerformanceRoleV1,
+    root: &Path,
+    control_root: &Path,
+    label: &str,
+    iteration: u32,
+    pair_order: u8,
+) -> Result<
+    (
+        QualificationPerformanceDiagnosticSampleV1,
+        QualificationPerformanceSemanticReceiptV2,
+    ),
+    String,
+> {
+    let control = control_root.join("open-controls");
+    fs::create_dir_all(&control)
+        .map_err(|_| "performance open control directory creation failed".to_owned())?;
+    let role_label = role.as_str();
+    let request_path = control.join(format!("{label}-{role_label}-request.json"));
+    let result_path = control.join(format!("{label}-{role_label}-result.json"));
+    let request = QualificationPerformanceOpenRequestV2 {
+        role,
+        root: root.to_path_buf(),
+        result_path: result_path.clone(),
+    };
+    write_json_new_synced(&request_path, &request)?;
+    let started = Instant::now();
+    let output = Command::new(&configuration.executable)
+        .arg("--qualification-performance-open-child")
+        .arg(&request_path)
+        .output()
+        .map_err(|_| "performance open child could not start".to_owned())?;
+    let elapsed = elapsed_nanos(started);
+    if !output.status.success() {
+        return Err("performance open child failed".to_owned());
+    }
+    let result_bytes = fs::read(&result_path)
+        .map_err(|_| "performance open result could not be read".to_owned())?;
+    let receipt: QualificationPerformanceSemanticReceiptV2 = serde_json::from_slice(&result_bytes)
+        .map_err(|_| "performance open result is invalid".to_owned())?;
+    validate_hex(
+        &receipt.receipt_sha256,
+        64,
+        "performance semantic receipt SHA-256",
+    )?;
+    fs::remove_file(&request_path)
+        .and_then(|_| fs::remove_file(&result_path))
+        .map_err(|_| "performance open control cleanup failed".to_owned())?;
+    Ok((
+        QualificationPerformanceDiagnosticSampleV1 {
+            operation: QualificationPerformanceOperationV1::OpenRecovery,
+            role,
+            iteration,
+            pair_order,
+            total_elapsed_nanos: elapsed,
+            stages: vec![QualificationPerformanceStageSampleV1 {
+                stage: "fresh_process_open_receipt".to_owned(),
+                elapsed_nanos: elapsed,
+            }],
+        },
+        receipt,
+    ))
+}
+
+fn capture_campaign_inventories(
+    candidate_role: QualificationPerformanceRoleV1,
+    candidate_root: &Path,
+    loose_root: &Path,
+    event_logical_bytes: u64,
+    complete_logical_bytes: u64,
+    high_water: &mut BTreeMap<
+        (
+            QualificationPerformanceRoleV1,
+            QualificationPerformanceAllocationScopeV2,
+        ),
+        u64,
+    >,
+) -> Result<
+    BTreeMap<
+        (
+            QualificationPerformanceRoleV1,
+            QualificationPerformanceAllocationScopeV2,
+        ),
+        QualificationPerformanceInventoryV2,
+    >,
+    String,
+> {
+    let mut inventories = BTreeMap::new();
+    for (role, root) in [
+        (candidate_role, candidate_root),
+        (QualificationPerformanceRoleV1::LooseBaseline, loose_root),
+    ] {
+        for scope in [
+            QualificationPerformanceAllocationScopeV2::Event,
+            QualificationPerformanceAllocationScopeV2::CompleteProfile,
+        ] {
+            let logical_bytes = match scope {
+                QualificationPerformanceAllocationScopeV2::Event => event_logical_bytes,
+                QualificationPerformanceAllocationScopeV2::CompleteProfile => {
+                    complete_logical_bytes
+                }
+            };
+            let mut inventory = scoped_native_inventory(root, scope, logical_bytes, 0)?;
+            let observed = high_water.entry((role, scope)).or_default();
+            *observed = (*observed).max(inventory.allocated_bytes);
+            inventory.high_water_bytes = *observed;
+            inventories.insert((role, scope), inventory);
+        }
+    }
+    Ok(inventories)
+}
+
+fn campaign_allocation_snapshots(
+    candidate_role: QualificationPerformanceRoleV1,
+    steady: &BTreeMap<
+        (
+            QualificationPerformanceRoleV1,
+            QualificationPerformanceAllocationScopeV2,
+        ),
+        QualificationPerformanceInventoryV2,
+    >,
+    reopened: &BTreeMap<
+        (
+            QualificationPerformanceRoleV1,
+            QualificationPerformanceAllocationScopeV2,
+        ),
+        QualificationPerformanceInventoryV2,
+    >,
+    high_water_current: &BTreeMap<
+        (
+            QualificationPerformanceRoleV1,
+            QualificationPerformanceAllocationScopeV2,
+        ),
+        QualificationPerformanceInventoryV2,
+    >,
+    high_water: &BTreeMap<
+        (
+            QualificationPerformanceRoleV1,
+            QualificationPerformanceAllocationScopeV2,
+        ),
+        u64,
+    >,
+) -> Result<Vec<QualificationPerformanceAllocationSnapshotV2>, String> {
+    let mut snapshots = Vec::new();
+    for (state, source) in [
+        (QualificationPerformanceInventoryStateV1::Steady, steady),
+        (QualificationPerformanceInventoryStateV1::Reopened, reopened),
+        (
+            QualificationPerformanceInventoryStateV1::HighWater,
+            high_water_current,
+        ),
+    ] {
+        for scope in [
+            QualificationPerformanceAllocationScopeV2::Event,
+            QualificationPerformanceAllocationScopeV2::CompleteProfile,
+        ] {
+            for role in [
+                candidate_role,
+                QualificationPerformanceRoleV1::LooseBaseline,
+            ] {
+                let mut inventory = source
+                    .get(&(role, scope))
+                    .cloned()
+                    .ok_or_else(|| "performance allocation snapshot is missing".to_owned())?;
+                inventory.high_water_bytes = *high_water
+                    .get(&(role, scope))
+                    .ok_or_else(|| "performance allocation high-water is missing".to_owned())?;
+                snapshots.push(QualificationPerformanceAllocationSnapshotV2 {
+                    role,
+                    scope,
+                    state,
+                    inventory,
+                });
+            }
+        }
+    }
+    Ok(snapshots)
+}
+
+fn qualification_journal_receipt(
+    entries: Vec<super::QualificationEntry>,
+) -> Result<QualificationPerformanceSemanticReceiptV2, String> {
+    let mut records = entries
+        .into_iter()
+        .map(|entry| {
+            let actual = sha256_bytes_hex(&entry.decoded_bytes);
+            if actual != entry.decoded_sha256 {
+                return Err("performance journal receipt found a decoded hash mismatch".to_owned());
+            }
+            Ok((sha256_bytes_hex(entry.logical_key.as_bytes()), actual))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    records.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
+    let value = serde_json::to_value(&records).map_err(|error| error.to_string())?;
+    let bytes = canonical_json_bytes(&value).map_err(|error| error.to_string())?;
+    Ok(QualificationPerformanceSemanticReceiptV2 {
+        record_count: records.len() as u64,
+        receipt_sha256: sha256_bytes_hex(&bytes),
+    })
+}
+
+fn loose_semantic_receipt(
+    root: &Path,
+) -> Result<QualificationPerformanceSemanticReceiptV2, String> {
+    let events = root.join("events");
+    let mut records = Vec::new();
+    let entries = fs::read_dir(&events)
+        .map_err(|_| "performance loose event directory could not be read".to_owned())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "performance loose event directory is invalid".to_owned())?;
+    for entry in entries {
+        let path = entry.path();
+        if !entry
+            .file_type()
+            .map_err(|_| "performance loose carrier type could not be read".to_owned())?
+            .is_file()
+        {
+            return Err("performance loose event carrier is not a file".to_owned());
+        }
+        let key_hash = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .ok_or_else(|| "performance loose event carrier name is invalid".to_owned())?
+            .to_owned();
+        validate_hex(&key_hash, 64, "performance loose event key SHA-256")?;
+        let bytes = fs::read(&path)
+            .map_err(|_| "performance loose event carrier could not be read".to_owned())?;
+        records.push((key_hash, sha256_bytes_hex(&bytes)));
+    }
+    records.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
+    let value = serde_json::to_value(&records).map_err(|error| error.to_string())?;
+    let bytes = canonical_json_bytes(&value).map_err(|error| error.to_string())?;
+    Ok(QualificationPerformanceSemanticReceiptV2 {
+        record_count: records.len() as u64,
+        receipt_sha256: sha256_bytes_hex(&bytes),
+    })
+}
+
+fn is_journal_record(kind: QualificationRecordKindV1) -> bool {
+    matches!(
+        kind,
+        QualificationRecordKindV1::LegacyEvent
+            | QualificationRecordKindV1::GenerationProposal
+            | QualificationRecordKindV1::RelationAttestation
+            | QualificationRecordKindV1::FactPort
+    )
+}
+
+fn write_json_new_synced(path: &Path, value: &impl Serialize) -> Result<(), String> {
+    let bytes =
+        serde_json::to_vec(value).map_err(|_| "performance control JSON failed".to_owned())?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|_| "performance control file creation failed".to_owned())?;
+    file.write_all(&bytes)
+        .and_then(|_| file.sync_all())
+        .map_err(|_| "performance control file write failed".to_owned())
+}
+
 pub fn run_qualification_performance_diagnostics(
     configuration: &QualificationPerformanceDiagnosticConfigurationV1,
 ) -> Result<QualificationPerformanceDiagnosticsReportV1, String> {
@@ -1647,6 +2706,23 @@ impl DiagnosticCandidateProfile {
         match self {
             Self::Sqlite { profile, .. } => profile,
             Self::Segments { profile, .. } => profile,
+        }
+    }
+
+    fn semantic_receipt(&self) -> Result<QualificationPerformanceSemanticReceiptV2, String> {
+        qualification_journal_receipt(self.as_profile().journal().list()?)
+    }
+
+    fn maintenance_boundary(&self) -> Result<(), String> {
+        match self {
+            Self::Sqlite { profile, .. } => profile
+                .checkpoint()
+                .map(|_| ())
+                .map_err(|error| error.to_string()),
+            Self::Segments { profile, .. } => profile
+                .seal_active()
+                .map(|_| ())
+                .map_err(|error| error.to_string()),
         }
     }
 
@@ -1916,6 +2992,91 @@ fn rustc_version() -> String {
         .map(|version| version.trim().to_owned())
         .filter(|version| !version.is_empty())
         .unwrap_or_else(|| "unavailable".to_owned())
+}
+
+fn rustc_verbose_version() -> String {
+    command_stdout("rustc", &["-vV"]).unwrap_or_else(|| "unavailable\nhost: unavailable".to_owned())
+}
+
+fn command_stdout(program: &str, arguments: &[&str]) -> Option<String> {
+    Command::new(program)
+        .args(arguments)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+#[cfg(target_os = "macos")]
+fn native_operating_system_version() -> String {
+    command_stdout("sw_vers", &["-productVersion"]).unwrap_or_else(|| "unavailable".to_owned())
+}
+
+#[cfg(target_os = "linux")]
+fn native_operating_system_version() -> String {
+    command_stdout("uname", &["-sr"]).unwrap_or_else(|| "unavailable".to_owned())
+}
+
+#[cfg(target_os = "windows")]
+fn native_operating_system_version() -> String {
+    command_stdout("cmd", &["/C", "ver"]).unwrap_or_else(|| "unavailable".to_owned())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+fn native_operating_system_version() -> String {
+    "unavailable".to_owned()
+}
+
+#[cfg(target_os = "macos")]
+fn native_cpu_description() -> String {
+    command_stdout("sysctl", &["-n", "machdep.cpu.brand_string"])
+        .or_else(|| command_stdout("sysctl", &["-n", "hw.model"]))
+        .unwrap_or_else(|| "unavailable".to_owned())
+}
+
+#[cfg(target_os = "linux")]
+fn native_cpu_description() -> String {
+    fs::read_to_string("/proc/cpuinfo")
+        .ok()
+        .and_then(|contents| {
+            contents.lines().find_map(|line| {
+                line.split_once(':')
+                    .filter(|(key, _)| matches!(key.trim(), "model name" | "Model"))
+                    .map(|(_, value)| value.trim().to_owned())
+                    .filter(|value| !value.is_empty())
+            })
+        })
+        .unwrap_or_else(|| "unavailable".to_owned())
+}
+
+#[cfg(target_os = "windows")]
+fn native_cpu_description() -> String {
+    std::env::var("PROCESSOR_IDENTIFIER")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "unavailable".to_owned())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+fn native_cpu_description() -> String {
+    "unavailable".to_owned()
+}
+
+#[cfg(unix)]
+fn final_native_allocation_method() -> &'static str {
+    "stat_blocks_512"
+}
+
+#[cfg(windows)]
+fn final_native_allocation_method() -> &'static str {
+    "file_standard_info_allocation_size"
+}
+
+#[cfg(not(any(unix, windows)))]
+fn final_native_allocation_method() -> &'static str {
+    "logical_length_fallback"
 }
 
 #[cfg(unix)]
@@ -2779,6 +3940,141 @@ mod tests {
 
     fn rehash_v2(evidence: &mut QualificationPerformanceEvidenceV2) {
         evidence.evidence_sha256 = evidence.canonical_sha256().expect("evidence hash");
+    }
+
+    #[test]
+    fn final_append_records_are_valid_exact_sized_and_content_addressed() {
+        let first =
+            generate_qualification_append_record("measured", 0, 512).expect("first append record");
+        let second =
+            generate_qualification_append_record("measured", 1, 512).expect("second append record");
+
+        assert_eq!(first.decoded_bytes.len(), 512);
+        assert_eq!(second.decoded_bytes.len(), 512);
+        assert_ne!(first.decoded_bytes, second.decoded_bytes);
+        assert_ne!(first.logical_key, second.logical_key);
+        assert!(serde_json::from_slice::<serde_json::Value>(&first.decoded_bytes).is_ok());
+        assert!(
+            first
+                .logical_key
+                .ends_with(&sha256_bytes_hex(&first.decoded_bytes))
+        );
+        assert!(generate_qualification_append_record("measured", 0, 8).is_err());
+    }
+
+    #[test]
+    fn final_native_inventory_separates_event_and_complete_carriers() {
+        let root = tempfile::tempdir().expect("inventory root");
+        std::fs::create_dir(root.path().join("events")).expect("events directory");
+        std::fs::create_dir(root.path().join("content")).expect("content directory");
+        write_new_synced(&root.path().join("events/event.json"), b"event").expect("event carrier");
+        write_new_synced(&root.path().join("content/object.json"), b"content")
+            .expect("content carrier");
+        write_new_synced(&root.path().join("profile.json"), b"profile").expect("profile carrier");
+
+        let event = scoped_native_inventory(
+            root.path(),
+            QualificationPerformanceAllocationScopeV2::Event,
+            5,
+            0,
+        )
+        .expect("event inventory");
+        let complete = scoped_native_inventory(
+            root.path(),
+            QualificationPerformanceAllocationScopeV2::CompleteProfile,
+            12,
+            0,
+        )
+        .expect("complete inventory");
+
+        assert_eq!(event.carrier_count, 2);
+        assert_eq!(complete.carrier_count, 3);
+        assert_eq!(event.logical_bytes, 5);
+        assert_eq!(complete.logical_bytes, 12);
+        assert!(event.allocated_bytes < complete.allocated_bytes);
+        assert_ne!(event.carrier_set_sha256, complete.carrier_set_sha256);
+    }
+
+    #[test]
+    fn final_candidate_and_loose_semantic_receipts_match() {
+        let workload = modeled_post_foundation_manifest().expect("modeled workload");
+        let roots = tempfile::tempdir().expect("receipt roots");
+
+        for candidate_role in QualificationPerformanceRoleV1::CANDIDATES {
+            let candidate = DiagnosticCandidateProfile::open(
+                candidate_role,
+                &roots
+                    .path()
+                    .join(format!("{}-candidate", candidate_role.as_str())),
+            )
+            .expect("candidate profile");
+            populate_profile(candidate.as_profile(), &workload).expect("candidate population");
+            let loose_root = roots
+                .path()
+                .join(format!("{}-loose", candidate_role.as_str()));
+            let _loose = LooseQualificationPerformanceProbe::create(loose_root.clone(), &workload)
+                .expect("loose population");
+
+            assert_eq!(
+                candidate.semantic_receipt().expect("candidate receipt"),
+                loose_semantic_receipt(&loose_root).expect("loose receipt")
+            );
+        }
+    }
+
+    #[test]
+    fn final_performance_package_requires_every_exact_platform_shard() {
+        let complete = complete_v2_evidence(100, 100, 99, 100);
+        let mut shards = Vec::new();
+        for operating_system in ["macos", "linux", "windows"] {
+            let mut shard = complete.clone();
+            shard
+                .runs
+                .retain(|run| run.environment.operating_system == operating_system);
+            rehash_v2(&mut shard);
+            shards.push(shard);
+        }
+
+        let package = QualificationPerformancePackageV2::assemble(&shards)
+            .expect("complete platform package");
+        assert!(package.validate().is_ok());
+        assert!(package.evaluation.candidates.iter().all(|candidate| {
+            candidate.criteria.iter().all(|criterion| {
+                criterion.status != QualificationPerformanceCriterionStatusV2::Unknown
+            })
+        }));
+
+        let error = QualificationPerformancePackageV2::assemble(&shards[..2])
+            .expect_err("missing Windows shard");
+        assert!(error.contains("incomplete"));
+
+        let mut duplicate = shards.clone();
+        duplicate.push(shards[0].clone());
+        assert!(QualificationPerformancePackageV2::assemble(&duplicate).is_err());
+    }
+
+    #[test]
+    fn final_campaign_admits_only_exact_frozen_platform_rows() {
+        let contract = QualificationPerformanceContractV2::frozen();
+
+        assert!(qualification_performance_platform_is_supported(
+            &contract,
+            "linux",
+            "ext4",
+            "stat_blocks_512"
+        ));
+        assert!(!qualification_performance_platform_is_supported(
+            &contract,
+            "linux",
+            "ext2/ext3",
+            "stat_blocks_512"
+        ));
+        assert!(!qualification_performance_platform_is_supported(
+            &contract,
+            "linux",
+            "xfs",
+            "stat_blocks_512"
+        ));
     }
 
     #[test]

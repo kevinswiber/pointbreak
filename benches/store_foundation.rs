@@ -9,14 +9,17 @@ use pointbreak::bench_support::foundation::{
     DisposableBundleDestinationV2, ExactBundleClosureV2, ExactBundleFailurePointV2,
     ExactBundleManifestV2, ExactBundlePublicationReportV2, ImportReceiptPolicyPrototypeV1,
     ImportReceiptPrototypeV1, LogicalCapabilityEpochV1, QualificationCorpusError,
-    QualificationCorpusSummaryV1, QualificationPerformanceDiagnosticConfigurationV1,
-    QualificationPerformancePairOrderV1, QualificationRunConfigurationV1,
-    QualificationSnapshotTotalsV1, ReceiptBackupConsequenceV1, ReceiptProjectionConsequenceV1,
-    SegmentWorkloadEvidenceV1, SnapshotDriftReportV1, SqliteWorkloadEvidenceV1,
-    load_external_workload_v2_manifest_from_env, modeled_post_foundation_manifest,
-    publish_exact_bundle_v2, qualification_cargo_lock_sha256, qualification_filesystem_name,
+    QualificationCorpusSummaryV1, QualificationPerformanceCampaignConfigurationV2,
+    QualificationPerformanceDiagnosticConfigurationV1, QualificationPerformanceEvidenceV2,
+    QualificationPerformancePackageV2, QualificationPerformancePairOrderV1,
+    QualificationRunConfigurationV1, QualificationSnapshotTotalsV1, ReceiptBackupConsequenceV1,
+    ReceiptProjectionConsequenceV1, SegmentWorkloadEvidenceV1, SnapshotDriftReportV1,
+    SqliteWorkloadEvidenceV1, load_external_workload_v2_manifest_from_env,
+    modeled_post_foundation_manifest, publish_exact_bundle_v2, qualification_cargo_lock_sha256,
+    qualification_filesystem_name, qualification_generated_workload_smoke_v1,
     qualification_performance_contract_v2_publication, qualification_source_commit,
-    run_qualification_child, run_qualification_performance_diagnostics,
+    run_qualification_child, run_qualification_performance_campaign_v2,
+    run_qualification_performance_diagnostics, run_qualification_performance_open_child,
     run_qualification_platform_matrix, run_segment_workload, run_sqlite_workload,
     synthetic_legacy_manifest,
 };
@@ -24,8 +27,9 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 const USAGE: &str = "\
-Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--transfer-smoke|--sqlite-smoke|--segments-smoke|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--qualification-contract|--help]\n\
+Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--generated-workload-smoke|--transfer-smoke|--sqlite-smoke|--segments-smoke|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--qualification-contract|--qualification-final-evidence|--qualification-package|--help]\n\
        --qualification-diagnostics [--qualification-pair-order=alternating|candidate_then_baseline|baseline_then_candidate]\n\
+       --qualification-package --qualification-input=<path> [--qualification-input=<path> ...]\n\
 \n\
 Validates deterministic workload, transfer, candidate, or native-platform qualification contracts and prints JSON.\n\
 Qualification modes use disposable roots and never select or activate production storage.\n";
@@ -137,6 +141,22 @@ fn main() -> ExitCode {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
     if arguments
         .first()
+        .is_some_and(|argument| argument == "--qualification-performance-open-child")
+    {
+        if arguments.len() != 2 {
+            eprintln!("qualification performance child requires exactly one request path");
+            return ExitCode::from(2);
+        }
+        return match run_qualification_performance_open_child(std::path::Path::new(&arguments[1])) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("store foundation qualification performance child failed: {error}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    if arguments
+        .first()
         .is_some_and(|argument| argument == "--qualification-child")
     {
         if arguments.len() != 2 {
@@ -157,6 +177,7 @@ fn main() -> ExitCode {
     }
     let requested_modes = [
         "--smoke",
+        "--generated-workload-smoke",
         "--transfer-smoke",
         "--sqlite-smoke",
         "--segments-smoke",
@@ -164,6 +185,8 @@ fn main() -> ExitCode {
         "--qualification-evidence",
         "--qualification-diagnostics",
         "--qualification-contract",
+        "--qualification-final-evidence",
+        "--qualification-package",
     ]
     .into_iter()
     .filter(|mode| arguments.iter().any(|argument| argument == mode))
@@ -178,8 +201,16 @@ fn main() -> ExitCode {
     let diagnostics_requested = arguments
         .iter()
         .any(|argument| argument == "--qualification-diagnostics");
+    let package_requested = arguments
+        .iter()
+        .any(|argument| argument == "--qualification-package");
+    let package_inputs = arguments
+        .iter()
+        .filter_map(|argument| argument.strip_prefix("--qualification-input="))
+        .collect::<Vec<_>>();
     if arguments.iter().any(|argument| {
         argument != "--smoke"
+            && argument != "--generated-workload-smoke"
             && argument != "--transfer-smoke"
             && argument != "--sqlite-smoke"
             && argument != "--segments-smoke"
@@ -187,13 +218,38 @@ fn main() -> ExitCode {
             && argument != "--qualification-evidence"
             && argument != "--qualification-diagnostics"
             && argument != "--qualification-contract"
+            && argument != "--qualification-final-evidence"
+            && argument != "--qualification-package"
             && argument != "--bench"
             && !argument.starts_with("--qualification-pair-order=")
+            && !argument.starts_with("--qualification-input=")
     }) || requested_modes > 1
         || (!diagnostics_requested && diagnostic_pair_order.is_some())
+        || (!package_requested && !package_inputs.is_empty())
+        || (package_requested && package_inputs.is_empty())
     {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
+    }
+
+    if arguments
+        .iter()
+        .any(|argument| argument == "--generated-workload-smoke")
+    {
+        return match qualification_generated_workload_smoke_v1() {
+            Ok(report) => {
+                println!(
+                    "{}",
+                    serde_json::to_string(&report)
+                        .expect("generated workload smoke report serializes")
+                );
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("store foundation generated workload smoke failed: {error}");
+                ExitCode::from(1)
+            }
+        };
     }
 
     if arguments
@@ -214,6 +270,17 @@ fn main() -> ExitCode {
         return qualification_diagnostics_report(
             diagnostic_pair_order.unwrap_or(QualificationPerformancePairOrderV1::Alternating),
         );
+    }
+
+    if arguments
+        .iter()
+        .any(|argument| argument == "--qualification-final-evidence")
+    {
+        return qualification_final_evidence_report();
+    }
+
+    if package_requested {
+        return qualification_performance_package_report(&package_inputs);
     }
 
     if arguments
@@ -299,6 +366,87 @@ fn main() -> ExitCode {
         }
         Err(error) => {
             eprintln!("store foundation smoke failed: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn qualification_final_evidence_report() -> ExitCode {
+    let disposable = match tempfile::tempdir() {
+        Ok(root) => root,
+        Err(error) => {
+            eprintln!(
+                "store foundation final evidence failed to create a disposable root: {error}"
+            );
+            return ExitCode::from(1);
+        }
+    };
+    let source_commit = match qualification_source_commit() {
+        Ok(commit) => commit,
+        Err(error) => {
+            eprintln!("store foundation final evidence provenance failed: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let configuration = QualificationPerformanceCampaignConfigurationV2 {
+        executable: match std::env::current_exe() {
+            Ok(executable) => executable,
+            Err(error) => {
+                eprintln!("store foundation final evidence executable lookup failed: {error}");
+                return ExitCode::from(1);
+            }
+        },
+        root: disposable.path().join("performance-campaign"),
+        source_commit,
+        cargo_lock_sha256: qualification_cargo_lock_sha256(),
+        external_corpus_root: std::env::var_os("POINTBREAK_QUALIFICATION_CORPUS")
+            .map(std::path::PathBuf::from),
+        quiesced_host: std::env::var("POINTBREAK_QUALIFICATION_QUIESCED")
+            .is_ok_and(|value| value == "1"),
+    };
+    match run_qualification_performance_campaign_v2(&configuration) {
+        Ok(evidence) => {
+            println!(
+                "{}",
+                serde_json::to_string(&evidence).expect("final performance evidence serializes")
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("store foundation final evidence failed: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn qualification_performance_package_report(inputs: &[&str]) -> ExitCode {
+    let mut shards = Vec::new();
+    for input in inputs {
+        let bytes = match std::fs::read(input) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                eprintln!("store foundation performance package input failed: {error}");
+                return ExitCode::from(1);
+            }
+        };
+        match serde_json::from_slice::<QualificationPerformanceEvidenceV2>(&bytes) {
+            Ok(shard) => shards.push(shard),
+            Err(error) => {
+                eprintln!("store foundation performance package input is invalid: {error}");
+                return ExitCode::from(1);
+            }
+        }
+    }
+    match QualificationPerformancePackageV2::assemble(&shards) {
+        Ok(package) => {
+            println!(
+                "{}",
+                serde_json::to_string(&package).expect("performance package serializes")
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("store foundation performance package failed: {error}");
             ExitCode::from(1)
         }
     }
