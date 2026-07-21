@@ -143,6 +143,27 @@ mod linux_filesystem_parser_tests {
     }
 }
 
+#[cfg(test)]
+mod windows_filesystem_fallback_tests {
+    use super::*;
+
+    #[test]
+    fn windows_probe_falls_back_when_fsutil_requires_elevation() {
+        assert_eq!(
+            windows_filesystem_from_probe_outputs_v1(None, Some("NTFS\r\n")).as_deref(),
+            Some("ntfs")
+        );
+        assert_eq!(
+            windows_filesystem_from_probe_outputs_v1(
+                Some("File System Name : ReFS\r\n"),
+                Some("NTFS\r\n")
+            )
+            .as_deref(),
+            Some("refs")
+        );
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn platform_filesystem_name(path: &Path) -> Option<String> {
     let canonical = path.canonicalize().ok()?;
@@ -150,15 +171,30 @@ fn platform_filesystem_name(path: &Path) -> Option<String> {
         WindowsFilesystemLocation::Local(volume) => volume,
         WindowsFilesystemLocation::Network => return Some("smb".to_owned()),
     };
-    let output = std::process::Command::new("fsutil")
+    let fsutil_output = std::process::Command::new("fsutil")
         .args(["fsinfo", "volumeinfo"])
-        .arg(volume)
+        .arg(&volume)
         .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok());
+    if let Some(filesystem) =
+        windows_filesystem_from_probe_outputs_v1(fsutil_output.as_deref(), None)
+    {
+        return Some(filesystem);
     }
-    parse_windows_fsutil_filesystem(&String::from_utf8(output.stdout).ok()?)
+
+    let drive_letter = volume.strip_suffix(':')?;
+    let powershell_output = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command"])
+        .arg(format!(
+            "(Get-Volume -DriveLetter {drive_letter}).FileSystem"
+        ))
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok());
+    windows_filesystem_from_probe_outputs_v1(None, powershell_output.as_deref())
 }
 
 #[cfg(target_os = "windows")]
@@ -184,7 +220,17 @@ fn windows_filesystem_location(path: &Path) -> Option<WindowsFilesystemLocation>
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(test, target_os = "windows"))]
+fn windows_filesystem_from_probe_outputs_v1(
+    fsutil_output: Option<&str>,
+    powershell_output: Option<&str>,
+) -> Option<String> {
+    fsutil_output
+        .and_then(parse_windows_fsutil_filesystem)
+        .or_else(|| powershell_output.and_then(parse_windows_powershell_filesystem))
+}
+
+#[cfg(any(test, target_os = "windows"))]
 fn parse_windows_fsutil_filesystem(output: &str) -> Option<String> {
     output.lines().find_map(|line| {
         let (label, value) = line.split_once(':')?;
@@ -194,6 +240,15 @@ fn parse_windows_fsutil_filesystem(output: &str) -> Option<String> {
             .then(|| value.trim().to_ascii_lowercase())
             .filter(|value| !value.is_empty())
     })
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn parse_windows_powershell_filesystem(output: &str) -> Option<String> {
+    output
+        .lines()
+        .map(str::trim)
+        .find(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
 }
 
 #[cfg(all(test, target_os = "windows"))]
