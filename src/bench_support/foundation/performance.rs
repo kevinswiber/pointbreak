@@ -6368,9 +6368,25 @@ mod tests {
     #[test]
     fn h8_v1_preserves_the_125_percent_boundary_and_fails_closed() {
         let equal_boundary = complete_h8_samples(&[125; 5], &[100; 5]);
+        let equal_verdict = evaluate_qualification_performance_h8_v1(&equal_boundary);
+        assert_eq!(equal_verdict, Ok(None));
+
+        for (value, expected_sha256) in [
+            (
+                serde_json::to_value(&equal_boundary).expect("H8 v1 evidence value"),
+                "4fa036f296ac8726339b1e7708dd91f19ef26058ae7fae039c2d41d05ef9e12d",
+            ),
+            (
+                serde_json::to_value(&equal_verdict).expect("H8 v1 verdict value"),
+                "d68bd6e1a809e2f79779af352f22efcd54a285cfb02c752ca6a67feb434cd59c",
+            ),
+        ] {
+            let bytes = canonical_json_bytes(&value).expect("canonical H8 v1 bytes");
+            assert_eq!(sha256_bytes_hex(&bytes), expected_sha256);
+        }
         assert_eq!(
-            evaluate_qualification_performance_h8_v1(&equal_boundary),
-            Ok(None)
+            diagnostic_contract_sha256(),
+            "a2bc02fd4d2d0072ee5dc6ef3d21ad460cfcf317a18d87f59a76549b08326e0b"
         );
 
         let above_boundary = complete_h8_samples(&[126; 5], &[100; 5]);
@@ -7066,30 +7082,44 @@ mod tests {
     }
 
     #[test]
-    fn historical_h8_v2_publication_evidence_evaluation_and_verdicts_are_byte_identical() {
+    fn historical_h8_v2_normalized_evidence_evaluation_and_publication_bytes_are_frozen() {
         let evidence = complete_v2_evidence(100, 100, 99, 100);
         let evaluation = evaluate_qualification_performance_v2(&evidence).expect("evaluation");
         let publication = qualification_performance_contract_v2_publication();
 
-        for (label, value, expected_sha256) in [
+        assert_eq!(
+            evidence.evidence_sha256,
+            evidence.canonical_sha256().expect("evidence hash")
+        );
+        // Build and dependency identities are provenance, so freeze the
+        // historical H8 v2 payloads after replacing only those values.
+        let mut normalized_evidence = evidence.clone();
+        normalized_evidence.source_commit = SOURCE_COMMIT.to_owned();
+        normalized_evidence.cargo_lock_sha256 = LOCK_SHA256.to_owned();
+        for run in &mut normalized_evidence.runs {
+            run.candidate_build_id = "historical-h8-v2-candidate-build".to_owned();
+        }
+        normalized_evidence.evidence_sha256.clear();
+        let mut normalized_evaluation = evaluation.clone();
+        normalized_evaluation.source_commit = SOURCE_COMMIT.to_owned();
+        normalized_evaluation.cargo_lock_sha256 = LOCK_SHA256.to_owned();
+
+        for (value, expected_sha256) in [
             (
-                "evidence",
-                serde_json::to_value(&evidence).expect("evidence value"),
-                "b57eec7c10a8a7230117873b4023ea95dc673781cbe364c3130abe312cff554f",
+                serde_json::to_value(&normalized_evidence).expect("evidence value"),
+                "59d4a276670d75d865454b12cf3603af9a1848e626598f11ae8c73d66df33f42",
             ),
             (
-                "evaluation",
-                serde_json::to_value(&evaluation).expect("evaluation value"),
-                "36c01966f72d43ec0e85d57a79d91478540c6fadddac00c1a85028c8ef8d1f93",
+                serde_json::to_value(&normalized_evaluation).expect("evaluation value"),
+                "6542d24b288cb5f4b15e85e582e31a728681c087132f0546e7ca8d9aba63fcfe",
             ),
             (
-                "publication",
                 serde_json::to_value(&publication).expect("publication value"),
                 "d96840d658bb83d8c4c0117d24e04fd6f4dd1e54829d6186e32f2c9c7fffbc45",
             ),
         ] {
             let bytes = canonical_json_bytes(&value).expect("canonical bytes");
-            assert_eq!(sha256_bytes_hex(&bytes), expected_sha256, "{label}");
+            assert_eq!(sha256_bytes_hex(&bytes), expected_sha256);
         }
         let stdout = format!(
             "{}\n",
