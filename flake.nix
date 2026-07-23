@@ -176,6 +176,10 @@
             src = sourceWithInspector;
             cargoLock.lockFile = ./Cargo.lock;
 
+            # Match `just build-all`: building an artifact does not run the full
+            # test suite. Tests remain an explicit `just test` / CI concern.
+            doCheck = false;
+
             # Git supplies compile-time build identity and is the runtime backend.
             nativeBuildInputs = [
               pkgs.git
