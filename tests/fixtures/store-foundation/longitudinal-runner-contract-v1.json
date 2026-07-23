@@ -1,0 +1,496 @@
+{
+  "schema": "pointbreak.longitudinal-workload.v1",
+  "protocol": "pointbreak.longitudinal-q3.v1",
+  "publicSeedHex": "f4da49601a212010bae444e6ca2de6c6bf28b5ec1b0a05bf42154a533ca513ff",
+  "blockEventCount": 256,
+  "historyPageSize": 100,
+  "bodySizePattern": [
+    512,
+    1024,
+    2048,
+    4096,
+    8192,
+    12288,
+    16384,
+    20992
+  ],
+  "objectSizeMultiplier": 8,
+  "appendBatchSize": 30,
+  "tiers": [
+    {
+      "tier": "L1",
+      "eventCount": 1024,
+      "blockCount": 4,
+      "journalCount": 4,
+      "revisionCount": 48,
+      "taskAttemptCount": 16,
+      "bodyFactCount": 720,
+      "externalBodyCount": 360,
+      "objectArtifactCount": 48,
+      "validationLogCount": 20,
+      "removedContentCount": 12,
+      "presentContentCount": 416,
+      "decodedBodyBytes": 5898240,
+      "decodedObjectTargetBytes": 3145728
+    },
+    {
+      "tier": "L7",
+      "eventCount": 7168,
+      "blockCount": 28,
+      "journalCount": 28,
+      "revisionCount": 336,
+      "taskAttemptCount": 112,
+      "bodyFactCount": 5040,
+      "externalBodyCount": 2520,
+      "objectArtifactCount": 336,
+      "validationLogCount": 140,
+      "removedContentCount": 84,
+      "presentContentCount": 2912,
+      "decodedBodyBytes": 41287680,
+      "decodedObjectTargetBytes": 22020096
+    },
+    {
+      "tier": "L25",
+      "eventCount": 25600,
+      "blockCount": 100,
+      "journalCount": 100,
+      "revisionCount": 1200,
+      "taskAttemptCount": 400,
+      "bodyFactCount": 18000,
+      "externalBodyCount": 9000,
+      "objectArtifactCount": 1200,
+      "validationLogCount": 500,
+      "removedContentCount": 300,
+      "presentContentCount": 10400,
+      "decodedBodyBytes": 147456000,
+      "decodedObjectTargetBytes": 78643200
+    },
+    {
+      "tier": "L100",
+      "eventCount": 102400,
+      "blockCount": 400,
+      "journalCount": 400,
+      "revisionCount": 4800,
+      "taskAttemptCount": 1600,
+      "bodyFactCount": 72000,
+      "externalBodyCount": 36000,
+      "objectArtifactCount": 4800,
+      "validationLogCount": 2000,
+      "removedContentCount": 1200,
+      "presentContentCount": 41600,
+      "decodedBodyBytes": 589824000,
+      "decodedObjectTargetBytes": 314572800
+    }
+  ],
+  "eventFamilies": [
+    {
+      "eventType": "review_initialized",
+      "perBlock": 1
+    },
+    {
+      "eventType": "work_object_proposed",
+      "perBlock": 16
+    },
+    {
+      "eventType": "review_observation_recorded",
+      "perBlock": 64
+    },
+    {
+      "eventType": "review_assessment_recorded",
+      "perBlock": 24
+    },
+    {
+      "eventType": "input_request_opened",
+      "perBlock": 24
+    },
+    {
+      "eventType": "input_request_responded",
+      "perBlock": 16
+    },
+    {
+      "eventType": "revision_ref_associated",
+      "perBlock": 12
+    },
+    {
+      "eventType": "revision_ref_withdrawn",
+      "perBlock": 4
+    },
+    {
+      "eventType": "revision_commit_associated",
+      "perBlock": 16
+    },
+    {
+      "eventType": "revision_commit_withdrawn",
+      "perBlock": 4
+    },
+    {
+      "eventType": "validation_check_recorded",
+      "perBlock": 40
+    },
+    {
+      "eventType": "task_checkpoint_captured",
+      "perBlock": 12
+    },
+    {
+      "eventType": "task_observation_recorded",
+      "perBlock": 12
+    },
+    {
+      "eventType": "event_signature_recorded",
+      "perBlock": 8
+    },
+    {
+      "eventType": "artifact_removed",
+      "perBlock": 3
+    },
+    {
+      "eventType": "review_note_imported",
+      "perBlock": 0
+    }
+  ],
+  "operationSchedule": [
+    "COLD_HEAD",
+    "WARM_HEAD",
+    "WIN_ADJACENT",
+    "WIN_DEEP",
+    "WIN_TAIL",
+    "AT_DEEP",
+    "SEARCH_STRUCTURED",
+    "SEARCH_BODY",
+    "SEARCH_MISS",
+    "FILTER_FACET",
+    "REVISIONS",
+    "THREADS",
+    "ATTENTION_ALL",
+    "ATTENTION_ONE",
+    "DETAIL_ACTIVE",
+    "SNAPSHOT_ACTIVE",
+    "DETAIL_REMOVED",
+    "FRESH_NO_CHANGE",
+    "NEW_COUNT_ZERO",
+    "APPEND_ONE",
+    "POST_ONE",
+    "APPEND_BURST",
+    "POST_BURST",
+    "RESTART",
+    "AUDIT_EXACT",
+    "EXPORT_EXACT",
+    "MIGRATE_FRESH",
+    "REBUILD_FULL"
+  ],
+  "runMatrix": [
+    {
+      "lane": "release-uninstrumented",
+      "rootsPerTier": 2,
+      "recordsTiming": true,
+      "recordsCpu": true,
+      "recordsRssHeap": true,
+      "performanceComparisonAdmissible": true,
+      "countersAdmissible": false
+    },
+    {
+      "lane": "debug-uninstrumented",
+      "rootsPerTier": 1,
+      "recordsTiming": true,
+      "recordsCpu": true,
+      "recordsRssHeap": true,
+      "performanceComparisonAdmissible": false,
+      "countersAdmissible": false
+    },
+    {
+      "lane": "attribution-counts",
+      "rootsPerTier": 1,
+      "recordsTiming": false,
+      "recordsCpu": false,
+      "recordsRssHeap": false,
+      "performanceComparisonAdmissible": false,
+      "countersAdmissible": true
+    }
+  ],
+  "samples": {
+    "processColdPerReleaseRoot": 10,
+    "untimedWarmRequests": 1,
+    "excludedWarmups": 3,
+    "warmSamplesPerReleaseRoot": 30,
+    "appendOneSamplesPerReleaseRoot": 30,
+    "appendBurstSamplesPerReleaseRoot": 10,
+    "restartSamplesPerReleaseRoot": 10,
+    "maintenanceSamplesPerReleaseRoot": 3,
+    "debugColdSamples": 1,
+    "debugWarmSamples": 3,
+    "debugWriteRestartMaintenanceSamples": 1,
+    "countingOperations": [
+      "COLD_HEAD",
+      "WARM_HEAD",
+      "WIN_DEEP",
+      "SEARCH_BODY",
+      "REVISIONS",
+      "THREADS",
+      "ATTENTION_ALL",
+      "DETAIL_ACTIVE",
+      "FRESH_NO_CHANGE",
+      "APPEND_ONE",
+      "APPEND_BURST",
+      "RESTART",
+      "AUDIT_EXACT",
+      "EXPORT_EXACT",
+      "MIGRATE_FRESH",
+      "REBUILD_FULL"
+    ],
+    "nearestRankPercentile": 95,
+    "retainAllSamples": true,
+    "outlierRemovalAllowed": false
+  },
+  "interactionEnvelopes": [
+    {
+      "class": "cold_head",
+      "l1WallMillis": 500,
+      "l7WallMillis": 750,
+      "l25WallMillis": 1000,
+      "l100WallMillis": 2000,
+      "l100CpuMillis": 1500,
+      "complexityIntent": "product target; exact fresh-process validation remains visible"
+    },
+    {
+      "class": "warm_window",
+      "l1WallMillis": 75,
+      "l7WallMillis": 100,
+      "l25WallMillis": 125,
+      "l100WallMillis": 150,
+      "l100CpuMillis": 100,
+      "complexityIntent": "window plus bounded delta, never all events"
+    },
+    {
+      "class": "search_filter_facet",
+      "l1WallMillis": 100,
+      "l7WallMillis": 150,
+      "l25WallMillis": 200,
+      "l100WallMillis": 250,
+      "l100CpuMillis": 200,
+      "complexityIntent": "query result plus derived lookup, never body-wide scan"
+    },
+    {
+      "class": "full_revision_thread_attention",
+      "l1WallMillis": 200,
+      "l7WallMillis": 350,
+      "l25WallMillis": 750,
+      "l100WallMillis": 1500,
+      "l100CpuMillis": 1000,
+      "complexityIntent": "response rows or edges plus bounded delta"
+    },
+    {
+      "class": "revision_detail",
+      "l1WallMillis": 100,
+      "l7WallMillis": 125,
+      "l25WallMillis": 175,
+      "l100WallMillis": 250,
+      "l100CpuMillis": 175,
+      "complexityIntent": "selected revision facts plus selected content"
+    },
+    {
+      "class": "snapshot_detail",
+      "l1WallMillis": 150,
+      "l7WallMillis": 200,
+      "l25WallMillis": 350,
+      "l100WallMillis": 500,
+      "l100CpuMillis": 350,
+      "complexityIntent": "selected snapshot bytes and rows"
+    },
+    {
+      "class": "freshness_new_count",
+      "l1WallMillis": 25,
+      "l7WallMillis": 30,
+      "l25WallMillis": 40,
+      "l100WallMillis": 50,
+      "l100CpuMillis": 25,
+      "complexityIntent": "constant marker or query delta; no full journal"
+    },
+    {
+      "class": "append_one",
+      "l1WallMillis": 100,
+      "l7WallMillis": 125,
+      "l25WallMillis": 175,
+      "l100WallMillis": 250,
+      "l100CpuMillis": 200,
+      "complexityIntent": "new fact plus bounded target state; no full replay"
+    },
+    {
+      "class": "post_one",
+      "l1WallMillis": 200,
+      "l7WallMillis": 250,
+      "l25WallMillis": 350,
+      "l100WallMillis": 500,
+      "l100CpuMillis": 400,
+      "complexityIntent": "bounded incremental maintenance"
+    },
+    {
+      "class": "append_burst",
+      "l1WallMillis": 750,
+      "l7WallMillis": 1000,
+      "l25WallMillis": 1500,
+      "l100WallMillis": 3000,
+      "l100CpuMillis": 2000,
+      "complexityIntent": "thirty events plus bounded affected state"
+    },
+    {
+      "class": "post_burst",
+      "l1WallMillis": 350,
+      "l7WallMillis": 500,
+      "l25WallMillis": 750,
+      "l100WallMillis": 1000,
+      "l100CpuMillis": 750,
+      "complexityIntent": "one coalesced incremental refresh"
+    },
+    {
+      "class": "restart",
+      "l1WallMillis": 750,
+      "l7WallMillis": 1000,
+      "l25WallMillis": 1500,
+      "l100WallMillis": 3000,
+      "l100CpuMillis": 2500,
+      "complexityIntent": "exact recovery receipt remains mandatory"
+    }
+  ],
+  "memoryEnvelope": {
+    "l100SteadyRssMib": 96,
+    "l100PeakRssMib": 128,
+    "l100RetainedHeapMib": 64,
+    "l7ToL100SteadyRssBytesPerEvent": 512,
+    "l7ToL100RetainedHeapBytesPerEvent": 384,
+    "selectedAllocationReleaseBasisPoints": 9500,
+    "checkpoints": [
+      "empty",
+      "warm_head",
+      "search",
+      "detail_peak",
+      "post_detail",
+      "post_append",
+      "post_burst"
+    ]
+  },
+  "counterFields": [
+    "directory_entries_walked",
+    "carrier_opens",
+    "carrier_bytes_read",
+    "event_decodes",
+    "event_validations",
+    "event_folds",
+    "chronological_sort_items",
+    "body_artifact_reads",
+    "body_bytes_read",
+    "object_artifact_reads",
+    "object_bytes_read",
+    "projection_rebuilds",
+    "state_rebuilds",
+    "response_bytes"
+  ],
+  "counterEnvelopes": [
+    {
+      "class": "no_change_freshness",
+      "directoryEntriesWalkedMax": 4,
+      "carrierOpensMax": 0,
+      "eventDecodesMax": 0,
+      "bodyArtifactReadsMax": 0,
+      "objectArtifactReadsMax": 0,
+      "eventFoldsMax": 0,
+      "chronologicalSortItemsMax": 0,
+      "fullProjectionRebuildsMax": 0,
+      "stateRebuildsMax": 0,
+      "selectedContentOnly": true,
+      "outputSensitiveFoldSort": false
+    },
+    {
+      "class": "fixed_history_search_filter_window",
+      "directoryEntriesWalkedMax": 8,
+      "carrierOpensMax": 512,
+      "eventDecodesMax": 256,
+      "bodyArtifactReadsMax": 100,
+      "objectArtifactReadsMax": 1,
+      "eventFoldsMax": 2048,
+      "chronologicalSortItemsMax": 512,
+      "fullProjectionRebuildsMax": 0,
+      "stateRebuildsMax": 0,
+      "selectedContentOnly": true,
+      "outputSensitiveFoldSort": false
+    },
+    {
+      "class": "revisions_threads_attention",
+      "directoryEntriesWalkedMax": 8,
+      "carrierOpensMax": 2048,
+      "eventDecodesMax": 1024,
+      "bodyArtifactReadsMax": 0,
+      "objectArtifactReadsMax": 0,
+      "fullProjectionRebuildsMax": 0,
+      "stateRebuildsMax": 0,
+      "selectedContentOnly": true,
+      "outputSensitiveFoldSort": true
+    },
+    {
+      "class": "revision_detail",
+      "directoryEntriesWalkedMax": 8,
+      "carrierOpensMax": 512,
+      "eventDecodesMax": 256,
+      "eventFoldsMax": 2048,
+      "fullProjectionRebuildsMax": 0,
+      "stateRebuildsMax": 0,
+      "selectedContentOnly": true,
+      "outputSensitiveFoldSort": false
+    },
+    {
+      "class": "append_one_maintenance",
+      "directoryEntriesWalkedMax": 16,
+      "carrierOpensMax": 512,
+      "eventDecodesMax": 256,
+      "eventFoldsMax": 2048,
+      "fullProjectionRebuildsMax": 0,
+      "stateRebuildsMax": 0,
+      "selectedContentOnly": true,
+      "outputSensitiveFoldSort": false
+    },
+    {
+      "class": "append_burst_maintenance",
+      "directoryEntriesWalkedMax": 32,
+      "carrierOpensMax": 2048,
+      "eventDecodesMax": 1024,
+      "eventFoldsMax": 8192,
+      "fullProjectionRebuildsMax": 0,
+      "stateRebuildsMax": 0,
+      "selectedContentOnly": true,
+      "outputSensitiveFoldSort": false
+    }
+  ],
+  "fixedOutputL100ToL25MaxRatioBasisPoints": 20000,
+  "writeEnvelope": {
+    "steadyAmplificationBasisPoints": 80000,
+    "highWaterAmplificationBasisPoints": 120000,
+    "appendOneFixedOverheadBytes": 262144,
+    "appendBurstFixedOverheadBytes": 1048576,
+    "oldAuthoritativeRewriteAllowed": false,
+    "historyProportionalDerivedRewriteAllowed": false,
+    "fullStateRebuildAllowed": false,
+    "burstCheckpointPublications": 1
+  },
+  "maintenanceEnvelope": {
+    "rebuildWallSeconds": 60,
+    "rebuildCpuSeconds": 45,
+    "rebuildHighWaterBasisPoints": 15000,
+    "auditWallSeconds": 60,
+    "exportWallSeconds": 120,
+    "importWallSeconds": 180,
+    "migrationWallSeconds": 900,
+    "repairWallSeconds": 900,
+    "freeSpaceSourceBasisPoints": 12000,
+    "freeSpaceFixedBytes": 268435456,
+    "destinationEstimateRequired": true,
+    "temporaryEstimateRequired": true,
+    "takeMaximumOfSourceAndDestinationFormulas": true,
+    "interruptionPercentages": [
+      10,
+      50,
+      90
+    ]
+  },
+  "publicInputsOnly": true,
+  "lanePoolingAllowed": false,
+  "contractSha256": "a2182c741530317f31532c62d4b0152b228e3d85aa177f812fdca433c265ed85"
+}

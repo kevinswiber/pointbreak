@@ -1,0 +1,152 @@
+{
+  "schema": "pointbreak.longitudinal-capacity-sentinel.v1",
+  "receiptSchema": "pointbreak.longitudinal-capacity-receipt.v1",
+  "memorySchema": "pointbreak.longitudinal-capacity-memory-receipt.v1",
+  "publicSeedHex": "f4da49601a212010bae444e6ca2de6c6bf28b5ec1b0a05bf42154a533ca513ff",
+  "derivationDomain": "pointbreak.longitudinal-capacity-sentinel.v1",
+  "profiles": [
+    {
+      "profile": "L100-O10K",
+      "required": true,
+      "eventCount": 102400,
+      "revisionCount": 10000,
+      "objectArtifactCount": 10000,
+      "taskAttemptCount": 400,
+      "bodyFactCount": 65800,
+      "externalBodyCount": 32900,
+      "validationLogCount": 1000,
+      "removedContentCount": 300,
+      "presentContentCount": 43600,
+      "decodedBodyBytes": 539033600,
+      "decodedObjectTargetBytes": 655360000
+    },
+    {
+      "profile": "C262",
+      "required": true,
+      "eventCount": 262144,
+      "revisionCount": 12288,
+      "objectArtifactCount": 12288,
+      "taskAttemptCount": 4096,
+      "bodyFactCount": 184320,
+      "externalBodyCount": 92160,
+      "validationLogCount": 5120,
+      "removedContentCount": 3072,
+      "presentContentCount": 106496,
+      "decodedBodyBytes": 1509949440,
+      "decodedObjectTargetBytes": 805306368
+    },
+    {
+      "profile": "C524",
+      "required": false,
+      "eventCount": 524288,
+      "revisionCount": 24576,
+      "objectArtifactCount": 24576,
+      "taskAttemptCount": 8192,
+      "bodyFactCount": 368640,
+      "externalBodyCount": 184320,
+      "validationLogCount": 10240,
+      "removedContentCount": 6144,
+      "presentContentCount": 212992,
+      "decodedBodyBytes": 3019898880,
+      "decodedObjectTargetBytes": 1610612736
+    }
+  ],
+  "subjects": [
+    {
+      "kind": "V1L100"
+    },
+    {
+      "kind": "companion",
+      "profile": "L100-O10K"
+    },
+    {
+      "kind": "companion",
+      "profile": "C262"
+    },
+    {
+      "kind": "companion",
+      "profile": "C524"
+    }
+  ],
+  "probes": [
+    "CARRIER_KEY",
+    "SEMANTIC_ID",
+    "CHRONOLOGICAL_HEAD",
+    "CHRONOLOGICAL_MIDDLE",
+    "CHRONOLOGICAL_TAIL",
+    "OBJECT_DETAIL",
+    "APPEND_DELTA"
+  ],
+  "samples": {
+    "processColdSamples": 1,
+    "excludedWarmups": 1,
+    "warmSamples": 5,
+    "reportMedian": true,
+    "reportMaximum": true,
+    "reportP95": false,
+    "latencyThreshold": null
+  },
+  "memoryCheckpoints": [
+    "closed_root_reopen_idle",
+    "post_carrier_key",
+    "post_semantic_id",
+    "post_chronological_head",
+    "post_chronological_middle",
+    "post_chronological_tail",
+    "post_object_detail_l100_o10_k",
+    "post_contention_quiescence"
+  ],
+  "ownershipFields": [
+    "retained_decoded_events",
+    "retained_hydrated_history_entries",
+    "retained_hydrated_body_bytes",
+    "retained_search_record_strings",
+    "retained_search_record_field_bytes",
+    "retained_serialized_response_cache_bytes",
+    "retained_snapshot_highlight_entries",
+    "retained_snapshot_highlight_bytes"
+  ],
+  "contention": {
+    "profile": "L100-O10K",
+    "writerProcesses": 2,
+    "readerProcesses": 1,
+    "uniqueAttemptsPerWriter": 4,
+    "sharedAttemptsPerWriter": 2,
+    "expectedCreated": 10,
+    "expectedExisting": 2,
+    "readerCycles": 20,
+    "wallGuardSeconds": 900,
+    "rerunAllowed": false
+  },
+  "c524Gate": {
+    "eventGrowthBasisPoints": 25600,
+    "maximumPreAdmissionRatioBasisPoints": 32000,
+    "maximumPostAdmissionRatioBasisPoints": 25000,
+    "freeSpaceHighWaterBasisPoints": 25000,
+    "freeSpaceFixedBytes": 17179869184,
+    "identityRequired": true,
+    "baseRowsRequired": true,
+    "countingRowsRequired": true,
+    "memoryReceiptsRequired": true,
+    "packageVerificationRequired": true,
+    "hostPressureMustBeClear": true,
+    "manualOverrideAllowed": false
+  },
+  "nonCompensation": {
+    "maximumRatioBasisPoints": 12500,
+    "directWholeHistoryIsProportional": true,
+    "wallTimeCanRescue": false,
+    "unsupportedCanPass": false,
+    "allowedExhaustiveOperations": [
+      "integrity_audit",
+      "logical_export_import_verification",
+      "migration",
+      "copy_out_repair",
+      "backup_restore_verification",
+      "removal_compaction_reconciliation",
+      "deliberate_rebuild"
+    ]
+  },
+  "v1PoolingAllowed": false,
+  "contractSha256": "b888f40f415cc8a9d75b23c6ab135a9be33247ffff68f67c78287292c10a532d"
+}

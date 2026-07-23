@@ -41,11 +41,15 @@ use pointbreak::bench_support::foundation::{
     run_qualification_lmdb_prospective_open_child_v1, run_qualification_lmdb_prospective_smoke_v1,
     run_qualification_lmdb_smoke_v1,
 };
+use pointbreak::bench_support::longitudinal::{
+    LONGITUDINAL_CONTRACT_MODE_V1, LONGITUDINAL_HELP_MODE_V1, longitudinal_contract_publication_v1,
+    longitudinal_help_v1,
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 const USAGE: &str = "\
-Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--generated-workload-smoke|--loose-baseline-smoke|--loose-baseline-evidence|--prospective-contract|--content-only-contract|--transfer-smoke|--sqlite-smoke|--segments-smoke|--lmdb-proof-open-close|--lmdb-smoke|--lmdb-lifecycle-smoke|--lmdb-prospective-smoke|--lmdb-prospective-evidence|--lmdb-prospective-package|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--qualification-contract|--qualification-final-evidence|--qualification-package|--help]\n\
+Usage: cargo bench --features bench --bench store_foundation -- [--smoke|--generated-workload-smoke|--longitudinal-contract|--longitudinal-help|--loose-baseline-smoke|--loose-baseline-evidence|--prospective-contract|--content-only-contract|--transfer-smoke|--sqlite-smoke|--segments-smoke|--lmdb-proof-open-close|--lmdb-smoke|--lmdb-lifecycle-smoke|--lmdb-prospective-smoke|--lmdb-prospective-evidence|--lmdb-prospective-package|--qualification-smoke|--qualification-evidence|--qualification-diagnostics|--qualification-contract|--qualification-final-evidence|--qualification-package|--help]\n\
        --qualification-diagnostics [--qualification-pair-order=alternating|candidate_then_baseline|baseline_then_candidate]\n\
        --qualification-package --qualification-input=<path> [--qualification-input=<path> ...]\n\
        --lmdb-prospective-package --lmdb-prospective-input=<path> [--lmdb-prospective-input=<path> ...]\n\
@@ -252,6 +256,8 @@ fn main() -> ExitCode {
     let requested_modes = [
         "--smoke",
         "--generated-workload-smoke",
+        LONGITUDINAL_CONTRACT_MODE_V1,
+        LONGITUDINAL_HELP_MODE_V1,
         QUALIFICATION_LOOSE_BASELINE_SMOKE_MODE_V1,
         QUALIFICATION_LOOSE_BASELINE_EVIDENCE_MODE_V1,
         QUALIFICATION_PROSPECTIVE_CONTRACT_PUBLICATION_MODE_V1,
@@ -302,6 +308,8 @@ fn main() -> ExitCode {
     if arguments.iter().any(|argument| {
         argument != "--smoke"
             && argument != "--generated-workload-smoke"
+            && argument != LONGITUDINAL_CONTRACT_MODE_V1
+            && argument != LONGITUDINAL_HELP_MODE_V1
             && argument != QUALIFICATION_LOOSE_BASELINE_SMOKE_MODE_V1
             && argument != QUALIFICATION_LOOSE_BASELINE_EVIDENCE_MODE_V1
             && argument != QUALIFICATION_PROSPECTIVE_CONTRACT_PUBLICATION_MODE_V1
@@ -354,6 +362,34 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         };
+    }
+
+    if arguments
+        .iter()
+        .any(|argument| argument == LONGITUDINAL_CONTRACT_MODE_V1)
+    {
+        let publication = longitudinal_contract_publication_v1();
+        if let Err(error) = publication.validate() {
+            eprintln!("store foundation longitudinal contract failed: {error}");
+            return ExitCode::from(1);
+        }
+        println!(
+            "{}",
+            serde_json::to_string(&publication)
+                .expect("longitudinal contract publication serializes")
+        );
+        return ExitCode::SUCCESS;
+    }
+
+    if arguments
+        .iter()
+        .any(|argument| argument == LONGITUDINAL_HELP_MODE_V1)
+    {
+        println!(
+            "{}",
+            serde_json::to_string(&longitudinal_help_v1()).expect("longitudinal help serializes")
+        );
+        return ExitCode::SUCCESS;
     }
 
     if arguments

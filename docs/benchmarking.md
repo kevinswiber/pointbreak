@@ -184,6 +184,44 @@ declared-coverage summaries. The JSON omits runtime identity and external-corpus
 source emits byte-identical output on macOS, Linux, and Windows. `G3` is not an executable workload
 in this target.
 
+## Longitudinal access contracts
+
+The bench-gated longitudinal surface freezes two disjoint, public-input-only contracts before any
+root materializer or evidence runner exists. `pointbreak.longitudinal-workload.v1` retains the
+1,024/7,168/25,600/102,400-event product-operation workload and its proposed envelopes.
+`pointbreak.longitudinal-capacity-sentinel.v1` separately defines the 10,000-object L100 variant,
+required 262,144-event capacity sentinel, gated 524,288-event extension, fixed-output probes,
+memory ownership fields, and bounded two-writer/one-reader exercise. Companion rows never pool
+with or substitute for the product-operation workload.
+
+Print both canonical contracts without constructing a root, reading private input, or collecting
+timing, memory, or counter observations:
+
+```sh
+unset POINTBREAK_QUALIFICATION_CORPUS POINTBREAK_BENCH_FIXTURE POINTBREAK_BENCH_REPO
+cargo bench --locked --features bench --bench store_foundation -- --longitudinal-contract
+```
+
+The contract records exact release/debug/counting lane separation, retained samples, nearest-rank
+statistics, semantic receipts, manifest and pair identity, attribution fields, package boundaries,
+capacity gates, and non-compensation. Fast wall time cannot turn whole-history fixed-output work
+into bounded work. Exact audit, export/import verification, migration, repair, backup/restore
+verification, removal/compaction reconciliation, and deliberate rebuild retain their explicit
+history-proportional allowance.
+
+Contract-only package validation derives the C262 identity-complete gate input from the included
+materialization pair. Package-verification completion and host-pressure clearance remain hash-bound
+observations that the later raw-evidence verifier must derive; this publication does not infer them.
+
+List the currently available longitudinal modes and their side-effect boundary with:
+
+```sh
+cargo bench --locked --features bench --bench store_foundation -- --longitudinal-help
+```
+
+At this source cut, both modes are non-timing publications. They expose no materializer, evidence
+run, external input, storage selector, migration, production route, or architecture verdict.
+
 ## Loose-profile baseline evidence
 
 The foundation target has a candidate-independent loose-profile runner. Its evidence document uses

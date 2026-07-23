@@ -41,4 +41,6 @@ vendor/lmdb-proof/** text eol=lf
 tests/fixtures/store-foundation/content-only-contract-v1.json text eol=lf
 tests/fixtures/store-foundation/generated-workloads-v1.json text eol=lf
 tests/fixtures/store-foundation/codec/golden.json text eol=lf
+tests/fixtures/store-foundation/longitudinal-runner-contract-v1.json text eol=lf
+tests/fixtures/store-foundation/longitudinal-capacity-sentinel-v1.json text eol=lf
 docs/benchmarking.md text eol=lf

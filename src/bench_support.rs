@@ -21,6 +21,7 @@ use crate::session::EventStore;
 use crate::session::event::{EventTarget, EventType, ReviewInitializedPayload, ShoreEvent, Writer};
 
 pub mod foundation;
+pub mod longitudinal;
 
 /// On-disk versus logical byte accounting for a store directory.
 pub struct ByteUsage {
