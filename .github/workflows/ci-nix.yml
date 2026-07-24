@@ -1,0 +1,78 @@
+name: CI (Nix)
+
+# Experimental, parallel Nix-driven variant of ci.yml. It does NOT replace ci.yml;
+# the two run side by side while we evaluate whether a hermetic, store-cached gate
+# is worth adopting. Linux and macOS only: Nix has no native Windows support, so the
+# Windows legs stay in ci.yml. See the PR discussion for the Windows cross-compile
+# sketch (nextest archive built on Linux, executed on a plain Windows runner).
+#
+# The flake already carries the gate:
+#   - `nix flake check`  -> checks.cli-nextest (full Git-less nextest suite) +
+#                           checks.devshell-tools (tool-version drift). cli-nextest
+#                           compiles the whole crate and all test targets, so it covers
+#                           the same cfg/feature arms ci.yml's macOS `check-types` leg does.
+#   - `nix develop -c just lint` -> the exact fmt + clippy gate ci.yml runs on Linux,
+#                           via the flake's pinned Fenix toolchain (stable clippy +
+#                           nightly rustfmt) instead of rustup.
+#   - `nix build .#build-all`    -> the store-backed counterpart of `just build-all`
+#                           (CLI + embedded Inspector bundle + platform VSIX), with no
+#                           checkout mutation and no npm network access. Because the
+#                           Inspector bundle is rebuilt here, this sidesteps ci.yml's
+#                           `assets/app.js` staleness gate entirely.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-nix-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  nix:
+    name: nix gate (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      # Persist /nix/store across runs through GitHub's own Actions cache — no
+      # external account (Cachix / FlakeHub) required. Without this, every run
+      # recompiles crane's dependency artifacts from source. Keyed on the inputs
+      # that actually invalidate the store; the prefix restore warms partial hits.
+      - name: Cache Nix store
+        uses: nix-community/cache-nix-action@v6
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'Cargo.lock', 'src/cli/inspect/web/package-lock.json', 'extensions/vscode/package-lock.json') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+
+      # cli-nextest (full Git-less suite) + devshell-tools (pinned-tool drift).
+      # -L streams full build logs so a failure is legible in the Actions UI.
+      - name: nix flake check
+        run: nix flake check -L
+
+      # Same Rust lint gate as ci.yml's Linux leg, through the flake's toolchain.
+      # Linux only, mirroring ci.yml (macOS coverage of the cfg arms comes from the
+      # cli-nextest build above).
+      - name: just lint
+        if: runner.os == 'Linux'
+        run: nix develop --command just lint
+
+      # Hermetic, store-backed artifact build. Warm in the local store after the
+      # flake check above, so this is a near-instant realisation of the aggregate.
+      - name: nix build .#build-all
+        run: nix build .#build-all -L
