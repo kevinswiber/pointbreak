@@ -211,6 +211,23 @@ nix-check:
     nix run nixpkgs#deadnix -- --fail .
     nix flake check
 
+# EXPERIMENTAL: cross-compile a cargo-nextest archive for a Windows msvc target from
+# this Linux/macOS host, to run on a real Windows machine (the archive carries prebuilt
+# test binaries; the Windows side needs no Rust toolchain). Run inside the Nix
+# windows-cross shell: `nix develop .#windows-cross -c just windows-cross-archive`.
+# cargo-xwin downloads the MSVC CRT/SDK on first use. See ci-nix-windows-spike.yml.
+[group('nix')]
+windows-cross-archive target="x86_64-pc-windows-msvc":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out="target/nextest/pointbreak-{{ target }}.tar.zst"
+    mkdir -p "$(dirname "$out")"
+    # cargo-xwin emits the per-target CC/AR/linker/lib-search env nextest needs to
+    # build (and link) the Windows test binaries; eval it, then archive.
+    eval "$(cargo-xwin env --target {{ target }})"
+    cargo nextest archive --target {{ target }} --archive-file "$out"
+    echo "wrote $out"
+
 # Install git hooks (commit-msg and pre-push validation via cocogitto).
 [group('maintenance')]
 setup-hooks:

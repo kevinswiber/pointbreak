@@ -1,0 +1,82 @@
+name: CI (Nix Windows cross — spike)
+
+# EXPERIMENTAL spike. Cross-compiles the test suite to Windows msvc on Linux via Nix
+# (cargo-xwin + a Fenix msvc std), then executes the prebuilt cargo-nextest archive on
+# a plain windows-latest runner that has NO Rust build step — only cargo-nextest and a
+# source checkout for fixtures. This proves the "build on Linux, run on Windows" pipe
+# and moves Windows *compilation* off the expensive Windows runner. (It does not remove
+# the documented long pole: the tests still execute on Windows and still spawn git.)
+#
+# Report-only (continue-on-error). A tail of tests fails today because the suite resolves
+# fixtures through the COMPILE-TIME env!("CARGO_MANIFEST_DIR")/env!("CARGO_BIN_EXE_*")
+# (dozens of sites), which cargo-nextest's --workspace-remap cannot relocate — it remaps
+# only the runtime vars. Making this lane green means migrating those sites to the runtime
+# std::env::var("CARGO_MANIFEST_DIR") (nextest remaps it) and resolving the genuine Windows
+# byte/behaviour differences the run surfaces. Until then this lane MEASURES, it does not gate.
+#
+# Validated locally against an ARM64 Windows VM (arm64 archive cross-built on macOS): the
+# archive runs natively and the large majority of tests pass; the failures are the classes
+# above. CI targets x86_64-pc-windows-msvc to match the windows-latest runner.
+
+on:
+  workflow_dispatch:
+  push:
+    # Spike branch only, to avoid spending Windows minutes on every PR. Promote to
+    # pull_request (or delete) once the env!() migration lands and the lane can gate.
+    branches: [chore/remove-rustup]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-nix-windows-spike-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  cross-archive:
+    name: cross-compile nextest archive (ubuntu → msvc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: nix-community/cache-nix-action@v6
+        with:
+          primary-key: nix-wincross-${{ hashFiles('flake.lock', 'Cargo.lock') }}
+          restore-prefixes-first-match: nix-wincross-
+      # cargo-xwin fetches the MSVC CRT/SDK here (network is available in the step);
+      # XWIN_ACCEPT_LICENSE is set inside the windows-cross dev shell.
+      - name: cross-compile x86_64-pc-windows-msvc nextest archive
+        run: nix develop .#windows-cross --command just windows-cross-archive x86_64-pc-windows-msvc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nextest-archive-x86_64-pc-windows-msvc
+          path: target/nextest/pointbreak-x86_64-pc-windows-msvc.tar.zst
+          if-no-files-found: error
+          retention-days: 3
+
+  windows-run:
+    name: run archive on Windows (x64, no build)
+    needs: cross-archive
+    runs-on: windows-latest
+    # Report-only: the archive runs, but see the header for the tests that still fail.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: taiki-e/install-action@nextest
+      - uses: actions/download-artifact@v4
+        with:
+          name: nextest-archive-x86_64-pc-windows-msvc
+          path: archive
+      # No cargo build: nextest runs the prebuilt binaries from the archive.
+      # --workspace-remap points runtime fixture lookups at this checkout; compile-time
+      # env!() paths (see header) will not resolve, so their tests fail here.
+      - name: run archived suite (report-only)
+        shell: bash
+        run: |
+          cargo nextest run \
+            --archive-file archive/pointbreak-x86_64-pc-windows-msvc.tar.zst \
+            --workspace-remap . \
+            --no-fail-fast

@@ -86,6 +86,17 @@
         let
           cocogitto = mkCocogitto pkgs;
           rustToolchains = mkRustToolchains pkgs;
+          fenixPkgs = fenix.packages.${pkgs.stdenv.hostPlatform.system};
+          # Experimental Windows (msvc) cross toolchain: stable host cargo/rustc plus
+          # the prebuilt std for both shipped Windows targets. Paired with cargo-xwin
+          # (which supplies the MSVC CRT/SDK), this cross-compiles a cargo-nextest
+          # archive on Linux/macOS for execution on a real Windows machine.
+          windowsCrossToolchain = fenixPkgs.combine [
+            fenixPkgs.stable.cargo
+            fenixPkgs.stable.rustc
+            fenixPkgs.targets."aarch64-pc-windows-msvc".stable.rust-std
+            fenixPkgs.targets."x86_64-pc-windows-msvc".stable.rust-std
+          ];
         in
         {
           default = pkgs.mkShell {
@@ -138,6 +149,25 @@
 
               echo "pointbreak dev shell — $(rustc --version), $(rustfmt --version), just, nextest, cog, node $(node --version)"
             '';
+          };
+
+          # Experimental Windows-msvc cross shell. Produces a cargo-nextest archive
+          # (prebuilt test binaries) that runs on a real Windows machine needing no
+          # Rust toolchain. cargo-xwin fetches the MSVC CRT/SDK on first use, which
+          # needs network — so this is an impure `nix develop` workflow, not a
+          # sandboxed derivation. See `just windows-cross-archive`.
+          windows-cross = pkgs.mkShell {
+            packages = [
+              windowsCrossToolchain
+              pkgs.cargo-nextest
+              pkgs.cargo-xwin
+              pkgs.llvmPackages.clang-unwrapped # clang-cl for the bundled-C deps
+              pkgs.lld # lld-link
+              pkgs.llvm # llvm-lib, llvm-rc
+              pkgs.just
+              pkgs.git
+            ];
+            env.XWIN_ACCEPT_LICENSE = "1";
           };
         }
       );
