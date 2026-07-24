@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn registry_is_cli_documents_plus_the_exact_promoted_inspect_set() {
-        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let manifest_dir = crate::test_fixtures::manifest_dir();
         let mut emitted = BTreeSet::from([VERSION_SCHEMA.to_owned()]);
         collect_schema_literals(&manifest_dir.join("src/cli"), &mut emitted);
         collect_schema_literals(&manifest_dir.join("src/documents"), &mut emitted);

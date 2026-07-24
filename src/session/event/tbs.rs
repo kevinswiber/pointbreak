@@ -125,7 +125,7 @@ mod tests {
 
     fn fixture_bytes(name: &str) -> Vec<u8> {
         let mut bytes = std::fs::read(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            crate::test_fixtures::manifest_dir()
                 .join("tests/fixtures/event_signatures")
                 .join(name),
         )

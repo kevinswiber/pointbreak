@@ -1130,7 +1130,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    Command::new(env!("CARGO_BIN_EXE_pointbreak"))
+    Command::new(env::pointbreak_bin())
         .args(args)
         .env_remove("POINTBREAK_LOG")
         .env_remove("RUST_LOG")
@@ -1503,3 +1503,8 @@ fn review_capture_path_composes_with_base_and_target() {
     assert_eq!(json["revision"]["base"]["kind"], "git_commit");
     assert_eq!(json["revision"]["target"]["kind"], "git_commit");
 }
+
+// Runtime-resolved binary/manifest paths for cross-machine (e.g. Windows) archive runs.
+#[path = "support/env.rs"]
+#[allow(dead_code)]
+mod env;

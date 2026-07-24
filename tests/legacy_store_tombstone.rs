@@ -16,7 +16,7 @@ const FIXTURE_STORE: &str = "tests/fixtures/legacy_stores/review_note_imported/s
 /// A fresh repo whose canonical store contains the checked-in legacy event bytes.
 fn repo_with_legacy_store() -> support::git_repo::GitRepo {
     let repo = dump_repo();
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE_STORE);
+    let source = support::manifest_dir().join(FIXTURE_STORE);
     let target = repo.path().join(".git/pointbreak");
     copy_dir(&source, &target);
     repo

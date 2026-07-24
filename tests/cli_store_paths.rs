@@ -5,7 +5,7 @@ use std::process::{Command, Output};
 use support::git_repo::GitRepo;
 
 fn command(repo: &GitRepo, home: &std::path::Path, format: &str) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_pointbreak"));
+    let mut command = Command::new(support::pointbreak_bin());
     command
         .args(["store", "paths", "--repo"])
         .arg(repo.path())

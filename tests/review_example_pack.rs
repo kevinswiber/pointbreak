@@ -15,7 +15,7 @@ use tempfile::tempdir;
 mod pack_support;
 
 fn pack_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/review/checkout-refactor")
+    env::manifest_dir().join("examples/review/checkout-refactor")
 }
 
 #[test]
@@ -40,7 +40,7 @@ fn current_exporter_and_materialize_hint_use_pointbreak() {
 
 #[test]
 fn synthetic_decision_matrix_materializer_uses_only_isolated_pointbreak_surfaces() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let root = env::manifest_dir();
     let script_path = root.join("scripts/materialize-inspector-decision-matrix.sh");
     assert!(
         script_path.is_file(),
@@ -70,7 +70,7 @@ fn synthetic_decision_matrix_materializer_uses_only_isolated_pointbreak_surfaces
 
 #[test]
 fn inspector_decision_continuity_browser_gate_uses_isolated_pointbreak_surfaces() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let root = env::manifest_dir();
     let script_path = root.join("scripts/verify-inspector-decision-continuity.sh");
     assert!(
         script_path.is_file(),
@@ -534,3 +534,8 @@ fn write_json(path: &std::path::Path, value: &Value) {
 fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
+
+// Runtime-resolved binary/manifest paths for cross-machine (e.g. Windows) archive runs.
+#[path = "support/env.rs"]
+#[allow(dead_code)]
+mod env;

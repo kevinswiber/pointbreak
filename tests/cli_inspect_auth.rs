@@ -11,7 +11,7 @@ use support::git_repo::GitRepo;
 use support::inspect::{InspectOutput, InspectSurface, Inspector, representative_store, urlencode};
 
 fn inspect_output(repo: &std::path::Path, extra: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_pointbreak"))
+    Command::new(support::pointbreak_bin())
         .args([
             "inspect",
             "--repo",
@@ -145,7 +145,7 @@ fn inspect_rejects_non_loopback_before_bind_in_every_combination() {
 fn api_only_rejects_open_independently_of_output_format() {
     let repo = GitRepo::new();
     for format in [&[][..], &["--format", "json"][..]] {
-        let output = Command::new(env!("CARGO_BIN_EXE_pointbreak"))
+        let output = Command::new(support::pointbreak_bin())
             .args([
                 "inspect",
                 "--repo",

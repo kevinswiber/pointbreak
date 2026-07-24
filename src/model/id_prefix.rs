@@ -377,8 +377,8 @@ mod tests {
 
     #[test]
     fn inspector_ref_prefixes_match_the_registry() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src/cli/inspect/web/src/classNames.ts");
+        let path =
+            crate::test_fixtures::manifest_dir().join("src/cli/inspect/web/src/classNames.ts");
         if !path.exists() {
             // The published crate excludes src/cli/inspect/web/** (Cargo.toml
             // `exclude`); the drift guard only means something in the repo.

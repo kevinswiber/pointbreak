@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 
 fn command(args: &[&str]) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_pointbreak"));
+    let mut command = Command::new(support::pointbreak_bin());
     command.args(args);
     for selector in pointbreak::environment::RUNTIME_VARIABLES {
         command.env_remove(selector);

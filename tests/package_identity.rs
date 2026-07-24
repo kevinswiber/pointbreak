@@ -19,7 +19,7 @@ fn package_and_library_identity_are_pointbreak() {
 
 #[test]
 fn package_identity_declares_only_pointbreak_binary() {
-    let output = Command::new(env!("CARGO"))
+    let output = Command::new(env::cargo_bin())
         .args(["metadata", "--no-deps", "--format-version", "1"])
         .output()
         .expect("run cargo metadata");
@@ -49,7 +49,7 @@ fn package_identity_declares_only_pointbreak_binary() {
 
     assert_eq!(binary_targets, ["pointbreak"]);
     assert_eq!(
-        Path::new(env!("CARGO_BIN_EXE_pointbreak")).file_name(),
+        env::pointbreak_bin().file_name(),
         Some(OsStr::new(POINTBREAK_EXECUTABLE_BASENAME))
     );
 
@@ -67,8 +67,10 @@ fn package_identity_declares_only_pointbreak_binary() {
 #[test]
 fn cargo_install_exposes_only_pointbreak_executable() {
     let install_root = tempfile::tempdir().expect("create cargo install root");
-    let output = Command::new(env!("CARGO"))
-        .args(["install", "--path", env!("CARGO_MANIFEST_DIR"), "--root"])
+    let output = Command::new(env::cargo_bin())
+        .args(["install", "--path"])
+        .arg(env::manifest_dir())
+        .arg("--root")
         .arg(install_root.path())
         .arg("--debug")
         .env("CARGO_TARGET_DIR", install_root.path().join("target"))
@@ -95,7 +97,7 @@ fn cargo_install_exposes_only_pointbreak_executable() {
 fn cli_help_uses_pointbreak_and_keeps_the_flat_command_tree() {
     let temp_dir = tempfile::tempdir().expect("create temp command dir");
     let command_path = temp_dir.path().join("renamed-command.exe");
-    fs::copy(env!("CARGO_BIN_EXE_pointbreak"), &command_path)
+    fs::copy(env::pointbreak_bin(), &command_path)
         .expect("copy pointbreak binary under an arbitrary filename");
     ensure_executable(&command_path).expect("make copied binary executable");
 
@@ -137,8 +139,8 @@ fn cli_help_uses_pointbreak_and_keeps_the_flat_command_tree() {
 
 #[test]
 fn cli_version_uses_pointbreak_and_preserves_the_version_document() {
-    let command = env!("CARGO_BIN_EXE_pointbreak");
-    let document = Command::new(command)
+    let command = env::pointbreak_bin();
+    let document = Command::new(&command)
         .args(["version", "--format", "json"])
         .output()
         .expect("run pointbreak version JSON");
@@ -163,7 +165,7 @@ fn cli_version_uses_pointbreak_and_preserves_the_version_document() {
         .expect("build describe");
     assert!(document["build"]["dirty"].is_boolean());
 
-    let version = Command::new(command)
+    let version = Command::new(&command)
         .arg("--version")
         .output()
         .expect("run pointbreak --version");
@@ -173,7 +175,7 @@ fn cli_version_uses_pointbreak_and_preserves_the_version_document() {
         format!("pointbreak {} ({describe})\n", env!("CARGO_PKG_VERSION"))
     );
 
-    let text = Command::new(command)
+    let text = Command::new(&command)
         .args(["version", "--format", "text"])
         .output()
         .expect("run pointbreak version text");
@@ -201,3 +203,8 @@ fn ensure_executable(path: &Path) -> io::Result<()> {
 fn ensure_executable(_path: &Path) -> io::Result<()> {
     Ok(())
 }
+
+// Runtime-resolved binary/manifest paths for cross-machine (e.g. Windows) archive runs.
+#[path = "support/env.rs"]
+#[allow(dead_code)]
+mod env;

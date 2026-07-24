@@ -30,7 +30,7 @@ impl Watcher {
     }
 
     fn spawn_with_args(repo: &Path, poll_ms: u64, extra_args: &[&str]) -> Self {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_pointbreak"));
+        let mut command = Command::new(support::pointbreak_bin());
         command.args([
             "history",
             "--repo",

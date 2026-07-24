@@ -180,7 +180,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_pointbreak"));
+    let mut command = Command::new(support::pointbreak_bin());
     command
         .args(args)
         // Isolate byte-asserting tracing tests from an ambient output-lane selector;

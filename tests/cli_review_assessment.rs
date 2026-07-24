@@ -1096,7 +1096,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_pointbreak"))
+    let mut child = Command::new(support::pointbreak_bin())
         .args(args)
         .env_remove("POINTBREAK_LOG")
         .env_remove("RUST_LOG")

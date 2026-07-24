@@ -9,7 +9,7 @@
 //!     -E 'test(regenerate_event_signature_fixtures)' --run-ignored all
 //! ```
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use pointbreak::crypto::SignerId;
 use pointbreak::model::{EventId, JournalId};
@@ -29,7 +29,7 @@ mod support;
 use support::event_signature_fixtures::build_all_fixtures;
 
 fn fixture_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/event_signatures")
+    support::manifest_dir().join("tests/fixtures/event_signatures")
 }
 
 fn fixture_path(name: &str) -> PathBuf {
@@ -54,7 +54,7 @@ fn fixture_event(name: &str) -> ShoreEvent {
 }
 
 fn naming_cutover_fixture_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/naming-cutover")
+    support::manifest_dir().join("tests/fixtures/naming-cutover")
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

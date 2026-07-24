@@ -18,14 +18,14 @@
 mod support;
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde_json::Value;
 use support::git_repo::GitRepo;
 use support::pointbreak;
 
 fn snapshot_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/review_documents")
+    support::manifest_dir().join("tests/fixtures/review_documents")
 }
 
 /// Canonicalized absolute path of the fixture repo, as it appears in command

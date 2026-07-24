@@ -98,7 +98,7 @@ fn agent_skills_note_human_use_ssh_path() {
 
 #[test]
 fn shipped_primary_skill_set_is_exactly_the_three_workflow_roles() {
-    let skills_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("skills");
+    let skills_dir = env::manifest_dir().join("skills");
     let mut shipped: Vec<String> = std::fs::read_dir(&skills_dir)
         .expect("read skills directory")
         .map(|entry| entry.expect("read skills directory entry"))
@@ -130,9 +130,9 @@ fn supported_install_command_pins_exactly_the_three_product_skills() {
     // distribution directory (exactly the three roles) or under the
     // repository's own development tooling. A skill anywhere else would leak
     // into installer discovery unreviewed.
-    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = env::manifest_dir();
     let mut skill_dirs = Vec::new();
-    collect_skill_dirs(repo_root, repo_root, &mut skill_dirs);
+    collect_skill_dirs(&repo_root, &repo_root, &mut skill_dirs);
     for dir in skill_dirs {
         assert!(
             dir.starts_with(".claude/skills/")
@@ -349,7 +349,7 @@ fn agent_authoring_routes_roles_through_the_canonical_journey() {
 }
 
 fn assert_order(relative_path: &str, needles: &[&str]) {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path);
+    let path = env::manifest_dir().join(relative_path);
     let contents = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("read {relative_path}: {error}"));
 
@@ -366,7 +366,7 @@ fn assert_order(relative_path: &str, needles: &[&str]) {
 }
 
 fn assert_not_contains(relative_path: &str, needle: &str) {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path);
+    let path = env::manifest_dir().join(relative_path);
     let contents = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("read {relative_path}: {error}"));
 
@@ -377,7 +377,7 @@ fn assert_not_contains(relative_path: &str, needle: &str) {
 }
 
 fn assert_contains(relative_path: &str, needle: &str) {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path);
+    let path = env::manifest_dir().join(relative_path);
     let contents = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("read {relative_path}: {error}"));
 
@@ -386,3 +386,8 @@ fn assert_contains(relative_path: &str, needle: &str) {
         "{relative_path} should contain {needle:?}"
     );
 }
+
+// Runtime-resolved binary/manifest paths for cross-machine (e.g. Windows) archive runs.
+#[path = "support/env.rs"]
+#[allow(dead_code)]
+mod env;

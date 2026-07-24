@@ -107,9 +107,21 @@ impl Default for GitRepo {
 /// content files a fresh `git init` writes (`HEAD`, `config`, `info/exclude`);
 /// the always-empty scaffold directories git cannot track are recreated here so a
 /// later `add`/`commit` on real git has the structure it expects.
+// Resolved locally rather than via the `support` parent: several integration tests
+// pull this file in standalone with `#[path = "support/git_repo.rs"] mod git_repo;`,
+// where `super` is that test's crate root, not `support`. Prefers the runtime
+// `CARGO_MANIFEST_DIR` (cargo-nextest remaps it under `--workspace-remap`) so the
+// skeleton resolves when the suite runs from an archive on another machine, falling
+// back to the compile-time value for ordinary in-place runs.
+fn manifest_dir() -> std::path::PathBuf {
+    std::env::var_os("CARGO_MANIFEST_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")))
+}
+
 fn copy_git_skeleton(git_dir: impl AsRef<Path>) {
     let git_dir = git_dir.as_ref();
-    let skeleton = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/assets/git-skeleton");
+    let skeleton = manifest_dir().join("tests/support/assets/git-skeleton");
     copy_dir_recursive(&skeleton, git_dir);
     for scaffold in ["objects/info", "objects/pack", "refs/heads", "refs/tags"] {
         fs::create_dir_all(git_dir.join(scaffold)).expect("create git skeleton directory");

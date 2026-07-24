@@ -279,7 +279,7 @@ mod tests {
     }
 
     fn fixture_path(name: &str) -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        crate::test_fixtures::manifest_dir()
             .join("tests/fixtures/event_signatures")
             .join(name)
     }

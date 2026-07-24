@@ -39,10 +39,7 @@ use support::inspect::{Inspector, representative_store, urlencode};
 use support::pointbreak;
 
 fn fixtures_dir() -> PathBuf {
-    PathBuf::from(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/cli/inspect/web/test/fixtures"
-    ))
+    support::manifest_dir().join("src/cli/inspect/web/test/fixtures")
 }
 
 /// A content-addressed opaque id of the form `<prefix>:sha256:<hex>`.

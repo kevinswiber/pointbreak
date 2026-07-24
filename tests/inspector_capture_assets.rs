@@ -1,7 +1,7 @@
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::process::Command;
 
@@ -10,8 +10,8 @@ use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use tempfile::tempdir;
 
-fn repo_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
+fn repo_root() -> PathBuf {
+    env::manifest_dir()
 }
 
 fn sha256(bytes: &[u8]) -> String {
@@ -215,3 +215,8 @@ fn make_executable(path: &Path) {
     permissions.set_mode(0o755);
     fs::set_permissions(path, permissions).unwrap();
 }
+
+// Runtime-resolved binary/manifest paths for cross-machine (e.g. Windows) archive runs.
+#[path = "support/env.rs"]
+#[allow(dead_code)]
+mod env;

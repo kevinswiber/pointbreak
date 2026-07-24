@@ -3,6 +3,8 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 #[allow(dead_code)]
+pub mod env;
+#[allow(dead_code)]
 pub mod event_signature_fixtures;
 #[allow(dead_code)]
 pub mod git_repo;
@@ -11,13 +13,17 @@ pub mod inspect;
 #[allow(dead_code)]
 pub mod snapshots;
 
+// Runtime-resolved `pointbreak` binary and manifest dir; see `env`. Re-exported so
+// `mod support;` consumers keep calling `support::{pointbreak_bin, manifest_dir}`.
+pub use env::{manifest_dir, pointbreak_bin};
+
 #[allow(dead_code)]
 pub fn pointbreak<I, S>(args: I) -> Output
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    Command::new(env!("CARGO_BIN_EXE_pointbreak"))
+    Command::new(pointbreak_bin())
         .args(args)
         .env_remove("POINTBREAK_LOG")
         .env_remove("RUST_LOG")
@@ -44,7 +50,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_pointbreak"));
+    let mut command = Command::new(pointbreak_bin());
     command
         .args(args)
         .env_remove("POINTBREAK_LOG")

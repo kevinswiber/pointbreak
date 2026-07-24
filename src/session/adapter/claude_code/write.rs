@@ -250,7 +250,7 @@ mod tests {
     }
 
     fn fixture_path() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        crate::test_fixtures::manifest_dir()
             .join("tests/fixtures/claude_code_session/a0ce57f0-485d-45b7-98fc-f0f13f467d72.jsonl")
     }
 

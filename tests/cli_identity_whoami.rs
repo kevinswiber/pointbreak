@@ -5,7 +5,7 @@ use std::process::{Command, Output};
 use support::git_repo::GitRepo;
 
 fn whoami_command(repo: &GitRepo) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_pointbreak"));
+    let mut command = Command::new(support::pointbreak_bin());
     command
         .args(["identity", "whoami", "--repo"])
         .arg(repo.path())

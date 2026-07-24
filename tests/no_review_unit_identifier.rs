@@ -76,7 +76,12 @@ fn visit_rust_sources(dir: &Path, allowed: &[&str]) {
 
 #[test]
 fn no_review_unit_identifier_remains_in_source() {
-    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let src = env::manifest_dir().join("src");
     let allowed = allowed_legacy_wire_literals();
     visit_rust_sources(&src, &allowed);
 }
+
+// Runtime-resolved binary/manifest paths for cross-machine (e.g. Windows) archive runs.
+#[path = "support/env.rs"]
+#[allow(dead_code)]
+mod env;

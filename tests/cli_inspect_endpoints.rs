@@ -765,7 +765,7 @@ fn design_system_docs_state_the_component_state_contract() {
 
 #[test]
 fn design_system_bake_is_gated_by_a_local_live_token_audit() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = support::manifest_dir();
     let audit_path = root.join("src/cli/inspect/design-system/contrast-check.mjs");
     let audit = std::fs::read_to_string(&audit_path)
         .unwrap_or_else(|error| panic!("{} must exist: {error}", audit_path.display()));
@@ -803,7 +803,7 @@ fn design_system_bake_is_gated_by_a_local_live_token_audit() {
 
 #[test]
 fn design_system_gallery_is_claude_design_sync_ready() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = support::manifest_dir();
     let design_system = root.join("src/cli/inspect/design-system");
     let styles = std::fs::read_to_string(design_system.join("styles.css"))
         .expect("design-system stylesheet is readable");
@@ -877,7 +877,7 @@ fn design_system_gallery_is_claude_design_sync_ready() {
 
 #[test]
 fn design_system_brand_assets_are_locked_and_verified_offline() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = support::manifest_dir();
     let design_system = root.join("src/cli/inspect/design-system");
     let lock_path = design_system.join("pointbreak-brand.lock.json");
     let lock_source = std::fs::read_to_string(&lock_path)
@@ -1067,7 +1067,7 @@ fn design_system_gallery_covers_live_shell_and_overlay_states() {
 
 #[test]
 fn design_system_gallery_covers_the_shipped_attention_lens() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = support::manifest_dir();
     let body = std::fs::read_to_string(
         root.join("src/cli/inspect/design-system/_bodies/data-attention.body.html"),
     )
@@ -1106,7 +1106,7 @@ fn design_system_gallery_covers_the_shipped_attention_lens() {
 
 #[test]
 fn design_system_promotes_selected_review_treatments_and_soft_operational_dark() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = support::manifest_dir();
     let tokens = std::fs::read_to_string(root.join("src/cli/inspect/assets/tokens.css"))
         .expect("live Review tokens exist");
     for declaration in [
@@ -1185,7 +1185,7 @@ fn design_system_promotes_selected_review_treatments_and_soft_operational_dark()
 
 #[test]
 fn design_system_final_state_has_no_temporary_visual_system() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = support::manifest_dir();
     assert!(
         !root.join("src/cli/inspect/design-system/variants").exists(),
         "the promoted visual system must not leave a temporary variant directory"
@@ -1231,7 +1231,7 @@ fn design_system_final_state_has_no_temporary_visual_system() {
 
 #[test]
 fn design_system_soft_operational_dark_study_stays_gallery_only() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = support::manifest_dir();
     let study = root.join("src/cli/inspect/design-system/studies/soft-operational-dark");
     for required in ["README.md", "tokens.css", "audit.mjs", "bake.sh"] {
         assert!(

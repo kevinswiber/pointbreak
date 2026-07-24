@@ -24,7 +24,7 @@ const PRODUCT_SELECTORS: [&str; 16] = [
 ];
 
 fn command(args: &[&str]) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_pointbreak"));
+    let mut command = Command::new(support::pointbreak_bin());
     command.args(args);
     for selector in PRODUCT_SELECTORS {
         command.env_remove(selector);

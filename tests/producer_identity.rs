@@ -2,7 +2,7 @@ mod support;
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use pointbreak::session::event::ShoreEvent;
 use pointbreak::session::{
@@ -17,7 +17,7 @@ const HISTORICAL_EVENT_RECORD_HASH: &str =
     "sha256:cea1dd4ffbd3952266fb35b5a72fd369c74caa6b246ac446bcdc40f0920309a4";
 
 fn historical_fixture_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
+    support::manifest_dir()
         .join("tests/fixtures/event_signatures")
         .join(HISTORICAL_EVENT)
 }

@@ -104,7 +104,7 @@ impl Inspector {
     }
 
     fn spawn_with(repo: &Path, surface: InspectSurface, output: InspectOutput) -> Self {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_pointbreak"));
+        let mut command = Command::new(super::pointbreak_bin());
         command.args([
             "inspect",
             "--repo",
@@ -512,12 +512,11 @@ fn decision_matrix_shell() -> Command {
 pub fn decision_continuity_matrix() -> DecisionContinuityMatrix {
     let root = tempfile::tempdir().expect("decision matrix root");
     let repo = root.path().join("repository");
-    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("scripts/materialize-inspector-decision-matrix.sh");
+    let script = super::manifest_dir().join("scripts/materialize-inspector-decision-matrix.sh");
     let output = decision_matrix_shell()
         .arg(&script)
         .arg(&repo)
-        .env("POINTBREAK_BINARY", env!("CARGO_BIN_EXE_pointbreak"))
+        .env("POINTBREAK_BINARY", super::pointbreak_bin())
         .env_remove("POINTBREAK_HOME")
         .env_remove("POINTBREAK_FORMAT")
         .env_remove("POINTBREAK_SIGNING_KEY")
